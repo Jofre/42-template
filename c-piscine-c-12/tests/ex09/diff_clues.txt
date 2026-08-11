@@ -1,0 +1,6 @@
+  The function returns nothing; what is printed is the side effect.
+    * the empty list          -> a loop that cannot run zero times
+    * the last element skipped -> what the walk stops on
+    * the order               -> the subject says which end it starts from
+    * the elements are visited but unchanged -> what is handed to the supplied
+                                 function: the element, or its data

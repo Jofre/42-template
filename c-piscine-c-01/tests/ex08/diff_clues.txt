@@ -1,0 +1,8 @@
+  The array is reprinted after the call. Ask which INPUTS fail, not which output.
+    * arrays with equal elements differ  -> a comparison that is strict where it
+                                            should not be, or the reverse
+    * length 0 or 1 differ               -> a loop that cannot run zero times
+    * only nearly-sorted input passes    -> the pass count, or the inner bound
+    * the largest element is misplaced   -> the inner loop's upper bound
+    * negatives sort after positives     -> comparing something other than the
+                                            signed values

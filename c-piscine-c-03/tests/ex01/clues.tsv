@@ -1,0 +1,5 @@
+# clues.tsv for ft_strncmp — hints only, never answers.
+If n is 0, how many bytes are you allowed to look at? What must the result be when you compare zero characters?	"abc" vs "xyz" (n=0)	"Hello" vs "Hello" (n=0)
+Same sign convention as strcmp: which sign means s1 is greater, which means smaller, which means equal? Remember you must stop after at most n bytes OR at a terminator -- whichever comes first.	"abc" vs "abd" (n=10)	"xyz" vs "abc" (n=3)	"Hello" vs "Hella" (n=5)
+If the strings stay equal all the way to n, what is the result? And if one string reaches its terminator before n, how does that byte decide the order?	"Hello" vs "Helloo" (n=5, equal prefix)	"Hello" vs "Helloo" (n=6, s1 ends first)	"abc" vs "ab" (n=10, s2 ends first)
+These compare bytes above 127. Is a plain char signed on this platform, and does the real strncmp treat bytes as signed or unsigned? Make the two agree.	{0x80} vs {0x01} (n=1)	{0x01} vs {0x80} (n=1)

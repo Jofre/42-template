@@ -1,0 +1,6 @@
+index 0 first node	a
+index 2 middle node	c
+index 4 last node	e
+index 5 one past end	NULL
+index 9 far past end	NULL
+empty list index 0	NULL

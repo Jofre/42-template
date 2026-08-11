@@ -1,0 +1,9 @@
+  The destination is printed after the call, plus the return.
+    * the join point is wrong            -> where the appending starts; it is
+                                            not the start of the destination
+    * one byte of the destination is lost -> the terminator of the FIRST string
+                                            is the position to write at
+    * an empty source diverges           -> a loop that cannot run zero times
+    * the result is unterminated         -> the second terminator, the one you
+                                            write yourself
+    * the return column alone            -> what the subject says is returned

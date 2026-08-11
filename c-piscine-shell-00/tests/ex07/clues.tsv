@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex07 (b)
+A diff file is a recipe, not the finished dish: it records only the line-by-line edits between two versions, so to rebuild the target you must replay those edits onto the original — feeding the patch the wrong base file, or comparing against the unmodified original, silently produces the wrong result.

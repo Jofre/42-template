@@ -1,0 +1,7 @@
+  The order of the visits IS the answer.
+    * an empty tree           -> a recursion that must stop before it looks
+    * a leaf                  -> both children are empty, and neither may be
+                                 followed
+    * the root appears in the wrong place -> prefix names WHEN the node itself
+                                 is visited, relative to its two subtrees
+    * left and right swapped  -> the order the two subtrees are taken in

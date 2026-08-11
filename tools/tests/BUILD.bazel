@@ -1,0 +1,293 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Shared so :selftest and :selftest_bash cannot drift apart: the second exists
+# only to run the SAME arms under a different shell, and it stops proving that
+# the moment its inputs differ.
+# Shared for the same reason as SELFTEST_DATA below, and it earned it: these
+# were two inline copies, and the moment :selftest gained the pinned-valgrind
+# flags, :selftest_bash went on running without them -- so the cross-shell run
+# that exists to prove the runners are shell-agnostic reported seven failures
+# that had nothing to do with the shell. Two lists that must be identical
+# should be one list.
+SELFTEST_ARGS = [
+        "--anchor",
+        "$(rootpath //tools:diff_output.sh)",
+        "--norminette",
+        "$(rootpath //tools:norminette)",
+        "--nm",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm)",
+        # The pinned valgrind. The two cycles runners require it now, so without
+        # it every arm here would exit 2 on the wiring instead of reaching the
+        # skip or the refusal it was written to check.
+        "--valgrind",
+        "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
+        "--valgrind-callgrind-tools",
+        "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux)",
+        "--callgrind-annotate",
+        "$(rootpath @valgrind_ubuntu//:usr/bin/callgrind_annotate)",
+        # The pinned shellcheck. Two runners take one now: shell_test.sh's norm
+        # mode, which grades the shell modules, and conventions.sh. Both refuse
+        # to fall back to a host copy, so the selftest has to hand one over the
+        # same way Bazel does or those arms would only ever exercise the refusal.
+        "--shellcheck",
+        "$(rootpath @shellcheck_linux_x86_64//:shellcheck)",
+]
+
+SELFTEST_DATA = [
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm",
+        "@shellcheck_linux_x86_64//:shellcheck",
+        "@valgrind_ubuntu//:runtime",
+        "@valgrind_ubuntu//:usr/bin/callgrind_annotate",
+        "@valgrind_ubuntu//:usr/bin/valgrind.bin",
+        "@valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux",
+        "//tools:allocfail_check.sh",
+        "//tools:allocfail_shim.c",
+        "//tools:argv_table.sh",
+        "//tools:asan_check.sh",
+        "//tools:asan_run.sh",
+        "//tools:argv_check.sh",
+        "//tools:bsq_check.sh",
+        "//tools:file_check.sh",
+        "//tools:compile_check.sh",
+        "//tools:conventions.sh",
+        "//tools:cycles_check.sh",
+        "//tools:diff_output.sh",
+        "//tools:files_test.sh",
+        "//tools:forbidden_symbols.sh",
+        "//tools:gen_header.sh",
+        "//tools:header_check.sh",
+        "//tools:ilp32_test.sh",
+        "//tools:env_drift.sh",
+        "//tools:make_srcs_build.sh",
+        "//tools:make_test.sh",
+        "//tools:norminette",
+        "//tools:oracle_check.sh",
+        "//tools:norminette_test.sh",
+        "//tools:progname_test.sh",
+        "//tools:prime.sh",
+        "//tools:prototype_check.sh",
+        "//tools:ref_compare.sh",
+        "//tools:run_check.sh",
+        "//tools:rush01_check.sh",
+        "//tools:rush02_check.sh",
+        "//tools:rust_diff.sh",
+        "//tools:shell_check.sh",
+        "//tools:setup.sh",
+        "//tools:shell_test.sh",
+        "//tools:first_red.sh",
+        "//tools:stub_check.sh",
+        "//tools:submit.sh",
+        "//tools:symbols_test.sh",
+        # Its functional arms live in :selftest_slow, because running valgrind
+        # is what makes them slow. Its ARGUMENT handling is instant, though, and
+        # was reachable from neither target -- so the fast selftest carries the
+        # file to assert that much. Without it the arm ran `sh <missing path>`,
+        # which dash also exits 2 for: a check that looked like it was passing
+        # judgement on the runner while never loading it.
+        "//tools:valgrind_test.sh",
+]
+
+# Tests for the TEST HARNESS itself.
+#
+# Every false green fixed on this branch had one shape: a layer reporting OK
+# having checked nothing. They were found by reading each script and asking "can
+# this exit 0 while broken?" — which is what this asks automatically, with
+# known-bad inputs that MUST go red and known-good ones that must stay green.
+# A runner that stops detecting its bug fails here instead of silently passing
+# every exercise in the repo.
+sh_test(
+    name = "selftest",
+    size = "small",
+    # size stays "small" -- it says what this test COSTS, and Bazel schedules on
+    # it. The timeout is raised separately because cost and worst-case wall clock
+    # are different things here: 66 arms, most of which compile a C fixture, and
+    # every one of those compiles competes with whatever else the suite is doing.
+    # Measured: 1.6s idle, 9.6s alongside a module, 30s in a full `bazel test
+    # //...`, and 69.2s in one -- which BLEW the 60s that size = "small" implies
+    # and reported TIMEOUT. A timeout is indistinguishable from a real failure at
+    # a glance, so the file that exists to prove the harness still works became
+    # the harness looking broken, on the machines least able to tell the
+    # difference: a loaded box, or a slow one.
+    #
+    # Do not "fix" this by trimming arms. The arms are the point, and the
+    # expensive layers are already split into :selftest_slow for the separate
+    # reason that a minute-long check is one nobody runs.
+    timeout = "moderate",
+    srcs = ["selftest.sh"],
+    args = SELFTEST_ARGS,
+    # Every runner the selftest drives has to be here, and the ones added most
+    # recently were chosen by what a break COSTS rather than by what is easy to
+    # fixture: argv_table.sh is the only runner that executes c-06 ex01-ex03 at
+    # all, shell_test.sh is the only runner either shell module has, and
+    # header_check.sh is the only c-08 layer that RUNS the header exercise (norm
+    # and compile also see the header; neither runs the program). asan_check.sh
+    # is not the repo's only sanitizer layer, but it alone chooses the
+    # allocation: its probe hands the function a block sized to fit exactly,
+    # so one step past the end lands in a redzone instead of on a neighbouring
+    # byte the whole-program layers would let through. A silent break in any of
+    # those greens a whole module with nothing else left checking it.
+    #
+    # stub_check.sh is not a test layer at all — no exercise runs it — and it is
+    # here because it is the only runner whose failure is not a red test but a
+    # PUBLISHED ANSWER. It checked `*/deliverable/*.c` and nothing else, so it
+    # reported "OK — all 123 deliverable(s) are stubs" over a tree still holding
+    # c-08's four finished header answers, and they shipped on the template
+    # branch other people clone. Its arms are one green and one red per file
+    # KIND, because the defect was a whole kind being out of scope rather than a
+    # rule being wrong, and no arm on a neighbouring kind would have noticed.
+    #
+    # progname_test.sh earned its place the hard way: it had NO arm here, and
+    # went on discarding the child's exit status for as long as that was true, so
+    # a program that printed the right line and then segfaulted passed. It is the
+    # only layer that runs c-06 ex00's binary at the basic level.
+    #
+    # Its arrival also demonstrated why want_red insists on exit 1 and treats
+    # anything else as "nothing was checked". The first run of the new arms
+    # reported exit 2 — because the runner was missing from this very list, and
+    # `sh` exits 2 when it cannot open the script it was handed. Under a
+    # tolerant "any non-zero counts as red" rule, three arms would have printed
+    # "ok (red, as required)" having executed nothing at all.
+    #
+    # Note that argv_table.sh resolves its reporter as ./diff_output.sh relative
+    # to its own path, so the two must stay in this list together — they land in
+    # the same runfiles directory, which is what makes that lookup work.
+    #
+    # All fixtures are written at run time into a mktemp dir, so nothing here is
+    # a checked-in input file: the test builds its own known-bad programs with
+    # $SELFTEST_CC (default cc) and cleans up after itself. Cost is dominated by
+    # those compiles, so it is sensitive to what else runs alongside — see the
+    # timeout note above for the measured spread and why it is raised. Keeping
+    # the expensive layers OUT is a separate decision from that timeout: valgrind
+    # and anything needing //oracle's Rust build belong in :selftest_slow,
+    # because a check that takes a minute is one nobody runs.
+    data = SELFTEST_DATA,
+    # lvl_complete BY HAND, because these targets live outside every module and
+    # so are not emitted through defs.bzl's _test(), which is what normally
+    # derives the lvl_* tag from the layer tag. Without it, a maintainer running
+    # `bazel test //... --test_tag_filters=lvl_complete` silently drops exactly
+    # the two guards that protect the suite itself. Level 4 is lvl_complete
+    # alone -- the tags are cumulative upward, not downward. Same reasoning, and
+    # the same hand-written spelling, as c-piscine-rush-01/BUILD.bazel.
+    tags = ["selftest", "lvl_complete"],
+)
+
+# The SAME arms, replayed with a different shell interpreting every runner.
+#
+# This repo does not pin /bin/sh, and the reason it does not need to is that the
+# runners are shell-agnostic. That is a claim about behaviour, so it is executed
+# rather than asserted: `bazel test //tools/tests:selftest_bash` runs all 139
+# arms with bash reading each runner instead of the system sh (dash here and on
+# the campus box).
+#
+# //tools:conventions already refuses a bashism statically -- shellcheck's
+# SC3xxx family, at warning level, because every runner declares #!/bin/sh. This
+# is the half a linter cannot do. dash and bash disagree about things no static
+# check reads: `echo` with backslash escapes, how `local` behaves, arithmetic
+# corners. If a runner ever grows a dependency on one of them, this goes red and
+# names the arm.
+#
+# It SKIPS, loudly, where bash is not installed -- and NO_SKIP=1 turns that skip
+# into a failure, like every other gated thing here.
+sh_test(
+    name = "selftest_bash",
+    size = "small",
+    timeout = "moderate",
+    srcs = ["selftest.sh"],
+    args = SELFTEST_ARGS,
+    data = SELFTEST_DATA,
+    env = {"SELFTEST_SH": "bash"},
+    tags = ["selftest", "lvl_complete"],
+)
+
+# The same question as :selftest, for the runners too expensive to ask it of on
+# every build. Split rather than merged because a two-second check is one people
+# run constantly and a minute-long one is not — and a self-test nobody runs
+# protects nothing. See the script's header for why valgrind_test.sh was the
+# first one moved here: it is the only layer in the repo that can see a leak, so
+# nothing else would notice if its output-matching regex stopped matching.
+#
+# medium (300s), not small: valgrind runs the program on a synthetic CPU at
+# 20-50x native. Eight tiny programs still finish well inside that.
+# Shared by the two slow targets below, for the reason SELFTEST_DATA above
+# gives: the second run stops proving anything the moment its inputs differ
+# from the first's.
+SLOW_ARGS = [
+        "--anchor",
+        "$(rootpath //tools:diff_output.sh)",
+        "--perf-run",
+        "$(rootpath //tools:perf_run)",
+        # The pinned valgrind, handed on to every arm. These arms exist to prove
+        # the leak layer still detects a leak, so they have to exercise the same
+        # valgrind the layer runs -- checking one binary while the suite grades
+        # with another would make this file agree with nothing.
+        "--valgrind",
+        "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
+        "--valgrind-tools",
+        "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux)",
+        "--callgrind-annotate",
+        "$(rootpath @valgrind_ubuntu//:usr/bin/callgrind_annotate)",
+        "--valgrind-callgrind-tools",
+        "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux)",
+        # The pinned 32-bit toolchain. The ilp32 layer's VERDICT -- build at
+        # -m32, run, diff -- was tested nowhere: both arms in the fast selftest
+        # stop at the missing-compiler skip. It belongs here rather than there
+        # because a zig compile is seconds, not milliseconds, which is the same
+        # reason valgrind is here.
+        "--zig",
+        "$(rootpath @zig_linux_x86_64//:zig)",
+]
+
+SLOW_DATA = [
+        "@zig_linux_x86_64//:sdk",
+        "@zig_linux_x86_64//:zig",
+        "//tools:cycles_check.sh",
+        "//tools:diff_output.sh",
+        "//tools:ilp32_test.sh",
+        "//tools:perf_run",
+        "//tools:perf_test.sh",
+        "//tools:valgrind_test.sh",
+        "@valgrind_ubuntu//:runtime",
+        "@valgrind_ubuntu//:usr/bin/callgrind_annotate",
+        "@valgrind_ubuntu//:usr/bin/valgrind.bin",
+        "@valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux",
+        "@valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux",
+]
+
+sh_test(
+    name = "selftest_slow",
+    size = "medium",
+    srcs = ["selftest_slow.sh"],
+    args = SLOW_ARGS,
+    data = SLOW_DATA,
+    # lvl_complete BY HAND, because these targets live outside every module and
+    # so are not emitted through defs.bzl's _test(), which is what normally
+    # derives the lvl_* tag from the layer tag. Without it, a maintainer running
+    # `bazel test //... --test_tag_filters=lvl_complete` silently drops exactly
+    # the two guards that protect the suite itself. Level 4 is lvl_complete
+    # alone -- the tags are cumulative upward, not downward. Same reasoning, and
+    # the same hand-written spelling, as c-piscine-rush-01/BUILD.bazel.
+    tags = ["selftest", "lvl_complete"],
+)
+
+# The same arms, with BASH interpreting every runner.
+#
+# This was recorded as "not covered" and left there: a bash twin was judged to
+# "double a slow test for two runners whose arms are the least shell-sensitive
+# in the repo (they parse tool output)". Two things have changed. The cost is
+# TWELVE SECONDS, not the minutes the word "slow" implies -- this target is
+# `medium` because valgrind and zig are slow to START, not because its arms are
+# long. And it is no longer only valgrind and perf: the ilp32 arms added since
+# build their fixtures with heredocs and read a compiler's output, which is
+# exactly the shape dash and bash disagree about.
+#
+# The skip guard is selftest_slow.sh's own, shared with selftest.sh: a machine
+# without bash SKIPS rather than passing, and NO_SKIP=1 turns that into exit 2.
+sh_test(
+    name = "selftest_slow_bash",
+    size = "medium",
+    srcs = ["selftest_slow.sh"],
+    args = SLOW_ARGS,
+    data = SLOW_DATA,
+    env = {"SELFTEST_SH": "bash"},
+    tags = ["selftest", "lvl_complete"],
+)

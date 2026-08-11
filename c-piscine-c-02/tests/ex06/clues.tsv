@@ -1,0 +1,3 @@
+# clues.tsv for ft_str_is_printable — hints only, never answers.
+Which byte values are "printable", and why does an empty string return 1? Recall the contiguous band of printable ASCII.	"" (empty -> 1)	" ~" (space..tilde edges)	"Hello ~!" (printable)
+Control characters are not printable -- and newline and tab are control characters. Note exactly where the band starts and ends (just below space, just above '~'); bytes above 127 sit past the band too.	0x1F (just below space)	0x7F / DEL (just above '~')	0x80 (high byte, > 127)	0xFF (high byte, > 127)	contains newline	contains tab

@@ -1,0 +1,2 @@
+# Shared test/build tooling lives in //tools (see //tools:defs.bzl).
+# This module's exercises are under c-piscine-c-*/BUILD.bazel.

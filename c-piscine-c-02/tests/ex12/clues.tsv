@@ -1,0 +1,3 @@
+# clues.tsv for ft_print_memory — hints only, never answers.
+# (Unlabeled multiline test: this single hint fires on any failure.)
+This is a hex dump with three aligned parts per line: the address, then the bytes in hexadecimal (grouped), then the printable characters (non-printable shown as a dot). How many bytes per line, what fixed width must each part occupy so the columns line up, and how do you pad a short final line?

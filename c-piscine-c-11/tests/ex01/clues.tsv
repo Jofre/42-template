@@ -1,0 +1,7 @@
+# clues.tsv for ft_map — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+ft_map hands you back a result you have to build, not the table you were given. Where does the memory for that result come from, and how big must it be for every element to fit? Look at the mapped= side first.	single element	three ascending
+You are not supposed to transform the elements yourself: there is a function pointer for that. How do you call through it, and what does it receive and give back for each slot? Walk the array applying it to every element in order.	three ascending	mixed signs and zero	all negative
+The input table must come back exactly as it went in — compare the mapped= and input= sides. Are you writing your results into a separate place, or are you overwriting the original as you go?	mixed signs and zero	all negative
+When the length is zero there are no elements to touch, yet the call still has to hand back something a caller can safely free. What does asking for a zero-sized result give you, and what must you avoid doing to it?	length zero

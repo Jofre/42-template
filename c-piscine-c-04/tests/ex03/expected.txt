@@ -1,0 +1,23 @@
+plain 42	42
+single digit 7	7
+just 0	0
+leading zeros 000123	123
+single plus	42
+single minus	-42
+tab then number	-5
+all whitespace bytes then number	-123
+spaces then plus then digit	1
+empty string	0
+starts with letters	0
+only spaces	0
+sign but no digit	0
+digits then a minus	12
+digits then letters	42
+two minus signs	123
+many mixed signs	-456
+signs then digits then junk	1234
+only signs no digit	0
+space after minus sign	0
+space after plus sign	0
+INT_MIN literal	-2147483648
+INT_MAX literal	2147483647

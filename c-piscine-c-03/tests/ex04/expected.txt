@@ -1,0 +1,19 @@
+find "Hello" at start	0:Hello World!
+find "World" in middle	6:World!
+find "!" at end	11:!
+find "o W" (spans a space)	4:o World!
+empty needle	0:Hello World!
+case-sensitive miss "world"	NULL
+not present "xyz"	NULL
+needle longer than haystack	NULL
+whole string equals needle	0:abc
+overlap "ab" in "aab"	1:ab
+overlap "aa" in "aaa"	0:aaa
+late match "abcd" in "abcabcd"	3:abcd
+empty haystack empty needle	0:
+empty haystack needle "a"	NULL
+first of two "ab" in "abab"	0:abab
+first "X" in "..X..X"	2:X..X
+restart "aab" in "aaab"	1:aab
+needle past remaining "abcd"	NULL
+needle past remaining "ab" in "xa"	NULL

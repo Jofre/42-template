@@ -1,0 +1,7 @@
+"" size 5 (empty src)	ret=0 buf=\0XXX
+"Hi" size 50 (fits)	ret=2 buf=Hi\0XXX
+"Hello" size 6 (fits exactly)	ret=5 buf=Hello\0XX
+"Hello" size 5 (truncated by 1)	ret=5 buf=Hell\0XXX
+"Hello" size 1 (only the \0)	ret=5 buf=\0XXXXX
+"Hello" size 0 (writes nothing)	ret=5 buf=XXXXXX
+"Hello World" size 6 (big truncate)	ret=11 buf=Hello\0XXXX

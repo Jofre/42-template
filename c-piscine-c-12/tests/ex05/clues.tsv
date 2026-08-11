@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_push_strs
+As you walk strs from index 0 upward, does inserting each string at the front or at the back yield the order the subject asks for? Reconsider which string the subject wants to end up as the very first element, and pick your insertion end accordingly.

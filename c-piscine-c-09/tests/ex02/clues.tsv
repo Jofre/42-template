@@ -1,0 +1,4 @@
+# clues.tsv for ft_split (c-09) — hints only, never answers.
+A token is a maximal run of characters that are NOT in the charset. How do you find where each run begins and ends, and how do you skip consecutive separators so you never produce an empty token?	single space sep	runs of separators	multiple separators	adjacent different seps
+The result is a NULL-terminated array of freshly allocated strings. Count the words first -- how many slots do you allocate (remember the terminator), and what marks the end so the caller knows where to stop?	empty string -> empty	only separators -> empty	all (mixed) seps -> empty	empty charset -> one token
+You must not modify the input string. If you write terminators into it to cut out tokens, the original is damaged -- how can you copy each token into its own buffer instead?	input unchanged (spaces)	input unchanged (commas)

@@ -1,0 +1,7 @@
+# clues.tsv for ft_range — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+How many integers live between min and max if max is not itself one of them? Count them with min and max in hand, then build an array that holds the run starting at min and stepping up by one each time. Does the very last slot reach max, or stop just short of it?	four ascending	single element at zero	single element non-zero
+The block of memory you hand back must be exactly as long as the count of values you intend to write — no more, no fewer. If the size were off by one, which end of the printed run would go wrong?	four ascending	negatives only
+min can sit below zero and the run can step right across it. Does your fill start at min itself and walk upward regardless of sign?	crosses zero	negatives only
+What is the right thing to return when there is nothing to allocate at all — when min is not strictly below max? Consider both min equal to max and min above it.	min equals max	min greater than max

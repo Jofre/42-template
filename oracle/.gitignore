@@ -1,0 +1,3 @@
+# Cargo build output — the oracle is built hermetically by Bazel (//oracle:oracle);
+# this dir only appears from a local `cargo build` used to develop/regenerate.
+/target

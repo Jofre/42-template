@@ -1,0 +1,7 @@
+empty table	
+single element	[solo]
+two elements ascending	[apple][banana]
+ascending strcmp	[Apple][apple][banana][cherry]
+duplicates preserved	[apple][pear][pear]
+reversed comparator descending	[cherry][banana][apple][Apple]
+order by length not strcmp	[m][aa][zzz]

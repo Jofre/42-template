@@ -1,0 +1,48 @@
+# JetBrains
+.idea
+
+# Bazel convenience symlinks (bazel-42, bazel-bin, bazel-out, bazel-testlogs).
+# They point into ~/.cache/bazel/...; the execroot they target symlinks .git
+# back here, which makes editors detect a phantom second repository.
+/bazel-*
+
+# C build artifacts (e.g. from `make`/manual cc inside deliverable while testing)
+*.o
+*.a
+*.out
+
+# These executables are named by their subjects and have no extension, so none
+# of the rules above cover them. Running `make` by hand in the deliverable
+# leaves one where the next `git add -A` would commit a binary -- and
+# //tools:submit would then push it to Vogsphere, since its own exclude list is
+# extension-based too.
+c-piscine-rush-02/deliverable/ex00/rush-02
+c-piscine-bsq/deliverable/ex00/bsq
+
+# Shell-piscine deliverables are generated from generators/ (bazel run //...:generate)
+c-piscine-shell-*/deliverable/
+
+# clangd's per-project preamble/index cache (created next to compile_flags.txt)
+/.cache/
+
+
+# Per-machine Bazel overrides (cache location etc). The correct value differs
+# on every machine, so unlike .submit-level this one must not be shared.
+.bazelrc.local
+
+# Editor detritus. tools/header_art.txt is tracked on purpose; its .backup is not.
+*.backup
+
+# 42's own documents: the per-module subject PDFs and the Norm. They are 42's to
+# hand out, not this project's to redistribute, so none are shipped here — you
+# download your own from the intranet. Ignored so that dropping them into a
+# module directory (which is a perfectly good place to keep them) cannot commit
+# them into a fork by accident. Tracking one anyway: `git add -f <file>`.
+*.pdf
+
+# 42 issues this dictionary with rush-02's subject: yours to fetch,
+# not this project's to redistribute. Matched at any depth, because the
+# path is an argument to your program, so a copy is as likely to sit
+# beside your sources as at the module root. The harness's own fixtures
+# are named differently (ref.dict, quirks.dict, ...) and are unaffected.
+numbers.dict

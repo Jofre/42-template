@@ -1,0 +1,2 @@
+# clues.tsv for btree_apply_prefix
+In "prefix" order, at each node which happens first: visiting the node itself, or descending into its subtrees? Check the order of your applyf call relative to the left and right recursions, and reconsider what should happen when root is NULL before you dereference it.

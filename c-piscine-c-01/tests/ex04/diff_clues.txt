@@ -1,0 +1,8 @@
+  The two inputs are also the two outputs here, which is the whole trap.
+    * the second result uses the NEW first value -> one destination was written
+                                                    before the other was read
+    * both outputs unchanged                     -> written to copies rather
+                                                    than through the pointers
+    * only negative operands                     -> C truncates toward zero and
+                                                    the remainder follows the
+                                                    dividend

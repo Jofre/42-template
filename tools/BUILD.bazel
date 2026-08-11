@@ -1,0 +1,287 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
+
+# Measurement primitive for the performance layer: runs a command and reports
+# wall time + peak RSS from wait4(). GNU `time -v` would do the same but is not
+# installed here and is not guaranteed on the campus box; the shell's `times`
+# reports no memory at all. See tools/perf_run.c.
+cc_binary(
+    name = "perf_run",
+    srcs = ["perf_run.c"],
+    copts = ["-Wall", "-Wextra", "-Werror"],
+    visibility = ["//visibility:public"],
+)
+
+# Shared helpers for live-differential reader harnesses (see diffio.h). Included
+# by the per-exercise diff_<fn>.c readers via the c_diff() macro.
+cc_library(
+    name = "diffio",
+    hdrs = ["diffio.h"],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+
+# Runner scripts used by the test macros in defs.bzl.
+exports_files([
+    "norminette_test.sh",
+    "compile_check.sh",
+    "asan_check.sh",
+    "diff_output.sh",
+    "rust_diff.sh",
+    # Triage filter: folds a wall of `bazel test` output into one next objective.
+    # Not a layer -- it reads logs, it does not produce a verdict -- but it is
+    # exported for //tools/tests:selftest, which covers it because a triage that
+    # names the wrong exercise sends someone to the wrong file.
+    "first_red.sh",
+    # Grid VALIDATOR for c-piscine-rush-01 ex00. Not a diff: rush01's subject
+    # asks for "the first solution you encounter", so 66 of the 438 solvable clue
+    # vectors have several correct answers and a byte fixture would fail correct
+    # programs. See the header of the script.
+    "rush01_check.sh",
+    "rush02_check.sh",
+    # Differential runner for c-piscine-bsq. One exec per map, because bsq is a
+    # PROGRAM: there is no function to link into a diff_*.c harness, so the
+    # corpus is replayed by a shell loop rather than streamed through one
+    # process. Unlike rush02_check.sh it GATES -- bsq's subject fixes the
+    # answer, including which of several equally big squares to draw.
+    "bsq_check.sh",
+    # Differential runner for a program whose input is its ARGUMENTS, which is
+    # all four of c-06's. One exec per case for bsq_check.sh's reason -- a
+    # program that takes its input on the command line cannot be streamed --
+    # and generic rather than per-module, because the corpus shape (a list of
+    # arguments and the bytes they must produce) is not specific to c-06.
+    "argv_check.sh",
+    # Differential runner for a program whose input is FILES -- c-10's four.
+    # Materialises each case's file contents into a scratch directory and runs
+    # the binary on those paths, so the corpus can carry NUL bytes and 30 000
+    # byte files that no committed fixture does.
+    "file_check.sh",
+    "oracle_check.sh",
+    "perf_test.sh",
+    "cycles_check.sh",
+    "ref_compare.sh",
+    "diffio.h",
+    "files_test.sh",
+    "header_check.sh",
+    "asan_run.sh",
+    "prototype_check.sh",
+    "argv_table.sh",
+    "progname_test.sh",
+    "valgrind_test.sh",
+    "run_check.sh",
+    "symbols_test.sh",
+    "ilp32_test.sh",
+    "forbidden_symbols.sh",
+    "make_test.sh",
+    # Not a test layer: it BUILDS. It is what lets a module whose subject fixes
+    # no filenames get its source list from the team's own Makefile instead of
+    # from a glob or a hard-coded copy. See its header.
+    "make_srcs_build.sh",
+    # Exported for //tools/tests:selftest. Not a layer either -- it is the
+    # maintainer's "has campus upgraded anything?" -- but its grading is
+    # comparison logic, and comparison logic that stops comparing is what this
+    # whole repo is careful about.
+    "env_drift.sh",
+    "shell_test.sh",
+    "shell_check.sh",
+    "generate.sh",
+    # Exported for //tools/tests:selftest, not for any module: stub_check is a
+    # maintainer tool rather than a test layer, but it is the one whose failure
+    # publishes an answer, so it is covered like a layer. prime.sh is here for
+    # the same reason -- it is wired into the shell profile, so its failure mode
+    # is every new terminal greeting the student with an error.
+    "prime.sh",
+    "stub_check.sh",
+    # Exported for //tools/tests:selftest. Like stub_check it is a maintainer
+    # tool rather than a layer -- and like it, its failure mode is not a red
+    # test: it is broken work pushed to 42, or the wrong module pushed to the
+    # wrong remote. Its REMOTES parser is what the arms drive.
+    "submit.sh",
+    # Exported for //tools/tests:selftest. The style gate is not a layer either,
+    # but it is the check that decides whether every OTHER script still declares
+    # what it takes from PATH -- and its own detector is a shell parser written
+    # in awk, which is the kind of thing that starts matching nothing and goes on
+    # reporting OK. So it is covered like a layer, driven over probe scripts in a
+    # throwaway workspace.
+    "conventions.sh",
+    # The allocation-failure layer. Opt-in per exercise via
+    # c_function(allocfail = ...) -- see the script's header for why it must
+    # not be turned on wholesale.
+    "allocfail_check.sh",
+    "allocfail_shim.c",
+    # Not a runner: the selftest stamps its Norm fixtures with a real 42 header
+    # rather than a hand-aligned copy, so a fixture cannot fail for the wrong
+    # reason and quietly make the green arm useless.
+    "gen_header.sh",
+])
+
+# Bazel-run entry points. These intentionally mutate the source tree / talk to the
+# network, so they are run-only (`bazel run`), never build/test dependencies. They
+# locate the repo via BUILD_WORKSPACE_DIRECTORY.
+
+# bazel run //tools:init  [-- --login L --email E]
+sh_binary(name = "init", srcs = ["init.sh"])
+
+# bazel run //tools:reset_headers  [-- -n]
+sh_binary(name = "reset_headers", srcs = ["reset_headers.sh"])
+
+# bazel run //tools:submit  [-- options/modules]
+sh_binary(name = "submit", srcs = ["submit.sh"])
+
+# bazel run //tools:generate   (regenerate every shell module's deliverable/)
+sh_binary(
+    name = "generate",
+    srcs = ["generate.sh"],
+    args = [
+        "c-piscine-shell-00",
+        "c-piscine-shell-01",
+    ],
+)
+
+# bazel run //tools:gen_header -- ft_foo.c > ft_foo.c
+sh_binary(name = "gen_header", srcs = ["gen_header.sh"])
+
+# bazel run //tools:prime
+#
+# Do the slow once-per-machine work now rather than during the first test:
+# fetch every external repo (~2.1 GB), build the oracle, build every test
+# binary. See the script's header for why this is not just `bazel test //...`.
+sh_binary(name = "prime", srcs = ["prime.sh"])
+
+# setup.sh is NOT a target, and cannot be: it is what installs the launcher that
+# would run it. `sh tools/setup.sh`, before Bazel exists on the machine.
+exports_files(["setup.sh"])
+
+# bazel run //tools:stub_check  [-- c-piscine-c-02]
+#
+# The gate. Per file KIND it accepts an explicit whitelist and
+# calls everything else an answer: inside a C body only `(void)x;` and a trivial
+# return; in a deliverable header only include guards, unless the header's
+# CONTENT hash is one of the three approved in the script; in a Makefile only
+# recipes that echo; in a shell deliverable or generator no command at all. A
+# shape-matching heuristic cannot do this — one waved through three real c-01
+# answers whose solutions are a single line.
+#
+# It covers every kind because it once covered only `.c`, said "OK — all 123
+# deliverable(s) are stubs", and published c-08's four finished header answers
+# along with rush-00's rush.h and all 18 shell generators. //tools/tests:selftest
+# now drives one green and one red per kind so a whole kind cannot fall out of
+# scope again unnoticed.
+sh_binary(name = "stub_check", srcs = ["stub_check.sh"])
+
+# bazel run //tools:conventions
+#
+# The style gate. selftest.sh asks "can a layer report OK having checked
+# nothing"; this asks whether the harness is worth copying. A student reads these
+# runners, BUILD files and test mains to learn how tests are written here, so a
+# rule followed 94 times and broken 3 times teaches that the rule is optional.
+#
+# It is a binary rather than a test for a reason worth knowing: it must see every
+# runner and every test main, and a sandboxed sh_test sees only its `data`.
+# Listing ~140 files there, and updating that list whenever a module gains a
+# test, is exactly the kind of convention nobody keeps -- which is the failure
+# this script exists to prevent.
+sh_binary(
+    name = "conventions",
+    srcs = ["conventions.sh"],
+    args = [
+        "--shellcheck",
+        "$(location @shellcheck_linux_x86_64//:shellcheck)",
+        "--buildifier",
+        "$(location @buildifier_prebuilt//:buildifier)",
+    ],
+    data = [
+        "@buildifier_prebuilt//:buildifier",
+        "@shellcheck_linux_x86_64//:shellcheck",
+    ],
+)
+
+
+# The hermetic norminette. The norm layer runs THIS, never the host's copy.
+#
+# Its version decides which rules exist, so a host copy makes the verdict depend
+# on the machine -- and the verdict is supposed to be the one the Moulinette
+# would give. Pinned in tools/requirements.txt (3.3.58, what the 2026-08-09 campus audit
+# matched, and what .devcontainer/Dockerfile installs for running by hand).
+py_binary(
+    name = "norminette",
+    srcs = ["norminette_main.py"],
+    main = "norminette_main.py",
+    visibility = ["//visibility:public"],
+    deps = ["@pip_tools//norminette"],
+)
+
+# bazel run //tools:env_audit [-- --commit --push]
+#
+# CAPTURE what this machine has, into tools/env-reports/<hostname>.txt. The
+# script is also runnable bare -- `sh tools/env-audit.sh` -- and that is the
+# form its own header leads with, because it is meant to run on a box where
+# nothing is set up yet. This target exists so that "is it a bazel target or a
+# script?" stops being a question anyone has to ask.
+#
+# Not to be confused with env_drift below: this one records what a machine has,
+# env_drift compares a machine against tools/pins.tsv.
+sh_binary(name = "env_audit", srcs = ["env-audit.sh"])
+
+# bazel run //tools:env_drift [-- --strict] [-- --report]
+#
+# Has this machine drifted from tools/pins.tsv? Run on a CAMPUS box it answers
+# the only question that matters: have they upgraded anything the Moulinette
+# compiles with?
+#
+# It warns and exits 0 by default. A student at an upgraded campus machine has
+# done nothing wrong and can do nothing about it, so failing their build would
+# punish them for 42's package update; --strict is for a maintainer deciding
+# whether to re-pin. It never re-pins itself -- that would be a change to what
+# the whole suite tests, made by nobody.
+#
+# The fetched binaries are data, and their paths reach the script through the
+# env vars pins.tsv names in its last column. That is the third comparison: for
+# any tool the layers no longer take from the box, "the pin matches the box"
+# stops implying "the pin matches what our checks run", and only this says so.
+# Add the binary here and name its variable in pins.tsv as each further tool
+# stops coming from the host.
+sh_binary(
+    name = "env_drift",
+    srcs = ["env_drift.sh"],
+    data = [
+        "norminette",
+        "pins.tsv",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm",
+        "@buildifier_prebuilt//:buildifier",
+        "@clang_12_ubuntu//:runtime",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/lib/libclang-cpp.so.12",
+        "@clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1",
+        "@diffutils_ubuntu//:usr/bin/diff",
+        "@gcc_10_ubuntu//:runtime",
+        "@make_ubuntu//:usr/bin/make",
+        "@shellcheck_linux_x86_64//:shellcheck",
+        "@zig_linux_x86_64//:zig",
+        "@gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10",
+        "@valgrind_ubuntu//:usr/bin/valgrind.bin",
+    ],
+    env = {
+        "HERMETIC_BUILDIFIER": "$(rootpath @buildifier_prebuilt//:buildifier)",
+        "HERMETIC_CLANG": "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12)",
+        # <VAR>_LIBS is the convention for a fetched binary that carries its own
+        # shared libraries. Without it the driver would load the box's copies
+        # and this would report on a compiler other than the pinned one -- the
+        # comparison failing in exactly the way it exists to catch.
+        "HERMETIC_CLANG_LIBS": "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/lib/libclang-cpp.so.12):$(rootpath @clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1)",
+        "HERMETIC_DIFF": "$(rootpath @diffutils_ubuntu//:usr/bin/diff)",
+        "HERMETIC_GCC": "$(rootpath @gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10)",
+        "HERMETIC_MAKE": "$(rootpath @make_ubuntu//:usr/bin/make)",
+        "HERMETIC_NM": "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm)",
+        "HERMETIC_NORMINETTE": "$(rootpath :norminette)",
+        "HERMETIC_SHELLCHECK": "$(rootpath @shellcheck_linux_x86_64//:shellcheck)",
+        # valgrind.bin, not the /usr/bin/valgrind wrapper -- the wrapper execs
+        # "$0.bin" and that derived path does not resolve from a runfiles tree.
+        # No _LIBS entry: --version answers before valgrind needs its tool
+        # directory, so this reports the fetched binary's own version without
+        # $VALGRIND_LIB. The layers that actually RUN it do set it.
+        "HERMETIC_VALGRIND": "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
+        "HERMETIC_ZIG": "$(rootpath @zig_linux_x86_64//:zig)",
+    },
+)

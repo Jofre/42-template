@@ -1,0 +1,516 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//tools:defs.bzl", "c_files", "c_levels", "c_program")
+
+# ---------------------------------------------------------------------------
+# Rush01 — 4x4 skyscrapers.
+#
+# THE PUZZLE. A 4x4 grid holds boxes of heights 1..4, one per cell, arranged so
+# that every row and every column contains each height exactly once (a Latin
+# square). Around the grid sit 16 "views", two per row and two per column: a
+# view is the number of boxes you can SEE looking down that line from that side,
+# where a taller box hides every shorter box behind it. The program is given the
+# 16 views and must print a grid that satisfies all of them.
+#
+# THE INPUT is one single argv argument: sixteen values, separated by spaces, in
+# the order the subject fixes —
+#
+#     col1top col2top col3top col4top   col1bottom col2bottom col3bottom col4bottom
+#     row1left row2left row3left row4left   row1right row2right row3right row4right
+#
+#     ./rush01 "4 3 2 1 1 2 2 2 4 3 2 1 1 2 2 2"
+#
+# Each value is a single digit '1'..'4'. In the subject's words that "is the only
+# acceptable input for your program. Any other input must be considered an
+# error." THE OUTPUT is the grid, one row per line, digits separated by single
+# spaces, a newline after every row. On any error at all — malformed input, or a
+# well-formed puzzle with no solution — the program prints "Error" and a newline,
+# and nothing else. One error message, for every kind of error.
+#
+# ---------------------------------------------------------------------------
+# WHY THE SWEEP VALIDATES THE OUTPUT INSTEAD OF COMPARING IT
+#
+# This is the least obvious fact about testing this exercise, and the reason the
+# module is not simply a pile of expected-output files.
+#
+# The subject says: "Your output must display the FIRST solution you encounter."
+# It does not say which solution that is — it depends on the order the student's
+# program walks the space, and every order is equally correct.
+#
+# That would not matter if every solvable puzzle had exactly one answer. It does
+# not. Enumerating all 576 Latin squares of order 4 and grouping them by the
+# clue vector they produce gives 438 distinct achievable vectors:
+#
+#     372 vectors have 1 solution        28 vectors have 4 solutions
+#      34 vectors have 2 solutions        4 vectors have 6 solutions
+#     ------------------------------------------------------------------
+#     438 vectors, 576 solutions in total; 66 of the 438 have MORE THAN ONE.
+#
+# So for 66 of the 438 solvable inputs, byte-comparing against a fixed expected
+# file would fail programs that are correct — the harness would be grading the
+# student's search order, which the subject leaves free. The sweep
+# therefore accepts ANY grid that (a) is a Latin square and (b) satisfies all 16
+# views, and only then asks whether a grid was printed at all.
+#
+# The other side of the same coin: of the 4^16 = 4294967296 well-formed
+# sixteen-digit inputs, only those 438 are solvable. The remaining 4294966858
+# must print Error — which is why "Error" is not an afterthought here but half
+# of the specification, and why the error fixtures below outnumber the grid.
+#
+# The subject's own example is one of the 372 vectors with a UNIQUE solution.
+# That is what makes the literal, byte-exact ex00_subject case legitimate rather
+# than lucky: there is exactly one grid it can print, so the documented contract
+# in the subject PDF can be tested as written. Do not add byte-exact cases for
+# other vectors without checking their solution count first.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------- source set
+# "Files to turn in: All the necessary files (*.c)" — the subject fixes the
+# PROGRAM name (cc ... -o rush01 *.c) and deliberately does not fix a single
+# source file name. So the sources are globbed rather than listed: a student who
+# splits the work across several .c files, or renames rush01.c, is doing exactly
+# what the subject allows and must not be met with a red test. (Same reasoning
+# the c_files calls in c-05 and c-10 spell out: pinning a name the subject left
+# free invents a requirement.)
+#
+# allow_empty = False on purpose. An empty deliverable would otherwise reach
+# cc_binary as a target with no sources and fail somewhere further down with a
+# link error about a missing main; failing here names the directory and the
+# pattern instead.
+SRCS = glob(["deliverable/ex00/*.c"], allow_empty = False)
+
+# The Norm forbids declaring a struct or a typedef inside a .c file, so a team
+# that wants one needs a header the subject never mentions — that is why rush-00
+# ships rush.h, and why this glob exists even though nothing matches it today.
+#
+# A header here WORKS. This block used to carry a "KNOWN LIMIT" saying the
+# opposite -- that adding one would break every layer that runs the program,
+# because c_program's cc_binary was built from `srcs` alone. That was true when
+# it was written and was fixed in tools/defs.bzl afterwards (`srcs = srcs +
+# hdrs`, with the reasoning at the call site), and a stale prohibition is worse
+# than none: it carried the words "Verified by hand, not assumed", so it read as
+# checked fact while steering a team away from the one thing the Norm leaves
+# them.
+#
+# The half that is still true, and is the reason `hdrs` is a separate parameter:
+# a header must NOT be passed through the macro's own `srcs`, or
+# forbidden_symbols.sh tries to read symbols out of a .h and exits 2 as a
+# harness error.
+HDRS = glob(["deliverable/ex00/*.h"], allow_empty = True)
+
+# ------------------------------------------------------------- the argv cases
+#
+# THE ONE FRAGILE THING IN THIS FILE. sh_test's `args` are Bourne-shell
+# TOKENISED before they reach the runner, and rush01's whole interface is a
+# single argument that CONTAINS SPACES. This repo has been bitten by that
+# tokenisation three times (c_files' --label, c_cycles' --unit-name and
+# --unit-expr — see the fail()s in tools/defs.bzl), and each of those was fixed
+# by forbidding spaces. That fix is not available here: the space-separated
+# string is the interface the subject fixes and the evaluator will type, so the
+# harness bends, not the interface.
+#
+# Hence the embedded quotes below: `"\"4 3 2 ...\""` is one Starlark string
+# whose CONTENT is a quoted shell word, so Bourne tokenisation yields ONE token
+# containing spaces instead of sixteen tokens.
+#
+# Everything downstream of Bazel was verified by hand against these very
+# scripts: tools/diff_output.sh, tools/asan_run.sh and tools/valgrind_test.sh
+# (including the `-- "$@"` it forwards to its correctness gate) all deliver a
+# spaced argument to the program intact. Bazel's own tokeniser was checked too:
+# `args` goes through ShellUtils.tokenize, which — disassembled out of the
+# installed A-server.jar — special-cases exactly tab, space, ", ' and backslash,
+# i.e. Bourne quoting, so the quoted word stays one token. ex00_argv_guard below
+# asserts it anyway, and says in one line what went wrong if that ever changes.
+#
+# Note that the SWEEP does not take this risk at all: its clue vectors come out
+# of a corpus file and its gate's argv out of a one-line fixture
+# (--gate-arg-file). Only the literal cases below have to quote, and they have
+# no choice — c_program pins an exact expected file per invocation and can only
+# learn that invocation from `args`. The trade is deliberate: the subject's own
+# transcript is worth testing exactly as the PDF prints it.
+Q = "\""
+
+# The subject's own example. Verified: it has exactly one solution (see above).
+CLUES_VALID = "4 3 2 1 1 2 2 2 4 3 2 1 1 2 2 2"
+
+# Malformed inputs. The five below are the VALID vector with its last token
+# changed or removed, so each one isolates a single rule of the input contract
+# rather than several at once — whatever makes them fail, it is not "the rest of
+# the string was wrong too".
+CLUES_15 = "4 3 2 1 1 2 2 2 4 3 2 1 1 2 2"
+CLUES_17 = "4 3 2 1 1 2 2 2 4 3 2 1 1 2 2 2 2"
+CLUES_ZERO = "4 3 2 1 1 2 2 2 4 3 2 1 1 2 2 0"
+CLUES_FIVE = "4 3 2 1 1 2 2 2 4 3 2 1 1 2 2 5"
+CLUES_WORD = "4 3 2 1 1 2 2 2 4 3 2 1 1 2 2 x"
+
+# Well-formed and unsolvable: sixteen values, every one of them in '1'..'4', and
+# not one of the 438 achievable vectors. Verified by the same enumeration as the
+# counts above: zero of the 576 Latin squares produce it. It is the ONLY error
+# case that cannot be passed by validating the input: the argument is
+# impeccable, so the only way to know there is no answer is to have looked for
+# one. The seven above it check the reading of the input; this one checks that
+# "or if you cannot find any solutions" was implemented at all.
+CLUES_NOSOL = "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
+
+# malloc = True adds the valgrind arm, which matters here because the subject
+# authorises malloc and free: a program that allocates is expected, and this is
+# the module where a leak or a double free is a live possibility rather than a
+# theoretical one. Each valgrind arm is gated on its own case's fixture, so it
+# stays quiet until that case's output is right.
+#
+# Every error case compares STDOUT, like the grid case. The subject uses one
+# verb — "display" — for the grid and for Error alike, and shows its only
+# transcript as `./rush01 "..." | cat -e`, i.e. reading stdout. A student who
+# sent Error to stderr instead still gets a legible failure: diff_output.sh
+# prints the stream it is NOT comparing underneath the table.
+c_program(
+    num = "00",
+    name = "rush01",
+    srcs = SRCS,
+    hdrs = HDRS,
+    allowed = ["write", "malloc", "free"],
+    malloc = True,
+    cases = [
+        # The subject's documented contract, byte for byte, including where the
+        # newlines fall. The only case in this file that pins an exact grid.
+        {
+            "name": "subject",
+            "args": [Q + CLUES_VALID + Q],
+            "expected": "subject.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- every one of these must print exactly "Error\n" and nothing else
+        # They share one expected file on purpose: "Error" being the single
+        # answer to every kind of bad input is the rule being tested, and eight
+        # identical fixtures would let that rule drift one file at a time.
+        {
+            "name": "noarg",
+            "args": [],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        # Two arguments, each of them individually valid: the contract is
+        # exactly ONE argument, not "at least one".
+        {
+            "name": "twoargs",
+            "args": [Q + CLUES_VALID + Q, Q + CLUES_VALID + Q],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "fifteen",
+            "args": [Q + CLUES_15 + Q],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "seventeen",
+            "args": [Q + CLUES_17 + Q],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "zero",
+            "args": [Q + CLUES_ZERO + Q],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "five",
+            "args": [Q + CLUES_FIVE + Q],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "nonnumeric",
+            "args": [Q + CLUES_WORD + Q],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "unsolvable",
+            "args": [Q + CLUES_NOSOL + Q],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+
+# ------------------------------------------------------------- harness guard
+# Green the moment the wiring is right, and it never runs the student's program:
+# it only asserts that Bazel handed it ONE argument containing spaces. Read
+# tests/ex00/argv_guard.sh for why that is worth a target of its own — in short,
+# if Bazel ever splits the clue string, a CORRECT rush01 answers Error to every
+# case above and is reported as wrong, with nothing anywhere saying why.
+#
+# Tagged "selftest" because that is what it is: a test of the test harness, not
+# of the exercise (tools/defs.bzl's _LAYER_LEVEL puts selftest at level 4). The
+# lvl_* tag is spelled out here only because _test() — the wrapper that derives
+# those tags from the layer tag — is private to defs.bzl and this file cannot
+# reach it; "selftest" is level 4, and level 4 is lvl_complete alone.
+sh_test(
+    name = "ex00_argv_guard",
+    size = "small",
+    srcs = ["tests/ex00/argv_guard.sh"],
+    args = [Q + CLUES_VALID + Q],
+    tags = ["selftest", "lvl_complete"],
+)
+
+# ------------------------------------------------------------------- the sweep
+# The full 438-vector sweep: every clue vector that any 4x4 Latin square can
+# produce, run through the student's program, with each printed grid CHECKED
+# (Latin square + all 16 views) rather than compared — for the reason set out at
+# the top of this file.
+#
+# Tagged "diff", so it sits at the `robust` level next to the other differential
+# layers: it is this repo's own rigour, far beyond what an evaluator will do by
+# hand, and a beginner must not meet 438 vectors before the subject's own
+# example works. It is gated behind that example for the same reason every other
+# rigour layer here is gated on its exercise's fixture (see the long comment on
+# --gate-differ in tools/valgrind_test.sh): a sweep report on a program that
+# cannot yet print one grid is 438 restatements of a failure the student is
+# already looking at.
+#
+# The lvl_* tags are written out for the same reason as the guard above: "diff"
+# is level 3, and level 3 is lvl_robust + lvl_complete.
+#
+# size = "medium": 971 invocations of a student's search, not one. That number is
+# the reference's, not a guess — `rush01_solve` does NOT truncate to --count, it
+# raises: max(count, 876) lines, being all 438 solvable vectors plus at least 438
+# unsolvable ones (see corpus_cases in oracle/src/rush01.rs). So leaving --count
+# at its 400 default still sweeps 876 cases, and --probe-argc adds 3. Measured,
+# the harness itself is not the cost — 971 cases cost 1.9s of harness time — so
+# the budget is entirely about how long the student's solver takes per case, and
+# "small" would put a 68ms/case ceiling on it. A solver that HANGS is caught long
+# before either budget: the runner has its own 10s per-run timeout and gives up
+# after 3 of them.
+#
+# INTEGRATION NOTE: //tools:rush01_check.sh has to be listed in
+# tools/BUILD.bazel's exports_files, next to the other runner scripts, or both
+# targets below are an analysis error and take the whole `bazel test //...` down
+# with them. That file belongs to the harness, not to this module, so it is not
+# edited from here — but the two land together or not at all.
+#
+sh_test(
+    name = "ex00_sweep",
+    size = "medium",
+    srcs = ["//tools:rush01_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--label",
+        "ex00/rush01",
+        # The corpus generators: //oracle's rush01_solve for the mandatory 4x4
+        # (clue vectors AND their full solution lists), plus rush01_bonus for the
+        # other sizes. --oracle-fn is repeatable and the corpora are
+        # concatenated; --seed is left at its default (1) on purpose — the 4x4
+        # enumeration is exhaustive, so there is nothing for a seed to vary in
+        # the 438 solvable vectors; it only shapes the unsolvable tail.
+        #
+        # WHY THE BONUS SIZES ARE IN THE *MANDATORY* SWEEP. They are not graded
+        # here — --max-size stays at its default of 4 — but they have to be RUN
+        # here, because "attempted the bonus and got it wrong" is only visible if
+        # a bonus-size input is actually put in front of the program. Answering
+        # Error passes (a 4x4-only program cannot do anything else, and Error is
+        # the correct answer for an input it does not accept); answering with a
+        # GRID is judged in full. So this stays green for a student who ignored
+        # the bonus, and reddens for one whose bonus is broken — which is the
+        # whole point. The strict version lives in ex00_bonus_9x9 below.
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--oracle-fn",
+        "rush01_solve",
+        "--oracle-fn",
+        "rush01_bonus",
+        "--clues",
+        "$(location tests/ex00/clues.tsv)",
+        # The three argv SHAPES a corpus line cannot express, because they are
+        # not "a clue string" at all: no argument, two arguments, and one EMPTY
+        # argument. The first two are also pinned byte-exactly above; the empty
+        # one is reachable ONLY here, since Bazel drops an empty-string entry
+        # from `args` (the same quirk that made _forbidden_test invent its "-"
+        # sentinel), so no c_program case can ever run `./rush01 ""`.
+        "--probe-argc",
+        # Correctness gate, wired the way valgrind_test.sh and rust_diff.sh are:
+        # replay the exercise's own curated fixture first and stay quiet while it
+        # is red. Derived from the targets c_program already declared, so it
+        # cannot drift away from the case it is gating on.
+        "--gate-differ",
+        "$(location //tools:diff_output.sh)",
+        "--gate-bin",
+        "$(location :ex00_bin)",
+        "--gate-expected",
+        "$(location tests/ex00/subject.txt)",
+        "--gate-arg-file",
+        "$(location tests/ex00/subject_clues.txt)",
+    ],
+    data = [
+        ":ex00_bin",
+        "tests/ex00/clues.tsv",
+        "tests/ex00/subject.txt",
+        "tests/ex00/subject_clues.txt",
+        "//oracle:oracle",
+        "//tools:diff_output.sh",
+    ],
+    tags = ["diff", "lvl_robust", "lvl_complete"],
+)
+
+# --------------------------------------------------------------- 9x9 bonus
+# "If you want bonus points, you may try to handle other map sizes (up to 9x9)."
+# A bonus is optional, so NOTHING about it may gate anything: this target is
+# tagged "manual", which keeps it out of `bazel test //...` and out of the submit
+# gate's `--test_tag_filters=-manual`, exactly as rush-00 does for the four
+# variants a team does not owe. Ask for it explicitly when you want it:
+#
+#     bazel test //c-piscine-rush-01:ex00_bonus_9x9
+#
+# It has to be a sweep and it cannot be a fixture, and that is not a shortcut:
+# a byte-exact 9x9 expected file would need its clue vector to have exactly ONE
+# solution, and confirming that means enumerating a space of about 5.5e27 Latin
+# squares. At 4x4 the same question is answered by walking all 576 of them. So
+# the argument at the top of this file, which is a convenience at 4x4, is a hard
+# constraint at 9x9: validate, never compare.
+#
+# --max-size 9 is the ONLY difference from ex00_sweep above, and it changes one
+# thing: whether "Error" is an acceptable answer to a bonus-size input.
+#
+#   ex00_sweep (--max-size 4, the default) RUNS every bonus-size case and lets
+#       Error pass, so a 4x4-only program sails through while a broken 9x9
+#       attempt — anything that prints a grid — is still caught and judged.
+#   this target (--max-size 9) REQUIRES them: Error is now a false-error, so the
+#       bonus must actually be solved.
+#
+# Which is why this one is the manual, opt-in target and the other is not. It is
+# for the student who believes they finished the bonus and wants it held to it.
+#
+# The gate is kept, and deliberately so: a 9x9 sweep on a program that cannot
+# print the subject's own 4x4 example is noise, bonus or not.
+# --------------------------------------------------- rectangular boards (-w/-h)
+# A HARNESS-DEFINED EXTENSION, and flagged as one everywhere it appears. The
+# subject's bonus says "other map sizes"; it says nothing about non-square
+# boards, and it could not: a W x H board carries 2W + 2H clues and that count
+# does not determine (W, H) — 16 clues is equally 4x4, 3x5, 5x3, 2x6 or 8x1.
+# Exactly one SQUARE reading exists per count, which is the only reason the
+# mandatory form is readable from a bare clue list at all.
+#
+# So this repo defines the missing convention rather than leaving every team to
+# invent a different one: an optional "-w N" or "-h N" before the clue string
+# (one is enough, since H = m/2 - W), and the rules generalised as K = max(W, H),
+# each ROW holding W distinct heights from 1..K and each COLUMN holding H. When
+# W == H that is the Latin square rule unchanged — oracle/src/rush01_bonus.rs's
+# check_rect() proves it by re-deriving 576 boards and 438 clue vectors at 4x4
+# through the RECTANGULAR code path.
+#
+# WHY THIS IS NOT IN ex00_sweep. Attempt detection is fair for the subject's own
+# 9x9 bonus: a student who prints a 9x9 grid has unambiguously reached for
+# something the subject named. It is NOT fair here, because a team could
+# implement rectangles perfectly under a different convention — a different clue
+# order, or heights 1..W instead of 1..max(W,H) — and be reddened for disagreeing
+# with an invention of ours they never read. So rectangles are manual and opt-in,
+# and the mandatory sweep never sees them.
+sh_test(
+    name = "ex00_bonus_rect",
+    size = "medium",
+    srcs = ["//tools:rush01_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--label",
+        "ex00/rush01-rect",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        # The rectangular arm only. The square bonus lives in ex00_bonus_9x9.
+        "--oracle-fn",
+        "rush01_rect",
+        # Raising --max-size at all is what tells the runner the caller wants
+        # bonus work graded rather than merely tolerated; for rectangles that is
+        # the difference between "Error passes" and "solve it".
+        "--max-size",
+        "9",
+        "--clues",
+        "$(location tests/ex00/clues.tsv)",
+        "--gate-differ",
+        "$(location //tools:diff_output.sh)",
+        "--gate-bin",
+        "$(location :ex00_bin)",
+        "--gate-expected",
+        "$(location tests/ex00/subject.txt)",
+        "--gate-arg-file",
+        "$(location tests/ex00/subject_clues.txt)",
+    ],
+    data = [
+        ":ex00_bin",
+        "tests/ex00/clues.tsv",
+        "tests/ex00/subject.txt",
+        "tests/ex00/subject_clues.txt",
+        "//oracle:oracle",
+        "//tools:diff_output.sh",
+    ],
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "ex00_bonus_9x9",
+    size = "medium",
+    srcs = ["//tools:rush01_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--label",
+        "ex00/rush01-9x9",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--oracle-fn",
+        "rush01_solve",
+        "--oracle-fn",
+        "rush01_bonus",
+        "--clues",
+        "$(location tests/ex00/clues.tsv)",
+        "--max-size",
+        "9",
+        "--gate-differ",
+        "$(location //tools:diff_output.sh)",
+        "--gate-bin",
+        "$(location :ex00_bin)",
+        "--gate-expected",
+        "$(location tests/ex00/subject.txt)",
+        "--gate-arg-file",
+        "$(location tests/ex00/subject_clues.txt)",
+    ],
+    data = [
+        ":ex00_bin",
+        "tests/ex00/clues.tsv",
+        "tests/ex00/subject.txt",
+        "tests/ex00/subject_clues.txt",
+        "//oracle:oracle",
+        "//tools:diff_output.sh",
+    ],
+    tags = ["diff", "manual", "lvl_robust", "lvl_complete"],
+)
+
+# ---------------------------------------------------------------- file set
+# What the subject's "Files to turn in" line says this module owes — and here it
+# names no file at all: "All the necessary files (*.c)". So `required` is empty,
+# and that is a decision, not an oversight.
+#
+# Requiring rush01.c would be inventing a requirement. The stub ships under that
+# name and the compile line produces a binary called rush01, but a student who
+# splits the program across solver.c and main.c, or renames the file, has broken
+# no rule the subject states — and c-05's and c-10's c_files comments already
+# record that this repo does not pin names a subject left free.
+#
+# What is still worth checking is the other half of the turn-in line, "Submit
+# only the files requested by the subject of this project": every .c and .h in
+# the directory is listed as `optional` (from the same globs the build uses), so
+# they pass silently, while ANYTHING ELSE is reported as an extra file. That
+# warning is the point of the target — `cc -Wall -Wextra -Werror -o rush01 *.c`
+# run inside deliverable/ex00 leaves a `rush01` binary sitting next to the
+# sources, and //tools:submit would push it to Vogsphere. An extra file warns
+# and still passes, because a human reviews this project and an extra file is
+# often defensible; you just have to be ready to say why.
+c_files(
+    num = "00",
+    required = [],
+    optional = [f[len("deliverable/ex00/"):] for f in SRCS + HDRS],
+)
+
+c_levels()

@@ -1,0 +1,9 @@
+  The escaped output is the whole line, so a divergence is readable as text.
+    * printable bytes escaped          -> the two ends of the printable range
+    * the escape has the wrong width   -> the subject fixes how many digits
+                                          follow the backslash
+    * uppercase hex digits             -> the subject says which case
+    * bytes above 0x7f wrong           -> whether char is signed here; a
+                                          negative value formats as far more
+                                          digits than you meant
+    * a tab or newline passed through  -> those are control characters

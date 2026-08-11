@@ -1,0 +1,5 @@
+"" (empty)	[]
+"a" (single char)	[a]
+"42 Barcelona"	[42 Barcelona]
+whitespace copied verbatim	[with  multiple   spaces]
+deep copy independent	new_buffer:1 copy=[Xodifiable] src=[modifiable]

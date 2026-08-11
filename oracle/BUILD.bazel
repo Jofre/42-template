@@ -1,0 +1,55 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# The live differential-test reference. Built once by Bazel with a hermetic Rust
+# toolchain and reused (as a runfiles data dep) by every c_diff test — the
+# student's C output is compared against this at runtime. Grader-side tooling:
+# never compiled into any deliverable. See oracle/README.md.
+rust_binary(
+    name = "oracle",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    edition = "2021",
+    # Cargo.toml's [profile.release] is never read by Bazel: under the default
+    # fastbuild, rules_rust passes -Copt-level=0. Corpus generation is ~90% of a
+    # diff test's wall time and the diff layer is the heaviest in the suite, so
+    # that default was costing ~4x on the whole differential loop — measured, one
+    # pass over all 74 corpora at count=400000: 81.8s at -O0 vs 19.5s at -O2,
+    # with byte-identical output. Same reasoning the cycles layer already applies
+    # to the C side (it builds its own -O2 binary rather than trust fastbuild).
+    rustc_flags = ["-Copt-level=2"],
+    # (Linker forced to bfd for all Rust via .bazelrc — see the rules_rust
+    # extra_rustc_flags there — to silence rustc's gold-deprecation warning.)
+    visibility = ["//visibility:public"],
+)
+
+# The anti-bugged-oracle guard, wired into `bazel test`. `oracle check` holds
+# every reference to its own hand-written case tables and to property assertions
+# swept over seeded inputs (ordered-permutation, round-trip, involution, the
+# div_mod and strlcat return identities, ...) — a few thousand to 20 000 cases
+# depending on the module, with rush instead sweeping every 1..60 x 1..60 box
+# exhaustively — plus, in c00 and rush only, checks that the generators still
+# emit the corners they promise. It is entirely in-crate: it does NOT compare
+# against libc and does NOT read the curated expected.txt fixtures — see the
+# header of tools/oracle_check.sh for the exact scope and the per-module sweep
+# widths, and do not restate it as more than that.
+#
+# Modest as it is, it has to be a test target: without this the check is dead
+# code, and a regression in a reference would instead surface as a CORRECT
+# student's *_diff going red — the worst failure mode this repo has. Sub-second,
+# so it is cheap.
+sh_test(
+    name = "oracle_check",
+    size = "small",
+    srcs = ["//tools:oracle_check.sh"],
+    args = ["--oracle", "$(location :oracle)"],
+    data = [":oracle"],
+    # lvl_complete BY HAND, because these targets live outside every module and
+    # so are not emitted through defs.bzl's _test(), which is what normally
+    # derives the lvl_* tag from the layer tag. Without it, a maintainer running
+    # `bazel test //... --test_tag_filters=lvl_complete` silently drops exactly
+    # the two guards that protect the suite itself. Level 4 is lvl_complete
+    # alone -- the tags are cumulative upward, not downward. Same reasoning, and
+    # the same hand-written spelling, as c-piscine-rush-01/BUILD.bazel.
+    tags = ["oracle", "lvl_complete"],
+)

@@ -1,0 +1,2 @@
+# clues.tsv for ft_putchar — hints only, never answers.
+ft_putchar receives one character. Which system call sends raw bytes to the screen, which file descriptor is the screen, and how many bytes should one call write?

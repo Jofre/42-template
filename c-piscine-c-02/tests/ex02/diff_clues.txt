@@ -1,0 +1,8 @@
+  One answer per string, so group the failures by what the string contains.
+    * the empty string only          -> what the subject says the answer is for
+                                        a string with nothing to inspect
+    * strings with digits or spaces  -> the class boundaries; check the ends of
+                                        each range rather than the middle
+    * strings that end in the right class -> stopping at the first match rather
+                                        than requiring all of them
+    * the return is 1 and 0 swapped  -> the sense of the test

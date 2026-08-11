@@ -1,0 +1,367 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_files", "c_function", "c_levels", "c_mem_check")
+
+c_function(num = "00", fn = "ft_strcpy", test = "test_strcpy.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# ft_strcpy WRITES dest: it copies src plus the terminating NUL and must not
+# store past strlen(src). This runs it under ASan on an EXACTLY strlen(src)+1
+# heap dest (and NUL-terminated exact-size heap src), so an off-by-one copy,
+# pad, or terminate — or a stray src over-read — overflows and is caught here
+# (output diffing can't see it, since the copied text can still be right).
+c_mem_check(num = "00", fn = "ft_strcpy", probe = "mem_strcpy.c")
+
+# Live differential fuzz against the Rust reference (//oracle): 400k seeded
+# inputs, exact-byte compare. Cross-checked vs libc strcpy. The dest buffer is
+# prefilled with 0xff so a missing terminator diverges instead of hiding behind
+# calloc zeros.
+c_diff(num = "00", fn = "ft_strcpy", harness = "diff_strcpy.c", oracle_fn = "c02_strcpy", diff_clues = "diff_clues.txt")
+
+c_function(num = "01", fn = "ft_strncpy", test = "test_strncpy.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "01", fn = "ft_strncpy", harness = "diff_strncpy.c", oracle_fn = "c02_strncpy", diff_clues = "diff_clues.txt")
+
+# ft_strncpy / ft_strlcpy carry an n/size SAFETY bound on dest: they write a
+# fixed window and must never store past it. ft_print_memory reads a fixed
+# `size` window. These run the function under ASan on EXACTLY-sized heap buffers
+# — a stray read/write past the bound is caught here (output diffing can't see
+# it, since the returned value/printed text can still be right).
+c_mem_check(num = "01", fn = "ft_strncpy", probe = "mem_strncpy.c")
+
+# The is_* predicates run over the WHOLE string (empty string -> 1). Each is
+# cross-checked vs the matching libc classifier (isalpha/isdigit/islower/isupper/
+# isprint) on unsigned-char bytes; generators bias toward all-pass, one-bad, and
+# high-byte inputs so both outcomes are exercised.
+c_function(num = "02", fn = "ft_str_is_alpha", test = "test_str_is_alpha.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "02", fn = "ft_str_is_alpha", harness = "diff_str_is_alpha.c", oracle_fn = "c02_str_is_alpha", diff_clues = "diff_clues.txt")
+
+c_function(num = "03", fn = "ft_str_is_numeric", test = "test_str_is_numeric.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "03", fn = "ft_str_is_numeric", harness = "diff_str_is_numeric.c", oracle_fn = "c02_str_is_numeric", diff_clues = "diff_clues.txt")
+
+c_function(num = "04", fn = "ft_str_is_lowercase", test = "test_str_is_lowercase.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "04", fn = "ft_str_is_lowercase", harness = "diff_str_is_lowercase.c", oracle_fn = "c02_str_is_lowercase", diff_clues = "diff_clues.txt")
+
+c_function(num = "05", fn = "ft_str_is_uppercase", test = "test_str_is_uppercase.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "05", fn = "ft_str_is_uppercase", harness = "diff_str_is_uppercase.c", oracle_fn = "c02_str_is_uppercase", diff_clues = "diff_clues.txt")
+
+c_function(num = "06", fn = "ft_str_is_printable", test = "test_str_is_printable.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "06", fn = "ft_str_is_printable", harness = "diff_str_is_printable.c", oracle_fn = "c02_str_is_printable", diff_clues = "diff_clues.txt")
+
+c_function(num = "07", fn = "ft_strupcase", test = "test_strupcase.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# ft_strupcase edits its string IN PLACE up to the NUL. Under ASan on an EXACTLY
+# strlen+1 heap buffer, any off-by-one that scans, writes, or re-terminates one
+# slot past the NUL overflows and is caught here (the cased text can still look
+# right to output diffing).
+c_mem_check(num = "07", fn = "ft_strupcase", probe = "mem_strupcase.c")
+
+c_diff(num = "07", fn = "ft_strupcase", harness = "diff_strupcase.c", oracle_fn = "c02_strupcase", diff_clues = "diff_clues.txt")
+
+c_function(num = "08", fn = "ft_strlowcase", test = "test_strlowcase.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# ft_strlowcase edits its string IN PLACE up to the NUL. Under ASan on an
+# EXACTLY strlen+1 heap buffer, any off-by-one that scans, writes, or
+# re-terminates one slot past the NUL overflows and is caught here (output
+# diffing can't see it).
+c_mem_check(num = "08", fn = "ft_strlowcase", probe = "mem_strlowcase.c")
+
+c_diff(num = "08", fn = "ft_strlowcase", harness = "diff_strlowcase.c", oracle_fn = "c02_strlowcase", diff_clues = "diff_clues.txt")
+
+c_function(num = "09", fn = "ft_strcapitalize", test = "test_strcapitalize.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# ft_strcapitalize edits its string IN PLACE up to the NUL, inspecting the
+# PREVIOUS byte for word boundaries — so it must read no earlier than str[0] nor
+# write past the NUL. Under ASan on an EXACTLY strlen+1 heap buffer, any
+# off-by-one overflows and is caught here (output diffing can't see it).
+c_mem_check(num = "09", fn = "ft_strcapitalize", probe = "mem_strcapitalize.c")
+
+# No libc equivalent: the reference encodes the documented word-capitalize
+# contract, cross-checked against a correct standalone impl and guarded by
+# in-reference properties (idempotent, length- and alnum-preserving, case-only).
+c_diff(num = "09", fn = "ft_strcapitalize", harness = "diff_strcapitalize.c", oracle_fn = "c02_strcapitalize", diff_clues = "diff_clues.txt")
+
+c_function(num = "10", fn = "ft_strlcpy", test = "test_strlcpy.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_mem_check(num = "10", fn = "ft_strlcpy", probe = "mem_strlcpy.c")
+
+# glibc lacks strlcpy: the reference is cross-checked vs a correct BSD impl and
+# the property ret == strlen(src). Dest prefilled with 0xff to catch a missing
+# terminator.
+c_diff(num = "10", fn = "ft_strlcpy", harness = "diff_strlcpy.c", oracle_fn = "c02_strlcpy", diff_clues = "diff_clues.txt")
+
+c_function(num = "11", fn = "ft_putstr_non_printable", test = "test_putstr_non_printable.c", allowed = ["write"], labeled = True, clues = "clues.tsv")
+
+# Differential on stdout: the escaped output (printable bytes verbatim, others as
+# '\'+2 lowercase hex) is fully deterministic and contains no TAB/NL, so it rides
+# as the final field. Cross-checked vs a correct standalone impl.
+c_diff(
+    num = "11",
+    fn = "ft_putstr_non_printable",
+    harness = "diff_putstr_non_printable.c",
+    oracle_fn = "c02_putstr_non_printable",
+    # Lower count: this function write()s one CHARACTER at a time, which is what
+    # the subject asks for, so its replay is syscall-bound and dominates the
+    # layer's wall time (measured 52s of a 60s budget at 400k under full-suite
+    # contention). Each generator emits its pinned contract corners FIRST and
+    # only the seeded random tail shrinks, so no boundary case is lost.
+    count = 100000,    diff_clues = "diff_clues.txt",
+)
+
+c_function(num = "12", fn = "ft_print_memory", test = "test_print_memory.c", allowed = ["write"], sanitize = True, clues = "clues.tsv")
+
+c_mem_check(num = "12", fn = "ft_print_memory", probe = "mem_print_memory.c")
+
+# The layer TODO item 2 was really about. ~83 lines of format -- sixteen bytes a
+# row, hex in pairs, a short final row padded to width, non-printables replaced
+# -- and its whole correctness evidence was one fixture. A row that pads by one
+# space too few, or that treats 0x7f as printable, is invisible in an example
+# and immediate here.
+#
+# The address column is normalised to the row's offset on BOTH sides: the
+# subject prints the real address, which no reference can predict and which
+# changes between runs. That is the same thing `sanitize` does to this
+# exercise's own fixture.
+c_diff(
+    num = "12",
+    fn = "ft_print_memory",
+    harness = "diff_print_memory.c",
+    oracle_fn = "c02_print_memory",
+    diff_clues = "diff_clues.txt",
+    # MUST match this exercise's c_function(sanitize = True) above. Without it
+    # the gate ran the fixture WITHOUT --sanitize, compared a real address
+    # against a fixture written in offsets, and concluded the exercise was red
+    # -- so this layer, ex12_diff_asan and ex12_perf all skipped green on a
+    # finished, correct ft_print_memory. Reproduced: ex12_output PASSED while
+    # ex12_diff printed "SKIP -- this exercise's own output fixture is not
+    # passing yet". //tools:conventions now checks the pair repo-wide.
+    gate_sanitize = True,
+    # The corpus is small blocks, and each case pays for a pipe, a fork-free
+    # capture and a read; 100k is what the neighbouring write()-per-character
+    # exercise settled on for the same reason.
+    count = 100000,
+)
+
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["ft_strcpy.c"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["ft_strncpy.c"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_str_is_alpha.c"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["ft_str_is_numeric.c"],
+    strict = True,
+)
+c_files(
+    num = "04",
+    required = ["ft_str_is_lowercase.c"],
+    strict = True,
+)
+c_files(
+    num = "05",
+    required = ["ft_str_is_uppercase.c"],
+    strict = True,
+)
+c_files(
+    num = "06",
+    required = ["ft_str_is_printable.c"],
+    strict = True,
+)
+c_files(
+    num = "07",
+    required = ["ft_strupcase.c"],
+    strict = True,
+)
+c_files(
+    num = "08",
+    required = ["ft_strlowcase.c"],
+    strict = True,
+)
+c_files(
+    num = "09",
+    required = ["ft_strcapitalize.c"],
+    strict = True,
+)
+c_files(
+    num = "10",
+    required = ["ft_strlcpy.c"],
+    strict = True,
+)
+c_files(
+    num = "11",
+    required = ["ft_putstr_non_printable.c"],
+    strict = True,
+)
+c_files(
+    num = "12",
+    required = ["ft_print_memory.c"],
+    strict = True,
+)
+
+c_levels()
+
+c_cycles(
+    num = "00",
+    fn = "ft_strcpy",
+    oracle_fn = "c02_strcpy",
+    harness = "diff_strcpy.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # A number, not a reference implementation: it says where you stand without
+    # saying how to get there.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "01",
+    fn = "ft_strncpy",
+    oracle_fn = "c02_strncpy",
+    harness = "diff_strncpy.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "02",
+    fn = "ft_str_is_alpha",
+    oracle_fn = "c02_str_is_alpha",
+    harness = "diff_str_is_alpha.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # scan archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 3.5,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "03",
+    fn = "ft_str_is_numeric",
+    oracle_fn = "c02_str_is_numeric",
+    harness = "diff_str_is_numeric.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # scan archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 3.5,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "04",
+    fn = "ft_str_is_lowercase",
+    oracle_fn = "c02_str_is_lowercase",
+    harness = "diff_str_is_lowercase.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # scan archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 3.5,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "05",
+    fn = "ft_str_is_uppercase",
+    oracle_fn = "c02_str_is_uppercase",
+    harness = "diff_str_is_uppercase.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # scan archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 3.5,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "06",
+    fn = "ft_str_is_printable",
+    oracle_fn = "c02_str_is_printable",
+    harness = "diff_str_is_printable.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # scan archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 3.5,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "07",
+    fn = "ft_strupcase",
+    oracle_fn = "c02_strupcase",
+    harness = "diff_strupcase.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # transform archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 7,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "08",
+    fn = "ft_strlowcase",
+    oracle_fn = "c02_strlowcase",
+    harness = "diff_strlowcase.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # transform archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 7,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "09",
+    fn = "ft_strcapitalize",
+    oracle_fn = "c02_strcapitalize",
+    harness = "diff_strcapitalize.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # transform archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 7,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "10",
+    fn = "ft_strlcpy",
+    oracle_fn = "c02_strlcpy",
+    harness = "diff_strlcpy.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "11",
+    fn = "ft_putstr_non_printable",
+    oracle_fn = "c02_putstr_non_printable",
+    harness = "diff_putstr_non_printable.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # transform archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 7,
+    # This one PRINTS -- c_function above authorises write() for it -- so the
+    # floor is one write() per string, exactly as c-01 ex05 and c-04 ex01/ex04
+    # have it. The 0 here was copy-pasted from the pure-transform targets above,
+    # where nothing is meant to reach the kernel at all, and told a correct
+    # student "this function is not budgeted for a single syscall" about a
+    # function whose entire job is output. The layer does not gate, so it never
+    # reddened anything -- it just said something false with confidence.
+    syscall_budget = 1.0,
+)

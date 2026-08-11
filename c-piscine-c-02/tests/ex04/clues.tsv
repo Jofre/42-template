@@ -1,0 +1,3 @@
+# clues.tsv for ft_str_is_lowercase — hints only, never answers.
+Which characters are lowercase, and why does an empty string return 1?	"" (empty -> 1)	"hello" (lowercase)	"abcxyz" (lowercase)
+Edges: '`' is just before 'a', '{' just after 'z'. Digits, uppercase and spaces are not lowercase.	"`" (0x60, just before 'a')	"{" (0x7B, just after 'z')	"Hello" (has uppercase)

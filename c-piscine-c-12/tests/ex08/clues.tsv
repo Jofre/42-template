@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_reverse
+As you walk the list flipping each node's next to point backward, what saves the rest of the chain before you overwrite a next pointer, and where does *begin_list have to end up if the first node becomes the new tail?

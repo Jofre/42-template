@@ -1,0 +1,5 @@
+# clues.tsv for ft_strdup — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# First line doubles as the "foothold".
+strdup hands back a fresh buffer that you allocated. How many bytes does the string need — and did you reserve room for the terminating '\0' on top of the visible characters? When you copy, are you copying that '\0' too, or stopping one byte short? Every byte of src, control characters included, has to land in the new buffer unchanged.	"" (empty)	"a" (single char)	"42 Barcelona"	whitespace copied verbatim
+The point of duplicating is to get a SEPARATE copy. Should the pointer you return ever be the same pointer you were given? After you write into the copy, what must remain true of the original src?	deep copy independent

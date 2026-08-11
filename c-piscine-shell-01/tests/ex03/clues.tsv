@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex03 (count_files.sh)
+A recursive walk from "." already yields the starting directory as its first entry, so don't add or subtract one by hand; the easy miss is restricting the search to regular files and forgetting directories count too.

@@ -1,0 +1,6 @@
+  Same walk as ft_list_foreach, with a condition.
+    * nothing is ever applied -> what the comparison's zero means; it is the
+                                 MATCH, not the mismatch
+    * everything is applied   -> the same test, the other way round
+    * the empty list          -> a loop that cannot run zero times
+    * only the first match    -> a loop that returns instead of continuing

@@ -1,0 +1,2 @@
+# clues.tsv for ft_strcpy — hints only, never answers.
+strcpy copies src into dest up to AND INCLUDING the terminating \0, then returns dest. Two things to verify: does the copied string end properly, and did you stop exactly at the terminator? (The 'after_nul' byte must stay 'X' -- if it changed you wrote one byte too many.)	"" (empty)	"A" (single char)	"Hello World!"

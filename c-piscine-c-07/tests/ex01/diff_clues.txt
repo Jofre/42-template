@@ -1,0 +1,7 @@
+  Two inputs, min and max, and the array is printed as a row.
+    * min == max              -> the subject states the size of that range, and
+                                 what to return for it
+    * min > max               -> the subject states that case explicitly
+    * the last element missing or extra -> which end of the range is included;
+                                 the size and the last value have to agree
+    * the size is right, the values are not -> the value written at each index

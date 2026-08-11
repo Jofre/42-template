@@ -1,0 +1,32 @@
+# Per-machine Bazel overrides. Copy to .bazelrc.local (which is NOT tracked,
+# because the right path differs on every machine) and edit to taste.
+#
+# WHY: a full run of this repo builds ~1300 test binaries plus 84 ASan twins.
+# Measured footprint under ~/.cache/bazel: 8.9 GB. A 42 campus machine usually
+# caps $HOME at 5 GB and gives you no sudo, so the default location cannot work
+# there — the build fails partway with a disk error that does not name the cause.
+#
+# Point Bazel's ENTIRE state somewhere with room. This one flag covers the
+# output base, the install base and the repository cache; there is no need to
+# set them separately.
+#
+# Use a path that is yours alone: /tmp is shared, and two students pointing at
+# the same directory will fight over the same lock.
+startup --output_user_root=/tmp/bazel-CHANGEME
+
+# Two more live in your shell profile rather than here, because they are
+# ENVIRONMENT variables and not Bazel flags. Both still land under $HOME by
+# default, so setting only the flag above leaves a 5 GB quota short:
+#
+#     export BAZELISK_HOME=/tmp/bazelisk-$USER
+#
+#         Bazelisk downloads Bazel itself (~63 MB) to ~/.cache/bazelisk.
+#
+#     export SUBMIT_GATE_OUTPUT_BASE=/tmp/bazel-gate-$USER
+#
+#         //tools:submit runs its pre-push gate on a SEPARATE output base, so a
+#         half-finished edit in your main workspace cannot change what gets
+#         pushed. It passes --output_base explicitly, and that OVERRIDES the
+#         --output_user_root set above — so this is the one path the flag
+#         cannot move for you. Left at its default it is a second full tree
+#         under $HOME.

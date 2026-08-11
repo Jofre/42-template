@@ -1,0 +1,5 @@
+==> c-piscine-c-10/tests/ex02/fixtures/multi_a.txt <==
+alpha tail end
+
+==> c-piscine-c-10/tests/ex02/fixtures/multi_b.txt <==
+line no newline

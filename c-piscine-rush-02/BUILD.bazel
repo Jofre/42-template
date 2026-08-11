@@ -1,0 +1,321 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//tools:defs.bzl", "c_files", "c_levels", "c_make", "c_program")
+
+# ---------------------------------------------------------------------------
+# rush-02 — convert a number to its written letter value.
+#
+# Two independent halves, the same split c-10 uses:
+#
+#   c_make    proves the TEAM'S Makefile works: `make fclean` then `make`
+#             produces ./rush-02, and clean/fclean mean what the subject says.
+#   c_program compiles the same sources with Bazel and runs the argv cases.
+#             It does not go through the Makefile, so a broken Makefile cannot
+#             hide behind green output tests, and a wrong program cannot hide
+#             behind a working Makefile.
+#
+# rules = ["clean", "fclean"] is deliberate. p.4 of the subject says "a Makefile,
+# which will compile your project using the rules $NAME, clean and fclean" and
+# p.7 says it is built with `make fclean` then `make`. It never mentions `re` or
+# `all`, so requiring either would fail a correct Makefile over a rule nobody
+# asked for. graph is left off for the same reason: the incremental-build and
+# object-placement checks come from c-09 ex01's subject alone.
+# ---------------------------------------------------------------------------
+
+# A glob, and it is NOT the program -- read the makefile= argument below.
+#
+# rush-02's subject mandates a Makefile and then says "and all the necessary
+# files". It fixes no filenames, so nothing here may claim to know them: this
+# directory holds three files that define main (the front end, a second one, and
+# an experiment the team kept behind its own rule), and only the Makefile says
+# which of them the program is built from. Hard-coding the list would just move
+# that assumption into this file, where it goes stale silently the first time
+# anyone renames anything.
+#
+# What this list still feeds is the layers that work file by file -- norm, both
+# compile layers, forbidden symbols -- which compile each source on its own and
+# never link, so several entry points among them are not their problem.
+# Everything that has to LINK asks `make -Bn` instead.
+SRCS = glob(["deliverable/ex00/*.c"], allow_empty = False)
+
+HDRS = glob(["deliverable/ex00/*.h"], allow_empty = True)
+
+c_make(
+    num = "00",
+    anchor = "deliverable/ex00/Makefile",
+    artifact = "rush-02",
+    symbols = ["main"],
+    rules = [
+        "clean",
+        "fclean",
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# WHAT IS DELIBERATELY NOT TESTED, and why. A harness that asserts behaviour the
+# subject leaves open fails correct programs, which is worse than missing a bug.
+#
+#   * Composition beyond the subject's own four transcripts. Whether 101 reads
+#     "one hundred one" or "one hundred and one", whether a leading group of one
+#     is spelled out, and how redundant decompositions are chosen are all
+#     unstated. Bonus 1 then legalises "-", "," and "and" on top, so even the
+#     separator is a team's choice. Only the values the subject prints itself are
+#     asserted here.
+#   * Argument counts other than one and two. The subject defines those two and
+#     says nothing about zero or three, so neither an error message nor a
+#     particular exit status can be demanded.
+#   * Exit status. The subject never states one, for any path.
+#   * Which stream carries "Error" and "Dict Error". Every transcript pipes
+#     stdout through `cat -e`, so stdout is what the subject shows; stderr is
+#     never mentioned either way.
+#   * The one-argument form against 42's own numbers.dict. That file is 42's
+#     issued resource, stripped from the shareable template, so a test depending
+#     on it would pass here and fail for anyone who cloned the template. Every
+#     case below therefore names its dictionary explicitly, which the subject's
+#     two-argument form exists to allow.
+# ---------------------------------------------------------------------------
+
+c_program(
+    num = "00",
+    name = "rush02",
+    srcs = SRCS,
+    hdrs = HDRS,
+    # The team's Makefile is the only statement of what the program consists
+    # of, so it is what the linked binaries are built from -- our flags, their
+    # file list. make_data is the whole directory rather than the sources: a
+    # Makefile may include or read anything sitting beside it.
+    makefile = "deliverable/ex00/Makefile",
+    make_data = glob(["deliverable/ex00/*"]),
+    allowed = [
+        "write",
+        "malloc",
+        "free",
+        "open",
+        "read",
+        "close",
+    ],
+    malloc = True,
+    cases = [
+        # ---- the subject's own transcript, byte for byte -------------------
+        {
+            "name": "subject_42",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "forty_two.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "subject_zero",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "0",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "zero.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "subject_error",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "10.4",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "subject_hundred_thousand",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "100000",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "hundred_thousand.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- a replaced value, which is the whole point of argv[1] ---------
+        # The subject demonstrates exactly this: it greps 20 out of the
+        # dictionary, shows the value has been changed, and runs the program.
+        {
+            "name": "custom_value",
+            "args": [
+                "$(location tests/ex00/fixtures/custom.dict)",
+                "20",
+            ],
+            "fixtures": ["tests/ex00/fixtures/custom.dict"],
+            "expected": "custom20.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- everything the subject says a parser MUST accept ---------------
+        # quirks.dict has blank lines, entries out of order, zero spaces and
+        # several spaces around the colon, and one key beyond the reference set.
+        # None of that is an error, so this must produce the same answer as the
+        # tidy dictionary does.
+        {
+            "name": "dict_quirks",
+            "args": [
+                "$(location tests/ex00/fixtures/quirks.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/quirks.dict"],
+            "expected": "forty_two.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- the two ways a dictionary can fail -----------------------------
+        {
+            "name": "dict_nocolon",
+            "args": [
+                "$(location tests/ex00/fixtures/nocolon.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/nocolon.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dict_badkey",
+            "args": [
+                "$(location tests/ex00/fixtures/badkey.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/badkey.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+        # Parses cleanly, but the key 5 is gone and nothing else can express 5.
+        # Deliberately a small key: whether 1000 may be built as "ten hundred"
+        # is a composition question the subject never settles, so a missing
+        # large key would be asserting an answer the subject does not give.
+        {
+            "name": "dict_cannot_express",
+            "args": [
+                "$(location tests/ex00/fixtures/nofive.dict)",
+                "5",
+            ],
+            "fixtures": ["tests/ex00/fixtures/nofive.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+
+# ---------------------------------------------------------------- file set
+# "Files to turn in: Makefile and all the necessary files" — the Makefile is
+# named, everything else is the team's choice, so extras only warn. strict is
+# off for exactly that reason; pinning source names here would invent a
+# requirement the subject explicitly declines to make ("you are free to organize
+# your files as you wish").
+c_files(
+    num = "00",
+    required = ["Makefile"],
+    # Every .c and .h in the directory is `optional`, from the same glob the
+    # build uses. Without it this layer reports the exercise's own source as
+    # "a file the subject did not ask for" -- on a fully conformant turn-in,
+    # at level 1, inside the submit gate at every level, so it is printed on
+    # every submit. It also destroys the signal the warning exists for: a
+    # stray binary left in deliverable/ by a hand-run of `cc -o` is what
+    # //tools:submit would push to Vogsphere, and it was indistinguishable
+    # from the required source. Same construction as rush-01 ex00, which had
+    # this right from the start.
+    optional = [
+        # numbers.dict by name: it is 42's issued resource, the program's data,
+        # and "all the necessary files" plainly covers it. It is stripped from
+        # the shareable template, which `optional` tolerates -- optional means
+        # "may be here", not "must be".
+        "numbers.dict",
+    ] + [
+        f[len("deliverable/ex00/"):]
+        for f in glob(
+            [
+                "deliverable/ex00/*.c",
+                "deliverable/ex00/*.h",
+            ],
+            allow_empty = True,
+        )
+    ],
+)
+
+c_levels()
+
+# ---------------------------------------------------------------------------
+# Differential check against the Rust reference (//oracle), one exec per number.
+#
+# TAGGED `manual` ON PURPOSE, so it never runs under `bazel test //...` and never
+# gates a submission. Run it yourself once you have an implementation:
+#
+#     bazel test //c-piscine-rush-02:ex00_rush02_diff --test_output=all
+#
+# The subject fixes four outputs and no composition rule -- it never settles
+# whether 101 is "one hundred one" or "one hundred and one", and bonus 1 allows
+# "-", "," and "and" outright. So the reference implements ONE reading (the one
+# the subject's own transcripts demonstrate) and a disagreement here is evidence
+# to read, not a verdict. Gating on it would fail teams for answering a question
+# the subject deliberately left to them -- the same reason rush-01 validates
+# rather than byte-diffs.
+#
+# It exists because the subject's four examples cannot reach the interesting
+# ground: every value past 4294967295, every carry across a scale boundary, and
+# every group whose hundreds digit is zero live beyond them. The reference goes
+# to undecillion (10^36), which is where numbers.dict stops.
+sh_test(
+    name = "ex00_rush02_diff",
+    size = "medium",
+    srcs = ["//tools:rush02_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--dict",
+        "$(location tests/ex00/fixtures/ref.dict)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--count",
+        "200",
+    ],
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+        "tests/ex00/fixtures/ref.dict",
+    ],
+    tags = ["manual"],
+)
+
+# The same runner over GENERATED dictionaries: a fresh one per case, with random
+# values, random spacing either side of the colon, blank lines, entries shuffled,
+# extra keys beyond the reference set, and one case in five missing a key the
+# number needs so "Dict Error" is produced rather than hand-written.
+#
+# This is the half that cannot be faked. Every fixture above uses English number
+# words, so a program that hardcodes them instead of reading argv[1] passes all
+# of them; here the values are random strings and it fails on the first case.
+# The subject makes that mandatory, not optional -- p.7 says the first of two
+# arguments IS the replacement dictionary, and its own transcript redefines 20 to
+# "hey everybody !". (Bonus 2 is a dictionary in another LANGUAGE, which is a
+# different thing.)
+#
+# Also `manual`, for the composition reason above.
+sh_test(
+    name = "ex00_rush02_dictfuzz",
+    size = "medium",
+    srcs = ["//tools:rush02_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--dict",
+        "$(location tests/ex00/fixtures/ref.dict)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "rush02_dicts",
+        "--count",
+        "150",
+    ],
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+        "tests/ex00/fixtures/ref.dict",
+    ],
+    tags = ["manual"],
+)

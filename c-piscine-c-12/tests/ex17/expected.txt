@@ -1,0 +1,29 @@
+--- interleave ---
+apple
+banana
+cherry
+date
+--- head update ---
+a
+b
+c
+e
+--- empty1 ---
+a
+b
+--- empty2 ---
+a
+b
+--- both empty ---
+(empty)
+--- ints dups ---
+1
+2
+3
+3
+--- ints neg ---
+-5
+-1
+0
+2
+3

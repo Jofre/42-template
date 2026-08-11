@@ -1,0 +1,3 @@
+# clues.tsv for ft_putchar (rush) — hints only, never answers.
+# (This test is unlabeled, so this single hint fires on any failure.)
+ft_putchar receives one character and must put it on the screen with the only function this project allows. Which system call sends raw bytes, which file descriptor is the screen, how many bytes does one call send -- and does it need the character's address or its value?

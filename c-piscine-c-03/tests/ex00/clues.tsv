@@ -1,0 +1,6 @@
+# clues.tsv for ft_strcmp — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+What should strcmp return when the first string is the greater one, when it is the smaller one, and when they are equal? Check the SIGN of your result against a simple differing pair.	"Hello" vs "Hello"	"Hello" vs "Hella"	"abc" vs "abd"	"abz" vs "abc"
+When one string ends before the other, which one ranks as greater? Think about the value of the byte where the shorter string stops.	"Hello" vs "Helloo"	"Helloo" vs "Hello"	"" vs "a"	"a" vs ""
+These inputs use bytes above 127. On this platform, is a plain char signed? And does the real strcmp compare bytes as signed or as unsigned? Make those two answers agree.	{0x80} vs {0x01}	{0x01} vs {0x80}	{A,0x80} vs {A,0x7f}

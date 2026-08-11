@@ -1,0 +1,2 @@
+# clues.tsv for btree_apply_suffix
+In "suffix" order, when exactly does the current node get applied relative to its two subtrees? Reconsider whether you apply f to root before or after both recursive calls, and what an empty root should do before you ever touch root->left.

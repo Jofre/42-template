@@ -1,0 +1,6 @@
+n=0 (copies nothing)	XXXXX
+empty src, n=4 (pads with \0)	\0\0\0\0XX
+n>len: "Hello",10 (pads rest \0)	Hello\0\0\0\0\0XXXXX
+n==len: "Hello",5 (NO terminator!)	HelloXXX
+n<len: "Hello",3 (NO terminator!)	HelXXXXX
+returns dest	ret==dest:1

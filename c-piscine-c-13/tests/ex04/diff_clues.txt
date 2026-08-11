@@ -1,0 +1,7 @@
+  The tree is printed after the insert, in a shape you can read.
+    * inserting into an empty tree -> the caller's own pointer has to change
+    * equal data              -> the subject states which side an equal item
+                                 goes, and the comparison's zero is what says so
+    * everything ends up on one side -> the comparison's sign convention
+    * an inserted item is lost -> the recursion is descending into a copy of the
+                                 link rather than into the link itself

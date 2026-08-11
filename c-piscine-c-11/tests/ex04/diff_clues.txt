@@ -1,0 +1,10 @@
+  One answer per array.
+    * length 0 or 1           -> both are sorted, and neither reaches a
+                                 comparison
+    * arrays with EQUAL neighbours -> whether equal counts as sorted; the
+                                 comparator's sign is what decides, and the
+                                 subject describes what it means
+    * descending arrays       -> the subject accepts either direction, so an
+                                 array can be sorted without being ascending
+    * only the last pair wrong -> the loop bound; comparing element i with i+1
+                                 means stopping one early

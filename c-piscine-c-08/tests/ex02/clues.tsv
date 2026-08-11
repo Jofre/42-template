@@ -1,0 +1,4 @@
+# clues.tsv for ft_abs.h — hints only, never answers.
+ABS(x) must give the absolute value, and because it is a macro it has no statements -- it must be a single expression (think of a ternary). What should it produce for a positive number, a negative number, and zero?	ABS(0)	ABS(5)	ABS(-5)	ABS(1)	ABS(-1)
+The argument can be an EXPRESSION such as (2 - 5), not just a plain number. Without enough parentheses the macro text rearranges and flips the sign. Where exactly must parentheses go -- around the parameter, around the whole body, or both?	ABS(2 - 5) expr arg	ABS(0 - 8) expr arg	ABS(10 - 3) expr arg
+Your macro is also dropped INSIDE a bigger expression, e.g. 2 * ABS(-3). If the whole body is not wrapped in one outer pair of parentheses, the surrounding operator binds tighter than the ternary inside and the result comes out wrong. Does your body have an outermost set of parentheses around everything?	2 * ABS(-3) outer	10 - ABS(-4) outer	1 + ABS(-6) outer

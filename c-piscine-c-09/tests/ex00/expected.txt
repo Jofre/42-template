@@ -1,0 +1,24 @@
+strlen:
+  empty=0
+  one=1
+  hello=5
+  spaced=9
+strcmp:
+  eq=0
+  lt=-1
+  gt=1
+  prefix_short=-100
+  prefix_long=100
+  both_empty=0
+  empty_vs_a=-97
+  a_vs_empty=97
+  hi_80_vs_01=127
+  hi_ff_vs_a=158
+  hi_A80_vs_A7f=1
+swap:
+  basic a=7 b=3
+  signed a=10 b=-5
+  extreme a=2147483647 b=-2147483648
+  alias x=42
+putchar:[A42]
+putstr:[hello42]

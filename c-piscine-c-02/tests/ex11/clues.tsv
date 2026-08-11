@@ -1,0 +1,3 @@
+# clues.tsv for ft_putstr_non_printable — hints only, never answers.
+Printable bytes (space through tilde) are written as-is; every other byte becomes a backslash followed by exactly two LOWERCASE hex digits. How do you split a byte into its high and low hex digit, and how do you turn a value 0-15 into a hex character?	contains newline (0x0a)	contains tab (0x09)	0x07 and 0xff mixed in	"a\b ~" (backslash IS printable)
+The high bytes (0x80, 0xff) and 0x7f are NOT printable. Are you treating each byte as unsigned both when deciding printability and when computing its hex? A plain char can go negative.	0x7f / DEL	0x1f then 0x05	high bytes 0x80, 0xff

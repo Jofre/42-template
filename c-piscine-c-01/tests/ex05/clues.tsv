@@ -1,0 +1,3 @@
+# clues.tsv for ft_putstr — hints only, never answers.
+# (This test is unlabeled, so this single hint fires on any failure.)
+A string is just bytes in memory ending at a marker byte. To print it: where do you start, how do you know when to stop, and should that final marker itself be printed?

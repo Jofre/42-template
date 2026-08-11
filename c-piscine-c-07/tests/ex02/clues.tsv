@@ -1,0 +1,6 @@
+# clues.tsv for ft_ultimate_range — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+The result comes back two ways at once: the function RETURNS the size, and it hands you the array through the int** out-parameter. How big should the block you allocate be for a half-open range that includes min but stops before max? And once it exists, how do you make the caller's pointer actually point at it rather than your own local copy?	single element 7..8	small positives 1..5
+Walk the array filling each slot. What is the value of the first element, and how does each step relate to the one before it? Does anything change when the numbers are negative or straddle zero?	negatives only -5..-3	crosses zero -2..3
+Think about the degenerate case where there is nothing to produce. Under what comparison of min and max is the range empty, what size signals "nothing", and what must the out-parameter pointer be left as so the caller can tell?	min equals max 5..5	min greater than max 10..3

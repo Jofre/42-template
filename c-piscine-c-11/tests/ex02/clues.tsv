@@ -1,0 +1,7 @@
+# clues.tsv for ft_any — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+You are handed a predicate f and a table of strings. The question is only whether f says "yes" to at least one of them. What single answer should you give when not a single element makes f true — and is your loop even allowed to begin when the table is immediately empty?	empty table	single no match	none of several match
+The table is a list of pointers that runs until a marker pointer. Which value marks the end, and does your walk stop exactly there rather than one element early or late?	single match	match only at last
+Do not let the first element get skipped, and do not stop after only the first one either: the matching element might be anywhere. Are you actually feeding every element to f until one answers yes?	match at first position	match in the middle	match only at last
+f may answer "yes" with any nonzero number, large or small. Your job is to report mere presence, not to echo or accumulate whatever f hands back. When several elements match, should the caller see the same single answer they'd get from one lone match, regardless of how big f's numbers were?	every element matches	truthy is 100 normalise

@@ -1,0 +1,8 @@
+  The array is reprinted after the call, so compare it against its own input.
+    * odd lengths differ, even lengths agree -> the middle element, swapped with
+                                                itself or skipped
+    * length 0 or 1 differ                   -> a loop that cannot run zero times
+    * the array comes back unchanged         -> the two indices cross before
+                                                anything moves, or move together
+    * only the ends are right                -> both indices stepping from the
+                                                same side

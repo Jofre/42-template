@@ -1,0 +1,7 @@
+four ascending	[1][2][3][4]
+crosses zero	[-3][-2][-1][0][1][2]
+single element at zero	[0]
+single element non-zero	[42]
+negatives only	[-5][-4][-3]
+min equals max	NULL
+min greater than max	NULL

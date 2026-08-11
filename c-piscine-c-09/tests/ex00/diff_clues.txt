@@ -1,0 +1,7 @@
+  One number per line; group by the pair of strings.
+    * only the SIGN is wrong  -> which operand is subtracted from which
+    * pairs differing above 0x7f -> whether char is signed here; the comparison
+                                 is defined on unsigned values
+    * equal strings           -> the exit condition when both ends arrive
+                                 together
+    * prefixes ("ab" vs "abc") -> what is compared once one string runs out

@@ -1,0 +1,2 @@
+# clues.tsv for ft_tail
+tail -c N prints only the LAST N bytes. To know which bytes are last you need the whole content (or its length) first -- how do you keep the tail without assuming the file fits one fixed buffer? Think about N = 0 and N larger than the file.

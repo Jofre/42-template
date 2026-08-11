@@ -1,0 +1,6 @@
+  One count per list.
+    * the empty list          -> the size of nothing
+    * off by one              -> what the walk stops on; the last element is
+                                 counted, its empty link is not
+    * it never terminates     -> the variable that advances is not the one being
+                                 tested

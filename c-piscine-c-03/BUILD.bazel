@@ -1,0 +1,156 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_files", "c_function", "c_levels", "c_mem_check")
+
+c_function(num = "00", fn = "ft_strcmp", test = "test_strcmp.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# Live differential fuzz against the Rust reference (//oracle): thousands of
+# seeded inputs, exact-value compare. Complements the curated test_strcmp.c
+# cases and catches magnitude/edge bugs those cannot enumerate.
+c_diff(num = "00", fn = "ft_strcmp", harness = "diff_strcmp.c", oracle_fn = "c03_strcmp", diff_clues = "diff_clues.txt")
+
+c_function(num = "01", fn = "ft_strncmp", test = "test_strncmp.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# ft_strncmp / ft_strlcat carry an n/size SAFETY bound: they must never read past
+# it, even on non-NUL-terminated input. These run the function under ASan on such
+# input — a stray read past the bound is caught here (output diffing can't see it).
+c_mem_check(num = "01", fn = "ft_strncmp", probe = "mem_strncmp.c")
+
+c_diff(num = "01", fn = "ft_strncmp", harness = "diff_strncmp.c", oracle_fn = "c03_strncmp", diff_clues = "diff_clues.txt")
+
+c_function(num = "02", fn = "ft_strcat", test = "test_strcat.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# ft_strcat WRITES the concatenation into dest: it must write exactly
+# strlen(dest)+strlen(src)+1 bytes. This runs it under ASan with dest as a heap
+# buffer sized to that EXACT final length, so an off-by-one copy/terminate is a
+# heap-buffer-overflow caught here (output diffing can't see a stray write).
+c_mem_check(num = "02", fn = "ft_strcat", probe = "mem_strcat.c")
+
+c_diff(num = "02", fn = "ft_strcat", harness = "diff_strcat.c", oracle_fn = "c03_strcat", diff_clues = "diff_clues.txt")
+
+c_function(num = "03", fn = "ft_strncat", test = "test_strncat.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# ft_strncat carries an `nb` SAFETY bound on its read of src: per the contract
+# src need not be NUL-terminated when it holds nb+ bytes, so it must read only
+# src[0..nb-1] (test j < nb BEFORE dereferencing src[j]). This runs it under
+# ASan on a non-NUL-terminated src of exactly nb bytes — a stray read past the
+# bound is caught here (output diffing can't see it).
+c_mem_check(num = "03", fn = "ft_strncat", probe = "mem_strncat.c")
+
+c_diff(num = "03", fn = "ft_strncat", harness = "diff_strncat.c", oracle_fn = "c03_strncat", diff_clues = "diff_clues.txt")
+
+c_function(num = "04", fn = "ft_strstr", test = "test_strstr.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "04", fn = "ft_strstr", harness = "diff_strstr.c", oracle_fn = "c03_strstr", diff_clues = "diff_clues.txt")
+
+c_function(num = "05", fn = "ft_strlcat", test = "test_strlcat.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_mem_check(num = "05", fn = "ft_strlcat", probe = "mem_strlcat.c")
+
+c_diff(num = "05", fn = "ft_strlcat", harness = "diff_strlcat.c", oracle_fn = "c03_strlcat", diff_clues = "diff_clues.txt")
+
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["ft_strcmp.c"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["ft_strncmp.c"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_strcat.c"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["ft_strncat.c"],
+    strict = True,
+)
+c_files(
+    num = "04",
+    required = ["ft_strstr.c"],
+    strict = True,
+)
+c_files(
+    num = "05",
+    required = ["ft_strlcat.c"],
+    strict = True,
+)
+
+c_levels()
+
+c_cycles(
+    num = "00",
+    fn = "ft_strcmp",
+    oracle_fn = "c03_strcmp",
+    harness = "diff_strcmp.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # A number, not a reference implementation: it says where you stand without
+    # saying how to get there.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "01",
+    fn = "ft_strncmp",
+    oracle_fn = "c03_strncmp",
+    harness = "diff_strncmp.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # compare archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "02",
+    fn = "ft_strcat",
+    oracle_fn = "c03_strcat",
+    harness = "diff_strcat.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "03",
+    fn = "ft_strncat",
+    oracle_fn = "c03_strncat",
+    harness = "diff_strncat.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "04",
+    fn = "ft_strstr",
+    oracle_fn = "c03_strstr",
+    harness = "diff_strstr.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # compare archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "05",
+    fn = "ft_strlcat",
+    oracle_fn = "c03_strlcat",
+    harness = "diff_strlcat.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)

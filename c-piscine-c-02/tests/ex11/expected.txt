@@ -1,0 +1,9 @@
+" ~" (all printable)	 ~
+"a\b ~" (backslash IS printable)	a\b ~
+contains newline (0x0a)	Coucou\0atu vas bien ?
+subject transcript (en)	Hello\0aHow are you?
+contains tab (0x09)	Tab\09End
+0x07 and 0xff mixed in	Coucou\07tu vas\ff bien ?
+0x7f / DEL	\7f
+0x1f then 0x05	\1f\05
+high bytes 0x80, 0xff	\80\ff

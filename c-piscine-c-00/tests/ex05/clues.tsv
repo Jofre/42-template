@@ -1,0 +1,2 @@
+# clues.tsv for ft_print_comb — hints only, never answers.
+You need every strictly-increasing trio of digits, each once. How can you guarantee the three digits always increase (so no combination repeats), and where must the separator go so it does not appear after the very last trio?

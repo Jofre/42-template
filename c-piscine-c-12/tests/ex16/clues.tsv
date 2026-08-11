@@ -1,0 +1,2 @@
+# clues.tsv for ft_sorted_list_insert
+Walking down the list, what does cmp tell you about the exact moment your new element should stop and slot in — and which node is the predecessor you must hook it after? Reconsider the case where the new value belongs before the current first node: does *begin_list itself need to change, and have you kept a handle on the node you're stepping past so nothing after the insertion point gets lost?

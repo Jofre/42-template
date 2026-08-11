@@ -1,0 +1,8 @@
+  The returned string is printed, so a divergence is readable as text.
+    * one byte short          -> the allocation, or the terminator; the length
+                                 you need is not the length you copy
+    * the empty string        -> a size that cannot be zero, and an allocation
+                                 that still has to happen
+    * the result is not terminated -> the byte you allocate but never write
+    * the content is right but shared -> it has to be a COPY; check what the
+                                 pointer you return points into

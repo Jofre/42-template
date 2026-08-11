@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex04 (midLS)
+A single ls invocation has to do three jobs at once here — comma formatting, a type marker on directories, and a sort by modification time; the trap is reaching for separate commands or forgetting that the time sort defaults to newest-first only when you ask ls to sort by time at all.

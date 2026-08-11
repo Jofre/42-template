@@ -1,0 +1,2 @@
+# clues.tsv for ft_print_alphabet — hints only, never answers.
+You must print every lowercase letter in order. What character value do you start from, when do you stop, and does your stop condition still include the final letter?

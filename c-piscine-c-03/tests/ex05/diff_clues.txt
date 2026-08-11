@@ -1,0 +1,10 @@
+  Destination, then the return. They fail independently.
+    * the return column alone            -> what the subject says is returned; it
+                                            is built from the length the source
+                                            WANTED, not from what was copied
+    * size smaller than the destination  -> the case where nothing can be
+                                            appended at all, which the return
+                                            still has to describe
+    * size 0 diverges                    -> whether anything may be written
+    * truncated results lose the terminator -> the guarantee this function makes
+    * off by one at the boundary         -> the byte reserved for the terminator

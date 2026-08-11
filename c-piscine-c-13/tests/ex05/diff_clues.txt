@@ -1,0 +1,8 @@
+  The found item is printed, or nothing.
+    * an empty tree           -> the subject says what to return
+    * an item at the root     -> the comparison is being made after descending
+                                 rather than before
+    * items that are absent   -> the walk has to end, and end with the stated
+                                 answer
+    * it searches every node  -> the ordering is what makes this cheap; only one
+                                 side can hold the item

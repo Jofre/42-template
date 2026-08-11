@@ -1,0 +1,7 @@
+  The list is printed after the call.
+    * the empty list, or one element -> already sorted; neither may crash
+    * lists with EQUAL data   -> what the comparison returning zero means for
+                                 the order
+    * the values are sorted but the list is short -> links being rewritten while
+                                 still being walked
+    * the order is reversed   -> the comparison's sign convention

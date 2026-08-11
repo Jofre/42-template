@@ -1,0 +1,9 @@
+  Several strings and a separator; the joined result is printed as text.
+    * size 0                  -> the subject states exactly what to return, and
+                                 it is not NULL
+    * a single string         -> the separator appears once too often; it goes
+                                 BETWEEN, not after
+    * an empty separator      -> a length computation that assumed it was not
+    * the result is truncated -> the allocation; count the separators, not the
+                                 strings
+    * the result is not terminated -> the byte allocated but never written

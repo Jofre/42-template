@@ -1,0 +1,6 @@
+[0] "zero"	str=zero size=4 copy=zero str_is_av=1 copy_is_new=1
+[1] "" (empty)	str= size=0 copy= str_is_av=1 copy_is_new=1
+[2] "a"	str=a size=1 copy=a str_is_av=1 copy_is_new=1
+[3] "fortytwo!"	str=fortytwo! size=9 copy=fortytwo! str_is_av=1 copy_is_new=1
+terminator (str == NULL)	terminator_null:1
+ac=0 (terminator only)	terminator_null:1

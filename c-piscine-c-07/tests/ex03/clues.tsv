@@ -1,0 +1,8 @@
+# clues.tsv for ft_strjoin — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+Joining means copying each string end to end into one fresh buffer. With a single element there is nothing to glue, so where does the separator belong? Copy the characters one by one and remember the terminating byte at the very end.	single element, sep unused	two strings, dash separator
+The separator sits only in the gaps between elements — never before the first and never after the last. For N strings, how many gaps are there? Walk the list and decide, for each element, whether a separator should come first.	three strings, comma-space separator	empty elements with separator
+An empty separator and empty elements are still real strings of length zero. If your buffer size is computed from the actual lengths you measure, do these cases need any special handling at all?	empty separator joins two	empty separator joins ab cd	empty elements with separator
+Work out the exact number of bytes you need BEFORE copying: every element's length, plus the separator for each gap, plus room for the terminator. A wrong total here corrupts everything downstream.	two strings, dash separator	three strings, comma-space separator
+A size of zero asks for the join of nothing. That is still a string you can hand back and the caller will free — what is the smallest allocation that holds an empty, terminated string?	size 0 empty string

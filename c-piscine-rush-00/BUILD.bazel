@@ -1,0 +1,98 @@
+load("//tools:defs.bzl", "c_files", "c_levels", "rush_common", "rush_variant")
+
+# ---------------------------------------------------------------------------
+# Which variant does your team owe?
+#
+# Take the first letter of your TEAM LEADER's login (A = 1, B = 2, ... Z = 26),
+# take that number modulo 5, and that is your subject number (the rule is 42's,
+# from the group note):  0 -> rush00.c, 1 -> rush01.c, ... 4 -> rush04.c
+#
+# List it in ASSIGNED. Only the variants named here are GATED: their tests run
+# under `bazel test //...` and have to be green before `bazel run //tools:submit`
+# will push the module. Every other variant is a bonus — its tests are tagged
+# "manual", so untouched stubs can never block your submission.
+#
+# Work on a bonus variant with its own suite:
+#     bazel test //c-piscine-rush-00:ex00_rush03
+# and move it into ASSIGNED once you want it gated with the rest.
+#
+# ALL FIVE are listed here out of the box, so that nothing is silently ungated
+# in a fresh clone. Narrow it to the one you owe before you start: the other four
+# then become bonus, tagged `manual`, and untouched stubs cannot block you.
+#
+# Widen it again as you finish them, because leaving a WRITTEN variant ungated
+# has a cost this repo has already paid: a comment-only commit silently
+# re-pasted rush00's body into the other four, so every one of them drew
+# rush00's characters and rush01 stopped compiling outright, and neither was
+# visible for weeks because `bazel test //...` never touched them. An ungated
+# variant is one a later edit can break without the suite noticing.
+#
+# The five variants draw the same rectangle with different characters, and they
+# are not equally revealing: rush00 uses one character for all four corners, so
+# it cannot see a corner mix-up, while rush01..rush04 use a single character for
+# both walls, so they cannot see a horizontal/vertical wall swap. Running all
+# five (they share one implementation shape) is the only way to cover both.
+# ---------------------------------------------------------------------------
+ASSIGNED = ["00", "01", "02", "03", "04"]
+
+VARIANTS = ["00", "01", "02", "03", "04"]
+
+# Each rush0N.c exports rush() and nothing else: the helpers are static and
+# declared locally, so the evaluator's own main() cannot collide with them.
+# This is the default rush_variant asks for, so nothing needs passing here.
+
+# main.c + ft_putchar.c: norm, both campus compilers, and ft_putchar's own
+# output/forbidden tests (linked against ft_putchar.c alone).
+rush_common()
+
+# Every layer, once per variant. See //tools:defs.bzl for the list.
+[
+    rush_variant(variant = v, gated = v in ASSIGNED)
+    for v in VARIANTS
+]
+
+# rush05.c sits in deliverable/ex00 and NO target above touches it. That is
+# deliberate, and it is recorded here because the file looks exactly like an
+# unguarded oversight: it is git-tracked, //tools:submit pushes it with the rest,
+# it #includes rush.h and it is the only consumer of RUSH_BAD — yet rush_common()
+# globs *.h plus main.c and ft_putchar.c only, and rush_variant() is driven by
+# VARIANTS above, so neither its norm nor its compile is ever run.
+#
+# Its own line 14 says what it is: "This is not an exercise, but wanted to test
+# the default icons." Gating a scratch file would lock it into compiling forever,
+# which is the false-positive pattern this module already avoids for its bonus
+# variants; and the failure such a gate would guard against produces no output
+# rather than wrong output, because nothing ever calls the rush() it defines. The
+# c_files call below already reports it as an extra file — a warning that still
+# passes — which is where this decision is meant to stay visible.
+#
+# Checked rather than assumed, so the residual is known: clang-12 and gcc-10 both
+# compile it clean at -Wall -Wextra -Werror and norminette 3.3.59 prints
+# "rush05.c: OK!". The one real exposure is an evaluator who runs norminette
+# across the whole turn-in directory and reaches it — and that argues for a
+# decision about the FILE (delete it, or move it out of deliverable/), not for a
+# test that pins a scratchpad into compiling forever.
+
+# What the subject's file list says you owe. A missing one FAILS; anything else
+# in the folder is reported as a warning and still passes, because the Rush is
+# reviewed by a person rather than auto-graded and an extra file is often
+# defensible — rush.h exists because the Norm forbids declaring a struct inside
+# a .c file, which is a reason you can give an evaluator. The warning is there
+# so the decision stays deliberate, and as a reminder that //tools:submit pushes
+# those files too.
+c_files(
+    num = "00",
+    # sh_test args are shell-tokenised, so no spaces in a single arg
+    label = "c-piscine-rush-00/deliverable/ex00",
+    required = [
+        "main.c",
+        "ft_putchar.c",
+        "rush00.c",
+        "rush01.c",
+        "rush02.c",
+        "rush03.c",
+        "rush04.c",
+    ],
+)
+
+c_levels()

@@ -1,0 +1,5 @@
+  One count per array.
+    * length 0                -> the count of nothing
+    * off by exactly the number of matches -> counting the wrong branch
+    * the answer is 0 or 1 only -> a count that has become a flag; the loop must
+                                 not stop at the first match

@@ -1,0 +1,2 @@
+# clues.tsv for btree_insert_data
+Why is root passed as a pointer-to-pointer rather than a plain node, and what must happen when the slot you are looking at is already NULL (including the very first insert into an empty tree)? As you descend, what does the sign of cmpf's result tell you about going toward left versus right, and where exactly does the new node finally get attached?

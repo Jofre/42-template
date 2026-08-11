@@ -1,0 +1,146 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_files", "c_function", "c_levels")
+
+c_function(num = "00", fn = "ft_strlen", test = "test_strlen.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_function(num = "01", fn = "ft_putstr", test = "test_putstr.c", allowed = ["write"], clues = "clues.tsv")
+
+# ex00 and ex01 carry NO differential arm on purpose. Both are exact repeats of
+# an exercise one module earlier — ft_strlen is c-01 ex06 and ft_putstr is c-01
+# ex05, same prototype, same contract — and both of those already carry a live
+# c_diff (c01_strlen, c01_putstr). This is the reasoning
+# c-piscine-c-09/BUILD.bazel:36 records for the bundled libft's ft_strlen, which
+# it leaves "to c-01's c01_strlen, which is the same contract": a repeated
+# contract gets fuzzed once, where it first appears.
+#
+# It matters WHERE, because the bug these two hide is the signed-char one — a
+# scan that walks while the current byte is POSITIVE rather than while it is
+# non-zero, and so stops dead at the first byte >= 0x80, which is negative once
+# a plain `char` is signed. (Stated as a property, not as code: the house rule
+# for anything a student may read is hints, never answers, and every clues.tsv
+# in this repo holds that line.) Neither fixture in this module drives a byte
+# with the high bit set — every string in tests/ex00/test_strlen.c and
+# tests/ex01/test_putstr.c is printable ASCII plus the odd tab, and a tab is
+# positive as a signed char too. So both of these exercises are green on that
+# bug here, and red one module earlier. That is not left to a random corpus
+# either: oracle/src/c01.rs::gen_strlen() pins
+# [0xff, 0x80, 0x7f, 0x01] and a run of five 0x80s ahead of its random tail "so a
+# signed-char length loop that mishandles bytes >= 0x80 is caught
+# deterministically", gen_putstr() pins 0x7f, 0x80 and [0xff, 0x01, 0x7f, 0x80],
+# and oracle/src/c02.rs pins the same corners ("0xff (high-bit / signed-char
+# trap)") for the twelve fuzzed traversals of c-02 — read-only scans, in-place
+# rewrites and a write path. Replaying those same bytes through the same two
+# contracts a second time would be redundancy, not coverage.
+
+c_function(num = "02", fn = "ft_putnbr", test = "test_putnbr.c", allowed = ["write"], labeled = True, clues = "clues.tsv")
+
+# Live differential fuzz against the Rust reference (//oracle): 400k seeded ints,
+# exact-value compare. The harness sets stdout unbuffered so the student's
+# write() bytes stay interleaved with the harness's printf labels.
+c_diff(
+    num = "02",
+    fn = "ft_putnbr",
+    harness = "diff_putnbr.c",
+    oracle_fn = "c04_putnbr",
+    # Lower count: this function write()s one CHARACTER at a time, which is what
+    # the subject asks for, so its replay is syscall-bound and dominates the
+    # layer's wall time (measured 52s of a 60s budget at 400k under full-suite
+    # contention). Each generator emits its pinned contract corners FIRST and
+    # only the seeded random tail shrinks, so no boundary case is lost.
+    count = 100000,
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(num = "03", fn = "ft_atoi", test = "test_atoi.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# NOT libc semantics: this subject's ft_atoi consumes an ARBITRARY RUN of signs
+# ("a '-' sign will invert the result depending on whether the number of '-'
+# signs is odd or even", with the worked example " ---+--+1234ab567" -> -1234),
+# so libc's atoi — which stops after one sign — is not a valid cross-check. The
+# reference is pinned by that example, by tests/ex03/expected.txt, and by the
+# atoi/putnbr round-trip. Magnitudes stay <= INT_MAX so no overflow-UB can cause
+# a false divergence.
+c_diff(num = "03", fn = "ft_atoi", harness = "diff_atoi.c", oracle_fn = "c04_atoi", diff_clues = "diff_clues.txt")
+
+c_function(num = "04", fn = "ft_putnbr_base", test = "test_putnbr_base.c", allowed = ["write"], labeled = True, clues = "clues.tsv")
+
+c_diff(
+    num = "04",
+    fn = "ft_putnbr_base",
+    harness = "diff_putnbr_base.c",
+    oracle_fn = "c04_putnbr_base",
+    # Lower count: this function write()s one CHARACTER at a time, which is what
+    # the subject asks for, so its replay is syscall-bound and dominates the
+    # layer's wall time (measured 52s of a 60s budget at 400k under full-suite
+    # contention). Each generator emits its pinned contract corners FIRST and
+    # only the seeded random tail shrinks, so no boundary case is lost.
+    count = 100000,
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(num = "05", fn = "ft_atoi_base", test = "test_atoi_base.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "05", fn = "ft_atoi_base", harness = "diff_atoi_base.c", oracle_fn = "c04_atoi_base", diff_clues = "diff_clues.txt")
+
+
+# No valgrind arm anywhere in this module: no exercise here is allowed malloc, so
+# nothing can leak — see the `allowed` rule written out in
+# c-piscine-c-00/BUILD.bazel.
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["ft_strlen.c"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["ft_putstr.c"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_putnbr.c"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["ft_atoi.c"],
+    strict = True,
+)
+c_files(
+    num = "04",
+    required = ["ft_putnbr_base.c"],
+    strict = True,
+)
+c_files(
+    num = "05",
+    required = ["ft_atoi_base.c"],
+    strict = True,
+)
+
+c_levels()
+
+c_cycles(
+    num = "02",
+    fn = "ft_putnbr",
+    oracle_fn = "c04_putnbr",
+    harness = "diff_putnbr.c",
+    unit_expr = "length($2)",
+    unit_name = "digit",
+    # A number, not a reference implementation: it says where you stand without
+    # saying how to get there.
+    budget = 40,
+    syscall_budget = 1.0,
+)
+
+c_cycles(
+    num = "04",
+    fn = "ft_putnbr_base",
+    oracle_fn = "c04_putnbr_base",
+    harness = "diff_putnbr_base.c",
+    unit_expr = "length($2)",
+    unit_name = "digit",
+    # emit_nbr archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 40,
+    syscall_budget = 1.0,
+)

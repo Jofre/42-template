@@ -1,0 +1,34 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//tools:defs.bzl", "c_levels", "shell_exercise")
+
+# Rebuild this module's deliverable/ from the generators:
+#   bazel run //c-piscine-shell-01:generate
+sh_binary(
+    name = "generate",
+    srcs = ["//tools:generate.sh"],
+    args = ["c-piscine-shell-01"],
+)
+
+shell_exercise(num = "01", mode = "check", deliverable = "print_groups.sh")
+shell_exercise(num = "02", mode = "check", deliverable = "find_sh.sh")
+shell_exercise(num = "03", mode = "check", deliverable = "count_files.sh")
+
+# Host/network-coupled — excluded from the default run (run explicitly with
+# --test_tag_filters=manual --spawn_strategy=local).
+shell_exercise(
+    num = "04",
+    mode = "check",
+    deliverable = "MAC.sh",
+    tags = ["manual", "env", "no-sandbox"],
+)
+shell_exercise(num = "05", mode = "check")
+shell_exercise(num = "06", mode = "check", deliverable = "skip.sh")
+shell_exercise(
+    num = "07",
+    mode = "check",
+    deliverable = "r_dwssap.sh",
+    tags = ["manual", "env"],
+)
+shell_exercise(num = "08", mode = "check", deliverable = "add_chelou.sh")
+
+c_levels()

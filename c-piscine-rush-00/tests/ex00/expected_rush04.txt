@@ -1,0 +1,26 @@
+1x1 single cell	A\n
+2x1 one row	AC\n
+1x2 one column	A\nC\n
+2x2 all corners	AC\nCA\n
+3x1 row of three	ABC\n
+1x3 column of three	A\nB\nC\n
+3x2	ABC\nCBA\n
+2x3	AC\nBB\nCA\n
+3x3 first interior	ABC\nB B\nCBA\n
+4x4 (subject)	ABBC\nB  B\nB  B\nCBBA\n
+5x1 (subject)	ABBBC\n
+1x5 (subject)	A\nB\nB\nB\nC\n
+5x3 (subject)	ABBBC\nB   B\nCBBBA\n
+5x5	ABBBC\nB   B\nB   B\nB   B\nCBBBA\n
+6x2	ABBBBC\nCBBBBA\n
+2x6	AC\nBB\nBB\nBB\nBB\nCA\n
+7x3	ABBBBBC\nB     B\nCBBBBBA\n
+3x7	ABC\nB B\nB B\nB B\nB B\nB B\nCBA\n
+8x1 wide row	ABBBBBBC\n
+1x8 tall column	A\nB\nB\nB\nB\nB\nB\nC\n
+9x4	ABBBBBBBC\nB       B\nB       B\nCBBBBBBBA\n
+4x9	ABBC\nB  B\nB  B\nB  B\nB  B\nB  B\nB  B\nB  B\nCBBA\n
+10x2	ABBBBBBBBC\nCBBBBBBBBA\n
+12x5	ABBBBBBBBBBC\nB          B\nB          B\nB          B\nCBBBBBBBBBBA\n
+20x3 wide	ABBBBBBBBBBBBBBBBBBC\nB                  B\nCBBBBBBBBBBBBBBBBBBA\n
+3x20 tall	ABC\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nB B\nCBA\n

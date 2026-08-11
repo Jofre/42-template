@@ -1,0 +1,6 @@
+# clues.tsv for ft_sort_string_tab — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+How do you decide which of two strings comes first? You cannot compare whole strings with a single relational operator — you have to walk them byte by byte until they differ. What does that first differing byte tell you about the order? Remember an uppercase letter and a lowercase letter have very different byte values.	already sorted	reverse sorted	uppercase before lowercase	shared prefix differ mid-string	one string is a prefix of another	differ only at last byte
+Putting two strings in the right order means moving them — but the array holds pointers. When two neighbours are out of order, what exactly do you exchange, and does swapping the pointers move the actual characters? Keep going until a full pass disturbs nothing.	reverse sorted	duplicates preserved
+Where does this array stop? It has no length stored anywhere, so something marks the end. What is the very last slot, and how does your loop know not to read past it? What should happen when there is nothing, or only one thing, to sort?	empty table	single element	duplicates preserved

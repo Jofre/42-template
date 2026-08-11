@@ -1,0 +1,382 @@
+module(
+    name = "c_piscine",
+    version = "1.0",
+)
+
+bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+
+# Grader-side only: the //oracle reference is built with a Bazel-managed,
+# hermetic Rust toolchain (no system rustc needed on any test machine). Rust is
+# never part of a student deliverable — it is the live differential-test oracle.
+bazel_dep(name = "rules_rust", version = "0.71.3")
+
+# buildifier, fetched by Bazel rather than found on the host.
+#
+# Unlike the compiler pins, this one needs no campus data: buildifier is OUR
+# tool, not one the Moulinette uses, so the only requirement is that everyone
+# gets the SAME one. Its version decides which lint warnings exist, so a host
+# copy would make //tools:conventions pass or fail depending on the machine --
+# which is the whole failure this repo is moving away from.
+bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3", dev_dependency = True)
+
+# norminette, fetched by Bazel instead of taken from the host.
+#
+# This is the first pin that must MATCH CAMPUS rather than merely be fixed: the
+# norm layer's verdict has to be the one the Moulinette would give.
+#
+# The version is 3.3.58, and the authority is tools/requirements.txt with
+# tools/pins.tsv beside it -- not this comment, which said 3.3.59 until
+# 2026-08-10 and had been wrong since the 2026-08-09 campus audit re-pinned it
+# DOWN to 3.3.58. Worth naming, because a stale comment about a pin is the one
+# kind that reads as a second, disagreeing source of truth. `bazel run
+# //tools:env_drift` reports the host's copy separately from the fetched one and
+# currently shows exactly that gap: this container carries 3.3.59, the layer
+# runs 3.3.58.
+bazel_dep(name = "rules_python", version = "2.2.0")
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "pip_tools",
+    python_version = "3.11",
+    requirements_lock = "//tools:requirements.txt",
+)
+use_repo(pip, "pip_tools")
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(edition = "2021")
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+# ---------------------------------------------------------------------------
+# A hermetic 32-bit C compiler, for the *_ilp32 test layer.
+#
+# Zig ships clang plus the headers and libc for every target it supports, so
+# `zig cc -target x86-linux-musl -static` produces a self-contained 32-bit
+# binary with nothing installed on the host — no gcc-multilib, no libc6-dev-i386,
+# no root. That matters because the campus machines cannot install packages, and
+# the whole point of the layer is to run where `long` is no wider than `int`.
+# Fetched once by Bazel and cached; the layer skips loudly if it is unavailable.
+# ---------------------------------------------------------------------------
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "zig_linux_x86_64",
+    build_file_content = """
+exports_files(["zig"], visibility = ["//visibility:public"])
+
+filegroup(
+    name = "sdk",
+    srcs = ["zig"] + glob(["lib/**"]),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "d45312e61ebcc48032b77bc4cf7fd6915c11fa16e4aad116b66c9468211230ea",
+    strip_prefix = "zig-linux-x86_64-0.13.0",
+    urls = ["https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz"],
+)
+
+# shellcheck, fetched and pinned rather than assumed to be installed.
+#
+# Same reasoning as zig above, and it is the rule for every tool this repo runs:
+# a campus machine is not yours to configure. Different boxes carry different
+# shells and different tool versions, and a check that behaves differently
+# depending on which one you sat down at is not a check. Everything here has to
+# work from a clone plus bazelisk and nothing else.
+#
+# The sha256 is the point, not decoration: it pins the exact binary, so a lint
+# that passes today cannot start failing tomorrow because upstream shipped a new
+# release with new warnings.
+http_archive(
+    name = "shellcheck_linux_x86_64",
+    build_file_content = """
+exports_files(["shellcheck"], visibility = ["//visibility:public"])
+""",
+    sha256 = "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87",
+    strip_prefix = "shellcheck-v0.10.0",
+    urls = ["https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz"],
+)
+
+# ---------------------------------------------------------------------------
+# nm, from the EXACT binutils the campus box runs.
+#
+# Three layers shell out to nm -- symbols_test.sh, forbidden_symbols.sh and
+# make_test.sh -- and between them they decide whether a deliverable exports
+# something it should not, calls a function the subject forbids, or built the
+# archive c-09 asks for. Until this pin they ran whatever nm was first on PATH.
+#
+# That is not hypothetical drift. The 2026-08-09 campus audit found nm resolving
+# to a student's own Homebrew binutils 2.46.1, SHADOWING the system 2.38 that
+# the Moulinette actually uses -- so the layers deciding those three questions
+# were reading a different tool than the grader.
+#
+# 2.38-4ubuntu2.12 is that system version, fetched as Ubuntu's own .deb. See
+# tools/deb.bzl for why a .deb rather than the LLVM release tarball: 2.2 MB
+# against ~400 MB, and the exact build instead of a near one.
+deb_archive = use_repo_rule("//tools:deb.bzl", "deb_archive")
+
+deb_archive(
+    name = "binutils_x86_64_linux_gnu",
+    build_file_content = """exports_files(
+    [
+        "usr/bin/x86_64-linux-gnu-nm",
+        "usr/bin/x86_64-linux-gnu-ar",
+        # The assembler gcc shells out to. gcc finds it under this exact
+        # target-prefixed name when given -B pointing at the directory, so
+        # nothing has to be renamed -- see compile_check.sh --cc-progs.
+        "usr/bin/x86_64-linux-gnu-as",
+    ],
+    visibility = ["//visibility:public"],
+)""",
+    debs = {
+        "6752566855c79448f8173e61eacde2ef582299480f1abcf4c2ba7ce84718ef32": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/b/binutils/binutils-x86-64-linux-gnu_2.38-4ubuntu2.12_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/b/binutils/binutils-x86-64-linux-gnu_2.38-4ubuntu2.12_amd64.deb",
+        ],
+    },
+)
+
+# GNU Make 4.3, the campus's -- and the one pin where the tool is not just how
+# a check is performed but part of what is GRADED. c-09, c-10 and rush-02
+# require the student's own Makefile to work, and the Moulinette runs it with
+# its own copy of make; running it here with the box's meant a Makefile could
+# pass locally on a make that resolves things differently. 180 KB.
+deb_archive(
+    name = "make_ubuntu",
+    build_file_content = """exports_files(
+    ["usr/bin/make"],
+    visibility = ["//visibility:public"],
+)""",
+    debs = {
+        "080b79a1a1623a2e6c6eead37d62b15fdf2c3dbfeafe8ecf5e31c54eb09eadcc": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/m/make-dfsg/make_4.3-4.1build1_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/m/make-dfsg/make_4.3-4.1build1_amd64.deb",
+        ],
+    },
+)
+
+# diffutils 3.8, the campus's. Two call sites only -- progname_test.sh and
+# shell_test.sh -- but both put `diff -u` output in front of a student, and the
+# unified-diff format is not identical between GNU and BSD diff. 170 KB.
+#
+# (TODO 14's surface table claimed twelve runners used diff. That count came
+# from grepping for the WORD, which appears in prose, in target names and in the
+# name of the diff LAYER -- which does its own comparison and never shells out.)
+deb_archive(
+    name = "diffutils_ubuntu",
+    build_file_content = """exports_files(
+    ["usr/bin/diff"],
+    visibility = ["//visibility:public"],
+)""",
+    debs = {
+        "521bdc309168c15662347d4a861ece04d85745dbf9237b1e166d4f90f35c1bb5": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/d/diffutils/diffutils_3.8-0ubuntu2_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/d/diffutils/diffutils_3.8-0ubuntu2_amd64.deb",
+        ],
+    },
+)
+
+# The campus's OTHER compiler, exactly: gcc 10.5.0-1ubuntu1~22.04.3. Same
+# reasoning as clang below, and the same shape -- the driver, the preprocessor,
+# the base package and the target headers/libraries, laid over each other so
+# gcc finds cc1 by walking up from its own path.
+#
+# Its leaf libraries (libisl, libmpc, libmpfr, libgmp, libzstd, which cc1 links
+# against) come from the box, exactly as clang's libtinfo and libedit do -- see
+# the note in tools/deb.bzl on why a sysroot is the wrong trade here.
+deb_archive(
+    name = "gcc_10_ubuntu",
+    build_file_content = """exports_files(
+    ["usr/bin/x86_64-linux-gnu-gcc-10"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "runtime",
+    srcs = glob(
+        # cc1, collect2, the crt objects, gcc's own headers and libgcc.a --
+        # everything the driver reaches for after parsing the command line, all
+        # of it under one prefix on this distribution.
+        ["usr/lib/gcc/**"],
+        allow_empty = False,
+    ),
+    visibility = ["//visibility:public"],
+)""",
+    debs = {
+        # gcc-10: the driver and cc1.
+        "263ae04e5076c946df4e082058076b0b4183374f6053b860a24515ff8b0e0aab": [
+            "http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-10/gcc-10_10.5.0-1ubuntu1~22.04.3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/universe/g/gcc-10/gcc-10_10.5.0-1ubuntu1~22.04.3_amd64.deb",
+        ],
+        # cpp-10: the preprocessor driver.
+        "66f18a37d84ca30c542052f7cdc08f7a3b3d36561a0d677f0f8304c6bf4de161": [
+            "http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-10/cpp-10_10.5.0-1ubuntu1~22.04.3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/universe/g/gcc-10/cpp-10_10.5.0-1ubuntu1~22.04.3_amd64.deb",
+        ],
+        # gcc-10-base: the version-stamped support files.
+        "b0958b61982af7fd2913dd225efec982efb4512ae1691398d70c38d1fc0c8642": [
+            "http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-10/gcc-10-base_10.5.0-1ubuntu1~22.04.3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/universe/g/gcc-10/gcc-10-base_10.5.0-1ubuntu1~22.04.3_amd64.deb",
+        ],
+        # libgcc-10-dev: gcc's own headers and the crt objects.
+        "2d74f1b61399985de75f340edb91f8bdc5984f99d1deaff11e730cab6a379bd2": [
+            "http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-10/libgcc-10-dev_10.5.0-1ubuntu1~22.04.3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/universe/g/gcc-10/libgcc-10-dev_10.5.0-1ubuntu1~22.04.3_amd64.deb",
+        ],
+    },
+)
+
+# The campus compiler, exactly: 12.0.1-19ubuntu3, the same build the Moulinette
+# runs, not the nearest official LLVM release. Four packages because clang is
+# not one thing -- the driver is 100 KB and everything it does is in
+# libclang-cpp and libLLVM, with its own headers (stddef.h, stdarg.h, the
+# intrinsics) in libclang-common-12-dev. All four lay over each other into the
+# layout clang expects, so it finds its resource directory relative to its own
+# path with nothing configured.
+#
+# 37 MB together, against ~400 MB for the official tarball that would also have
+# been a patch release off.
+deb_archive(
+    name = "clang_12_ubuntu",
+    build_file_content = """exports_files(
+    [
+        "usr/lib/llvm-12/bin/clang-12",
+        # Named individually as well as being in :runtime, because the compile
+        # layer passes each one's PATH and takes its directory. Deriving the
+        # directory from the driver instead cannot work: "clang-12/.." walks
+        # through a file, so it resolves to nothing.
+        "usr/lib/llvm-12/lib/libclang-cpp.so.12",
+        "usr/lib/x86_64-linux-gnu/libLLVM-12.so.1",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# What the driver loads at run time, and nothing else. Every compile test
+# stages this, so the glob is narrow on purpose: the two packages together
+# unpack to ~200 MB of Polly archives, cmake files and static libraries a C
+# compile never touches, and staging 400 files per test instead of 283 is paid
+# once for every exercise in the repo.
+#
+# The three parts, none of them optional:
+#   libclang-cpp.so.12  the front end
+#   libLLVM-12.so*      the back end (the .so.1 the driver names is a symlink)
+#   clang/12.0.1/include  clang's OWN headers -- stddef.h, stdarg.h, the
+#                       intrinsics. Without them every compile fails on
+#                       <stddef.h>, which reads like a broken box rather than
+#                       an incomplete fetch. clang finds them by walking up
+#                       from its own path, so the layout has to stay as
+#                       packaged.
+filegroup(
+    name = "runtime",
+    srcs = glob(
+        [
+            "usr/lib/llvm-12/lib/libclang-cpp.so.12",
+            "usr/lib/x86_64-linux-gnu/libLLVM-12.so*",
+            "usr/lib/llvm-12/lib/clang/*/include/**",
+        ],
+        allow_empty = False,
+    ),
+    visibility = ["//visibility:public"],
+)""",
+    debs = {
+        # clang-12: the driver.
+        "d24a5c5908d141669e886369f54b1c59c611b47ff035aec5434818151980274a": [
+            "http://archive.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/clang-12_12.0.1-19ubuntu3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/clang-12_12.0.1-19ubuntu3_amd64.deb",
+        ],
+        # libclang-cpp12: the front end.
+        "b4d72126c89e1a59e6f620ab7d41d3162654c53689fe7cc4e7c7f35ff2d91e06": [
+            "http://archive.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/libclang-cpp12_12.0.1-19ubuntu3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/libclang-cpp12_12.0.1-19ubuntu3_amd64.deb",
+        ],
+        # libclang-common-12-dev: the resource directory -- clang's own
+        # stddef.h and friends. Without it every compile fails on <stddef.h>.
+        "75016f5f0edcc80dcd9d14ea0730235d9cb0bec4cd17d503f26e6270f30fe5f7": [
+            "http://archive.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/libclang-common-12-dev_12.0.1-19ubuntu3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/libclang-common-12-dev_12.0.1-19ubuntu3_amd64.deb",
+        ],
+        # libllvm12: the back end.
+        "d4c61c251151af032b1014a31774d3d8b624a4246ae3bb2347af76eb98fc43dc": [
+            "http://archive.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/libllvm12_12.0.1-19ubuntu3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/libllvm12_12.0.1-19ubuntu3_amd64.deb",
+        ],
+    },
+)
+
+# valgrind 3.18.1-1ubuntu2, the campus box's, and the last tool in this file
+# that a verdict depended on the host for.
+#
+# WHY IT MATTERS MORE THAN THE OTHERS. It is the only layer in the suite that
+# can see a leak. Every other check reads what a program printed or what its
+# symbols are; memcheck is the one that reads what it did with memory, so
+# "whichever valgrind the box happens to carry" was the weakest link in a chain
+# whose whole claim is that the verdict does not depend on the box.
+#
+# WHY A .deb AND NOT A SOURCE BUILD. The plan this closes assumed a source build
+# inside a repository rule, on the grounds that no glibc-portable prebuilt
+# exists. That was written before tools/deb.bzl worked, and it is wrong in a way
+# worth recording: valgrind RELOCATES. It looks for its tool binaries through
+# $VALGRIND_LIB, which is exactly the escape hatch a package built for
+# /usr/libexec needs in order to run from a Bazel repository. Measured before
+# writing any of this: a copy moved out of /usr with VALGRIND_LIB pointing at
+# its libexec still reports "10 bytes in 1 blocks are definitely lost" and still
+# honours --error-exitcode, and callgrind still writes a profile. A source build
+# would have bought the same thing for a great deal more.
+#
+# THREE PIECES, and the second is the one that is easy to miss:
+#   usr/bin/valgrind.bin  -- the actual binary. /usr/bin/valgrind is a WRAPPER
+#                            script that execs "$0.bin"; running the wrapper
+#                            from a runfiles tree fails on the derived path, so
+#                            the runners are pointed at the .bin directly. All
+#                            the wrapper adds is LD_LIBRARY_PATH=/usr/lib/debug
+#                            (a path that does not exist here) and two
+#                            GLIBCXX_FORCE_NEW exports for gcc < 3.4.
+#   usr/libexec/valgrind/ -- memcheck-amd64-linux, callgrind-amd64-linux, the
+#                            vgpreload shims and the register-description XML.
+#                            144 files, and valgrind exits immediately without
+#                            them; $VALGRIND_LIB is how it is told where they
+#                            went.
+#   usr/bin/callgrind_annotate -- a Perl script, which the cycles layers parse.
+#
+# STILL THE HOST'S, and named rather than left implicit: perl, for that last
+# script. It is not a verdict-deciding tool in the sense the compilers are --
+# it formats a profile valgrind produced -- and pinning an interpreter to read
+# one text file is the wrong trade. tools/pins.tsv carries a perl row so a
+# campus move is visible, and the cycles layers already SKIP loudly without it.
+deb_archive(
+    name = "valgrind_ubuntu",
+    build_file_content = """exports_files(
+    [
+        "usr/bin/valgrind.bin",
+        "usr/bin/callgrind_annotate",
+        # Named individually as well as being in :runtime, because a runner is
+        # handed ONE of these and derives $VALGRIND_LIB from its directory.
+        # $(location) on the filegroup would refuse (many files), and
+        # $(location file)/.. walks through a file rather than naming its
+        # parent -- so the runner takes a file and does readlink -f + dirname.
+        "usr/libexec/valgrind/memcheck-amd64-linux",
+        "usr/libexec/valgrind/callgrind-amd64-linux",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "runtime",
+    srcs = glob(
+        # Everything valgrind reaches for after it starts: the per-tool
+        # binaries, the preload shims and the XML. Passed to the runners so
+        # they can set VALGRIND_LIB to this directory -- see tools/deb.bzl on
+        # why the packaged layout is kept rather than flattened.
+        ["usr/libexec/valgrind/**"],
+        allow_empty = False,
+    ),
+    visibility = ["//visibility:public"],
+)""",
+    debs = {
+        "8376c1524d187246eb09b15531c83d83567bdbc609880622a05bc8126558a221": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/v/valgrind/valgrind_3.18.1-1ubuntu2_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/v/valgrind/valgrind_3.18.1-1ubuntu2_amd64.deb",
+        ],
+    },
+)

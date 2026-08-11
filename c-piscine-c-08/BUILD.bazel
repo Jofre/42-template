@@ -1,0 +1,242 @@
+load("//tools:defs.bzl", "c_diff", "c_files", "c_function", "c_header", "c_levels", "c_mem_check")
+
+# ex00 and ex03 carry no `probe`, and so have no `forbidden` layer, on purpose:
+# ft.h holds prototypes and ft_point.h a lone typedef, so neither has anything
+# that can be expanded into a call. There is no surface for the check to inspect
+# -- not an omission.
+c_header(
+    num = "00",
+    hdr = "ft.h",
+    main = "test_ft_h.c",
+    # Spelled out rather than left to c_header's default case, because the
+    # default carries no `clues` key and these two were the only exercise test
+    # directories in the repo with no hints at all. Adding the key to the DEFAULT
+    # would be worse: it fires for every future c_header caller, and a missing
+    # clues.tsv would become a Bazel analysis error rather than a soft absence.
+    cases = [{"name": "compile", "expected": "expected.txt", "args": [], "clues": "clues.tsv"}],
+)
+
+# ft_boolean.h / ft_abs.h define function-like macros (EVEN, ABS); the subject
+# mandates norminette -R CheckDefine for these so those macros are permitted.
+#
+# That permission is exactly what opens the hole the `probe` closes. A macro is
+# free to expand into a libc call -- `# define ABS(n) (abs(n))` -- and until this
+# layer existed that header passed all thirteen of ex02's checks while the
+# subject's "Allowed functions: None" made it a KO. Norm cannot see it (the macro
+# is legal), output cannot see it (the answer is right), and the header itself
+# has no object file to inspect. The probe supplies one.
+c_header(
+    num = "01",
+    hdr = "ft_boolean.h",
+    main = "test_boolean.c",
+    norm_flags = ["-R", "CheckDefine"],
+    probe = "probe_boolean.c",
+    cases = [
+        {"name": "even", "args": [], "expected": "even.txt", "clues": "clues.tsv"},
+        {"name": "odd", "args": ["x"], "expected": "odd.txt", "clues": "clues.tsv"},
+        # SUCCESS is 0 -- asserted here, and nowhere else, because it needs its
+        # own case rather than a flag on one of the two above.
+        #
+        # A `level` applies to the whole test, so hanging "exit": 0 on the
+        # "even" case would have carried the subject's own output check up to
+        # level 2 with it -- out of `basic`, out of the submit gate, and out of
+        # the first thing a beginner runs. That is backwards: the printing is
+        # this exercise's actual requirement and the exit code is the addition.
+        # Same fixture, same expected bytes; only the extra assertion differs.
+        #
+        # And it IS an addition, not a quotation. The subject's main ends
+        # `return (SUCCESS);` and the fixture copies it, which is the only way a
+        # header's numeric value becomes observable at all -- a returned value
+        # is invisible to a stdout diff. But the subject never states the value:
+        # re-read 2026-08-10 to check precisely that, and ex01 names t_bool,
+        # TRUE, FALSE, EVEN_MSG, ODD_MSG and SUCCESS while giving a number for
+        # none of them. So this encodes the C convention (EXIT_SUCCESS == 0)
+        # rather than a requirement, which is the opposite of what every c_files
+        # block in this repo does on purpose.
+        #
+        # Wired anyway, as the owner's call: the lesson -- that a header's
+        # constants are part of its contract -- has no other reachable home in
+        # this module. Level 2 keeps it out of the beginner's path. Turning it
+        # off is deleting this dict.
+        {
+            "name": "success",
+            "args": [],
+            "expected": "even.txt",
+            "clues": "clues.tsv",
+            "exit": 0,
+            "level": 2,
+        },
+        # EVEN applied to an EXPRESSION rather than to an int parameter. Held at
+        # level 2 because the subject's own main never does it, so a header that
+        # is correct against everything ex01 actually asks for must not go red at
+        # the gate a beginner meets first. The lesson is real and worth keeping —
+        # it is simply not this subject's requirement. See the file's own comment.
+        {
+            "name": "expr",
+            "main": "test_boolean_expr.c",
+            "args": [],
+            "expected": "expr.txt",
+            "clues": "clues.tsv",
+            "level": 2,
+        },
+    ],
+)
+
+c_header(
+    num = "02",
+    hdr = "ft_abs.h",
+    main = "test_abs.c",
+    norm_flags = ["-R", "CheckDefine"],
+    probe = "probe_abs.c",
+    cases = [{"name": "run", "args": [], "expected": "expected.txt", "labeled": True, "clues": "clues.tsv"}],
+)
+
+c_header(
+    num = "03",
+    hdr = "ft_point.h",
+    main = "test_point.c",
+    cases = [{"name": "compile", "expected": "expected.txt", "args": [], "clues": "clues.tsv"}],
+)
+
+# The exercise whose subject states the allocfail requirement in its OWN words:
+# "It should return a NULL pointer if an error occurs." That is why this was the
+# first exercise to carry the layer. c-07 ex00 carries it too now, one
+# indirection away — its subject says "Reproduce the behavior of the function
+# strdup (man strdup)", and the man page states the NULL return, so the contract
+# is cited rather than invented. Every other malloc exercise here either asks
+# for NULL on a LOGICAL condition (c-07: min >= max, an invalid base) or says
+# nothing about allocation failure at all (c-11, c-12, c-13). Enabling it there
+# would fail correct work against a rule the harness made up — the same thing
+# every c_files block below refuses to do.
+c_function(
+    num = "04",
+    fn = "ft_strs_to_tab",
+    test = "test_strs_to_tab.c",
+    allowed = ["malloc", "free"],
+    malloc = True,
+    allocfail = "af_ft_strs_to_tab.c",
+    provided_hdrs = ["tests/ft_stock_str.h"],
+    extra_includes = ["tests"],
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# ft_strs_to_tab carries a SAFETY bound on av: from ac strings it must read only
+# av[0..ac-1], never av[ac]. This runs it under ASan on an av heap block sized
+# EXACTLY ac char* (plus ac 0/1) — a stray read past the bound is caught here
+# (output diffing can't see it, since the returned tab can still be correct).
+# ft_stock_str.h is the provided t_stock_str header, staged from tests/.
+#
+# ITS HEADER IS NEUTRAL, and that is the point of the change here.
+#
+# The subject says "the structure will be defined in the ft_stock_str.h file
+# that we will provide" -- but 42 does not, in fact, hand that file over, so
+# this one was written here from the struct the subject prints. It is ours.
+#
+# It used to carry a personal 42 header with an older login, the only file
+# under any tests/ tree that did. That is a drift waiting to happen:
+# tools/reset_headers.sh walks deliverable/ only and would never reach it, so
+# an identity change would leave it stale and could red the norm layer over a
+# file nobody had touched. Every other file under tests/ carries no 42 header
+# at all, so this one now matches them.
+#
+# IT IS NORMED, BUT NOT AS THE STUDENT'S RED. It goes in as `provided_hdrs`
+# rather than `hdrs`, which stages it into every layer that has to compile
+# against it and keeps it out of exactly one: ex04_norm / ex05_norm.
+#
+# Both halves of that matter. It is ours, so it should meet the standard the
+# exercise is graded against -- that is `ex04_norm_provided`, at level 4. But it
+# is not turned in: the Moulinette supplies its own copy and never norms this
+# one, so a failure here is a failure the grade does not have. Reported inside
+# the student's norm layer it would be a false red on a file they did not write
+# and cannot fix, which is the defect class this repo ranks second worst.
+
+c_mem_check(
+    num = "04",
+    fn = "ft_strs_to_tab",
+    probe = "mem_ft_strs_to_tab.c",
+    hdrs = ["tests/ft_stock_str.h"],
+)
+
+# Live differential fuzz against the Rust reference (//oracle).
+#
+# WHY THIS EXERCISE AND NOT THE OTHERS HERE. The subject says `size` is "the
+# length of the string", so the STUDENT computes a string length -- and that is
+# where this repo's most-documented trap lives: a scan written `while (str[i] >
+# 0)` stops dead at the first byte >= 0x80, because a plain `char` is signed.
+# c-01 and c-02 pin exactly those corners for their own length and traversal
+# exercises. tests/ex04/test_strs_to_tab.c drives "zero", "", "a" and
+# "fortytwo!" -- printable ASCII throughout -- so the bug is red one module
+# earlier and green here. The corpus opens with 0xff, 0x80, a run of five 0xff,
+# and high bytes placed AFTER ordinary text so a loop that gets the first
+# character right still stops early.
+#
+# The harness prints a RENDERING (`size/alias/hex-of-copy` per entry, then
+# `;term=1`) rather than the array, because rust_diff.sh reports by LINE and a
+# case that spans lines makes every one of its messages wrong. Each part is a
+# sentence of the subject: the length, "str being the string" (the pointer
+# handed in, not a copy of it), the copy's bytes, and "the last element's str
+# set to 0".
+#
+# Lower count than the 400k default: every case mallocs an array plus one copy
+# per string, so this is allocator-bound rather than compute-bound. The corners
+# are emitted FIRST and only the seeded random tail shrinks, so nothing is lost.
+#
+# No arm for ex05 (ft_show_tab), assessed rather than overlooked -- the reason
+# is written out at the foot of oracle/src/c08.rs. In one line: ft_show_tab
+# computes nothing, so the trap that justifies this arm cannot reach it, and
+# what is left is structural and identical in every case.
+c_diff(
+    num = "04",
+    fn = "ft_strs_to_tab",
+    harness = "diff_strs_to_tab.c",
+    oracle_fn = "c08_strs_to_tab",
+    count = 50000,
+    asan_count = 20000,
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "05",
+    fn = "ft_show_tab",
+    test = "test_show_tab.c",
+    allowed = ["write"],
+    provided_hdrs = ["tests/ft_stock_str.h"],
+    extra_includes = ["tests"],
+    clues = "clues.tsv",
+)
+
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["ft.h"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["ft_boolean.h"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_abs.h"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["ft_point.h"],
+    strict = True,
+)
+c_files(
+    num = "04",
+    required = ["ft_strs_to_tab.c"],
+    strict = True,
+)
+c_files(
+    num = "05",
+    required = ["ft_show_tab.c"],
+    strict = True,
+)
+
+c_levels()

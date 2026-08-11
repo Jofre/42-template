@@ -1,0 +1,3 @@
+# clues.tsv for ft_str_is_numeric — hints only, never answers.
+Which characters count as digits, and why does an empty string return 1?	"" (empty -> 1)	"12345" (digits)	"0987654321" (digits)
+Mind the edges: '/' is just before '0' and ':' just after '9'. A sign or a space is not a digit. If any of these passes, your bounds are off.	"/" (0x2F, just before '0')	":" (0x3A, just after '9')	"-5" (has a sign)

@@ -1,0 +1,3 @@
+# clues.tsv for ft_ultimate_div_mod — hints only, never answers.
+You must put a/b into *a and a%b into *b. But the instant you write into *a, the original a is gone -- and you still need it for the remainder. What should you do before that first write?	13 / 5	7 / 1	0 / 5	-13 / 5 (neg dividend)
+When a negative number is involved, what sign does the remainder take and which way does division round?	13 / -5 (neg divisor)	-13 / -5 (both neg)	-7 / 2

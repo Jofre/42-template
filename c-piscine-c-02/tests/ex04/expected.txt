@@ -1,0 +1,8 @@
+"" (empty -> 1)	1
+"hello" (lowercase)	1
+"abcxyz" (lowercase)	1
+"Hello" (has uppercase)	0
+"abc1" (has digit)	0
+"abc def" (has space)	0
+"`" (0x60, just before 'a')	0
+"{" (0x7B, just after 'z')	0

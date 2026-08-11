@@ -1,0 +1,28 @@
+"42" base "0123456789"	42
+"101010" base "01"	42
+"2A" base "0123456789ABCDEF"	42
+"euoopp" base "poneygua"	123456
+"1A" base "0123456789"	1
+"1012" base "01"	5
+"   -101010" base "01"	-42
+"-euo" base "poneygua"	-241
+"   ---+--+42ab" base "0123456789"	-42
+"--101" base "01"	5
+"- 42" base "0123456789"	0
+"+ 7" base "0123456789"	0
+"2147483647" base "0123456789"	2147483647
+"-2147483648" base "0123456789"	-2147483648
+"   -80000000" base "0123456789ABCDEF"	-2147483648
+"" base "01"	0
+"   " base "01"	0
+"  +-+" base "01"	0
+"42" base "" (empty)	0
+"42" base "a" (len 1)	0
+"42" base "aba" (dup)	0
+"42" base "ab+c" (has +)	0
+"42" base "ab-c" (has -)	0
+"42" base "ab c" (has space)	0
+"42" base "ab\tc" (has tab)	0
+"101" base "01 " (space in base)	0
+"11" base "01+" (plus in base)	0
+"11" base "01-" (minus in base)	0

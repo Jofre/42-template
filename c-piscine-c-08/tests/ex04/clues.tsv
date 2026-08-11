@@ -1,0 +1,3 @@
+# clues.tsv for ft_strs_to_tab — hints only, never answers.
+For each argument you fill one struct with three fields: the length, the original string, and a copy. Which field should point AT the original av[i], and which must be a brand-new allocated duplicate (so they are different pointers)? And how do you compute the length field?	[0] "zero"	[1] "" (empty)	[2] "a"	[3] "fortytwo!"
+The array needs a way to mark its end so a reader knows where to stop. What is in that final, extra element -- and how many elements do you allocate in total for ac strings?	terminator (str == NULL)	ac=0 (terminator only)

@@ -1,0 +1,3 @@
+# clues.tsv for ft_str_is_alpha — hints only, never answers.
+What counts as a letter, and why should an EMPTY string return 1 (are all zero of its characters letters)?	"" (empty -> 1)	"Hello" (letters)	"abcXYZ" (mixed case)
+Watch the edges of your letter ranges: '@' sits just before 'A', '[' just after 'Z', '`' just before 'a', '{' just after 'z'. If any of these is wrongly accepted as a letter, a range bound is off by one.	"@" (0x40, just before 'A')	"[" (0x5B, just after 'Z')	"`" (0x60, just before 'a')	"{" (0x7B, just after 'z')

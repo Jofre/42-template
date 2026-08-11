@@ -1,0 +1,6 @@
+single {42}	42
+size 0 (no-op)	99
+two {10,20}	20 10
+even len {1..4}	4 3 2 1
+odd len {1..5}	5 4 3 2 1
+with INT_MIN	-2147483648 -3 7 0 -1 -1

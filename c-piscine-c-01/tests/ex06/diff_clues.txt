@@ -1,0 +1,7 @@
+  One number per line, so the family of failing strings is the whole story.
+    * the empty string only            -> a loop that cannot run zero times
+    * every string, one too many       -> the terminator is being counted
+    * every string, one too few        -> the loop stops one character early
+    * only strings containing a space or a digit -> counting a class of
+                                          character rather than counting
+                                          characters

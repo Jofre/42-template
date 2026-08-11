@@ -1,0 +1,337 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//tools:defs.bzl", "c_files", "c_levels", "c_make", "c_program")
+
+# c-piscine-bsq — the C Piscine's final project.
+#
+# Two halves, for the reason rush-02's BUILD file gives: c_make proves the
+# student's MAKEFILE works, and c_program compiles the same sources with Bazel
+# and runs the cases, deliberately NOT through that Makefile -- so a broken
+# Makefile cannot hide behind green output tests, and a wrong program cannot
+# hide behind a working Makefile.
+#
+# The third half, which rush-02 does not have, is a real differential layer.
+# See "WHY THIS ONE GATES" at the bottom.
+
+# The sources, for the layers that work FILE BY FILE and never link: norm, both
+# compile arms, forbidden symbols. This glob is deliberately NOT "the program".
+# The subject says "Files to submit: Makefile and all the necessary files" and
+# fixes no filename, so how the program is split is the student's decision and
+# the only statement of it is their Makefile. Everything that has to LINK asks
+# `make -Bn` instead -- see c_program(makefile = ...) below.
+SRCS = glob(["deliverable/ex00/*.c"], allow_empty = False)
+
+HDRS = glob(["deliverable/ex00/*.h"], allow_empty = True)
+
+# The Makefile itself. rules = [] is not the same as leaving it unset: this
+# subject mandates NO rule at all -- it asks only that the Makefile "compiles
+# your project" and that it "must not relink" -- so demanding clean, fclean or
+# re would red a conformant Makefile at level basic, inside the submit gate,
+# on three rules its subject never mentions.
+#
+# relink = True is the half the subject DOES state. It is not graph = True:
+# that also asserts where .o files land, which only c-09 ex01's subject asks
+# for, and it explains itself by quoting c-09's bullets at whoever reads it.
+c_make(
+    num = "00",
+    anchor = "deliverable/ex00/Makefile",
+    artifact = "bsq",
+    relink = True,
+    rules = [],
+    symbols = ["main"],
+)
+
+# ---------------------------------------------------------------------------
+# WHAT IS DELIBERATELY NOT TESTED
+#
+# The subject's "Definition of a valid file" settles more than most, which is
+# why the differential layer below is allowed to gate. It does not settle
+# everything, and neither the cases here nor the generated corpus touch any of
+# the following, IN EITHER DIRECTION. The full list, with the sentence that
+# fails to settle each one, is in oracle/src/bsq.rs's header; the short version:
+#
+#   * the FULL character appearing in a map body (the description and the
+#     validity list disagree, and both are literal);
+#   * MORE body lines than the count declares (fewer is forced, more is not);
+#   * a missing final newline after the last row ("separated", not
+#     "terminated");
+#   * "+9", "09" or " 9" as the count;
+#   * a count that overflows int;
+#   * bytes >= 0x80 among the three characters (isprint above 0x7f is
+#     locale-dependent);
+#   * EXIT STATUS on any path, and anything written to stderr. The subject pins
+#     "map error" to stdout and never mentions either, so no case here asserts
+#     an exit code and none compares stderr.
+#
+# A nonexistent path, a directory and an unreadable file ARE settled, but a
+# corpus of file CONTENTS cannot express them; they would belong here as argv
+# cases. They are not here yet because the fixture would have to create an
+# unreadable file at test time, which is a root-dependent thing to do in a
+# sandbox -- noted rather than faked.
+c_program(
+    num = "00",
+    name = "bsq",
+    srcs = SRCS,
+    hdrs = HDRS,
+    # The team's Makefile is the only statement of what the program consists
+    # of, so every LINKED binary is built from it: their file list, our flags.
+    # make_data is the whole directory rather than the sources, because a
+    # Makefile may include or read anything beside it.
+    makefile = "deliverable/ex00/Makefile",
+    make_data = glob(["deliverable/ex00/*"]),
+    # "External functions: open, close, read, write, malloc, free, exit",
+    # copied from the subject's own line. Anything else is an outright KO.
+    allowed = [
+        "open",
+        "close",
+        "read",
+        "write",
+        "malloc",
+        "free",
+        "exit",
+    ],
+    # The subject authorises malloc and free, so the leak layer is worth having.
+    malloc = True,
+    cases = [
+        # The subject's own worked example, byte for byte. The fixture and its
+        # expected output are generated from //oracle's first record, so the
+        # two cannot drift from the reference the diff layer uses.
+        {
+            "name": "subject_example",
+            "args": ["$(location tests/ex00/fixtures/subject.map)"],
+            "fixtures": ["tests/ex00/fixtures/subject.map"],
+            "expected": "subject.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "one_cell",
+            "args": ["$(location tests/ex00/fixtures/one.map)"],
+            "fixtures": ["tests/ex00/fixtures/one.map"],
+            "expected": "one.txt",
+            "clues": "clues.tsv",
+        },
+        # Valid, and the answer is "nothing to draw". A program that reports
+        # "map error" when it finds no square fails here and only here.
+        {
+            "name": "no_empty_cell",
+            "args": ["$(location tests/ex00/fixtures/nosquare.map)"],
+            "fixtures": ["tests/ex00/fixtures/nosquare.map"],
+            "expected": "nosquare.txt",
+            "clues": "clues.tsv",
+        },
+        # Three of the validity rules, one per case, with the defect placed
+        # late in the file where a validator that checks two lines misses it.
+        {
+            "name": "dup_chars",
+            "args": ["$(location tests/ex00/fixtures/dupchars.map)"],
+            "fixtures": ["tests/ex00/fixtures/dupchars.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "ragged_line",
+            "args": ["$(location tests/ex00/fixtures/ragged.map)"],
+            "fixtures": ["tests/ex00/fixtures/ragged.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "undeclared_char",
+            "args": ["$(location tests/ex00/fixtures/undeclared.map)"],
+            "fixtures": ["tests/ex00/fixtures/undeclared.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        # Two files in one run: exactly one blank line BETWEEN the outputs.
+        # Both orders, because "map error then a map" and "a map then map
+        # error" are different code paths in most implementations.
+        {
+            "name": "two_maps",
+            "args": [
+                "$(location tests/ex00/fixtures/subject.map)",
+                "$(location tests/ex00/fixtures/dupchars.map)",
+            ],
+            "fixtures": [
+                "tests/ex00/fixtures/subject.map",
+                "tests/ex00/fixtures/dupchars.map",
+            ],
+            "expected": "two.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "error_then_map",
+            "args": [
+                "$(location tests/ex00/fixtures/ragged.map)",
+                "$(location tests/ex00/fixtures/one.map)",
+            ],
+            "fixtures": [
+                "tests/ex00/fixtures/ragged.map",
+                "tests/ex00/fixtures/one.map",
+            ],
+            "expected": "errthenmap.txt",
+            "clues": "clues.tsv",
+        },
+        # No arguments at all: the map arrives on stdin.
+        {
+            "name": "stdin_map",
+            "stdin": "tests/ex00/fixtures/subject.map",
+            "expected": "subject.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+
+# ---------------------------------------------------------------- file set
+c_files(
+    num = "00",
+    # "Files to submit: Makefile and all the necessary files." The Makefile is
+    # named; nothing else is.
+    required = ["Makefile"],
+    # Every .c and .h in the directory is optional, from the same glob the
+    # build uses. Without it this layer reports the exercise's own source as a
+    # file the subject did not ask for -- on a conformant turn-in, at level 1,
+    # inside the submit gate. It also destroys the signal the warning exists
+    # for: a stray `bsq` binary left behind by a hand-run of make is what
+    # //tools:submit would push to Vogsphere.
+    optional = [
+        f[len("deliverable/ex00/"):]
+        for f in glob(
+            [
+                "deliverable/ex00/*.c",
+                "deliverable/ex00/*.h",
+            ],
+            allow_empty = True,
+        )
+    ],
+)
+
+c_levels()
+
+# ---------------------------------------------------------------------------
+# WHY THIS ONE GATES, where rush-02's differential does not.
+#
+# rush-02's targets are `manual` because its subject pins four outputs and no
+# composition rule, so a disagreement there is evidence rather than a verdict.
+# bsq is the opposite: the subject fixes the answer completely, including which
+# of several equally big squares to draw ("closest to the top of the map, then
+# the one that is most to the left"). There is exactly one correct output per
+# map, so these are real checks and they are allowed to be red.
+#
+# The lvl_* tags are written out because _test() is private to defs.bzl and
+# these are hand-written sh_tests. `diff` is level 3, so lvl_robust and
+# lvl_complete are the cumulative pair -- the same spelling, and the same
+# reason, as c-piscine-rush-01's hand-written targets.
+#
+# Each target gates on the exercise's own subject-example fixture: while that
+# is red, replaying hundreds of generated maps says the same thing hundreds of
+# times less usefully. The gate fails OPEN and NO_SKIP=1 forces it.
+BSQ_GATE = [
+    "--gate-differ",
+    "$(location //tools:diff_output.sh)",
+    "--gate-bin",
+    "$(location :ex00_bin)",
+    "--gate-expected",
+    "$(location tests/ex00/subject.txt)",
+]
+
+# :ex00_bin is NOT here: every target below already lists it, and Bazel rejects
+# a label that appears twice in one `data` attribute.
+BSQ_GATE_DATA = [
+    "//tools:diff_output.sh",
+    "tests/ex00/subject.txt",
+]
+
+# Valid maps, one per exec. The corpus opens with the subject's own example and
+# then covers what a hand-written fixture cannot: every rectangle up to 8x8,
+# the tie battery, squares flush against each edge, space and digits and a
+# backslash as map characters, and a density ladder.
+sh_test(
+    name = "ex00_bsq_diff",
+    size = "medium",
+    srcs = ["//tools:bsq_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "bsq_maps",
+        "--count",
+        "120",
+    ] + BSQ_GATE,
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+        "//tools:bsq_check.sh",
+    ] + BSQ_GATE_DATA,
+    tags = [
+        "diff",
+        "lvl_complete",
+        "lvl_robust",
+    ],
+)
+
+# The same maps, arriving on stdin with no argv. One corpus, two transports:
+# a separate corpus per transport is two corpora that drift, and the weaker one
+# is the one nobody notices.
+sh_test(
+    name = "ex00_bsq_stdin",
+    size = "medium",
+    srcs = ["//tools:bsq_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "bsq_maps",
+        "--count",
+        "60",
+        "--mode",
+        "stdin",
+    ] + BSQ_GATE,
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+        "//tools:bsq_check.sh",
+    ] + BSQ_GATE_DATA,
+    tags = [
+        "diff",
+        "lvl_complete",
+        "lvl_robust",
+    ],
+)
+
+# Valid and invalid maps INTERLEAVED, three per exec. This is the only target
+# that checks the blank line between outputs, and the interleave is drawn by
+# the reference rather than by grouping a sorted corpus -- a strictly
+# alternating corpus sliced into groups of three is all-valid or all-invalid
+# groups, which is the trap rush01's generator documents.
+sh_test(
+    name = "ex00_bsq_multi",
+    size = "medium",
+    srcs = ["//tools:bsq_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "bsq_mixed",
+        "--count",
+        "40",
+        "--mode",
+        "multi",
+        "--group",
+        "3",
+    ] + BSQ_GATE,
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+        "//tools:bsq_check.sh",
+    ] + BSQ_GATE_DATA,
+    tags = [
+        "diff",
+        "lvl_complete",
+        "lvl_robust",
+    ],
+)

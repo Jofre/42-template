@@ -1,0 +1,9 @@
+  Two things are printed: the destination and the return.
+    * the return column alone diverges -> what the subject says is returned; it
+                                          is a property of the SOURCE, not of
+                                          what was copied
+    * size 0 diverges                  -> whether anything may be written at all
+    * the destination is one short     -> where the terminator goes when the
+                                          source does not fit
+    * truncated cases lose their terminator -> the guarantee that separates this
+                                          from strncpy

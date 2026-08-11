@@ -1,0 +1,2 @@
+# clues.tsv for ft_create_elem
+Should the new node store the exact pointer you were handed, or a copy of what it points to? Also reconsider what your function returns when malloc fails, and whether next is left in a defined state.

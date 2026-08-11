@@ -1,0 +1,572 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_files", "c_function", "c_levels", "c_mem_check")
+
+c_function(
+    num = "00",
+    fn = "ft_create_elem",
+    test = "test_create_elem.c",
+    allowed = ["malloc"],
+    malloc = True,
+    hdrs = ["deliverable/ex00/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+# Live differential fuzz against the Rust reference (//oracle). The corpus
+# encodes each input list as a comma-joined int sequence; the harness builds a
+# real t_list, runs the student's fn, and serialises the result in the same
+# encoding. See oracle/src/c12.rs for the per-fn line format.
+c_diff(
+    num = "00",
+    fn = "ft_create_elem",
+    harness = "diff_create_elem.c",
+    oracle_fn = "c12_create_elem",
+    diff_clues = "diff_clues.txt",
+)
+
+# ---------------------------------------------------------------- leak policy
+# malloc = True on ex01/ex04 wires the valgrind layer, and it is not decoration.
+# Every exercise in this module that hands a caller ownership of a malloc'd node
+# carries it -- ex00 creates the node, ex05/ex16 build on ft_create_elem the same
+# way ex01 and ex04 do, ex06/ex12 release nodes -- so these two were the only
+# holes in an otherwise deliberate policy, with no comment recording a reason.
+# That is indistinguishable from an oversight, so treat it as one and close it.
+#
+# What it buys, concretely: an OUTPUT-IDENTICAL leak. Hoist the ft_create_elem
+# call out of the empty/non-empty branch, forget to delete the one still inside
+# the empty branch, and you allocate twice and link one -- the orphan is not in
+# the list, so nothing that walks the list can see it. Measured on exactly that
+# mutant: tests/ex01/expected.txt 7/7 PASS, tests/ex04/expected.txt 7/7 PASS, the
+# 400k diff OK and the 200k diff_asan OK for both exercises. Only valgrind says
+# "16 bytes in 1 blocks are definitely lost". It has to be valgrind: the ASan
+# arms cannot substitute, because tools/rust_diff.sh, tools/asan_run.sh and
+# tools/asan_check.sh all export detect_leaks=0 ON PURPOSE, each with a comment
+# saying leaks are the valgrind layer's finding and not theirs.
+#
+# ex04 invites the bug harder than ex01: its empty-list case is naturally an
+# early-return branch, which is precisely where a hoisted allocation gets
+# stranded. Both fixtures free every node they reach, so a correct
+# implementation exits 0 under --error-exitcode -- verified before landing this.
+#
+# ex01 is also the EARLIEST point in the piscine where the student hands
+# ownership of heap memory to a caller, so it is the earliest place where "the
+# list prints correctly, therefore my memory is correct" can be shown to be
+# false. Landing only one of the two would leave the module's policy half
+# consistent, which is worse than either extreme.
+c_function(
+    num = "01",
+    fn = "ft_list_push_front",
+    test = "test_list_push_front.c",
+    allowed = ["ft_create_elem"],
+    deps = [":ft_create_elem"],
+    malloc = True,
+    hdrs = ["deliverable/ex01/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "01",
+    fn = "ft_list_push_front",
+    harness = "diff_list_push_front.c",
+    oracle_fn = "c12_push_front",
+    deps = [":ft_create_elem"],
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "02",
+    fn = "ft_list_size",
+    test = "test_list_size.c",
+    allowed = [],
+    hdrs = ["deliverable/ex02/ft_list.h"],
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "02",
+    fn = "ft_list_size",
+    harness = "diff_list_size.c",
+    oracle_fn = "c12_list_size",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "03",
+    fn = "ft_list_last",
+    test = "test_list_last.c",
+    allowed = [],
+    hdrs = ["deliverable/ex03/ft_list.h"],
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "03",
+    fn = "ft_list_last",
+    harness = "diff_list_last.c",
+    oracle_fn = "c12_list_last",
+    diff_clues = "diff_clues.txt",
+)
+
+# malloc = True: the other half of the leak policy described above ex01. Do not
+# drop one without the other -- they are one decision spelled with two keywords.
+c_function(
+    num = "04",
+    fn = "ft_list_push_back",
+    test = "test_list_push_back.c",
+    allowed = ["ft_create_elem"],
+    deps = [":ft_create_elem"],
+    malloc = True,
+    hdrs = ["deliverable/ex04/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "04",
+    fn = "ft_list_push_back",
+    harness = "diff_list_push_back.c",
+    oracle_fn = "c12_push_back",
+    deps = [":ft_create_elem"],
+    diff_clues = "diff_clues.txt",
+)
+
+# no c_diff: NO-CORPUS-SHAPE -- char **, where this module's corpus is
+# comma-joined ints. A second corpus shape, not a second generator.
+c_function(
+    num = "05",
+    fn = "ft_list_push_strs",
+    test = "test_list_push_strs.c",
+    allowed = ["ft_create_elem"],
+    deps = [":ft_create_elem"],
+    malloc = True,
+    hdrs = ["deliverable/ex05/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+# ft_list_push_strs carries a `size` SAFETY bound on the strs[] array: it must
+# read only strs[0..size-1], never strs[size]. This runs it under ASan on a
+# heap array sized EXACTLY `size` (plus sizes 0/1) — a stray read past the bound
+# is caught here (output diffing can't see it). ft_create_elem is linked in
+# because a real implementation builds nodes with it.
+c_mem_check(
+    num = "05",
+    fn = "ft_list_push_strs",
+    probe = "mem_ft_list_push_strs.c",
+    srcs = [
+        "deliverable/ex05/ft_list_push_strs.c",
+        "deliverable/ex00/ft_create_elem.c",
+    ],
+    hdrs = [
+        "deliverable/ex05/ft_list.h",
+        "deliverable/ex00/ft_list.h",
+    ],
+)
+
+c_function(
+    num = "06",
+    fn = "ft_list_clear",
+    test = "test_list_clear.c",
+    allowed = ["free"],
+    malloc = True,
+    hdrs = ["deliverable/ex06/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "06",
+    fn = "ft_list_clear",
+    harness = "diff_list_clear.c",
+    oracle_fn = "c12_list_clear",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "07",
+    fn = "ft_list_at",
+    test = "test_list_at.c",
+    allowed = [],
+    hdrs = ["deliverable/ex07/ft_list.h"],
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "07",
+    fn = "ft_list_at",
+    harness = "diff_list_at.c",
+    oracle_fn = "c12_list_at",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "08",
+    fn = "ft_list_reverse",
+    test = "test_list_reverse.c",
+    allowed = [],
+    hdrs = ["deliverable/ex08/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "08",
+    fn = "ft_list_reverse",
+    harness = "diff_list_reverse.c",
+    oracle_fn = "c12_list_reverse",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "09",
+    fn = "ft_list_foreach",
+    test = "test_list_foreach.c",
+    allowed = [],
+    hdrs = ["deliverable/ex09/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "09",
+    fn = "ft_list_foreach",
+    harness = "diff_list_foreach.c",
+    oracle_fn = "c12_foreach",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "10",
+    fn = "ft_list_foreach_if",
+    test = "test_list_foreach_if.c",
+    allowed = [],
+    hdrs = ["deliverable/ex10/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "10",
+    fn = "ft_list_foreach_if",
+    harness = "diff_list_foreach_if.c",
+    oracle_fn = "c12_foreach_if",
+    diff_clues = "diff_clues.txt",
+)
+
+# no c_diff: NO-CORPUS-SHAPE -- returns a pointer INTO the list, so a
+# differential would compare addresses. Which element was found is what the
+# output layer already asserts. Has a c_mem_check instead.
+c_function(
+    num = "11",
+    fn = "ft_list_find",
+    test = "test_list_find.c",
+    allowed = [],
+    hdrs = ["deliverable/ex11/ft_list.h"],
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_function(
+    num = "12",
+    fn = "ft_list_remove_if",
+    test = "test_list_remove_if.c",
+    allowed = ["free"],
+    malloc = True,
+    hdrs = ["deliverable/ex12/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "12",
+    fn = "ft_list_remove_if",
+    harness = "diff_list_remove_if.c",
+    oracle_fn = "c12_remove_if",
+    diff_clues = "diff_clues.txt",
+)
+
+# no c_diff: NO-CORPUS-SHAPE -- takes two lists where the corpus carries
+# one. Same shape as ex17, which does have an arm, so this one is writable
+# rather than impossible; it is simply not written. Has a c_mem_check.
+c_function(
+    num = "13",
+    fn = "ft_list_merge",
+    test = "test_list_merge.c",
+    allowed = [],
+    hdrs = ["deliverable/ex13/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_function(
+    num = "14",
+    fn = "ft_list_sort",
+    test = "test_list_sort.c",
+    allowed = [],
+    hdrs = ["deliverable/ex14/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "14",
+    fn = "ft_list_sort",
+    harness = "diff_list_sort.c",
+    oracle_fn = "c12_list_sort",
+    diff_clues = "diff_clues.txt",
+)
+
+# no c_diff: NO-CORPUS-SHAPE -- mutates through a function pointer, so the
+# reference would have to encode that function too. Has a c_mem_check.
+c_function(
+    num = "15",
+    fn = "ft_list_reverse_fun",
+    test = "test_list_reverse_fun.c",
+    allowed = [],
+    hdrs = ["deliverable/ex15/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_function(
+    num = "16",
+    fn = "ft_sorted_list_insert",
+    test = "test_sorted_list_insert.c",
+    allowed = ["ft_create_elem"],
+    deps = [":ft_create_elem"],
+    malloc = True,
+    hdrs = ["deliverable/ex16/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+# The differential arms for the two exercises that had none, and were the
+# reason TODO item 2 existed: a sorted-invariant insertion and a merge are
+# exactly the shapes a short expected.txt cannot pin down. A wrong seam -- one
+# element dropped, one duplicated, the boundary between the two lists mishandled
+# -- looks perfectly plausible in a five-line fixture and shows up in the first
+# few hundred generated cases.
+#
+# The corpora are SORTED on the way out of the reference, because being handed
+# an ordered list is the precondition both subjects state; an unsorted corpus
+# would be asking a question neither exercise poses. Values are bounded so the
+# comparator's (*a - *b) cannot overflow, the same bound gen_list_sort uses.
+c_diff(
+    num = "16",
+    fn = "ft_sorted_list_insert",
+    harness = "diff_sorted_list_insert.c",
+    oracle_fn = "c12_sorted_list_insert",
+    deps = [":ft_create_elem"],
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "17",
+    fn = "ft_sorted_list_merge",
+    test = "test_sorted_list_merge.c",
+    allowed = [],
+    hdrs = ["deliverable/ex17/ft_list.h"],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "17",
+    fn = "ft_sorted_list_merge",
+    harness = "diff_sorted_list_merge.c",
+    oracle_fn = "c12_sorted_list_merge",
+    diff_clues = "diff_clues.txt",
+)
+
+
+# The three exercises that had NO sanitizer build of any kind. c_diff is what
+# emits diff_asan, and these have no c_diff -- so until now their entire
+# correctness evidence was one short expected.txt, and a list walk that steps
+# past the end while still printing the right answer was invisible.
+#
+# Stopgap rather than the full fix: TODO item 2 wants Rust references and real
+# differential coverage here. A probe is what can be added without deciding
+# anything that belongs to the repo owner.
+c_mem_check(
+    num = "11",
+    fn = "ft_list_find",
+    probe = "mem_ft_list_find.c",
+    hdrs = ["deliverable/ex11/ft_list.h"],
+)
+
+c_mem_check(
+    num = "13",
+    fn = "ft_list_merge",
+    probe = "mem_ft_list_merge.c",
+    hdrs = ["deliverable/ex13/ft_list.h"],
+)
+
+c_mem_check(
+    num = "15",
+    fn = "ft_list_reverse_fun",
+    probe = "mem_ft_list_reverse_fun.c",
+    hdrs = ["deliverable/ex15/ft_list.h"],
+)
+
+# ---------------------------------------------------------------- cost
+# The instruction layer, which this module and c-13 were excluded from until
+# now for one reason: every other c_cycles target measures per BYTE
+# (unit_expr = "length($1)/2" over a hex field), and these corpora encode a
+# STRUCTURE. A per-byte figure over "1,2,3" measures the decimal formatting of
+# the corpus, not the walk.
+#
+# The unit here is the ELEMENT, read off the same field the harness parses:
+# a comma-joined list, so the count is the number of commas plus one -- except
+# for the empty field, which is zero and not one. gsub() returns how many
+# substitutions it made, which is the comma count; substituting a comma for a
+# comma is what makes it a counter rather than an edit.
+#
+# BUDGETS ARE MEASURED, never guessed, and only two of the three have one.
+# A budget must be a number rather than a reference implementation -- it says
+# where you stand without saying how to get there -- so the only honest source
+# is a run against a correct implementation. ex02 and ex08 were measured at -O2
+# over 3000 cases: a straightforward walk costs 4.8 instructions per element and
+# a straightforward reverse 7.1, which is where the 5 and 8 below come from.
+#
+# ex14 gets NONE ON PURPOSE. Sorting is the one exercise here where the cost per
+# element IS the algorithm, so any budget would quietly recommend the algorithm
+# it was measured from -- which is the line between a target and an answer. The
+# figure is reported without one.
+#
+# Nothing here can fail on these numbers: the layer never gates. A budget only
+# changes the sentence printed underneath.
+#
+# syscall_budget = 0 IS assertable from the subject, and is the strongest thing
+# a c_cycles target can say: none of these functions produces output, so any
+# write() at all is a finding. That is a requirement the subject states by
+# omission and the prototypes confirm -- they return void or a pointer, and
+# nothing in them is asked to print.
+# No spaces: sh_test tokenises `args`, and c_cycles fails at analysis if this
+# contains any. awk does not need them.
+ELEM = "($1==\"\"?0:gsub(/,/,\",\",$1)+1)"
+
+c_cycles(
+    num = "02",
+    fn = "ft_list_size",
+    oracle_fn = "c12_list_size",
+    harness = "diff_list_size.c",
+    unit_expr = ELEM,
+    unit_name = "element",
+    budget = 5,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "08",
+    fn = "ft_list_reverse",
+    oracle_fn = "c12_list_reverse",
+    harness = "diff_list_reverse.c",
+    unit_expr = ELEM,
+    unit_name = "element",
+    budget = 8,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "14",
+    fn = "ft_list_sort",
+    oracle_fn = "c12_list_sort",
+    harness = "diff_list_sort.c",
+    unit_expr = ELEM,
+    unit_name = "element",
+    syscall_budget = 0,
+)
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["ft_create_elem.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["ft_list_push_front.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_list_size.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["ft_list_last.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "04",
+    required = ["ft_list_push_back.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "05",
+    required = ["ft_list_push_strs.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "06",
+    required = ["ft_list_clear.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "07",
+    required = ["ft_list_at.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    # ex08 is the ONE exercise in this module whose "Files to Submit" line omits
+    # ft_list.h -- ex07 above and ex09 below both name it, and so does every
+    # other exercise here. Checked against the subject rather than assumed: p.13
+    # reads "Files to Submit: ft_list_reverse.c", full stop.
+    #
+    # So `optional` is correct and the inconsistency is the subject's, not this
+    # file's. Turning it in anyway is fine, which is what optional means; being
+    # REQUIRED to would fail a student who did exactly what the page said. Left
+    # documented rather than "fixed", because it looks like an oversight and the
+    # next reader will otherwise make it one.
+    num = "08",
+    required = ["ft_list_reverse.c"],
+    optional = ["ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "09",
+    required = ["ft_list_foreach.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "10",
+    required = ["ft_list_foreach_if.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "11",
+    required = ["ft_list_find.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "12",
+    required = ["ft_list_remove_if.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "13",
+    required = ["ft_list_merge.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "14",
+    required = ["ft_list_sort.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "15",
+    required = ["ft_list_reverse_fun.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "16",
+    required = ["ft_sorted_list_insert.c", "ft_list.h"],
+    strict = True,
+)
+c_files(
+    num = "17",
+    required = ["ft_sorted_list_merge.c", "ft_list.h"],
+    strict = True,
+)
+
+c_levels()

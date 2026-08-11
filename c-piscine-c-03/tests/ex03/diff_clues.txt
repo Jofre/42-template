@@ -1,0 +1,8 @@
+  n bounds the SOURCE here, not the result -- which is the trap.
+    * n == 0 diverges                    -> nothing is appended, but something
+                                            still has to be true of the result
+    * n larger than the source           -> the terminator stops it before n does
+    * the result is one byte long        -> counting the destination's own
+                                            length against n
+    * the result is unterminated         -> the terminator is always written,
+                                            whatever n was

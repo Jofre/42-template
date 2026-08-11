@@ -1,0 +1,170 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_files", "c_function", "c_levels", "c_libft")
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+# The five functions both libft exercises bundle. Named once so ex00 and ex01
+# cannot drift apart: the subject asks for the same five in both.
+_LIBFT_SYMBOLS = [
+    "ft_putchar",
+    "ft_swap",
+    "ft_putstr",
+    "ft_strlen",
+    "ft_strcmp",
+]
+
+# ex00: libft built by a shell script (libft_creator.sh).
+c_libft(
+    num = "00",
+    anchor = "deliverable/ex00/libft_creator.sh",
+    script = "libft_creator.sh",
+    artifact = "libft.a",
+    symbols = _LIBFT_SYMBOLS,
+    srcs = [
+        "deliverable/ex00/ft_putchar.c",
+        "deliverable/ex00/ft_swap.c",
+        "deliverable/ex00/ft_putstr.c",
+        "deliverable/ex00/ft_strlen.c",
+        "deliverable/ex00/ft_strcmp.c",
+    ],
+    test = "test_libft.c",
+    # The subject authorises only write() for these five functions.
+    allowed = ["write"],
+)
+
+# Live-differential coverage for the bundled libft's ft_strcmp (== c-03 strcmp).
+# ex00 ships no header/cc_library of its own, so wrap the single source the diff
+# harness links. Only one c_diff can attach to ex00 (its target names are fixed);
+# ft_strlen is left to c-01's c01_strlen, which is the same contract.
+cc_library(
+    name = "ft_strcmp",
+    srcs = ["deliverable/ex00/ft_strcmp.c"],
+    copts = ["-Wall", "-Wextra", "-Werror"],
+)
+
+# ASan/UBSan twin for c_diff's crash-fuzz variant (c_function builds this
+# automatically; ex00's library is hand-written so its twin is too).
+cc_library(
+    name = "ft_strcmp_asan",
+    srcs = ["deliverable/ex00/ft_strcmp.c"],
+    copts = [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-fsanitize=address,undefined",
+        "-fno-sanitize-recover=all",
+        "-g",
+    ],
+    tags = ["manual"],
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strcmp",
+    harness = "diff_strcmp.c",
+    oracle_fn = "c09_strcmp",
+    diff_clues = "diff_clues.txt",
+)
+
+# ex01: the same five functions, built by a Makefile (srcs/ + includes/ft.h).
+c_libft(
+    num = "01",
+    anchor = "deliverable/ex01/Makefile",
+    artifact = "libft.a",
+    symbols = _LIBFT_SYMBOLS,
+    srcs = [
+        "deliverable/ex01/srcs/ft_putchar.c",
+        "deliverable/ex01/srcs/ft_swap.c",
+        "deliverable/ex01/srcs/ft_putstr.c",
+        "deliverable/ex01/srcs/ft_strlen.c",
+        "deliverable/ex01/srcs/ft_strcmp.c",
+    ],
+    hdrs = ["deliverable/ex01/includes/ft.h"],
+    includes = ["deliverable/ex01/includes"],
+    test = "test_libft.c",
+    # ex00 had this and ex01 did not, though the sources are the same five and
+    # the same restriction applies: a printf in the Makefile-built copy used to
+    # pass locally and KO on the Moulinette.
+    allowed = ["write"],
+)
+
+# ex02: ft_split.
+#
+# No exact-size ASan probe here, and the reasoning is written out once at
+# c-piscine-c-07/BUILD.bazel above its own ft_split rather than repeated:
+# the function decides its allocation sizes from the input at runtime, so a
+# probe could only re-derive the implementation and call the agreement a test.
+# c_diff's crash-fuzz twin runs the real allocation path under ASan instead.
+c_function(
+    num = "02",
+    fn = "ft_split",
+    test = "test_split.c",
+    allowed = ["malloc"],
+    malloc = True,
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "02",
+    fn = "ft_split",
+    harness = "diff_split.c",
+    oracle_fn = "c09_split",
+    diff_clues = "diff_clues.txt",
+)
+
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["libft_creator.sh", "ft_putchar.c", "ft_swap.c", "ft_putstr.c", "ft_strlen.c", "ft_strcmp.c"],
+    strict = True,
+)
+# Makefile alone, and the two `optional = ["srcs", "includes"]` entries that
+# used to sit here are gone rather than promoted to `required`.
+#
+# They were dead: native.glob returns files, never directories, so neither name
+# could ever have appeared in what this layer compares against. Dead
+# configuration that reads as live is the problem -- the block looked as though
+# it accounted for the five sources and includes/ft.h, and it did not.
+#
+# Requiring them instead would have been worse, because the subject's own words
+# are "Files to turn in: Makefile", full stop. srcs/ and includes/ are where the
+# Makefile is told to LOOK ("The Makefile will get its source files from the
+# 'srcs' directory"), not things this exercise turns in, and demanding them here
+# would invent a requirement the subject declines to make. The sources are
+# compiled and normed by c_libft either way.
+c_files(
+    num = "01",
+    required = ["Makefile"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_split.c"],
+    strict = True,
+)
+
+c_levels()
+
+c_cycles(
+    num = "00",
+    fn = "ft_strcmp",
+    oracle_fn = "c09_strcmp",
+    harness = "diff_strcmp.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # compare archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "02",
+    fn = "ft_split",
+    oracle_fn = "c09_split",
+    harness = "diff_split.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # alloc archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 14,
+    syscall_budget = 0,
+)

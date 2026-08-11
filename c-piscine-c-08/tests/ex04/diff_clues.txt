@@ -1,0 +1,31 @@
+  Each case renders one returned array as `size/alias/hex-of-copy` per entry,
+  joined with `,`, then `;term=1`. Read WHICH FIELD differs first — the three
+  are three different mistakes.
+
+    * only `size` differs, and only    -> a length loop that stops while the
+      for strings with a high byte        byte is POSITIVE rather than while it
+      (ff, 80, 81 in the input hex)       is non-zero. `char` is signed here, so
+                                          every byte from 0x80 up is negative
+                                          and the scan ends early. What should
+                                          the loop compare against instead?
+    * `size` is one too small or        -> where the count starts, and whether
+      one too large, everywhere            the terminator is counted
+    * the alias flag is `-`             -> the subject says "str being the
+                                          string". Not a copy of it — the
+                                          pointer you were handed
+    * the copy's hex is shorter than    -> a copy that was never terminated. The
+      the size says                        harness stops at the first NUL inside
+                                          `size` bytes, so a missing terminator
+                                          shows up here rather than as a crash
+    * `term=0`                          -> "the last element's str set to 0".
+                                          How many elements does the array need
+                                          for that to be possible?
+    * the whole line is `NULL`          -> the function gave up. On these inputs
+                                          the only stated reason to return NULL
+                                          is an allocation failure, and nothing
+                                          here makes malloc fail
+    * the entries are right but in the  -> "It should keep the order of av"
+      wrong places
+    * it diverges on the empty array    -> ac = 0 is a valid call. What does the
+      (`;term=1` with nothing before)      array look like when there is nothing
+                                          to put in it?

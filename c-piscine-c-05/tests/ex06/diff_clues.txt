@@ -1,0 +1,8 @@
+  One answer per input.
+    * 0 and 1 diverge         -> neither is prime, and neither is caught by a
+                                 loop that starts at 2
+    * 2 diverges              -> the only even prime
+    * every negative          -> the subject says what those are
+    * only large primes       -> the bound on the trial-division loop; squaring
+                                 the divisor to test it can overflow
+    * every even number       -> the loop's step

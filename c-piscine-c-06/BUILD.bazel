@@ -1,0 +1,155 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//tools:defs.bzl", "c_argv_table", "c_files", "c_levels", "c_program")
+
+c_program(
+    num = "00",
+    name = "ft_print_program_name",
+    progname = True,
+    allowed = ["write"],
+)
+
+# ex01-03 are argv programs. Instead of one opaque sh_test per invocation, a
+# single argv_table test runs the program against every scenario in
+# tests/exNN/scenarios.tsv and shows them as one labelled "invocation -> output"
+# PASS/FAIL table (each run's stdout lines joined with " | "). c_program with no
+# `cases` still builds the binary plus the norm/compile/forbidden layers.
+
+c_program(num = "01", name = "ft_print_params", allowed = ["write"])
+
+c_argv_table(num = "01")
+
+c_program(num = "02", name = "ft_rev_params", allowed = ["write"])
+
+c_argv_table(num = "02")
+
+c_program(num = "03", name = "ft_sort_params", allowed = ["write"])
+
+c_argv_table(num = "03")
+
+# LOAD-BEARING SCENARIO ROWS — do not tidy away "the weird empty argument".
+# A row can see the bug this module is really about — printing the newline
+# BETWEEN parameters instead of AFTER each one — only if the LAST line that row
+# makes the program print is empty. Having an empty argument somewhere is not
+# enough: it has to end up last in the printed order. By that test ex01 has
+# exactly ONE qualifying row in tests/ex01/scenarios.tsv, ["a","b",""] (its
+# other empty-argument row, ["","a b c","end"], prints "end" last and sees
+# nothing) — remove it and the exercise keeps reporting all-PASS while that
+# check silently stops existing, which is the worst failure a suite can have:
+# green locally, KO at the Moulinette, nothing in the table to look at.
+# tests/ex02/scenarios.tsv has two, ["","a b c","end"] and ["","x","y"], both
+# only because reversing them puts the empty string last.
+#
+# Why only those rows: argv_table.sh joins a run's stdout LINES with " | "
+# (tools/argv_table.sh:164, an awk record walk), and awk counts a trailing
+# incomplete line as a record, so a missing FINAL newline is invisible in the
+# joined cell unless the last line is empty — which happens only when the last
+# parameter printed is the empty string. The two byte streams, joined:
+#
+#     printf 'a\nb\n\n'  ->  "a | b | "   correct, args a b ""
+#     printf 'a\nb\n'    ->  "a | b"      separator bug, same args   (caught)
+#     printf 'x\ny\nz\n' ->  "x | y | z"  correct, args x y z
+#     printf 'x\ny\nz'   ->  "x | y | z"  separator bug, same args   (invisible)
+#
+# ex01 prints in argv order, so its empty argument has to come LAST; ex02
+# reverses, so its empty argument has to come FIRST. ex03 sorts, and "" sorts
+# ahead of everything else, so the only shape that works there is a row of
+# nothing BUT empty arguments: ["",""] sorts to "", "" and joins to " | " for a
+# correct program against "" for the bug. One empty argument on its own is not
+# enough — "\n" and "" both join to the empty cell. The invariant to preserve
+# when editing any of these three scenario files is one and the same: keep at
+# least one row whose last PRINTED line is empty.
+#
+# An EXTRA trailing newline needs none of this — it adds an empty record and
+# every row sees it. Only the MISSING one is invisible.
+
+# No valgrind arm on any exercise here: these programs are allowed write() and
+# nothing else, so none of them can allocate — see the `allowed` rule written out
+# in c-piscine-c-00/BUILD.bazel.
+
+# ---------------------------------------------------------------------------
+# THE DIFFERENTIAL LAYER, against //oracle's c06 reference.
+#
+# WHAT IT ADDS OVER THE TABLE ABOVE, which is the only question worth asking of
+# a second layer on the same exercise:
+#
+#   * The table's rows are arguments a person typed. The corpus generates the
+#     ones nobody types: an argument that is a single newline, one that ends in
+#     one, a pair differing only past the shorter one's end, five arguments
+#     drawn from a four-letter alphabet so that ties and near-ties are common.
+#   * It compares with `cmp`, on the exact bytes. The table joins a run's stdout
+#     LINES with " | ", and the long comment above works out that this makes a
+#     MISSING FINAL NEWLINE invisible unless the last printed line happens to be
+#     empty -- which is why three scenario files carry a load-bearing row that
+#     must not be tidied away. Nothing here depends on that: a byte comparison
+#     sees the missing newline in every case, and reports it by name.
+#   * ex03's real content is the ORDER, and "ASCII order" is unsigned. The
+#     table has no argument with a byte above 0x7f in it, so a comparison
+#     written on signed `char` -- which puts 0xff BELOW every letter -- passes
+#     it. Measured against a deliberately signed reference: 53 of 200.
+#
+# `--expect-reordering` on ex02 and ex03: the runner refuses to report OK on a
+# corpus in which no case's expected output differs from its arguments in the
+# order given, because such a corpus is passed by a program that reverses and
+# sorts nothing at all.
+#
+# The lvl_* tags are written out because _test() is private to defs.bzl and
+# these are hand-written sh_tests. `diff` is level 3, so lvl_robust and
+# lvl_complete are the cumulative pair -- the same spelling, and the same
+# reason, as c-piscine-rush-01's hand-written targets.
+[
+    sh_test(
+        name = "ex%s_argv_diff" % num,
+        size = "small",
+        srcs = ["//tools:argv_check.sh"],
+        args = [
+            "--bin",
+            "$(location :ex%s_bin)" % num,
+            "--oracle",
+            "$(location //oracle:oracle)",
+            "--fn",
+            fn,
+            "--count",
+            "200",
+        ] + extra,
+        data = [
+            ":ex%s_bin" % num,
+            "//oracle:oracle",
+            "//tools:argv_check.sh",
+        ],
+        tags = [
+            "diff",
+            "lvl_complete",
+            "lvl_robust",
+        ],
+    )
+    for num, fn, extra in [
+        ("01", "c06_print_params", []),
+        ("02", "c06_rev_params", ["--expect-reordering"]),
+        ("03", "c06_sort_params", ["--expect-reordering"]),
+    ]
+]
+
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["ft_print_program_name.c"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["ft_print_params.c"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_rev_params.c"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["ft_sort_params.c"],
+    strict = True,
+)
+
+c_levels()

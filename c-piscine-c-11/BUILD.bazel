@@ -1,0 +1,141 @@
+load("//tools:defs.bzl", "c_diff", "c_files", "c_function", "c_levels", "c_make", "c_mem_check", "c_program")
+
+c_function(num = "00", fn = "ft_foreach", test = "test_foreach.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "00", fn = "ft_foreach", harness = "diff_foreach.c", oracle_fn = "c11_foreach", diff_clues = "diff_clues.txt")
+
+# ft_foreach / ft_map / ft_count_if / ft_is_sort each carry a `length` SAFETY
+# bound: they must never read past tab[length-1]. These run the function under
+# ASan on an exact-sized heap array — a stray read past the bound is caught here
+# (output diffing can't see it, since the returned value can still be correct).
+c_mem_check(num = "00", fn = "ft_foreach", probe = "mem_foreach.c")
+
+c_function(num = "01", fn = "ft_map", test = "test_map.c", allowed = ["malloc"], malloc = True, labeled = True, clues = "clues.tsv")
+c_diff(num = "01", fn = "ft_map", harness = "diff_map.c", oracle_fn = "c11_map", diff_clues = "diff_clues.txt")
+
+c_mem_check(num = "01", fn = "ft_map", probe = "mem_map.c")
+
+c_function(num = "02", fn = "ft_any", test = "test_any.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "02", fn = "ft_any", harness = "diff_any.c", oracle_fn = "c11_any", diff_clues = "diff_clues.txt")
+
+c_function(num = "03", fn = "ft_count_if", test = "test_count_if.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "03", fn = "ft_count_if", harness = "diff_count_if.c", oracle_fn = "c11_count_if", diff_clues = "diff_clues.txt")
+
+c_mem_check(num = "03", fn = "ft_count_if", probe = "mem_count_if.c")
+
+c_function(num = "04", fn = "ft_is_sort", test = "test_is_sort.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "04", fn = "ft_is_sort", harness = "diff_is_sort.c", oracle_fn = "c11_is_sort", diff_clues = "diff_clues.txt")
+
+c_mem_check(num = "04", fn = "ft_is_sort", probe = "mem_is_sort.c")
+
+c_program(num = "05", name = "do_op", allowed = ["write"], cases = [
+    {"name": "add", "args": ["42", "+", "21"], "expected": "add.txt", "clues": "clues.tsv"},
+    {"name": "sub", "args": ["42amis", "-", "--+-20toto12"], "expected": "sub.txt", "clues": "clues.tsv"},
+    {"name": "mul", "args": ["3", "*", "4"], "expected": "mul.txt", "clues": "clues.tsv"},
+    {"name": "neg", "args": ["10", "-", "25"], "expected": "neg.txt", "clues": "clues.tsv"},
+    {"name": "divzero", "args": ["1", "/", "0"], "expected": "divzero.txt", "clues": "clues.tsv"},
+    {"name": "modzero", "args": ["25", "%", "0"], "expected": "modzero.txt", "clues": "clues.tsv"},
+    {"name": "unknown", "args": ["1", "p", "1"], "expected": "unknown.txt", "clues": "clues.tsv"},
+    {"name": "noargs", "args": [], "expected": "noargs.txt", "exit": 0, "clues": "clues.tsv"},
+    {"name": "addsimple", "args": ["1", "+", "1"], "expected": "addsimple.txt", "clues": "clues.tsv"},
+    {"name": "div", "args": ["10", "/", "3"], "expected": "div.txt", "clues": "clues.tsv"},
+    {"name": "mod", "args": ["10", "%", "3"], "expected": "mod.txt", "clues": "clues.tsv"},
+    {"name": "modneg", "args": ["-10", "%", "3"], "expected": "modneg.txt", "clues": "clues.tsv"},
+    {"name": "garbageright", "args": ["1", "+", "toto3"], "expected": "garbageright.txt", "clues": "clues.tsv"},
+    {"name": "garbageleft", "args": ["toto3", "+", "4"], "expected": "garbageleft.txt", "clues": "clues.tsv"},
+    {"name": "unknownword", "args": ["foo", "plus", "bar"], "expected": "unknownword.txt", "clues": "clues.tsv"},
+    {"name": "toomany", "args": ["1", "+", "1", "extra"], "expected": "noargs.txt", "exit": 0, "clues": "clues.tsv"},
+    {"name": "threeargs", "args": ["1", "+"], "expected": "noargs.txt", "exit": 0, "clues": "clues.tsv"},
+])
+
+c_function(num = "06", fn = "ft_sort_string_tab", test = "test_sort_string_tab.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "06", fn = "ft_sort_string_tab", harness = "diff_sort_string_tab.c", oracle_fn = "c11_sort_string_tab", diff_clues = "diff_clues.txt")
+
+c_function(num = "07", fn = "ft_advanced_sort_string_tab", test = "test_advanced_sort_string_tab.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "07", fn = "ft_advanced_sort_string_tab", harness = "diff_advanced_sort_string_tab.c", oracle_fn = "c11_advanced_sort_string_tab", diff_clues = "diff_clues.txt")
+
+# no c_mem_check on ex02, ex06, ex07: SENTINEL-BOUND.
+#
+# The split follows the prototypes. ft_foreach/ft_map/ft_count_if/ft_is_sort
+# take an `int length` -- a NUMBER the function is trusted to respect, where
+# reading tab[length] is silent and only an exactly-sized heap array catches it,
+# which is what the probes above are for. ft_any, ft_sort_string_tab and
+# ft_advanced_sort_string_tab take no length: the NULL terminator IS the bound.
+#
+# That makes a probe pointless rather than merely redundant, and it was measured
+# rather than assumed -- on an exactly-sized 3-slot array (2 entries + sentinel)
+# walked one slot long, from a separate translation unit, which is the shape
+# this repo builds:
+#
+#   reading the sentinel slot      no out-of-bounds report on any of the four
+#                                  toolchain/-O combinations -- it is in bounds
+#   dereferencing it               SIGSEGV under clang-12 and gcc-10, at both
+#                                  -O0 and -O2; ASan reports SEGV on 0x0
+#
+# A fatal signal is what exNN_output already fails on, ahead of the byte
+# comparison, because a crash outranks a comparison. So the bug is caught today
+# by a layer that runs today; a probe would add a stack trace, not a verdict.
+
+# No valgrind arm on ex00 and ex02..ex07: ft_map is the only exercise here the
+# subject allows malloc (declared malloc = True above, which is what emits its
+# arm), and ex06/ex07 sort the caller's array in place. See the `allowed` rule
+# written out in c-piscine-c-00/BUILD.bazel.
+
+
+# ex05 HAS a build layer now, and a stub Makefile to hang it on.
+#
+# It is the only exercise in this module whose subject prints a
+# build-and-run transcript -- p.11 opens the Moulinette's own session with
+# `make clean` then `make` then `./do-op` -- and it was the only one with
+# nothing checking that. A student with no Makefile passed every layer here
+# and met that transcript for the first time at evaluation.
+#
+# `rules = ["clean"]`, not the default clean/fclean/re: the transcript shows
+# only `make clean`, and demanding the other two would red a correct Makefile
+# over rules this subject never asks for.
+#
+# It is RED until the Makefile is written, which is the same state every other
+# unstarted exercise is in -- an output layer red against a stub deliverable.
+# The build layer is not different in kind, only in what it reads.
+c_make(
+    num = "05",
+    anchor = "deliverable/ex05/Makefile",
+    artifact = "do-op",
+    symbols = ["main"],
+    rules = ["clean"],
+)
+
+c_files(
+    num = "05",
+    required = [],
+    # Every .c and .h in the directory is `optional`, from the same glob the
+    # build uses. Without it this layer reports the exercise's own source as
+    # "a file the subject did not ask for" -- on a fully conformant turn-in,
+    # at level 1, inside the submit gate at every level, so it is printed on
+    # every submit. It also destroys the signal the warning exists for: a
+    # stray binary left in deliverable/ by a hand-run of `cc -o` is what
+    # //tools:submit would push to Vogsphere, and it was indistinguishable
+    # from the required source. Same construction as rush-01 ex00, which had
+    # this right from the start.
+    optional = [
+        f[len("deliverable/ex05/"):]
+        for f in glob(
+            [
+                "deliverable/ex05/*.c",
+                "deliverable/ex05/*.h",
+            ],
+            allow_empty = True,
+        )
+    ],
+)
+c_files(
+    num = "06",
+    required = ["ft_sort_string_tab.c"],
+    strict = True,
+)
+c_files(
+    num = "07",
+    required = ["ft_advanced_sort_string_tab.c"],
+    strict = True,
+)
+
+c_levels()

@@ -1,0 +1,218 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_files", "c_function", "c_levels", "c_mem_check", "c_reference_cost")
+
+c_function(num = "00", fn = "ft_putchar", test = "test_putchar.c", allowed = ["write"], clues = "clues.tsv")
+
+c_function(num = "01", fn = "ft_print_alphabet", test = "test_alphabet.c", allowed = ["write"], clues = "clues.tsv")
+
+c_mem_check(num = "01", fn = "ft_print_alphabet", probe = "mem_print_alphabet.c")
+
+c_function(num = "02", fn = "ft_print_reverse_alphabet", test = "test_reverse_alphabet.c", allowed = ["write"], clues = "clues.tsv")
+
+c_mem_check(num = "02", fn = "ft_print_reverse_alphabet", probe = "mem_print_reverse_alphabet.c")
+
+c_function(num = "03", fn = "ft_print_numbers", test = "test_numbers.c", allowed = ["write"], clues = "clues.tsv")
+
+c_mem_check(num = "03", fn = "ft_print_numbers", probe = "mem_print_numbers.c")
+
+c_function(num = "04", fn = "ft_is_negative", test = "test_is_negative.c", allowed = ["write"], labeled = True, clues = "clues.tsv")
+
+# Live differential fuzz against the Rust reference (//oracle): the full 32-bit
+# input range (boundaries + seeded random) diffed exact against 'N'/'P'.
+c_diff(num = "04", fn = "ft_is_negative", harness = "diff_is_negative.c", oracle_fn = "c00_is_negative", diff_clues = "diff_clues.txt")
+
+c_function(num = "05", fn = "ft_print_comb", test = "test_print_comb.c", allowed = ["write"], clues = "clues.tsv")
+
+c_mem_check(num = "05", fn = "ft_print_comb", probe = "mem_print_comb.c")
+
+c_function(num = "06", fn = "ft_print_comb2", test = "test_print_comb2.c", allowed = ["write"], clues = "clues.tsv")
+
+# ft_print_comb2 owns no external buffer, but it fills a fixed internal 5-byte
+# buffer per pair. This runs it under ASan so a stray write past that buffer
+# (a stack-buffer-overflow) is caught — output diffing can't see it.
+c_mem_check(num = "06", fn = "ft_print_comb2", probe = "mem_print_comb2.c")
+
+c_function(num = "07", fn = "ft_putnbr", test = "test_putnbr.c", allowed = ["write"], labeled = True, clues = "clues.tsv")
+
+# Live differential fuzz against the Rust reference (//oracle): the full 32-bit
+# range including INT_MIN/-2147483648 and INT_MAX, diffed exact against the
+# printed decimal text.
+c_diff(
+    num = "07",
+    fn = "ft_putnbr",
+    harness = "diff_putnbr.c",
+    oracle_fn = "c00_putnbr",
+    # Lower count: this function write()s one CHARACTER at a time, which is what
+    # the subject asks for, so its replay is syscall-bound and dominates the
+    # layer's wall time (measured 52s of a 60s budget at 400k under full-suite
+    # contention). Each generator emits its pinned contract corners FIRST and
+    # only the seeded random tail shrinks, so no boundary case is lost.
+    count = 100000,    diff_clues = "diff_clues.txt",
+)
+
+c_function(num = "08", fn = "ft_print_combn", test = "test_print_combn.c", allowed = ["write"], clues = "clues.tsv")
+
+# ft_print_combn owns no external buffer, but it recurses to depth n into a fixed
+# internal buffer. This runs it under ASan across the valid range up to the
+# deepest path (n = 9) so an off-by-one/undersized internal write is caught.
+c_mem_check(num = "08", fn = "ft_print_combn", probe = "mem_print_combn.c")
+
+# ------------------------------------------- layers this module does NOT carry
+#
+# NO differential arm for ex01, ex02, ex03, ex05 and ex06, and that is a decision
+# rather than an omission — the same decision c-piscine-c-05/BUILD.bazel records
+# at length for ft_ten_queens_puzzle. All five are `void f(void)`. They take no
+# input, so they have exactly one correct output and there is nothing for a
+# generator to vary: a c_diff would replay one identical case 400k times and
+# prove nothing tests/exNN/expected.txt has not already proved. For a zero-input
+# function the fixed-output fixture IS the complete contract, which is why ex04
+# and ex07 (which do take an int) get an arm and these do not.
+#
+# ex00 (ft_putchar) is not zero-input either -- it takes a char -- and it also
+# carries no differential arm. That was undecided rather than decided until now,
+# so: a corpus here would be REDUNDANCY, not coverage. The whole contract is one
+# byte written to fd 1, and the only input that can behave differently from its
+# neighbours is one with the high bit set, where a plain `char` is negative.
+# tests/ex00/test_putchar.c already drives (char)255 AND (char)0 -- and those
+# two are precisely the bytes a c_diff corpus in this repo CANNOT carry, since
+# every reader harness is line-based and every generator here documents that its
+# bodies "never contain 0x00 or 0x0a". So the fixture covers strictly more of
+# the interesting domain than a corpus could, and the remaining 254 values
+# differ from '~' in no way a one-byte write can express.
+#
+# ex08 is not the zero-input case either, and it is left out for a related but
+# separate reason: its SPECIFIED input space is nine values wide, not 2^32. The subject
+# says "The value of n will be such that: 0 < n < 10", so n is 1..9 and what the
+# function does outside that is simply not defined. tests/ex08/test_print_combn.c
+# drives four of the nine: both structural ends (n = 1, the shallowest recursion,
+# and n = 9, the deepest) and two interiors (2 and 4). A seeded 32-bit corpus
+# would spend all but nine of its cases on inputs the subject rules out. If
+# n = 3, 5, 6, 7, 8 are ever wanted too, the cheap and correct answer is five
+# more calls in that harness, not a fuzz layer.
+#
+# THOSE FIVE CALLS ARE NOW THERE. The harness drives all nine, and the expected
+# bytes come from //oracle's `c00_print_combn` arm rather than from whatever a
+# deliverable printed on the day: it emits exactly these nine lines, its own
+# check() compares each against an independent odometer enumeration and against
+# C(10, n), and it was required to reproduce the four lines already committed
+# here BYTE FOR BYTE before the other five were believed. (The nine lines are
+# 28, 178, 598, 1258, 1762, 1678, 1078, 448 and 108 bytes — so n = 5 is the
+# widest output, and n = 9 the deepest recursion, which are not the same thing.
+# The four-value fixture's widest was n = 4, which is why that number appears in
+# the paragraph above.)
+#
+# The out-of-domain values are deliberately NOT in the output fixture. They used
+# to be, pinned to empty output, which failed any implementation that fills n
+# slots and so prints "0123456789" for n = 10 — a red at the beginner gate for
+# code correct across everything the subject specifies. They are still driven, in
+# tests/ex08/mem_print_combn.c under ASan, where the property that genuinely does
+# apply to them is checked: not what they print, but that they stay in bounds.
+#
+# One consequence of the above is worth stating because it is invisible from
+# here: c_diff is what emits the crash-fuzz twin (exNN_diff_asan) and what links
+# the ASan/UBSan copy of the library that c_function always BUILDS and otherwise
+# never runs (tools/defs.bzl:377, tagged manual). No c_diff therefore means no
+# sanitizer at all for ex01, ex02, ex03 and ex05 — nor for ex00, which is not one
+# of the five above but is in the same position. Where this module judged a
+# fixed internal buffer worth watching it attached a c_mem_check directly instead
+# — ex06 and ex08 above — which is the ASan layer that needs no corpus.
+#
+# no valgrind, anywhere in this module: NO-MALLOC-ALLOWED.
+#
+# Every exercise here declares allowed = ["write"], and the `forbidden` layer
+# ENFORCES that by reading the deliverable's undefined symbols out of nm -- so a
+# deliverable that allocates does not leak, it fails exNN_forbidden first.
+# Nothing can allocate, so memcheck could only ever report clean, which is why
+# c_function emits a valgrind arm for `malloc = True` exercises only.
+#
+# The same code covers the identical absence in c-02, c-03, c-04, c-06 and all
+# of c-11 but ft_map. The long form of every reason code is in tools/defs.bzl,
+# above _LAYER_LEVEL.
+
+
+
+# ---------------------------------------------------------------- cost
+# The zero-input exercises get no c_diff (nothing to vary) and therefore no
+# scaling or per-unit budget either -- but what they COST still varies by orders
+# of magnitude, and until now nothing in the suite looked. Each of these emits a
+# fixed, known byte stream; the only question left is how many times the program
+# enters the kernel to hand those bytes over, and the floor in every case is one
+# write() call. Recorded against finished c-00 implementations: 26 bytes in 26
+# calls, 26 in 26, 10 in 10, 598 in 479, and 34 648 in 9 899.
+#
+# Informative only -- this layer never fails on its number, and a correct
+# exercise is correct however many syscalls it made. `kind = "output"` swaps the
+# closing paragraphs from the search-shaped ones (written for c-05 ex08) to the
+# syscall-shaped ones; nothing else about the measurement differs.
+#
+# `units` is the number of ITEMS each one produces, not its byte count, so the
+# per-unit column reads as "per letter" / "per digit" / "per combination".
+c_reference_cost(num = "01", fn = "ft_print_alphabet", oracle_fn = "c00_print_alphabet", harness = "test_alphabet.c", units = 26, unit_name = "letter", kind = "output")
+
+c_reference_cost(num = "02", fn = "ft_print_reverse_alphabet", oracle_fn = "c00_print_reverse_alphabet", harness = "test_reverse_alphabet.c", units = 26, unit_name = "letter", kind = "output")
+
+c_reference_cost(num = "03", fn = "ft_print_numbers", oracle_fn = "c00_print_numbers", harness = "test_numbers.c", units = 10, unit_name = "digit", kind = "output")
+
+c_reference_cost(num = "05", fn = "ft_print_comb", oracle_fn = "c00_print_comb", harness = "test_print_comb.c", units = 120, unit_name = "combination", kind = "output")
+
+c_reference_cost(num = "06", fn = "ft_print_comb2", oracle_fn = "c00_print_comb2", harness = "test_print_comb2.c", units = 4950, unit_name = "pair", kind = "output")
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["ft_putchar.c"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["ft_print_alphabet.c"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_print_reverse_alphabet.c"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["ft_print_numbers.c"],
+    strict = True,
+)
+c_files(
+    num = "04",
+    required = ["ft_is_negative.c"],
+    strict = True,
+)
+c_files(
+    num = "05",
+    required = ["ft_print_comb.c"],
+    strict = True,
+)
+c_files(
+    num = "06",
+    required = ["ft_print_comb2.c"],
+    strict = True,
+)
+c_files(
+    num = "07",
+    required = ["ft_putnbr.c"],
+    strict = True,
+)
+c_files(
+    num = "08",
+    required = ["ft_print_combn.c"],
+    strict = True,
+)
+
+c_levels()
+
+c_cycles(
+    num = "07",
+    fn = "ft_putnbr",
+    oracle_fn = "c00_putnbr",
+    harness = "diff_putnbr.c",
+    unit_expr = "length($2)",
+    unit_name = "digit",
+    # emit_nbr archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 40,
+    syscall_budget = 1.0,
+)

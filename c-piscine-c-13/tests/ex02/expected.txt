@@ -1,0 +1,19 @@
+-- null --
+-- single --
+42
+-- balanced --
+1
+2
+3
+4
+5
+6
+7
+-- left chain --
+10
+20
+30
+-- right chain --
+100
+200
+300

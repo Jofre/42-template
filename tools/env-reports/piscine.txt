@@ -1,0 +1,187 @@
+=============================================================
+ 42 ENVIRONMENT AUDIT
+=============================================================
+host:                  piscine
+generated:             2026-08-09T17:31:24Z
+repo HEAD:             339ae5b (main)
+
+### System
+uname -a:              Linux piscine 5.10.16.3-microsoft-standard-WSL2 #1 SMP Fri Apr 2 22:23:49 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux
+os-release:            Ubuntu 22.04.5 LTS
+locale LANG:           en_US.UTF-8
+locale:                LANG=en_US.UTF-8|LANGUAGE=|
+umask:                 0022
+$SHELL:                /bin/bash
+/bin/sh ->:            dash /usr/bin/dash
+PATH:                  /tmp/claude-1000/-workspaces-42/4bc73a8c-9819-4dfb-bcc4-a68102ef5187/scratchpad/shadow:/home/student/.local/bin:/home/student/.antigravity-ide-server/bin/2.1.1-e0b7a2bcf575cfba10528c4e7c10bd3ce2d7769a/bin/remote-cli:/home/student/.local/bin:/home/student/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+### Hermetic pin data
+cc:                    Ubuntu clang version 12.0.1-19ubuntu3
+                         path   /usr/lib/llvm-12/bin/clang
+                         sha256 42bbcce53e9906fcd764a77acab9b693e8c495dbccb5491048d6625ac53f7f30
+                         pkg    clang-12 1:12.0.1-19ubuntu3
+                         SHADOWED: system copy at /usr/bin/cc
+                           version Ubuntu clang version 12.0.1-19ubuntu3
+                           pkg     (not from a package)
+clang:                 Ubuntu clang version 12.0.1-19ubuntu3
+                         path   /usr/lib/llvm-12/bin/clang
+                         sha256 42bbcce53e9906fcd764a77acab9b693e8c495dbccb5491048d6625ac53f7f30
+                         pkg    clang-12 1:12.0.1-19ubuntu3
+                         SHADOWED: system copy at /usr/bin/clang
+                           version Ubuntu clang version 12.0.1-19ubuntu3
+                           pkg     clang
+clang-12:              Ubuntu clang version 12.0.1-19ubuntu3
+                         path   /usr/lib/llvm-12/bin/clang
+                         sha256 42bbcce53e9906fcd764a77acab9b693e8c495dbccb5491048d6625ac53f7f30
+                         pkg    clang-12 1:12.0.1-19ubuntu3
+                         SHADOWED: system copy at /usr/bin/clang-12
+                           version Ubuntu clang version 12.0.1-19ubuntu3
+                           pkg     clang-12
+gcc:                   gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0
+                         path   /usr/bin/x86_64-linux-gnu-gcc-10
+                         sha256 da9580014b19da31d496b5d3496a7ed8b1e4f017bd19d56965e3a2e33cf30583
+                         pkg    gcc-10 10.5.0-1ubuntu1~22.04.3
+                         SHADOWED: system copy at /usr/bin/gcc
+                           version gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0
+                           pkg     gcc
+gcc-10:                gcc-10 (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0
+                         path   /usr/bin/x86_64-linux-gnu-gcc-10
+                         sha256 da9580014b19da31d496b5d3496a7ed8b1e4f017bd19d56965e3a2e33cf30583
+                         pkg    gcc-10 10.5.0-1ubuntu1~22.04.3
+                         SHADOWED: system copy at /usr/bin/gcc-10
+                           version gcc-10 (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0
+                           pkg     gcc-10
+make:                  GNU Make 4.3
+                         path   /usr/bin/make
+                         sha256 92f646030615cd98490a68a94c0aefd87b552be3158b941c02e43b0bfdb576db
+                         pkg    make 4.3-4.1build1
+                         SHADOWED: system copy at /bin/make
+                           version GNU Make 4.3
+                           pkg     (not from a package)
+ar:                    GNU ar (GNU Binutils for Ubuntu) 2.38
+                         path   /usr/bin/x86_64-linux-gnu-ar
+                         sha256 5b394f8752fde1776992d405d76034d5017b24b9b922bedaeeaff8cc344ef044
+                         pkg    binutils-x86-64-linux-gnu 2.38-4ubuntu2.12
+                         SHADOWED: system copy at /usr/bin/ar
+                           version GNU ar (GNU Binutils for Ubuntu) 2.38
+                           pkg     binutils
+nm:                    GNU nm (fake brew) 9.9
+                         path   /tmp/claude-1000/-workspaces-42/4bc73a8c-9819-4dfb-bcc4-a68102ef5187/scratchpad/shadow/nm
+                         sha256 85b132e2d700fcbf249453f9bf50ca0266a4653f8c8cb26c224a2ea4f1f8cfaf
+                         pkg    (not from a package)
+                         SHADOWED: system copy at /usr/bin/nm
+                           version GNU nm (GNU Binutils for Ubuntu) 2.38
+                           pkg     binutils
+objdump:               GNU objdump (GNU Binutils for Ubuntu) 2.38
+                         path   /usr/bin/x86_64-linux-gnu-objdump
+                         sha256 1eaaef2e7f57c4c7f69115c495e2466f5a8c8e5f3bc42221d092382f30f9d4cd
+                         pkg    binutils-x86-64-linux-gnu 2.38-4ubuntu2.12
+                         SHADOWED: system copy at /usr/bin/objdump
+                           version GNU objdump (GNU Binutils for Ubuntu) 2.38
+                           pkg     binutils
+norminette:            Setting locale to en_US
+                         path   /usr/local/bin/norminette
+                         sha256 e486f09e7ba2aba1ee930888cc7afd0a960d0280127eba182188a5bbd9b95738
+                         pkg    (not from a package)
+valgrind:              valgrind-3.18.1
+                         path   /usr/bin/valgrind
+                         sha256 4652774bd116cb49951ef74115ad4237cad5021b2bd4d80002f09d986ec438b9
+                         pkg    valgrind 1:3.18.1-1ubuntu2
+                         SHADOWED: system copy at /bin/valgrind
+                           version valgrind-3.18.1
+                           pkg     (not from a package)
+gdb:                   GNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1
+                         path   /usr/bin/gdb
+                         sha256 a6222ff0f450ca040e3479c04fdb7d0f1e0cabb099688270e720b7115d933c3d
+                         pkg    gdb 12.1-0ubuntu1~22.04.2
+                         SHADOWED: system copy at /bin/gdb
+                           version GNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1
+                           pkg     (not from a package)
+lldb-12:               (not on PATH)
+sh:                    sh: 0: Illegal option --
+                         path   /usr/bin/dash
+                         sha256 4f291296e89b784cd35479fca606f228126e3641f5bcaee68dee36583d7c9483
+                         pkg    (not from a package)
+                         SHADOWED: system copy at /usr/bin/sh
+                           version /usr/bin/sh: 0: Illegal option --
+                           pkg     (not from a package)
+bash:                  GNU bash, version 5.1.16(1)-release (x86_64-pc-linux-gnu)
+                         path   /usr/bin/bash
+                         sha256 59474588a312b6b6e73e5a42a59bf71e62b55416b6c9d5e4a6e1c630c2a9ecd4
+                         pkg    (not from a package)
+                         SHADOWED: system copy at /bin/bash
+                           version GNU bash, version 5.1.16(1)-release (x86_64-pc-linux-gnu)
+                           pkg     bash
+dash:                  dash: 0: Illegal option --
+                         path   /usr/bin/dash
+                         sha256 4f291296e89b784cd35479fca606f228126e3641f5bcaee68dee36583d7c9483
+                         pkg    (not from a package)
+                         SHADOWED: system copy at /bin/dash
+                           version /bin/dash: 0: Illegal option --
+                           pkg     dash
+zsh:                   (not on PATH)
+
+### Shells actually installed
+shell bash:            /usr/bin/bash
+shell dash:            /usr/bin/dash
+login shell (passwd):  /bin/bash
+/etc/shells:           # /etc/shells: valid login shells|/bin/sh|
+
+### Storage, for tools/setup.sh
+df -h /home/student:   251G total, 184G free (24% used)
+df -i /home/student:   16777216 inodes, 12139936 free (28% used)
+df -h /tmp:            251G total, 184G free (24% used)
+df -i /tmp:            16777216 inodes, 12139936 free (28% used)
+quota:                 tools/env-audit.sh: 80: quota: not found
+
+### Tool versions
+sh (/bin/sh):          dash 0.5.11+git20210903+057cd650a4ed-3build1
+bash:                  GNU bash, version 5.1.16(1)-release (x86_64-pc-linux-gnu)|Copyright (C) 2020 Free Software Foundation, Inc.|
+ssh:                   OpenSSH_8.9p1 Ubuntu-3ubuntu0.16, OpenSSL 3.0.2 15 Mar 2022
+ssh key algos:         ssh-ed25519|ssh-ed25519-cert-v01@openssh.com|
+file:                  file-5.41|magic file from /etc/magic:/usr/share/misc/magic
+find:                  find (GNU findutils) 4.8.0|Copyright (C) 2021 Free Software Foundation, Inc.|
+tar:                   tar (GNU tar) 1.34|Copyright (C) 2021 Free Software Foundation, Inc.|
+patch:                 GNU patch 2.7.6|Copyright (C) 2003, 2009-2012 Free Software Foundation, Inc.|
+diff:                  diff (GNU diffutils) 3.8|Copyright (C) 2021 Free Software Foundation, Inc.|
+git:                   git version 2.34.1
+gcc:                   gcc (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0|Copyright (C) 2020 Free Software Foundation, Inc.|
+cc:                    Ubuntu clang version 12.0.1-19ubuntu3|Target: x86_64-pc-linux-gnu|
+make:                  GNU Make 4.3|Built for x86_64-pc-linux-gnu|
+find flavor:           GNU findutils
+
+### ex03 self-test — ssh-keygen ed25519 (the amended exercise)
+ssh-keygen -l output:  256 SHA256:n73O1aZkJmzs//tJUm/hNznWK4U8tCr28hoq+XlvzN8 no comment (ED25519)
+extracted type:        ED25519   (check expects: ED25519)
+extracted bits:        256   (check expects: 256)
+
+### ex08 self-test — 'clean' find command vs a matching DIRECTORY
+seeded tree:           files: test~ #test# sub/nested~ normal_file '#'  | dirs: data~/ #emptydir#/ #full#/(non-empty)
+-- variant: committed_no_type_f --
+  command:             find . \( -name "*~" -o -name "#*#" \) -print -delete
+  exit code:           1
+  stdout(sorted):      ./data~ ./#emptydir# ./#full# ./sub/nested~ ./#test# ./test~ 
+  stderr:              find: cannot delete ‘./#full#’: Directory not empty
+  survivors:           ./# ./clean ./.err ./#full# ./#full#/inside ./normal_file ./sub 
+  DIR DELETED:         data~  <-- unexpected: a directory was removed
+  DIR DELETED:         #emptydir#  <-- unexpected: a directory was removed
+-- variant: fixed_type_f --
+  command:             find . -type f \( -name "*~" -o -name "#*#" \) -print -delete
+  exit code:           0
+  stdout(sorted):      ./sub/nested~ ./#test# ./test~ 
+  stderr:              (none)
+  survivors:           ./# ./clean ./data~ ./#emptydir# ./.err ./#full# ./#full#/inside ./normal_file ./sub 
+generated clean mode:  -rw-r--r--
+./clean (no +x) rc:    126  stderr: tools/env-audit.sh: 299: ./clean: Permission denied
+
+### ex09 self-test — ft_magic offset semantics ('42' at the 42nd byte)
+file version:          file-5.41
+  magic=m_off42  sample=s_off40  -> ASCII text, with no line terminators
+  magic=m_off42  sample=s_off41  -> ASCII text, with no line terminators
+  magic=m_off42  sample=s_off42  -> 42 file
+  magic=m_off41  sample=s_off40  -> ASCII text, with no line terminators
+  magic=m_off41  sample=s_off41  -> 42 file
+  magic=m_off41  sample=s_off42  -> ASCII text, with no line terminators
+  (want: magic=m_off41 sample=s_off41 -> "42 file"; confirms offset 41 == 42nd byte)
+
+=== end of report ===

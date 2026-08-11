@@ -1,0 +1,233 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_files", "c_function", "c_levels", "c_mem_check")
+
+# allocfail is ON here, and c-08 ex04 is no longer the only exercise with it.
+#
+# The rule it checks is not in this subject's own words, which is why it was
+# left off until now: the subject says "Reproduce the behavior of the function
+# strdup (man strdup)", so the contract is the man page's, and that page states
+# the return -- NULL when there is not enough memory. c-08 ex04 spells the same
+# rule out directly; here it arrives by the reference the subject makes.
+#
+# A weaker hook than a sentence in the subject, and the gate reflects that:
+# allocfail is a level-3 (robust) layer, so it never meets a beginner at the
+# level they first submit against. It earns its place because ignoring malloc's
+# answer is not a style question -- the line after it dereferences the pointer.
+c_function(
+    num = "00",
+    fn = "ft_strdup",
+    test = "test_strdup.c",
+    allowed = ["malloc"],
+    malloc = True,
+    allocfail = "af_ft_strdup.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# Live differential fuzz against the Rust reference (//oracle): a seeded 400k
+# inputs, exact-value compare. The reference emits the duplicated content; the
+# harness allocates via ft_strdup and reprints it.
+c_diff(num = "00", fn = "ft_strdup", harness = "diff_strdup.c", oracle_fn = "c07_strdup", diff_clues = "diff_clues.txt")
+
+# ft_strdup must copy src including its NUL into a block sized len + 1, reading no
+# further than the terminator. This runs it under ASan on an EXACT-SIZE heap src
+# (no trailing slack): an over-read past the NUL, or a one-byte-short alloc that
+# terminates past the end, is caught here (stdout diffing can't see it).
+c_mem_check(num = "00", fn = "ft_strdup", probe = "mem_strdup.c")
+
+c_function(
+    num = "01",
+    fn = "ft_range",
+    test = "test_range.c",
+    allowed = ["malloc"],
+    malloc = True,
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(num = "01", fn = "ft_range", harness = "diff_range.c", oracle_fn = "c07_range", diff_clues = "diff_clues.txt")
+
+# ft_range allocates exactly (max - min) ints and fills indices 0 .. n - 1. This
+# runs it under ASan so a `<= n` fill loop that writes one int past its own block
+# is caught as a heap-buffer-overflow (stdout diffing can't see the stray write).
+c_mem_check(num = "01", fn = "ft_range", probe = "mem_range.c")
+
+c_function(
+    num = "02",
+    fn = "ft_ultimate_range",
+    test = "test_ultimate_range.c",
+    allowed = ["malloc"],
+    malloc = True,
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "02",
+    fn = "ft_ultimate_range",
+    harness = "diff_ultimate_range.c",
+    oracle_fn = "c07_ultimate_range",
+    diff_clues = "diff_clues.txt",
+)
+
+# ft_ultimate_range allocates exactly (max - min) ints through *range and fills
+# indices 0 .. n - 1. This runs it under ASan so a `<= n` fill loop that writes
+# one int past its own block is caught as a heap-buffer-overflow (stdout diffing
+# can't see the stray write).
+c_mem_check(num = "02", fn = "ft_ultimate_range", probe = "mem_ultimate_range.c")
+
+c_function(
+    num = "03",
+    fn = "ft_strjoin",
+    test = "test_strjoin.c",
+    allowed = ["malloc"],
+    malloc = True,
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# ft_strjoin reads exactly `size` pointers from strs; it must never touch
+# strs[size]. This runs it under ASan on a heap array sized to EXACTLY size,
+# so a stray read one past the bound is caught (stdout diffing can't see it).
+c_mem_check(num = "03", fn = "ft_strjoin", probe = "mem_strjoin.c")
+
+c_diff(num = "03", fn = "ft_strjoin", harness = "diff_strjoin.c", oracle_fn = "c07_strjoin", diff_clues = "diff_clues.txt")
+
+c_function(
+    num = "04",
+    fn = "ft_convert_base",
+    test = "test_convert_base.c",
+    # No srcs here on purpose. This is the one exercise in the module whose
+    # subject asks for two files, and every macro now globs deliverable/ex04/*.c
+    # instead of guessing one name -- so the file set is declared once, in the
+    # c_files() call below, and checked against the directory rather than copied
+    # into the build. Listing them here again is how c_cycles ended up compiling
+    # only half the exercise.
+    allowed = ["malloc", "free"],
+    malloc = True,
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# c_diff names no sources at all: it links the :ft_convert_base cc_library built
+# above, which now globs both files. Same for c_perf and c_argv_table elsewhere —
+# only the macros that DECLARE a source list ever needed fixing.
+c_diff(
+    num = "04",
+    fn = "ft_convert_base",
+    harness = "diff_convert_base.c",
+    oracle_fn = "c07_convert_base",
+    diff_clues = "diff_clues.txt",
+)
+
+# WHY ex04 AND ex05 CARRY NO EXACT-SIZE ASan PROBE, while ex00-ex03 do.
+#
+# The other four allocate a block whose size the subject fixes exactly -- a
+# string of known length, a range of known width -- so a probe can hand the
+# function a heap block sized to fit precisely and a single byte past the end
+# lands in a redzone rather than on a neighbouring allocation. That is a real
+# check and it is why they have one.
+#
+# These two do not have that shape. ft_convert_base and ft_split BOTH decide
+# their own allocation sizes from the input at runtime: how many symbols the
+# output base needs, how many words the separators produce. There is no size the
+# probe could assert that the function does not compute for itself, so an
+# exact-size probe here would only be re-deriving the implementation and calling
+# the agreement a test. What covers them instead is `c_diff`'s crash-fuzz twin,
+# which runs the real allocation path under ASan across the whole corpus.
+#
+# (c-09 ex02 is the same function and the same reasoning; its BUILD file points
+# back here rather than repeating this.)
+c_function(
+    num = "05",
+    fn = "ft_split",
+    test = "test_split.c",
+    allowed = ["malloc"],
+    malloc = True,
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(num = "05", fn = "ft_split", harness = "diff_split.c", oracle_fn = "c07_split", diff_clues = "diff_clues.txt")
+
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["ft_strdup.c"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["ft_range.c"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_ultimate_range.c"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["ft_strjoin.c"],
+    strict = True,
+)
+c_files(
+    num = "04",
+    required = ["ft_convert_base.c", "ft_convert_base2.c"],
+    strict = True,
+)
+c_files(
+    num = "05",
+    required = ["ft_split.c"],
+    strict = True,
+)
+
+c_levels()
+
+c_cycles(
+    num = "00",
+    fn = "ft_strdup",
+    oracle_fn = "c07_strdup",
+    harness = "diff_strdup.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "03",
+    fn = "ft_strjoin",
+    oracle_fn = "c07_strjoin",
+    harness = "diff_strjoin.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "04",
+    fn = "ft_convert_base",
+    oracle_fn = "c07_convert_base",
+    harness = "diff_convert_base.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # alloc archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 14,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "05",
+    fn = "ft_split",
+    oracle_fn = "c07_split",
+    harness = "diff_split.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # alloc archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 14,
+    syscall_budget = 0,
+)

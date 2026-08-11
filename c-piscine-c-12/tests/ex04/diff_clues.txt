@@ -1,0 +1,7 @@
+  The whole list is printed after the call.
+    * the empty list          -> the case where the caller's own pointer has to
+                                 change, which is the only reason it is a double
+                                 pointer
+    * the ORDER is reversed   -> back and front
+    * the list loses its tail -> the link written into the old last element
+    * it never terminates     -> the new element's own link

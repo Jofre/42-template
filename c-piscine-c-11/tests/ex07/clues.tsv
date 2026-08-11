@@ -1,0 +1,8 @@
+# clues.tsv for ft_advanced_sort_string_tab — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+The array ends at the NULL slot — walk it to learn how many strings you actually have. With zero or one element there is nothing to reorder, so the table should come back untouched. Where do your loops stop?	empty table	single element
+You compare two strings by calling the cmp the caller handed you. You do not get to pick the ordering: cmp is the only judge. Are you calling the supplied function, or did a hardcoded comparison sneak in?	order by length not strcmp
+Look at the sign cmp returns for a pair. A positive result is cmp telling you the first argument belongs AFTER the second. When that happens between two neighbours, what should you do to them?	two elements ascending	ascending strcmp
+The same cmp must drive every case, even when the caller flips its sign on you. If reversing the comparator does not reverse your output, your code is ignoring what cmp says.	reversed comparator descending
+Sort the strings where they live — rearrange the pointers inside the caller's array rather than building a new one. Equal elements still each need a slot, so none of them should vanish or be overwritten.	duplicates preserved

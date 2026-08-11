@@ -1,0 +1,5 @@
+  What is printed is what survives.
+    * the empty list          -> nothing to free, and still nothing to crash on
+    * the caller still sees the old head -> the double pointer again
+    * only long lists         -> the next link read after the element was freed;
+                                 save it before, not after

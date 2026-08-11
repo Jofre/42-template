@@ -1,0 +1,2 @@
+# clues.tsv for btree_apply_infix
+"Infix" (in-order) means the node sits between its subtrees: in what order do you place the left recursion, the call to applyf on this node, and the right recursion? If the balanced tree prints out of sorted order, reconsider which of those three steps you did first and whether applyf runs before or after recursing left.

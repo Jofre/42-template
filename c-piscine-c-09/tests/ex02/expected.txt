@@ -1,0 +1,15 @@
+single space sep	[hello][world][42]
+single-char word	[x]
+no separator present	[no-separators-here]
+empty charset -> one token	[singleton]
+runs of separators	[multiple][spaces]
+leading separator	[leading]
+trailing separator	[trailing]
+multiple separators	[a][b][c][d][e]
+adjacent different seps	[a][b]
+tab + space separators	[split][by][tabs][and][spaces]
+empty string -> empty	
+only separators -> empty	
+all (mixed) seps -> empty	
+input unchanged (spaces)	[keep][me][intact] input=[keep me intact]
+input unchanged (commas)	[a][b][c] input=[a,b,c]

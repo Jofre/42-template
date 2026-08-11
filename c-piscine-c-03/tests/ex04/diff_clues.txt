@@ -1,0 +1,10 @@
+  The return is a pointer, printed as the tail it points at (or as empty).
+    * an empty needle diverges           -> the subject states what that returns,
+                                            and it is not "not found"
+    * matches at the very end are missed -> where the outer scan stops; the last
+                                            possible start is not the last byte
+    * overlapping matches ("aaa" in "aaaa") -> the FIRST match is what is asked
+                                            for, so where the outer scan resumes
+    * partial matches confuse it         -> the inner comparison has to restart
+                                            from the right place, not continue
+    * only long needles fail             -> the bound on the inner loop

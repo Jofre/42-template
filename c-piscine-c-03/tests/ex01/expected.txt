@@ -1,0 +1,17 @@
+"abc" vs "xyz" (n=0)	0
+"Hello" vs "Hello" (n=0)	0
+"Hello" vs "Hello" (n=5)	0
+"abc" vs "abc" (n=10)	0
+"Hello" vs "Hella" (n=3, diff is after n)	0
+"abc" vs "abd" (n=10)	-1
+"xyz" vs "abc" (n=3)	23
+"Hello" vs "Hella" (n=5)	14
+"Hello" vs "Helloo" (n=5, equal prefix)	0
+"Hello" vs "Helloo" (n=6, s1 ends first)	-111
+"abc" vs "ab" (n=10, s2 ends first)	99
+{0x80} vs {0x01} (n=1)	127
+{0x01} vs {0x80} (n=1)	-127
+"" vs "" (n=1)	0
+"" vs "abc" (n=3)	-97
+"abc" vs "" (n=3)	97
+"abXee" vs "abYee" (n=3, diff at n-1)	-1

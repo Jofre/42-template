@@ -1,0 +1,17 @@
+--- interleaved ---
+keep
+keep2
+--- remove head ---
+a
+b
+--- remove tail ---
+a
+b
+--- consecutive ---
+a
+b
+--- remove all ---
+(empty)
+--- no match ---
+a
+b

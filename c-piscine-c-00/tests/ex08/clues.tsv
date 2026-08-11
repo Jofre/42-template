@@ -1,0 +1,2 @@
+# clues.tsv for ft_print_combn — hints only, never answers.
+This generalises print_comb to n digits. How can you hold n digit-positions when n is only known at runtime, and how do you advance to the next strictly-increasing combination? Re-read the line in the subject that says which values of n you will actually be given.

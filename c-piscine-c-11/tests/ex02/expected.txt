@@ -1,0 +1,9 @@
+empty table	0
+single no match	0
+single match	1
+none of several match	0
+match at first position	1
+match only at last	1
+match in the middle	1
+every element matches	1
+truthy is 100 normalise	1

@@ -1,0 +1,3 @@
+# clues.tsv for ft_strlcpy — hints only, never answers.
+strlcpy's return value is the length of SRC, independent of size. It copies at most size-1 characters and then writes a terminator inside the buffer. How many characters can you actually copy before the terminator must go down?	"Hi" size 50 (fits)	"Hello" size 6 (fits exactly)	"" size 5 (empty src)	"Hello" size 5 (truncated by 1)
+What happens when size is 0? There is no room even for a terminator, so you must write nothing at all -- yet what should you still return?	"Hello" size 0 (writes nothing)	"Hello" size 1 (only the \0)	"Hello World" size 6 (big truncate)

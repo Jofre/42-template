@@ -1,0 +1,10 @@
+  n is a column of its own; read the divergence against it.
+    * n == 0 diverges                    -> what two strings compare as when
+                                            nothing is compared
+    * only pairs that differ AFTER n     -> stopping late; the bound is a limit,
+                                            not a hint
+    * only pairs differing above 0x7f    -> whether char is signed here
+    * strings shorter than n             -> the terminator ends the comparison
+                                            before n does
+    * the sign is inverted               -> which operand is subtracted from
+                                            which

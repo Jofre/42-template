@@ -1,0 +1,5 @@
+single element	mapped=[42] input=[21]
+three ascending	mapped=[2][4][6] input=[1][2][3]
+mixed signs and zero	mapped=[2][4][6][84][-10][0] input=[1][2][3][42][-5][0]
+all negative	mapped=[-2][-4][-6][-8] input=[-1][-2][-3][-4]
+length zero	mapped= input=

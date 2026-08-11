@@ -1,0 +1,2 @@
+# clues.tsv for ft_print_reverse_alphabet — hints only, never answers.
+Same idea as the alphabet, but going downward. Where do you start, which way do you step, and does the loop still emit the very first letter before it ends?

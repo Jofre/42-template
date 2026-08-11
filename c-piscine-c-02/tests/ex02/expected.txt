@@ -1,0 +1,9 @@
+"" (empty -> 1)	1
+"Hello" (letters)	1
+"abcXYZ" (mixed case)	1
+"Hello123" (has digits)	0
+"Hello World" (has space)	0
+"@" (0x40, just before 'A')	0
+"[" (0x5B, just after 'Z')	0
+"`" (0x60, just before 'a')	0
+"{" (0x7B, just after 'z')	0

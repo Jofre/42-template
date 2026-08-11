@@ -1,0 +1,281 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_files", "c_function", "c_levels", "c_mem_check")
+
+c_function(
+    num = "00",
+    fn = "btree_create_node",
+    test = "test_btree_create_node.c",
+    hdrs = ["deliverable/ex00/ft_btree.h"],
+    allowed = ["malloc"],
+    malloc = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "00",
+    fn = "btree_create_node",
+    harness = "diff_btree_create_node.c",
+    oracle_fn = "c13_create_node",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "01",
+    fn = "btree_apply_prefix",
+    test = "test_btree_apply_prefix.c",
+    hdrs = ["deliverable/ex01/ft_btree.h"],
+    allowed = [],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "01",
+    fn = "btree_apply_prefix",
+    harness = "diff_btree_apply_prefix.c",
+    oracle_fn = "c13_apply_prefix",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "02",
+    fn = "btree_apply_infix",
+    test = "test_btree_apply_infix.c",
+    hdrs = ["deliverable/ex02/ft_btree.h"],
+    allowed = [],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "02",
+    fn = "btree_apply_infix",
+    harness = "diff_btree_apply_infix.c",
+    oracle_fn = "c13_apply_infix",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "03",
+    fn = "btree_apply_suffix",
+    test = "test_btree_apply_suffix.c",
+    hdrs = ["deliverable/ex03/ft_btree.h"],
+    allowed = [],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "03",
+    fn = "btree_apply_suffix",
+    harness = "diff_btree_apply_suffix.c",
+    oracle_fn = "c13_apply_suffix",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "04",
+    fn = "btree_insert_data",
+    test = "test_btree_insert_data.c",
+    hdrs = ["deliverable/ex04/ft_btree.h"],
+    deps = [":btree_create_node"],
+    allowed = ["btree_create_node"],
+    malloc = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "04",
+    fn = "btree_insert_data",
+    harness = "diff_btree_insert_data.c",
+    oracle_fn = "c13_insert_data",
+    deps = [":btree_create_node"],
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "05",
+    fn = "btree_search_item",
+    test = "test_btree_search_item.c",
+    hdrs = ["deliverable/ex05/ft_btree.h"],
+    allowed = [],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "05",
+    fn = "btree_search_item",
+    harness = "diff_btree_search_item.c",
+    oracle_fn = "c13_search_item",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "06",
+    fn = "btree_level_count",
+    test = "test_btree_level_count.c",
+    hdrs = ["deliverable/ex06/ft_btree.h"],
+    allowed = [],
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "06",
+    fn = "btree_level_count",
+    harness = "diff_btree_level_count.c",
+    oracle_fn = "c13_level_count",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "07",
+    fn = "btree_apply_by_level",
+    test = "test_btree_apply_by_level.c",
+    hdrs = ["deliverable/ex07/ft_btree.h"],
+    allowed = ["malloc", "free"],
+    malloc = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "07",
+    fn = "btree_apply_by_level",
+    harness = "diff_btree_apply_by_level.c",
+    oracle_fn = "c13_apply_by_level",
+    diff_clues = "diff_clues.txt",
+)
+
+# The module's capstone is the one exercise here that must size auxiliary
+# storage from the CALLER'S data -- which is why its `allowed` list is the only
+# one besides create_node/insert_data to carry malloc and free. A breadth-first
+# walk has to remember the nodes it has reached but not yet visited, and the
+# cheapest place to put them is a fixed-size array.
+#
+# Nothing else in this repo can contradict that guess. Measured on a BFS with
+# two 64-slot level buffers: tests/ex07/expected.txt reproduced BYTE FOR BYTE
+# (17/17 PASS), clean under ASan+UBSan on the fixture's own shapes, the 400k
+# differential OK and the 200k crash-fuzz OK. It has to be: the fixture's
+# largest tree is 6 nodes and the corpus is capped twice over -- the oracle
+# draws at most 10 items and diff_btree_apply_by_level.c declares
+# `char *items[64]`. The valgrind layer is no help either, because the array
+# that overflows is normally on the stack, which memcheck does not police.
+#
+# So the size of a tree is an axis no layer measures, and this probe measures
+# it on both of its dimensions: a COMPLETE tree of depth 10 (1023 nodes, bottom
+# level 512 wide) and a 200-deep SPINE, handed over with every node and every
+# item malloc'd to its exact size. The two are not redundant -- measured, each
+# catches a mutant the other misses. The complete tree reds the 64-slot level
+# buffers and the spine does not (a spine is one node per level, so it overflows
+# no queue). The spine reds a variant whose queue IS sized from the node count
+# but whose level boundaries live in an `int level_end[64]` -- also byte-exact
+# on the fixture -- and the complete tree does not, because it is only ten
+# levels deep. Two correct shapes were run against both, a queue sized by
+# counting first and a queue-free one recursive pass per level: clean, so the
+# probe reds neither.
+#
+# It asserts nothing about the OUTPUT -- visit order, level numbers and
+# is_first_elem belong to the *_output and *_diff layers, and a second red
+# saying the same thing would only be noise. See the probe's own header for
+# what each shape is aimed at.
+c_mem_check(
+    num = "07",
+    fn = "btree_apply_by_level",
+    probe = "mem_btree_apply_by_level.c",
+    hdrs = ["deliverable/ex07/ft_btree.h"],
+)
+
+
+# ------------------------------------------------------------------ file set
+# ---------------------------------------------------------------- cost
+# Same unit, same reason, as c-12: every other c_cycles target measures per
+# BYTE over a hex field, and this corpus encodes a STRUCTURE -- the insertion
+# sequence a tree is built from, comma-joined. A per-byte figure over "61,62,63"
+# would measure the corpus's decimal formatting, not the traversal.
+#
+# The unit is the NODE, counted off that field: commas plus one, except an empty
+# field which is zero rather than one. gsub() returns the number of
+# substitutions it made, so substituting a comma for a comma counts them.
+#
+# No instruction budget: a budget is a MEASURED number, and the only honest way
+# to get one is to measure a correct implementation of this exercise, which does
+# not exist yet. The per-node figure is reported meanwhile.
+#
+# syscall_budget = 0 is assertable from the subject and is the strongest thing
+# these targets can say: a traversal applies a function, it does not print.
+# btree_apply_* take the function to call as an argument, which is precisely the
+# subject saying the printing is not theirs to do.
+NODE = "($1==\"\"?0:gsub(/,/,\",\",$1)+1)"
+
+c_cycles(
+    num = "01",
+    fn = "btree_apply_prefix",
+    oracle_fn = "c13_apply_prefix",
+    harness = "diff_btree_apply_prefix.c",
+    unit_expr = NODE,
+    unit_name = "node",
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "05",
+    fn = "btree_search_item",
+    oracle_fn = "c13_search_item",
+    harness = "diff_btree_search_item.c",
+    unit_expr = NODE,
+    unit_name = "node",
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "06",
+    fn = "btree_level_count",
+    oracle_fn = "c13_level_count",
+    harness = "diff_btree_level_count.c",
+    unit_expr = NODE,
+    unit_name = "node",
+    syscall_budget = 0,
+)
+
+c_files(
+    num = "00",
+    required = ["btree_create_node.c", "ft_btree.h"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["btree_apply_prefix.c", "ft_btree.h"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["btree_apply_infix.c", "ft_btree.h"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["btree_apply_suffix.c", "ft_btree.h"],
+    strict = True,
+)
+c_files(
+    num = "04",
+    required = ["btree_insert_data.c", "ft_btree.h"],
+    strict = True,
+)
+c_files(
+    num = "05",
+    required = ["btree_search_item.c", "ft_btree.h"],
+    strict = True,
+)
+c_files(
+    num = "06",
+    required = ["btree_level_count.c", "ft_btree.h"],
+    strict = True,
+)
+c_files(
+    num = "07",
+    required = ["btree_apply_by_level.c", "ft_btree.h"],
+    strict = True,
+)
+
+# Per-level suites, so you can run just what you need while you work:
+#   bazel test //<this module>:basic     what the Moulinette grades
+#   bazel test //<this module>:strict    + symbols, valgrind
+#   bazel test //<this module>:robust    + diff, diff_asan, asan
+#   bazel test //<this module>:complete  everything (same as //<module>/...)
+c_levels()

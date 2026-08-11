@@ -1,0 +1,8 @@
+"abc" + "" (empty src)	abc|abc|1
+"" + "abc" (empty dest)	abc|abc|1
+"Hello " + "World!"	Hello World!|Hello World!|1
+"ab" + "cde"	abcde|abcde|1
+append past old '\0' (buffer was X-filled)	Hiya|Hiya|1
+"" + "" (both empty)	||1
+"hi" + high-byte src \xC3\xA9\x80	hi√©Ä|hi√©Ä|1
+long src onto short dest	ab0123456789012345678901234567890123456789|ab0123456789012345678901234567890123456789|1

@@ -1,0 +1,10 @@
+  A string and a separator set; the pieces are printed one per column.
+    * leading or trailing separators -> those produce no piece at all; the
+                                 subject's own example shows it
+    * runs of separators      -> a run is one boundary, not several empty pieces
+    * an empty input          -> the array still has to exist, and still has to
+                                 be terminated
+    * the last piece missing  -> the end of the string is also a boundary
+    * the array is right but unterminated -> what marks the end of the array
+                                 itself, as opposed to the end of each piece
+    * an empty separator set  -> the whole string is one piece

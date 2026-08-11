@@ -1,0 +1,108 @@
+# pins.tsv — the single statement of which tool versions this repo expects.
+#
+# WHY THIS FILE EXISTS.
+# The pins were spread across four places: MODULE.bazel (shellcheck, buildifier,
+# via rules_python norminette), tools/requirements.txt, .devcontainer/Dockerfile
+# (the apt toolchain) and .bazelrc (which compiler Bazel drives). Nothing stated
+# them together, so nothing could check them, and "does this box still match the
+# campus?" had no answer short of reading four files by hand.
+#
+# tools/env_drift.sh reads this and compares it against whatever the current
+# machine actually has. Run on a campus box, it is the whole answer to "have they
+# upgraded anything?".
+#
+# THREE KINDS OF PIN, and the difference matters.
+#
+#   fetched  Bazel downloads it against a sha256 and every layer runs THAT
+#            binary, so THIS MACHINE'S copy is not consulted at all -- an apt
+#            shellcheck 0.8.0 sitting beside our pinned 0.10.0 is not drift, it
+#            is irrelevant. The comparison that means something for these is
+#            pin-against-fetch, which is the `fetched-as` column below.
+#   campus   The version must MATCH THE CAMPUS BOX, because the Moulinette
+#            compiles and runs with it. A mismatch means the suite is testing
+#            something other than what the grade comes from -- the failure this
+#            whole exercise exists to prevent. These are the ones to re-pin when
+#            campus moves.
+#   ours     Our own tooling. Nobody's grade depends on it; the only requirement
+#            is that everyone gets the SAME one, so it drifts only when we choose
+#            to move it. A campus upgrade is irrelevant to these.
+#
+# Columns, tab-separated:
+#   tool  kind  expected-substring  version-command  pinned-in
+#
+# Columns, tab-separated:
+#   tool  kind  expected-full-line  version-command  pinned-in  [fetched-as]
+#
+# expected-full-line is the WHOLE first line the version command printed on the
+# machine this was pinned from, suffix and all. It used to be a substring --
+# `clang version 12.` -- so that Ubuntu could repackage without reporting drift.
+# Right instinct, wrong mechanism: "do not fail on packaging noise" became
+# "cannot see the difference at all", and a campus move from 12.0.1 to 12.0.5
+# would have gone unnoticed. env_drift.sh now records the full line and GRADES
+# the difference instead: major is loud, minor/patch says re-audit, and a
+# changed packaging suffix alone is noted and forgiven. Nothing is thrown away.
+#
+# fetched-as is optional and names an environment variable holding the path to
+# the binary BAZEL DOWNLOADED for this tool, set by //tools:env_drift in
+# tools/BUILD.bazel. Where it is present, env_drift compares three things rather
+# than two -- the pin, the box, and the fetch -- because once a layer stops
+# using the box's binary, "the pin matches the box" no longer implies "the pin
+# matches what our checks actually run".
+#
+# A VERSION-COMMAND OF `-` means "recorded here, deliberately not probed".
+# Two rows need it -- bazel and bazelisk -- for one reason: asking either its
+# version from inside `bazel run //tools:env_drift` re-enters Bazel and
+# contends for the lock that very command is holding. They are still checked,
+# just not from here: //tools:conventions verifies that the version this file
+# records is the version .bazelversion, tools/setup.sh and the Dockerfile
+# actually install, which is the drift that can realistically happen to them.
+#
+# ONE ROW IS OBSERVED BUT NOT PINNED: glibc.
+#
+# It is here because it is the only entry that is not a tool but the RUNTIME
+# every deliverable links against, and because nothing was watching it at all.
+# It is not fetched, and pinning it would mean shipping a SYSROOT -- headers, the
+# shared objects, the crt files and a linker configured to prefer them -- which
+# is a different order of work from pointing a runner at a fetched driver.
+#
+# The reason that is an acceptable trade, rather than a hole: the allowed-
+# function lists across the whole Piscine come to eight libc symbols (write,
+# malloc, free, read, open, close, strerror, basename), all POSIX, none of whose
+# behaviour has moved in decades. Exactly one of them can produce an observable
+# a libc version could change -- strerror's message text, asserted byte for byte
+# in c-piscine-c-10/tests/ex01/errmsg.txt -- and the locale that decides that
+# text is already fixed for every test in .bazelrc. Linking is forward-
+# compatible, and unlike the compiler (whose campus copy differs from the
+# student's) the harness builds and runs on the same machine, so there is no
+# skew to protect against.
+#
+# The value expected here was observed in the DEVCONTAINER, not on campus: the
+# 2026-08-09 campus audit predates env-audit.sh capturing glibc at all. Ubuntu
+# 22.04.5 ships 2.35, so it should match; the next campus run is what confirms
+# it, and the packaging suffix will differ harmlessly (env_drift grades that as
+# "repackaged").
+#
+# WHEN CAMPUS MOVES: run `bazel run //tools:env_drift` there, read what it
+# reports, and edit BOTH this file and the place named in `pinned-in`. Repinning
+# is deliberately manual -- a pin changed automatically is a change to what the
+# suite tests, made by nobody.
+cc	campus	Ubuntu clang version 12.0.1-19ubuntu3	cc --version	.bazelrc + .devcontainer/Dockerfile (still the box: cc_binary uses Bazel's auto-detected toolchain)
+clang-12	campus	Ubuntu clang version 12.0.1-19ubuntu3	clang-12 --version	MODULE.bazel (deb_archive)	HERMETIC_CLANG
+gcc-10	campus	gcc-10 (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0	gcc-10 --version	MODULE.bazel (deb_archive)	HERMETIC_GCC
+make	campus	GNU Make 4.3	make --version	MODULE.bazel (deb_archive)	HERMETIC_MAKE
+ar	campus	GNU ar (GNU Binutils for Ubuntu) 2.38	ar --version	.devcontainer/Dockerfile
+nm	campus	GNU nm (GNU Binutils for Ubuntu) 2.38	nm --version	MODULE.bazel (deb_archive)	HERMETIC_NM
+valgrind	campus	valgrind-3.18.1	valgrind --version	MODULE.bazel (deb_archive)	HERMETIC_VALGRIND
+perl	campus	This is perl 5, version 34, subversion 0 (v5.34.0) built for x86_64-linux-gnu-thread-multi	perl --version	NOT PINNED -- callgrind_annotate is a perl script; see the note below
+gdb	campus	GNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1	gdb --version	.devcontainer/Dockerfile
+lldb-12	campus	lldb version 12.0.1	lldb-12 --version	.devcontainer/Dockerfile
+norminette	campus	3.3.58	norminette-version	tools/requirements.txt	HERMETIC_NORMINETTE
+diff	campus	diff (GNU diffutils) 3.8	diff --version	MODULE.bazel (deb_archive)	HERMETIC_DIFF
+cc-std	campus	201710L gnu	default-std cc	.bazelrc + tools/defs.bzl (_COPTS pins -std=gnu17)
+gcc-10-std	campus	201710L gnu	default-std gcc-10	tools/defs.bzl (_COPTS pins -std=gnu17)
+glibc	campus	ldd (Ubuntu GLIBC 2.35-0ubuntu3.13) 2.35	ldd --version	NOT PINNED -- observed only, see the note in the header
+shellcheck	fetched	version: 0.10.0	shellcheck --version	MODULE.bazel (http_archive)	HERMETIC_SHELLCHECK
+zig	fetched	0.13.0	zig version	MODULE.bazel (http_archive)	HERMETIC_ZIG
+buildifier	fetched	buildifier version: 8.5.1-3-g0951e28	buildifier --version	MODULE.bazel (bazel_dep buildifier_prebuilt 8.5.1.3)	HERMETIC_BUILDIFIER
+bazel	ours	9.2.0	-	.bazelversion
+bazelisk	ours	v1.29.0	-	tools/setup.sh (BAZELISK_VERSION) + .devcontainer/Dockerfile

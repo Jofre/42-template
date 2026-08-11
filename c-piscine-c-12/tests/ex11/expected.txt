@@ -1,0 +1,6 @@
+find head	a
+find middle	c
+find tail	d
+not found	NULL
+empty list	NULL
+duplicate returns earliest	first

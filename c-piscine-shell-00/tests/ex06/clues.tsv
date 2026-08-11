@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex06 (git_ignore.sh)
+"Ignored" and "untracked" are not the same set as "everything matched by .gitignore": git can show you precisely the files that are both excluded by the ignore rules AND not under version control — the trap is listing tracked files too, or relying on plain shell globs instead of asking git itself.

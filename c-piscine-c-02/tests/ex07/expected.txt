@@ -1,0 +1,5 @@
+"" (empty)	
+"ABZabz" (only letters change)	ABZABZ
+"Hello World 123!" (digits/space kept)	HELLO WORLD 123!
+"{|}~`@" (non-letters unchanged)	{|}~`@
+returns its argument	ret==arg:1

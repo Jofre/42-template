@@ -1,0 +1,6 @@
+start 0	42
+start 7	42
+already 42	42
+negative (-1)	42
+INT_MAX	42
+INT_MIN	42

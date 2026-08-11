@@ -1,0 +1,7 @@
+  A list and an index; the element at that index is printed, or nothing.
+    * index 0                 -> counting from zero or from one, and the subject
+                                 says which
+    * the last valid index    -> the loop bound
+    * indexes past the end    -> the subject says what to return, and the walk
+                                 has to survive reaching the end
+    * the empty list          -> same case, from the other side

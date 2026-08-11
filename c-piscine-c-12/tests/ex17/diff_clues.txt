@@ -1,0 +1,19 @@
+  Both lists are printed as they went in, then the merged one.
+    * either list empty       -> both are already merged, and neither may be
+                                 walked as though it had a first element
+    * one list entirely below the other -> the seam, where one list runs out and
+                                 the rest of the other has to follow it
+    * interleaved values      -> the general case; if only this diverges, the
+                                 comparison decides which side is taken next
+    * the result is short by exactly the second list -> the second list is being
+                                 traversed but not linked, or linked and then
+                                 overwritten
+    * the result is longer than both together -> a link that still points into
+                                 the list it came from, so a walk arrives twice
+    * the caller keeps the old head -> the first list's head can change, which
+                                 is why that one is a double pointer and the
+                                 second is not
+    * equal values            -> the subject asks only that the result stay in
+                                 ascending order, so their relative order is
+                                 yours; if only these diverge, look at the
+                                 comparison's sign

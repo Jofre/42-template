@@ -1,0 +1,21 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   ft_sorted_list_merge.c                             :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: marvin <marvin@42.fr>                      +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2026/08/10 18:36:05 by marvin            #+#    #+#             */
+/*   Updated: 2026/08/10 18:36:05 by marvin           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "ft_list.h"
+
+void	ft_sorted_list_merge(t_list **begin_list1, t_list *begin_list2,
+		int (*cmp)())
+{
+	(void)begin_list1;
+	(void)begin_list2;
+	(void)cmp;
+}

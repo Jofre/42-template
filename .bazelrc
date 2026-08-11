@@ -1,0 +1,193 @@
+# ---------------------------------------------------------------------------
+# Match the 42 campus box (captured by tools/env-audit.sh) so `bazel test`
+# reflects what the Moulinette actually does.
+#
+#   box `cc`   -> clang-12      box `gcc` -> gcc-10.5      locale -> en_US.UTF-8
+# ---------------------------------------------------------------------------
+
+# Build the Bazel-compiled test binaries with the box's default compiler (clang-12),
+# so functional (output/valgrind) tests run under the same compiler the Moulinette
+# uses. Every C exercise is ADDITIONALLY compiled under gcc-10 by the per-exercise
+# *_compile_gcc tests (see tools/defs.bzl), so both compilers gate one `bazel test`.
+build --repo_env=CC=clang-12
+
+# Run tests under the box's locale (the image generates en_US.UTF-8). Locale can
+# change collation/ctype, so this keeps local results faithful to the Moulinette.
+test --test_env=LANG=en_US.UTF-8
+test --test_env=LC_ALL=en_US.UTF-8
+
+# Switch the Bazel-compiled binaries' compiler on demand:
+#   bazel test //...              -> clang-12 (default; the box's cc)
+#   bazel test //... --config=gcc -> gcc-10   (the box's gcc)
+build:clang --repo_env=CC=clang-12
+build:gcc --repo_env=CC=gcc-10
+
+# Link the Rust oracle (and rules_rust's internal process_wrapper tool) with bfd
+# instead of the campus box's default gold linker — rustc otherwise warns "the
+# gold linker is deprecated ... with Rust" on every fresh build. bfd is present
+# on the box and the devcontainer. (The ASan C binaries get -fuse-ld=bfd via
+# tools/defs.bzl.)
+build --@rules_rust//rust/settings:extra_rustc_flags=-Clink-arg=-fuse-ld=bfd
+build --@rules_rust//rust/settings:extra_exec_rustc_flags=-Clink-arg=-fuse-ld=bfd
+
+# ---------------------------------------------------------------------------
+# Reproducibility: one Bazel version, and a lockfile nothing rewrites behind
+# your back.
+#
+# MODULE.bazel.lock is committed, and its format belongs to the Bazel that
+# wrote it — it carries "lockFileVersion": 28. That makes the Bazel version a
+# real input to this build rather than a detail of your machine:
+#
+#   * a NEWER Bazel rewrites the lock into its own format under the default
+#     --lockfile_mode=update, silently, during an ordinary `bazel test`. The
+#     first symptom is a dirty tree and a ~50 KB diff nobody asked for.
+#   * an OLDER Bazel cannot use the lock and re-resolves every module against
+#     the BCR, which needs network. A campus box may not reach it, and the
+#     failure surfaces as an unrelated-looking fetch error mid-build.
+#
+# So the version is pinned in //.bazelversion, which bazelisk reads on every
+# invocation and downloads on demand. That file holds the bare version string
+# and NOTHING else: bazelisk does not accept comments there — it tries to
+# resolve a leading "#..." line as a version number and dies — which is why
+# this explanation lives here.
+#
+# --lockfile_mode=error is the belt to that brace. .bazelversion only binds
+# someone who goes through bazelisk; a distro-packaged `bazel` on PATH, or
+# USE_BAZEL_VERSION in the environment, walks straight past it. With `error` a
+# lock that does not match stops the build and says so, instead of quietly
+# rewriting a committed file.
+#
+# The cost is that a deliberate MODULE.bazel edit now fails until you refresh
+# the lock on purpose. Do that by re-running the command you were already
+# running with the mode overridden on the command line, which beats this entry:
+#
+#     bazel test //... --lockfile_mode=update   # then commit MODULE.bazel.lock
+#
+# That extra step IS the feature: the lock moves in a reviewable commit of its
+# own, not as a side effect of someone running the test suite.
+#
+# Do NOT reach for `bazel mod deps` to refresh it, which is the obvious guess.
+# Unlike a build, it evaluates EVERY module extension eagerly — including two
+# this repo never uses, both of them declared by our deps rather than by
+# //MODULE.bazel: rules_rust's crate_universe `cu_nr` (the oracle crate has zero
+# dependencies, so no crates.io repo is ever fetched) and pybind11_bazel's
+# `internal_configure`. Neither is in the committed lock. So under `error`
+# `bazel mod deps` exits 2 saying they "do not exist in the lockfile", which
+# reads as a broken pin when nothing is wrong; and under `update` it would write
+# both into the lock as churn unrelated to whatever you actually changed.
+# The build itself is unaffected — measured on 9.2.0, `bazel query //...`
+# resolves all 2016 targets clean under `error`, because the loading phase only
+# touches the extensions the build genuinely needs.
+common --lockfile_mode=error
+
+# ---------------------------------------------------------------------------
+# Per-machine overrides (optional, not tracked).
+#
+# The one that matters on a campus box: Bazel keeps everything under
+# ~/.cache/bazel, and a full run of this repo builds ~1300 test binaries plus 84
+# ASan twins — measured at 8.9 GB. A 42 machine typically caps $HOME at 5 GB,
+# so the build dies partway with no obvious cause. Redirect it:
+#
+#     cp .bazelrc.local.example .bazelrc.local     # then edit the path
+#
+# See docs/environment.md, "Keeping a small, memory-tight box usable".
+#
+# THE IMPORT IS AT THE BOTTOM OF THIS FILE, not here, and that position is the
+# whole point -- see the note beside it.
+
+
+# Set the bazel files (which are recreatable) to /tmp
+# Campus machines have limited space in the $HOME folder.
+#
+# NOTE: this path is NOT per-user, and Bazel rc files do not expand $USER (only
+# %workspace%). Two people running this repo on the SAME machine will collide on
+# one output base and block each other on its lock. If that ever happens, move
+# the path into .bazelrc.local with your own login in it, or export
+# BAZELISK_HOME / use --output_user_root on the command line.
+startup --output_user_root=/tmp/bazelcache
+
+# ---------------------------------------------------------------------------
+# Leaving the machine usable while the suite runs
+#
+# A campus box is a 6-core i5-8500 with 8 GB of RAM, ~2.5 GB free at idle. Left
+# to itself Bazel takes all six cores, and its server settles around 1.4 GB of
+# RSS on this repo. Against 2.5 GB free that is what turns a slow machine into a
+# frozen one: the shortage is memory first and CPU second, so the flags here
+# help but the habits at the bottom of this section matter more.
+#
+# Both limits below are written in Bazel's portable form, so the same line does
+# the right thing on a 6-core campus box (leaves 2 free) and on a 24-core dev
+# container (leaves 2 free). There is nothing to change per machine.
+#
+#   cpu             how much CPU Bazel schedules against, for builds and tests
+#   local_test_jobs how many TESTS run at once. Capped separately because this
+#                   suite's tests spawn their own heavy children — valgrind,
+#                   callgrind, zig, ASan binaries — and Bazel budgets a test at
+#                   one CPU regardless, so the cpu figure alone under-counts.
+build --local_resources=cpu=HOST_CPUS-2
+test --local_test_jobs=HOST_CPUS-2
+
+# A heap cap on the Bazel server. Worth having, but do not over-credit it:
+# -Xmx bounds the JAVA HEAP, not the process. Measured here, peak server RSS
+# over a full `bazel test //...` was 1431 MB at -Xmx1024m against 1677 MB
+# uncapped — a real ~250 MB, not the order of magnitude it first looks like,
+# because metaspace, code cache, thread stacks and native allocations sit
+# outside the cap. On the campus box the JVM default is ~25% of 8 GB, so the
+# saving there is smaller still.
+#
+# Verified: the full suite under this cap gives the identical 1321 pass /
+# 114 fail as an unrestricted run, in 117s, with no OutOfMemory and nothing
+# timing out from the reduced parallelism. Analysing all 2016 targets fits in
+# 195 MB, so 1 GB is ample headroom; raise it only if analysis ever OOMs.
+#
+# Changing a `startup` flag restarts the server, so the next command is slower.
+startup --host_jvm_args=-Xmx1024m
+
+# WHAT ACTUALLY KEEPS THE BOX ALIVE, in order of effect — the flags above are
+# the smaller half of it:
+#
+#   1. Do not run //... on a 2.5 GB-free machine. The server alone settles
+#      around 1.4 GB whatever you cap it at. Use the per-level suites while you
+#      work; they are what the level system exists for:
+#          bazel test //c-piscine-c-05:basic     what the Moulinette grades
+#          bazel test //c-piscine-c-05:strict    + symbols, valgrind
+#      See docs/testing.md, "Working one level at a time".
+#
+#   2. `bazel shutdown` when you stop working. The server does not exit on its
+#      own and holds that 1.4 GB indefinitely.
+#
+#   3. Watch for ORPHANED servers. Each output root gets its own server, so
+#      changing --output_user_root (as this file did) leaves the previous one
+#      running and holding its memory. Measured on this machine right after
+#      that change: 3.5 GB across two servers — on an 8 GB box, most of it.
+#
+#      List them, with the root each one belongs to:
+#          for p in $(pgrep -f 'bazel\(42\)'); do \
+#            printf '%6s MB  %s\n' "$(($(ps -o rss= -p $p)/1024))" \
+#              "$(tr '\0' '\n' </proc/$p/cmdline | grep -m1 logging.config.file)"; \
+#          done
+#
+#      Then kill the one you no longer use, BY PID. `bazel
+#      --output_user_root=<old path> shutdown` looks like the right answer and
+#      does nothing — tried both with and without --ignore_all_rc_files, the
+#      orphan survived both; a plain `kill <pid>` reclaimed 2453 MB at once.
+#          kill <pid>
+
+# ---------------------------------------------------------------------------
+# Per-machine overrides. LAST, and that is load-bearing.
+#
+# Bazel takes the LAST value it reads for a startup option, so a file imported
+# at the TOP cannot override anything set below it. This import used to sit
+# beside the `startup --output_user_root=/tmp/bazelcache` above, which meant
+# .bazelrc.local could not move the output root -- the one thing it exists for,
+# the one thing tools/setup.sh writes into it, and the one thing the docs
+# already warned "looks tidier and silently does nothing".
+#
+# So setup.sh reported "output_user_root -> /goinfre/you/bazel" while Bazel kept
+# using /tmp/bazelcache: a shared path with no login in it, on the very machines
+# the redirect was written for, where two students collide on one lock. Nothing
+# said so, because the message was printed by the script rather than read back
+# from Bazel.
+#
+# Imported last, this file does what its name says: your machine's settings win.
+try-import %workspace%/.bazelrc.local

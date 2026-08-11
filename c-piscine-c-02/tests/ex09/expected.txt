@@ -1,0 +1,8 @@
+"" (empty)	
+"a b c" (each word capitalized)	A B C
+"hELLo wORLD" (rest lowercased)	Hello World
+"42abc xyz" (word starting with digit)	42abc Xyz
+"ab42cd ef" (digit mid-word)	Ab42cd Ef
+subject transcript (es/fr)	Salut, Comment Tu Vas ? 42mots Quarante-Deux; Cinquante+Et+Un
+subject transcript (en)	Hi, How Are You? 42words Forty-Two; Fifty+And+One
+returns its argument	ret==arg:1

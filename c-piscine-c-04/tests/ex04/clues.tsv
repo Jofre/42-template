@@ -1,0 +1,7 @@
+# clues.tsv for ft_putnbr_base — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# First line doubles as the foothold; lines are ordered most-fundamental first.
+How do you express a number in an arbitrary base? Think about what one step of the conversion produces and what it leaves for the next step, and about which end of the output that first digit belongs to. For a negative number, what must you emit before the digits, and what then drives the recursion — the value, or its magnitude?	42 decimal	-42 decimal	42 binary	255 hex	123456 custom base8	-123456 custom base8
+Before converting anything, when is a base even usable? Think about its length, whether the same symbol appears twice, and whether a sign character could collide with the '-' you print for negatives. What should the function do when the base fails these checks?	base empty ""	base length 1 "a"	base duplicate "aba"	base duplicate "00"	base with plus "ab+c"	base with minus "ab-c"
+When the number is zero, what single symbol should come out? Is it always a hard-coded zero digit, or is it whatever symbol sits first in the given base?	0 decimal	0 binary	0 custom base8
+The most negative int cannot be stored as a positive int of the same type. If you negate it inside an int, what happens? What wider type lets you take its magnitude safely?	INT_MIN decimal	INT_MIN hex	INT_MIN binary

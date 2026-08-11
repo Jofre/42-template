@@ -1,0 +1,3 @@
+# clues.tsv for ft_is_negative — hints only, never answers.
+Where exactly is the boundary between negative and not-negative? Is zero negative? Decide whether your test should be n<0 or n<=0.	0 (zero)	1	-1
+Does your check still behave at the extremes INT_MIN and INT_MAX? Only a comparison is needed here -- no arithmetic that could overflow.	INT_MIN	INT_MAX

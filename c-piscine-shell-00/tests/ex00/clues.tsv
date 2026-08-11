@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex00 (Z)
+The file z must contain exactly one capital Z plus a trailing newline — think about which redirect overwrites versus appends, and remember that "Z" and "Z\n" are different files: the trap is a missing or doubled newline.
