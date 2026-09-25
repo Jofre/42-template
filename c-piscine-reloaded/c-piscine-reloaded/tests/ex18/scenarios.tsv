@@ -1,0 +1,5 @@
+["test1","test2","test3"]	test1	test2	test3
+[] (no args)
+["solo"]	solo
+["","a b c","end"]		a b c	end
+["a","b",""]	a	b	

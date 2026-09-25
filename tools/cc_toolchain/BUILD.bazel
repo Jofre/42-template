@@ -1,0 +1,251 @@
+# buildifier: disable=bzl-visibility
+# A PRIVATE rules_cc file, loaded on purpose, and the whole design rests on it.
+# It is the rule local_config_cc instantiates -- byte for byte the same file --
+# so reusing it gives this toolchain Bazel's exact feature set by construction.
+# The two alternatives are both worse: vendoring 2,000 lines of rules_cc that
+# then drift, or hand-writing a config, which is how the previous attempt
+# silently dropped -U_FORTIFY_SOURCE, -fstack-protector, -fPIC and shared
+# libraries. Bazel itself permits the load: the file declares no visibility().
+# If a rules_cc upgrade ever moves or restricts it, this fails at ANALYSIS, by
+# name -- loudly, which is the acceptable way for it to break.
+load("@rules_cc//cc/private/toolchain:unix_cc_toolchain_config.bzl", "cc_toolchain_config")
+load("@rules_cc//cc/toolchains:cc_toolchain.bzl", "cc_toolchain")
+load("//tools:defs.bzl", "lvl_tags")
+load(":provenance.bzl", "toolchain_provenance_test")
+
+# ---------------------------------------------------------------------------
+# BAZEL'S OWN C++ TOOLCHAIN, PINNED.
+#
+# Every binary the output, valgrind, ASan, perf and diff layers build and RUN
+# came from the toolchain rules_cc auto-detects: it probes the box once per
+# output base and writes absolute host paths into local_config_cc --
+# /usr/lib/llvm-12/bin/clang, /usr/bin/ar, -fuse-ld=/usr/bin/ld.gold. The
+# layers whose verdict is ABOUT the compiler (which -Werror warnings exist)
+# were pinned long ago; the binaries every other layer runs were not.
+#
+# WHAT IS PINNED NOW: the compiler driver AND its libclang-cpp/libLLVM, the
+# archiver, both linkers AND libbfd/libctf/libopcodes under them, and clang's
+# own resource headers, sanitizer ignore lists and libclang_rt runtimes.
+#
+# WHAT CANNOT BE, and is not pretended: the system headers under /usr/include,
+# glibc, the crt objects, libgcc, and leaf libraries like zlib. Measured: with
+# driver and libraries both pinned, a compile still reads the box's glibc
+# headers, so they are declared below as builtin include directories -- which
+# is to say, stated. Pinning them means shipping a sysroot, and TODO.md §14
+# declines that for glibc with reasons. The Moulinette links against its box's
+# glibc too.
+#
+# THREE ATTEMPTS, AND WHAT THE FIRST TWO GOT WRONG (TODO.md §21):
+#
+#   1. rules_cc's unix config pointed straight at the fetched clang. It built,
+#      the failing set was identical, and every compile ran the box's
+#      libclang-cpp: the driver has no RUNPATH and compile actions get no
+#      LD_LIBRARY_PATH from a toolchain -- not through cc_args(env =), and not
+#      through the classic env_set either, which reaches LINK actions only.
+#      clang.sh is the answer: a tool_path wrapper can set the loader's path
+#      for the process it execs.
+#   2. A hand-written config silently dropped -U_FORTIFY_SOURCE,
+#      -fstack-protector, -fPIC and shared libraries, and the failing-set
+#      comparison let it through. So this reuses the rule local_config_cc
+#      itself instantiates -- rules_cc's unix_cc_toolchain_config, byte for
+#      byte the same file -- with the same attribute values, and the change was
+#      accepted on an `aquery --output=text` argv diff, flag for flag.
+#
+# The flag values below are local_config_cc's as generated on this box, and
+# every difference from them is a tool path, marked where it happens.
+
+cc_toolchain_config(
+    name = "config",
+    abi_libc_version = "local",
+    abi_version = "local",
+    compile_flags = [
+        "-fstack-protector",
+        "-Wall",
+        "-Wthread-safety",
+        "-Wself-assign",
+        "-Wno-free-nonheap-object",
+        "-fcolor-diagnostics",
+        "-fno-omit-frame-pointer",
+    ],
+    compiler = "clang",
+    conly_flags = [],
+    coverage_compile_flags = ["--coverage"],
+    coverage_link_flags = ["--coverage"],
+    cpu = "k8",
+    # The box's system headers, stated rather than pinned -- see above. The
+    # auto-detected list also names /usr/lib/llvm-12/lib/clang/12.0.1/{include,
+    # share}: the BOX's clang resource directory. Those are gone. The pinned
+    # driver finds its own beside itself, and they are declared inputs.
+    cxx_builtin_include_directories = [
+        "/usr/local/include",
+        "/usr/include/x86_64-linux-gnu",
+        "/usr/include",
+        "/usr/include/c++/11",
+        "/usr/include/x86_64-linux-gnu/c++/11",
+        "/usr/include/c++/11/backward",
+    ],
+    cxx_flags = ["-std=c++17"],
+    dbg_compile_flags = ["-g"],
+    extra_flags_per_feature = {},
+    fastbuild_compile_flags = [],
+    host_system_name = "local",
+    link_flags = [
+        # CHANGED: was -fuse-ld=/usr/bin/ld.gold, an absolute path to the box's.
+        # By name, gold is found in the -B directory on the next line.
+        "-fuse-ld=gold",
+        # CHANGED: was -B/usr/lib/llvm-12/bin, the box's LLVM. This directory
+        # holds the linker wrappers, and putting it first on clang's program
+        # search is what makes a bare -fuse-ld=bfd -- tools/defs.bzl's ASan
+        # links and .bazelrc's Rust links both pass one, AFTER these flags, and
+        # clang takes the last -- resolve to the pinned ld.bfd rather than to
+        # /usr/bin/ld.bfd. That was §21's refutation #3, closed without
+        # touching either call site.
+        "-Btools/cc_toolchain/",
+        "-Wl,-no-as-needed",
+        "-Wl,-z,relro,-z,now",
+    ],
+    link_libs = [
+        "-Wl,--push-state,-as-needed",
+        "-lstdc++",
+        "-Wl,--pop-state",
+        "-Wl,--push-state,-as-needed",
+        "-lm",
+        "-Wl,--pop-state",
+    ],
+    opt_compile_flags = [
+        "-g0",
+        "-O2",
+        "-D_FORTIFY_SOURCE=1",
+        "-DNDEBUG",
+        "-ffunction-sections",
+        "-fdata-sections",
+    ],
+    opt_link_flags = ["-Wl,--gc-sections"],
+    supports_start_end_lib = True,
+    target_libc = "local",
+    target_system_name = "local",
+    toolchain_identifier = "pinned-clang-12",
+    # CHANGED, all of them: each was an absolute /usr/... path to the box's.
+    tool_paths = {
+        "gcc": "clang.sh",
+        "ar": "ar",
+        "ld": "ld",
+        "nm": "nm",
+        "objcopy": "objcopy",
+        "objdump": "objdump",
+        "strip": "strip",
+        # Not pinned, because nothing here uses them -- and so not pointed at
+        # the box either. unpinned.sh fails loudly if anything ever does.
+        "cpp": "unpinned.sh",
+        "dwp": "unpinned.sh",
+        "gcov": "unpinned.sh",
+        "c++filt": "unpinned.sh",
+    },
+    unfiltered_compile_flags = [
+        "-no-canonical-prefixes",
+        "-Wno-builtin-macro-redefined",
+        "-D__DATE__=\"redacted\"",
+        "-D__TIMESTAMP__=\"redacted\"",
+        "-D__TIME__=\"redacted\"",
+    ],
+)
+
+filegroup(
+    name = "wrappers",
+    srcs = [
+        "ar",
+        "binutils.sh",
+        "clang.sh",
+        "ld",
+        "ld.bfd",
+        "ld.gold",
+        "nm",
+        "objcopy",
+        "objdump",
+        "pinned.sh",
+        "strip",
+        "unpinned.sh",
+    ],
+)
+
+# The driver and everything it loads or reads relative to itself. A file
+# missing here is not an error the build reports as such: the sandbox simply
+# lacks it, and clang goes looking elsewhere -- which is how a pinned compiler
+# ends up reading the box's copy.
+filegroup(
+    name = "compiler_files",
+    srcs = [
+        ":wrappers",
+        "@clang_12_ubuntu//:runtime",
+        "@clang_12_ubuntu//:sanitizer_runtime",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12",
+    ],
+)
+
+filegroup(
+    name = "binutils_files",
+    srcs = [
+        ":wrappers",
+        "@binutils_x86_64_linux_gnu//:bin",
+        "@binutils_x86_64_linux_gnu//:runtime",
+    ],
+)
+
+filegroup(
+    name = "all_files",
+    srcs = [
+        ":binutils_files",
+        ":compiler_files",
+    ],
+)
+
+cc_toolchain(
+    name = "cc_toolchain",
+    all_files = ":all_files",
+    ar_files = ":binutils_files",
+    as_files = ":compiler_files",
+    compiler_files = ":compiler_files",
+    dwp_files = ":wrappers",
+    linker_files = ":all_files",
+    objcopy_files = ":binutils_files",
+    strip_files = ":binutils_files",
+    supports_param_files = 1,
+    toolchain_config = ":config",
+)
+
+toolchain(
+    name = "toolchain",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    toolchain = ":cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
+# THE CHECK THAT DECIDES WHETHER ANY OF THE ABOVE IS TRUE.
+#
+# Written against the loader's answer, never against which file was exec'd --
+# the previous design passed a first-exec check while every compile ran the
+# box's libraries (§21's refutation #4). See provenance.bzl.
+toolchain_provenance_test(
+    name = "provenance_test",
+    tags = lvl_tags("selftest"),
+)
+
+# Everything //tools/tests:conventions lints in this package. Listed rather than
+# globbed for the linker wrappers, which have no extension because clang finds a
+# linker by exact name.
+filegroup(
+    name = "conventions_srcs",
+    srcs = [
+        "BUILD.bazel",
+        "provenance.bzl",
+        ":wrappers",
+    ] + glob(["*.sh"]),
+    visibility = ["//tools/tests:__pkg__"],
+)

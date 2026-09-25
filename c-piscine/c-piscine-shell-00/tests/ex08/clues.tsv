@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex08 (clean)
+One traversal tool can match files by name pattern, print them, and remove them as a single expression — the trap is reaching for command chaining (a pipe or ';') when the matching/acting belongs inside that one command, and forgetting it must descend into subdirectories.

@@ -1,0 +1,4 @@
+# clues.tsv for ft_show_tab — hints only, never answers.
+# (The function prints the whole table itself: many lines per call, so this single
+#  member-less hint fires on any failure.)
+ft_show_tab walks the array printing each element's string, then its size as a number, then its copy. Two traps: the array ends at a NULL str POINTER, not an empty string -- so you must not stop at the first element whose string is empty; and printing the size means turning an int into its digit characters. Are you printing the right field, in the right order, all the way to the real end?

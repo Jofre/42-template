@@ -1,0 +1,2 @@
+# clues.tsv for btree_apply_by_level
+Are you visiting one whole level fully left-to-right before the next, or accidentally descending one branch deeply first? Reconsider which node counts as the first of each level, where the root's level starts, and how is_first_elem and current_level stay correct as you move across a level.

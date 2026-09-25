@@ -1,0 +1,67 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//tools:defs.bzl", "c_levels", "shell_exercise")
+
+# Rebuild this module's deliverable/ from the generators:
+#   bazel run //c-piscine/c-piscine-shell-01:generate
+sh_binary(
+    name = "generate",
+    srcs = ["//tools:generate.sh"],
+    args = [package_name()],
+)
+
+# The expected group list comes from //oracle (shell01_groups): it lives in the
+# machine's user database, so no fixture can build it, and computing it here
+# would put the answer in the check.
+shell_exercise(num = "01", mode = "check", deliverable = "print_groups.sh", oracle = True)
+shell_exercise(num = "02", mode = "check", deliverable = "find_sh.sh")
+shell_exercise(num = "03", mode = "check", deliverable = "count_files.sh")
+
+# Host/network-coupled — excluded from the default run (run explicitly with
+# --test_tag_filters=manual --spawn_strategy=local).
+#
+# oracle = True: whether each printed line is one of this machine's hardware
+# addresses is asked of //oracle (shell01_hwaddr), which reads what the kernel
+# publishes. The text pattern the check used instead is a piece of a common
+# answer.
+shell_exercise(
+    num = "04",
+    mode = "check",
+    deliverable = "MAC.sh",
+    oracle = True,
+    tags = ["manual", "env", "no-sandbox"],
+)
+# files = False, and it is the only one in either module. This exercise's
+# deliverable is a single file whose NAME is the answer -- a name made of shell
+# metacharacters -- so writing it into this BUILD file to hand the files layer a
+# required set would publish the very thing the exercise asks for. The property
+# that layer would assert is asserted instead inside tests/ex05/check.sh, which
+# already reaches the file through a *MaRV* glob and so never types it.
+shell_exercise(num = "05", mode = "check", files = False)
+shell_exercise(num = "06", mode = "check", deliverable = "skip.sh")
+# NOT manual any more (board item 9). The tag said "host/network-coupled --
+# excluded from the default run ... --spawn_strategy=local", which describes
+# ex04 above and never described this: it carries no no-sandbox tag and passes
+# under the ordinary sandbox. What it left behind was the only behaviour check
+# either MAC.sh or r_dwssap.sh has, sitting outside every gate rung -- and
+# -manual is applied at all of them, so no level ever reached it.
+#
+# It could not be un-tagged before its check was fixed, because the check
+# decided whether to assert the range property by counting the DELIVERABLE's own
+# output. That is fixed: the guard reads /etc/passwd, and a host with too few
+# logins now says so through ck_skipped instead of folding a skip into a PASS.
+# `env` stays -- it is a true statement about this exercise, and nothing filters
+# on it.
+#
+# oracle = True: the check compares a narrow window of the program's output with
+# the same lines cut out of its full output, and cutting a line range is the
+# exercise's own step -- so //oracle (shell01_line_range) does the cutting.
+shell_exercise(
+    num = "07",
+    mode = "check",
+    deliverable = "r_dwssap.sh",
+    oracle = True,
+    tags = ["env"],
+)
+shell_exercise(num = "08", mode = "check", deliverable = "add_chelou.sh")
+
+c_levels()

@@ -1,0 +1,24 @@
+zero	0
+one	0
+two	1
+three	1
+minus one	0
+minus five	0
+INT_MIN	0
+four	0
+twelve	0
+eleven	1
+seventeen	1
+ninety seven	1
+nine	0
+twenty five	0
+forty nine	0
+one billion eight	0
+one billion seven	1
+INT_MAX minus one	0
+INT_MAX	1
+fifteen	0
+twenty one	0
+thirty five	0
+one billion five	0
+nine nine nine prime	1

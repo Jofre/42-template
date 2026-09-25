@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex09 (ft_magic)
+A magic database line ties a position to a value to a message; the easy trap is testing the bytes at the start of the file instead of pinning the match to one specific position.

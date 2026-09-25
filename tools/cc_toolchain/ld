@@ -1,0 +1,3 @@
+#!/bin/sh
+# Plain `ld` is bfd, as on the campus box: Ubuntu points /usr/bin/ld at ld.bfd.
+exec sh "$(dirname "$0")/binutils.sh" ld.bfd "$@"

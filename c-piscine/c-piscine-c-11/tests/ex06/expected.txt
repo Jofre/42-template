@@ -1,0 +1,9 @@
+empty table	
+single element	[solo]
+already sorted	[a][b][c]
+reverse sorted	[apple][banana][cherry]
+duplicates preserved	[apple][apple][pear][pear]
+uppercase before lowercase	[Apple][apple][banana][cherry]
+shared prefix differ mid-string	[apple][apply][apricot]
+one string is a prefix of another	[ban][banana][band]
+differ only at last byte	[abca][abcd][abce]

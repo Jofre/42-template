@@ -1,0 +1,19 @@
+  Both lists are printed as they went in, then the result of merging them.
+    * either list empty       -> nothing has to be joined, and neither list may
+                                 be walked as though it had a first element
+    * the result is short by exactly the second list -> the second list is being
+                                 traversed but not linked, or linked and then
+                                 overwritten
+    * the result is longer than both together -> a link that still points into
+                                 the list it came from, so a walk arrives twice
+    * the caller keeps the old head -> the first list's head can change (when it
+                                 was empty it becomes the second list's), which
+                                 is why that one is a double pointer and the
+                                 second is not
+    * the values are right but the ORDER is not -> this subject asks for
+                                 concatenation, not a sorted merge: each list
+                                 keeps its own order and the second follows the
+                                 first. ex17 is the one that compares
+    * a value appears that was in neither list -> "element creation is not
+                                 authorised": every node in the result has to be
+                                 a node that already existed

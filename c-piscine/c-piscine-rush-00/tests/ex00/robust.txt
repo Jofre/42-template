@@ -1,0 +1,45 @@
+1x0 no rows	survived
+0x1 no columns	survived
+0x0 nothing at all	survived
+5x0 no rows	survived
+0x5 no columns	survived
+2x0	survived
+0x2	survived
+-1x5 negative width	survived
+5x-1 negative height	survived
+-1x1	survived
+1x-1	survived
+-5x-5 both negative	survived
+-1x-1 both negative	survived
+-42x7	survived
+7x-42	survived
+INT_MIN width	survived
+INT_MIN height	survived
+INT_MIN both	survived
+INT_MIN width, no rows	survived
+no columns, INT_MIN height	survived
+INT_MAX width, no rows	survived
+no columns, INT_MAX height	survived
+INT_MAX width, negative height	survived
+negative width, INT_MAX height	survived
+INT_MAX width, INT_MIN height	survived
+100000x0	survived
+0x100000	survived
+128x1 char-counter ceiling	survived
+1x128 char-counter ceiling	survived
+255x1	survived
+256x1 unsigned-char ceiling	survived
+1x256 unsigned-char ceiling	survived
+257x1	survived
+32767x1	survived
+32768x1 short-counter ceiling	survived
+1x32768 short-counter ceiling	survived
+65535x1	survived
+65536x1 unsigned-short ceiling	survived
+1x65536 unsigned-short ceiling	survived
+100000x1 very wide	survived
+1x100000 very tall	survived
+1x400000 very tall (call depth)	survived
+3x3 still works after all that	survived
+7x2 still works after all that	survived
+3x3 unchanged by the degenerate calls	YES

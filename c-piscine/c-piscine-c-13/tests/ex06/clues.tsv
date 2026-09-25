@@ -1,0 +1,2 @@
+# clues.tsv for btree_level_count
+Fix the two smallest cases first: what should an empty tree report, and what should a single lone node report? Then at a branching node, the current level contributes one — but of the two subtree answers, is the thing you want a combination of both, or a choice between them?

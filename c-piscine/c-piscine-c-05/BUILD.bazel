@@ -1,0 +1,224 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_files", "c_function", "c_levels", "c_mem_check", "c_reference_cost")
+
+c_function(num = "00", fn = "ft_iterative_factorial", test = "test_iterative_factorial.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# Live differential fuzz against the Rust reference (//oracle): a fixed, seeded
+# set of inputs, exact-value compare. Inputs are bound to 0..=12 plus negatives
+# so a correct int implementation never overflows.
+c_diff(num = "00", fn = "ft_iterative_factorial", harness = "diff_iterative_factorial.c", oracle_fn = "c05_iter_factorial", diff_clues = "diff_clues.txt")
+
+c_function(num = "01", fn = "ft_recursive_factorial", test = "test_recursive_factorial.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "01", fn = "ft_recursive_factorial", harness = "diff_recursive_factorial.c", oracle_fn = "c05_rec_factorial", diff_clues = "diff_clues.txt")
+
+c_function(num = "02", fn = "ft_iterative_power", test = "test_iterative_power.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "02", fn = "ft_iterative_power", harness = "diff_iterative_power.c", oracle_fn = "c05_iter_power", diff_clues = "diff_clues.txt")
+
+c_function(num = "03", fn = "ft_recursive_power", test = "test_recursive_power.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "03", fn = "ft_recursive_power", harness = "diff_recursive_power.c", oracle_fn = "c05_rec_power", diff_clues = "diff_clues.txt")
+
+c_function(num = "04", fn = "ft_fibonacci", test = "test_fibonacci.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+# The corpus here is EXHAUSTIVE and tiny -- all 47 legal indices plus six
+# negatives -- because ft_fibonacci's whole input space is 0..=46 (fib(47)
+# overflows an int) and a larger corpus would only replay the same 53 answers.
+# See the long note on fibonacci_inputs in oracle/src/c05.rs.
+#
+# `size = "medium"` because this is the recursion module: the answer the subject
+# is asking for costs phi^n, so the exhaustive sweep is a measured 27.3s natively
+# and 33.0s under the sanitizers. That is the cost of the intended solution, not
+# of a bad one, and the layer must not fail it for being what the module teaches.
+# `perf = False` for the same reason: the perf layer derives a scaling exponent by
+# varying the case COUNT, and with a fixed 53-case corpus there is nothing to vary.
+c_diff(
+    num = "04",
+    fn = "ft_fibonacci",
+    harness = "diff_fibonacci.c",
+    oracle_fn = "c05_fibonacci",
+    size = "medium",
+    perf = False,
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(num = "05", fn = "ft_sqrt", test = "test_sqrt.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "05", fn = "ft_sqrt", harness = "diff_sqrt.c", oracle_fn = "c05_sqrt", diff_clues = "diff_clues.txt")
+
+c_function(num = "06", fn = "ft_is_prime", test = "test_is_prime.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "06", fn = "ft_is_prime", harness = "diff_is_prime.c", oracle_fn = "c05_is_prime", diff_clues = "diff_clues.txt")
+
+c_function(num = "07", fn = "ft_find_next_prime", test = "test_find_next_prime.c", allowed = [], labeled = True, clues = "clues.tsv")
+
+c_diff(num = "07", fn = "ft_find_next_prime", harness = "diff_find_next_prime.c", oracle_fn = "c05_find_next_prime", diff_clues = "diff_clues.txt")
+
+c_function(num = "08", fn = "ft_ten_queens_puzzle", test = "test_ten_queens_puzzle.c", allowed = ["write"], clues = "clues.tsv")
+
+c_mem_check(num = "08", fn = "ft_ten_queens_puzzle", probe = "mem_ten_queens_puzzle.c")
+
+# ex08 has NO differential arm, and that is a decision rather than an omission.
+#
+# Every other exercise in this module gets a c_diff because its answer varies
+# with its input, so a seeded corpus can explore a space the curated fixture only
+# samples. ft_ten_queens_puzzle takes no input at all and has exactly one correct
+# output. There is nothing for a generator to vary: tests/ex08/expected.txt (724
+# boards plus the count, 725 lines) IS the exhaustive case, and a differential
+# arm would replay that same single case hundreds of thousands of times while
+# proving nothing the output layer has not already proved. The absence was
+# previously unrecorded, which made it read as an oversight; it is not one.
+#
+# What ex08 gets instead is a cost comparison, and only a comparison. The
+# reference in //oracle runs the same search and prints the same 725 lines
+# through the same number of write() calls, so the two instruction counts differ
+# by how each of them works and by nothing else. It reports both figures and
+# their ratio and NEVER fails on them: correct is correct, the subject asks for
+# 724 boards and not for a fast 724 boards, and a number whose job is to make
+# someone curious stops working the moment it starts grading them. It also stays
+# silent until ex08's own output fixture is green — the cost of a wrong answer is
+# not information.
+c_reference_cost(
+    num = "08",
+    fn = "ft_ten_queens_puzzle",
+    oracle_fn = "c05_ten_queens",
+    harness = "test_ten_queens_puzzle.c",
+    units = 724,
+    unit_name = "solution",
+)
+
+# ------------------------------------------------------------------ file set
+c_files(
+    num = "00",
+    required = ["ft_iterative_factorial.c"],
+    strict = True,
+)
+c_files(
+    num = "01",
+    required = ["ft_recursive_factorial.c"],
+    strict = True,
+)
+c_files(
+    num = "02",
+    required = ["ft_iterative_power.c"],
+    strict = True,
+)
+c_files(
+    num = "03",
+    required = ["ft_recursive_power.c"],
+    strict = True,
+)
+c_files(
+    num = "04",
+    required = ["ft_fibonacci.c"],
+    strict = True,
+)
+c_files(
+    num = "05",
+    required = ["ft_sqrt.c"],
+    strict = True,
+)
+c_files(
+    num = "06",
+    required = ["ft_is_prime.c"],
+    strict = True,
+)
+c_files(
+    num = "07",
+    required = ["ft_find_next_prime.c"],
+    strict = True,
+)
+c_files(
+    num = "08",
+    required = ["ft_ten_queens_puzzle.c"],
+    strict = True,
+)
+
+c_levels()
+
+# The cycles layer, restored for ex05-ex07 with a MEASURED unit.
+#
+# It was absent from this whole module for a good reason, kept here because it
+# is the reason the unit below is shaped the way it is. A sqrt(n)-based unit was
+# tried and measured: it reported 1419 instructions "per division" against a
+# true cost under ten. The corpus spans 0..INT_MAX, so the instruction TOTAL is
+# dominated by a handful of huge values while the unit SUM is dominated by
+# thousands of tiny ones; dividing one by the other is not a per-unit cost, it
+# is an artefact of the distribution. A number that wrong is worse than none,
+# because a student cannot tell that it is wrong.
+#
+# What fixes it is measuring the unit instead of modelling it. //oracle now
+# emits, as a third corpus column, the iteration count its reference actually
+# performed for that input, and `unit_expr = "$3"` sums it. The corpora the diff
+# layer uses are untouched: these are SEPARATE oracle generators
+# (c05_*_cycles), which is why this arrived without regenerating a single
+# expected.txt or editing one of the eight diff harnesses.
+#
+# ex00-ex04 still have no cycles layer. Factorial, power and fibonacci are
+# linear in an input that is bounded to about a dozen before the answer
+# overflows an int, so every case costs within a few iterations of every other
+# and a per-unit figure has nothing to distinguish. The three below are the ones
+# where the cost genuinely varies over the corpus, which is what makes the
+# question ("what does one unit of this work cost you?") worth asking at all.
+#
+# The perf layer keeps doing what it did: its scaling exponent separates
+# trial-dividing all the way to n (n^2.00) from stopping at sqrt(n) (n^1.00),
+# from timings rather than an assumed unit. These two now answer different
+# questions instead of one covering for the other.
+
+# ft_sqrt is the one where NO measured iteration count is the right unit, and
+# both candidate units were tried and measured rather than argued about:
+#
+#   * the reference's OWN loop count is structurally zero. o_sqrt seeds from
+#     (n as f64).sqrt() and corrects, and on this corpus the f64 lands exactly
+#     every time -- 0 units over all 3000 cases. As a denominator that is not a
+#     small number, it is no number at all.
+#   * floor(sqrt(n)), the candidates an ascending integer scan examines, reports
+#     0.0 instructions per root: 190,972 instructions against 46,093,582 units,
+#     because a bisecting implementation does about log2 of that work. Also a
+#     true statement, also useless as a per-unit cost.
+#
+# Anything that produced a sensible number here would have to assume WHICH
+# algorithm the student wrote, which is modelling -- the exact thing this layer
+# was rebuilt to stop doing. So the unit is the call, which assumes nothing: 63.7
+# instructions per call, measured. That figure is still the lesson, because it is
+# where the two families separate by two orders of magnitude -- an ascending scan
+# to sqrt(INT_MAX) cannot come near it.
+c_cycles(
+    num = "05",
+    fn = "ft_sqrt",
+    oracle_fn = "c05_sqrt_cycles",
+    harness = "diff_sqrt.c",
+    # 63.7 measured. 90 leaves room for a slower-but-still-logarithmic method
+    # and is nowhere near what an O(sqrt n) scan costs, which is the distinction
+    # worth failing on.
+    budget = 90,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "06",
+    fn = "ft_is_prime",
+    oracle_fn = "c05_is_prime_cycles",
+    harness = "diff_is_prime.c",
+    unit_expr = "$3",
+    unit_name = "division",
+    # 15.4 measured: a trial division plus the wheel's bookkeeping. 20 is the
+    # same ~30% headroom every other budget in this repo carries.
+    budget = 20,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "07",
+    fn = "ft_find_next_prime",
+    oracle_fn = "c05_find_next_prime_cycles",
+    harness = "diff_find_next_prime.c",
+    unit_expr = "$3",
+    unit_name = "division",
+    # 15.3 measured -- and the agreement with ex06's 15.4 is the check that the
+    # unit is real: find_next_prime IS is_prime in a loop, so the two must cost
+    # the same per division or one of the two counts is wrong.
+    budget = 20,
+    syscall_budget = 0,
+)

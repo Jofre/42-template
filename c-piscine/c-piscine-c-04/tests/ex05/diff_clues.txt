@@ -1,0 +1,10 @@
+  Two inputs: the text and the base string.
+    * the base column                   -> what makes a base invalid here; note
+                                           that this side, unlike printing, has
+                                           whitespace to worry about too
+    * whitespace and signs              -> the same rules as ft_atoi, and the
+                                           subject says so explicitly
+    * a digit that is not in the base    -> where the number ends
+    * bases whose digits repeat          -> a base with a duplicate cannot be
+                                           read back unambiguously
+    * only long inputs                  -> the accumulator's type

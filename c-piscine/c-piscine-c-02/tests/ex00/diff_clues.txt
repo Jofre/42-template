@@ -1,0 +1,6 @@
+  The destination is printed after the call, and so is the return.
+    * the destination is one character short -> where the terminator is written,
+                                                or the loop bound
+    * the empty source diverges              -> a loop that cannot run zero times
+    * the return column diverges alone       -> what the subject says is returned
+    * old bytes survive past the new string  -> the terminator, not the copy

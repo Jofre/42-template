@@ -1,0 +1,8 @@
+  One answer per string; group by content.
+    * the empty string only            -> the answer for a string with nothing
+                                          to inspect
+    * strings containing 0x20 or 0x7e  -> the two ends of the printable range;
+                                          decide whether each is inside it
+    * strings containing a tab or newline -> those are control characters, not
+                                          printable ones
+    * strings with bytes above 0x7f    -> whether char is signed on this machine

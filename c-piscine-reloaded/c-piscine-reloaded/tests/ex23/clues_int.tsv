@@ -1,0 +1,2 @@
+# clues for the int_fields case — a level-3 check, stricter than the subject.
+This case goes beyond the subject, whose main only needs fields that can hold 42 and 21: it asks which type they are, and expects int. Which type does the Piscine use for a plain whole number everywhere else, and what would a coordinate gain from being anything different?	x	y

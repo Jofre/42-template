@@ -1,0 +1,5 @@
+  The order of the visits IS the answer.
+    * an empty tree           -> the base case
+    * the root's position     -> suffix names when the node is visited, and it
+                                 is not first
+    * left and right swapped  -> the order the subtrees are taken in

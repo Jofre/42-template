@@ -1,0 +1,16 @@
+  One number per line, so group by the pair of strings that produced it.
+    * only the SIGN is wrong             -> when the first string is the
+                                            greater one, should the result be
+                                            positive or negative? (man strcmp)
+    * only pairs differing above 0x7f    -> whether char is signed here, and
+                                            how man strcmp says the bytes are
+                                            compared
+    * equal strings diverge              -> the loop's exit condition when both
+                                            reach the end together
+    * prefixes diverge ("ab" vs "abc")   -> what is compared once one string has
+                                            run out
+    * the magnitude differs but the sign is right -> the fixture pins an
+                                            exact value; put your number next
+                                            to the expected one for the same
+                                            pair: what in those two strings
+                                            could produce the expected one?

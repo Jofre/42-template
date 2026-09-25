@@ -1,0 +1,18 @@
+-- null tree --
+not found
+-- t1 search 5 (inorder first = B) --
+found key=5 tag=B
+-- t1 search 3 (leaf = G) --
+found key=3 tag=G
+-- t1 search 99 (absent) --
+not found
+-- t2 search 5 (inorder first = E) --
+found key=5 tag=E
+-- t3 search 30 (right child = R) --
+found key=30 tag=R
+-- t3 search 25 (right subtree left = P) --
+found key=25 tag=P
+-- t3 search 40 (right-right = S) --
+found key=40 tag=S
+-- t4 search 5 (infix first in right subtree = L) --
+found key=5 tag=L

@@ -1,0 +1,2 @@
+# clues.tsv for btree_create_node
+A freshly malloc'd node holds garbage, not zeros: after you store the item pointer exactly as given, have you explicitly set both child links so they read as empty? And what should you hand back if the allocation itself fails before you touch any field?

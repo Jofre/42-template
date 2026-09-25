@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_push_front
+In what order must you wire things so the new node still remembers the *old* head before *begin_list is reassigned to it? And when the list starts empty (*begin_list is NULL), does pointing the new node's next at the old head still leave a valid, terminated list?

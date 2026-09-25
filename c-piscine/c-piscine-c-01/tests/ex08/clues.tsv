@@ -1,0 +1,3 @@
+# clues.tsv for ft_sort_int_tab — hints only, never answers.
+Any ascending sort you already know is fine here; the subject does not ask for a clever one. Whichever you pick, the two mechanics it needs are: how do you decide which of two ints comes first, and how do you actually move an element into a position that is already occupied?	already sorted	reversed	with duplicates	single {7}	size 0 (no-op)
+If you decide order by SUBTRACTING one int from another, what happens when the values are INT_MAX and INT_MIN? Is that subtraction safe? Prefer a comparison that cannot overflow.	INT_MIN & INT_MAX	negatives

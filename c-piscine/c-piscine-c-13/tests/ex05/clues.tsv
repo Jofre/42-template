@@ -1,0 +1,2 @@
+# clues.tsv for btree_search_item
+Which value does cmpf hand back when data_ref actually matches a node, and are you returning the node's stored item rather than the node itself? When you recurse into a subtree, are you propagating whatever it found back up (and ultimately NULL when nothing matches) instead of dropping that result?

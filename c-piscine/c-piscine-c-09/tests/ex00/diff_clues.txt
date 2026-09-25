@@ -1,0 +1,9 @@
+  One number per line; group by the pair of strings.
+    * only the SIGN is wrong  -> when the first string is the greater one,
+                                 should the result be positive or negative?
+                                 (see man strcmp)
+    * pairs differing above 0x7f -> whether char is signed here, and how
+                                 man strcmp says the bytes are compared
+    * equal strings           -> the exit condition when both ends arrive
+                                 together
+    * prefixes ("ab" vs "abc") -> what is compared once one string runs out

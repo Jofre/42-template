@@ -1,0 +1,6 @@
+  Two inputs: the base and the power.
+    * power 0 diverges        -> the subject fixes x^0, whatever x is
+    * negative powers         -> the subject says what those return
+    * only large results      -> overflow, and what the subject says to return
+    * off by one factor       -> the loop bound; count how many multiplications
+                                 x^n actually needs

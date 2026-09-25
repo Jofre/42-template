@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex06 (skip.sh)
+Filtering alternate lines of a command's output hinges on the line NUMBER, not the line content: keep lines whose position is odd (1,3,5,...). The classic trap is an off-by-one — dropping the first line instead of keeping it, or starting the alternation from line 2.

@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_push_back
+When *begin_list is NULL there is no last node to walk to, so what must the new element become, and which pointer does the caller see only if you write back through begin_list? Reconsider whether your "walk to the end" loop ever runs (or dereferences NULL) on an empty list, and whether the non-empty case actually links the new node onto the final element rather than the head.

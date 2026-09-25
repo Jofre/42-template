@@ -1,0 +1,2 @@
+# clues.tsv for ft_sort_params
+Print the parameters (from index 1) in ascending order. How do you compare two strings, and are you reordering the entries before printing any of them? Remember uppercase letters come before lowercase in ASCII.

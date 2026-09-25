@@ -1,0 +1,4 @@
+  The new node is printed as its data plus its two links.
+    * either link is not empty -> what a leaf points at
+    * the data is copied      -> the node stores the pointer it was given
+    * nothing is printed      -> the allocation, or its size

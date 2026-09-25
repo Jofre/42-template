@@ -1,0 +1,23 @@
+# Shared test/build tooling lives in //tools (see //tools:defs.bzl).
+# This module's exercises are under c-piscine/c-piscine-c-*/BUILD.bazel.
+
+# The files //tools:conventions reads that belong to no module and no package of
+# their own: the devcontainer's setup script, and the root BUILD file itself.
+# Everything else it scans arrives through a module's :conventions_srcs (emitted
+# by c_levels) or through //tools and //tools/tests.
+filegroup(
+    name = "conventions_srcs",
+    srcs = [
+        "BUILD.bazel",
+        "MODULE.bazel",
+        "README.md",
+        ".bazelrc",
+    ] + glob(
+        [
+            ".devcontainer/*.sh",
+            "docs/*.md",
+        ],
+        allow_empty = False,
+    ),
+    visibility = ["//tools/tests:__pkg__"],
+)

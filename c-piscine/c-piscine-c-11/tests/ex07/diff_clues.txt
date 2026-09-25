@@ -1,0 +1,6 @@
+  Same as the plain sort, but the comparison is supplied.
+    * every input             -> the supplied function's SIGN convention; it
+                                 describes an order, and "non-zero" is not the
+                                 same as "greater"
+    * only equal strings      -> what zero means
+    * size 0 or 1             -> a loop that cannot run zero times

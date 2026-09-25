@@ -1,0 +1,27 @@
+--- unsorted ---
+apple
+banana
+cherry
+--- sorted ---
+apple
+banana
+cherry
+--- reverse ---
+apple
+banana
+cherry
+--- dups ---
+apple
+apple
+banana
+cherry
+--- single ---
+solo
+--- empty ---
+(empty)
+--- ints ---
+-5
+-1
+0
+3
+3

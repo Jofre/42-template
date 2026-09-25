@@ -1,0 +1,9 @@
+  Which FAMILY of inputs diverges, not which single number?
+    * only 0 disagrees                 -> zero is neither of the two answers you
+                                          are choosing between; the subject says
+                                          which one it counts as
+    * every negative, or every positive -> the comparison is the wrong way round
+    * everything, one character         -> the character written, or a missing
+                                          newline, rather than the decision
+    * only INT_MIN                      -> negating before comparing; INT_MIN has
+                                          no positive counterpart

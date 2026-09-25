@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_foreach
+Walk the list from the first node to the last, and for each one call f -- but what exactly does f expect as its argument: the node, or what the node points at? Order matters here, so visit them front-to-back rather than reversing or skipping. And before you dereference anything, ask what an empty list (a NULL begin_list) should make this function do -- is it allowed to touch begin_list->data at all?

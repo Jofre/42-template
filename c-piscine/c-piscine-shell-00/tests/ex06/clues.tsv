@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex06 (git_ignore.sh)
+Which files belong in this list: everything a .gitignore pattern matches, or only what git is not already keeping track of? Stage a file that a pattern also matches and decide whether it should appear. Settle what the list must contain first — then ask git itself for it, rather than re-creating its rules with shell globs.

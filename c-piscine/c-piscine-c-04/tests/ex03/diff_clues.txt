@@ -1,0 +1,13 @@
+  The input is text; group the failures by what the text contains.
+    * leading whitespace ignored or not -> the subject lists exactly which bytes
+                                           count as whitespace, and it is more
+                                           than the space
+    * multiple signs ("--42", "+-42")   -> the subject says what a run of signs
+                                           means; it is not "the first one wins"
+    * a sign after whitespace           -> the order the two are allowed in
+    * trailing garbage ("42abc")        -> where the number is allowed to end
+    * only very long digit strings      -> the accumulator's type, and what
+                                           happens when it stops fitting
+    * only INT_MIN                      -> accumulating the positive value first
+                                           costs you exactly one representable
+                                           number

@@ -1,0 +1,17 @@
+dec to binary 42	101010
+zero to binary	0
+leading plus 42	42
+hex FF to decimal	255
+neg dec to hex	-2A
+binary to decimal	42
+lowercase hex to uppercase hex	FF
+atoi rules signs and junk	-101010
+INT_MAX to hex	7FFFFFFF
+INT_MIN to hex	-80000000
+base_to contains plus	(null)
+base_to duplicate char	(null)
+base_from length below two	(null)
+base_to empty	(null)
+base_from isolated plus	(null)
+base_to isolated minus	(null)
+base_from duplicate char	(null)

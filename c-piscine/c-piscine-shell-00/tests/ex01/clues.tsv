@@ -1,0 +1,2 @@
+# clues.tsv for shell-00 ex01 (testShell00.tar) — guidance, never the commands.
+A tar archive records each member's permissions, byte size and modification TIME exactly as they are on disk -- so the file must already have all of those set correctly BEFORE you archive it, not after. How do you make a file an exact number of bytes, set its permissions to a precise octal mode, and stamp it with a specific modification time? Build the file first, fix those three things, then archive just that file.

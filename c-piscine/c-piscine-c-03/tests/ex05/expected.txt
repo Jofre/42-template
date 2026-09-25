@@ -1,0 +1,12 @@
+empty src (size 50)	6|Hello 
+into empty dest (size 10)	2|Hi
+fits fully (size 50)	12|Hello World!
+truncated (size 10)	12|Hello Wor
+size 0	6|Hello 
+size 1	7|Hello 
+size == dest length (6)	12|Hello 
+size < dest length (3)	9|Hello 
+size == dest len + 1 (7)	12|Hello 
+size == dest len + 2 (8)	12|Hello W
+trunc into empty dest (size 4)	6|Wor
+both empty (size 50)	0|

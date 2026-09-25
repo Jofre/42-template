@@ -1,0 +1,3 @@
+# clues.tsv for ft_ultimate_div_mod — hints only, never answers.
+The quotient has to end up in the int a points to, and the remainder in the one b points to. But the instant you write the first result, the original value there is gone -- and you still need it for the other one. What should you do before that first write?	13 / 5	7 / 1	0 / 5	-13 / 5 (neg dividend)
+When a negative number is involved, what sign does the remainder take and which way does division round?	13 / -5 (neg divisor)	-13 / -5 (both neg)	-7 / 2

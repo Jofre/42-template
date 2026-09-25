@@ -1,0 +1,14 @@
+--- strings ---
+aardvark
+apple
+apple
+banana
+cherry
+date
+--- ints ---
+-5
+-1
+0
+3
+3
+10

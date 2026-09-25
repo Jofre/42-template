@@ -1,0 +1,6 @@
+# clues.tsv for ft_recursive_power — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+Every recursion needs a place to stop. What is the base case here — what should raising any number to the power of zero give? Note that even zero raised to the zeroth power follows this same rule.	5^0	0^0
+Once the base case is settled, how do you reach a smaller problem from a bigger one? If you know the answer for one power down, how does multiplying by the base get you the current power? Check that the sign comes out right when the base is negative.	7^1	2^3	0^5	1^100	-2^2	-2^3	10^9	2^30
+What does a NEGATIVE exponent mean for an integer-only function — is there a valid integer result, or is this an error case to guard against? Make sure that guard triggers before any recursion, even for the most extreme negative power.	2^-3	5^INT_MIN

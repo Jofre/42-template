@@ -1,0 +1,9 @@
+  The list is printed after the call.
+    * the empty list, or one element -> both are already reversed; neither may
+                                 crash
+    * the caller sees the old head -> the head has to change, which is what the
+                                 double pointer is for
+    * the list is truncated to one element -> the next link is being overwritten
+                                 before it is read
+    * the order is right, the list ends early -> what the original head's link
+                                 has to become

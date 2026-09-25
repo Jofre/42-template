@@ -1,0 +1,7 @@
+# clues.tsv for ft_sqrt — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+This function returns a root only when the input is a perfect square. For a candidate r, what relationship between r and nb tells you r is THE answer? And when no such r exists, what single value stands for "no root"?	sqrt of 0	sqrt of 1	sqrt of 4	sqrt of 9	sqrt of 16	sqrt of 25	sqrt of 100	sqrt of 144
+You searched and found no exact root. What does the return value have to be in that case, and is your loop deciding it correctly rather than handing back the nearest candidate?	sqrt of 2 (not a square)	sqrt of 3 (not a square)	sqrt of 12 (not a square)	sqrt of 26 (not a square)
+Can a number below zero ever be a perfect square? What should you do before you even start searching?	sqrt of -4 (negative)	sqrt of INT_MIN
+As your candidate root grows, you square it to test it. For a large nb, how big does that product get, and does it still fit in the type you square it in? Pick a type wide enough that the comparison stays honest.	sqrt of 2147395600 (large square)	sqrt of 2147395599 (one below)	sqrt of 2147395601 (one above)	sqrt of INT_MAX

@@ -1,0 +1,2 @@
+# clues.tsv for the libft assembly (c-09) — hints only, never answers.
+These five functions (putchar, swap, putstr, strlen, strcmp) are the ones you wrote in earlier modules -- if a behaviour is wrong here, fix it in its original exercise. The new skill in THIS exercise is packaging: your shell script / Makefile must compile each source file and bundle the object files into the library archive.

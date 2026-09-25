@@ -1,0 +1,7 @@
+single {7}	7
+size 0 (no-op)	99
+already sorted	1 2 3 4
+reversed	1 2 3 4
+with duplicates	1 2 5 5 6 9
+negatives	-5 -1 -1 0 2 3
+INT_MIN & INT_MAX	-2147483648 -1 0 1 2147483647

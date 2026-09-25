@@ -1,0 +1,9 @@
+  The order of the visits IS the answer, and it crosses subtrees.
+    * an empty tree           -> nothing to visit
+    * the level number        -> what the root's level is, and what each step
+                                 down adds
+    * nodes visited depth-first -> this order cannot be produced by following
+                                 one subtree to its end; every node at a level
+                                 comes before any node below it
+    * a level is skipped      -> how the traversal knows a level still has
+                                 nodes left in it

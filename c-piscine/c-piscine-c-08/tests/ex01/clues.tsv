@@ -1,0 +1,3 @@
+# clues.tsv for ft_boolean.h — hints only, never answers.
+# (Multi-line output; this single member-less hint fires on any failure.)
+This header defines a macro EVEN(n) plus a TRUE/FALSE type and message macros. Two things to check. First, a macro is text substitution, not a function call: write out by hand what your EVEN(3 - 1) becomes once the preprocessor has pasted it in, then evaluate THAT by C's precedence rules and see whether it is still the question you meant to ask. Second, are TRUE/FALSE and the two message macros named exactly as the contract names them?

@@ -1,0 +1,17 @@
+{
+  // Editor-agnostic test runner: works in VS Code AND Antigravity (and the
+  // terminal). Bazel caches results, so re-runs are instant and show cached
+  // PASSED/FAILED per target, with failing test output inlined. Run via:
+  // Terminal > Run Task… > "Bazel: test all"  (or Run Test Task).
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Bazel: test all",
+      "type": "shell",
+      "command": "bazel test //... --test_output=errors",
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex07 (r_dwssap.sh)
+Build it as a pipeline where each stage does one transformation in the exact order the subject lists; the classic trap is order — selecting every second line, reversing the characters, and sorting must each happen at the right stage, and the final join must separate with ", " yet still end the single line with a period.

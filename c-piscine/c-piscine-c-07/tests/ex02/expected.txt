@@ -1,0 +1,6 @@
+single element 7..8	size=1 ptr=set [7]
+small positives 1..5	size=4 ptr=set [1] [2] [3] [4]
+negatives only -5..-3	size=2 ptr=set [-5] [-4]
+crosses zero -2..3	size=5 ptr=set [-2] [-1] [0] [1] [2]
+min equals max 5..5	size=0 ptr=NULL
+min greater than max 10..3	size=0 ptr=NULL

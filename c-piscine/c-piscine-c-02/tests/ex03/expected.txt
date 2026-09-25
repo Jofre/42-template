@@ -1,0 +1,8 @@
+"" (empty -> 1)	1
+"12345" (digits)	1
+"0987654321" (digits)	1
+"123a45" (has a letter)	0
+"12 34" (has space)	0
+"-5" (has a sign)	0
+"/" (0x2F, just before '0')	0
+":" (0x3A, just after '9')	0

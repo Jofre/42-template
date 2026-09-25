@@ -1,0 +1,6 @@
+# clues.tsv for ft_count_if (Piscine Reloaded) — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+How would you tally the elements that pass the supplied test? What should the tally be before you have looked at anything — and what if the very first element is already the end?	empty array counts nothing	no element matches	every element matches
+Which elements does the subject count: those for which f returns what, exactly? (C 11 ex03 counted a different set: re-read both lines.) And by how much does your tally change for each?	some match some do not
+There is no length in this prototype. What tells you where the array ends, and what must happen to everything after that point — even if more strings follow it in memory?	the first NULL ends the array

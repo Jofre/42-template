@@ -1,0 +1,9 @@
+  The string is printed after the call, so read it as text.
+    * the first word only               -> what the previous character is when
+                                           there is none
+    * words after a digit or punctuation -> what counts as a word boundary here;
+                                           the subject's own example has both
+    * a word starting with a digit       -> the first character is not always a
+                                           letter, and the subject's transcript
+                                           shows what happens then
+    * the rest of each word unchanged    -> the second half of the job

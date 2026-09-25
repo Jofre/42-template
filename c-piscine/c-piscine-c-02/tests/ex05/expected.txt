@@ -1,0 +1,8 @@
+"" (empty -> 1)	1
+"HELLO" (uppercase)	1
+"ABCXYZ" (uppercase)	1
+"Hello" (has lowercase)	0
+"ABC1" (has digit)	0
+"ABC DEF" (has space)	0
+"@" (0x40, just before 'A')	0
+"[" (0x5B, just after 'Z')	0

@@ -1,0 +1,6 @@
+# clues.tsv for ft_putnbr — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+Dividing and taking the remainder lets you peel off one digit at a time, but you get them in reverse. In what order must they actually be printed, and how do you turn a single digit value into the character you write()? Watch the cases whose final digits are zeros.	two digits	ends in zero	trailing zeros	big positive
+A negative number needs a leading sign, and the digits themselves are not negative. Where do you emit the sign, and what do you feed to the digit-printing part once it is out?	negative one digit	negative two digits	negative trailing zeros	big negative
+The most negative int has no positive counterpart of the same magnitude. If your code negates the number before printing, what happens at that one value? Compare the two extreme cases.	INT_MIN	INT_MAX

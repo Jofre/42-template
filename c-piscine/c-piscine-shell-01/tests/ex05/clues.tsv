@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex05
+Every character in the filename that the shell treats specially must reach the filesystem literally; the trap is that quoting style changes what survives, and a stray newline from how you wrote "42" breaks the 2-byte size.

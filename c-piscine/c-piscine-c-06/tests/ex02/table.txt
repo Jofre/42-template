@@ -1,0 +1,5 @@
+["un","deux","trois"]	trois | deux | un
+[] (no args)	
+["solo"]	solo
+["","a b c","end"]	end | a b c | 
+["","x","y"]	y | x | 

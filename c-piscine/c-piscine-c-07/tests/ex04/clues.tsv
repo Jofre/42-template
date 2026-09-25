@@ -1,0 +1,8 @@
+# clues.tsv for ft_convert_base — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+Before you touch the number, both bases have to earn the right to be used. What three things make a base unusable: too few symbols, a symbol that repeats, or a symbol reserved for sign? If either base fails any of those, what do you hand back?	base_to contains plus	base_to duplicate char	base_from length below two	base_to empty	base_from isolated plus	base_to isolated minus	base_from duplicate char
+Think of the job as two separate halves: first read nbr as a quantity using base_from, then write that quantity out using base_to. Are you keeping the reading rules and the writing rules apart, or mixing them? You have written both halves before in an earlier module — what did each of them have to handle?	dec to binary 42	hex FF to decimal	neg dec to hex	binary to decimal	leading plus 42
+Writing a number in a base means peeling off symbols by repeated division. A symbol's position in base_to is the digit it represents — so case matters, the symbol set is whatever the caller chose, and a negative value still needs its sign written first.	lowercase hex to uppercase hex	atoi rules signs and junk
+What does repeated division produce when the quantity is already nothing? Make sure that path still emits one symbol — which one, and where does base_to say to find it?	zero to binary
+The most negative value cannot be flipped to its positive twin inside the same signed width. How will you read its symbols without ever holding that impossible positive in a too-small type?	INT_MIN to hex	INT_MAX to hex

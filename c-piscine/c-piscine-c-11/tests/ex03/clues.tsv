@@ -1,0 +1,6 @@
+# clues.tsv for ft_count_if — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+How do you tally how many elements satisfy a test? Walk the array element by element, hand each one to the supplied function, and keep a running total. What should that total be before you have looked at anything, and what does it become when nothing passes?	length 0 counts nothing	no element matches	every element matches
+When an element passes the test, by how much does the tally change? The function may hand back any nonzero value to mean "yes" — does the size of that number change how much you add, or is a pass simply a pass?	some match some do not	match returns 100 not 1
+What decides which elements you are even allowed to look at? Think about where your walk begins and the exact point where it must stop, independent of what comes after in memory.	length bounds the scan

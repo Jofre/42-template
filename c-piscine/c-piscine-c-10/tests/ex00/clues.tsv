@@ -1,0 +1,2 @@
+# clues.tsv for ft_display_file
+Open the single file named in argv, read it in chunks into a buffer and write each chunk straight out, then close it. For no filename, too many arguments, or a file that will not open: what message do you print, to which stream (is it stderr, not stdout?), and does the program still behave cleanly?

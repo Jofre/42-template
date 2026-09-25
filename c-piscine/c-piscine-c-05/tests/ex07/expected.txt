@@ -1,0 +1,12 @@
+nb is 2 (already prime)	2
+nb is 3 (already prime)	3
+nb is 4 (next is 5)	5
+nb is 13 (already prime)	13
+nb is 14 (next after 13)	17
+nb is 20	23
+nb is 97 (already prime)	97
+nb below 2: zero	2
+nb below 2: one	2
+nb negative	2
+big prime 2147483629	2147483629
+INT_MAX is prime	2147483647

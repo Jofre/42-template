@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_foreach_if
+Like ft_list_foreach, but should you really call f on every node, or only when cmp says this node's data matches data_ref? Reconsider which return value of cmp means "equal" -- is it the truthy one, or 0? -- and check you are passing the node's data and data_ref to cmp in the order it expects.

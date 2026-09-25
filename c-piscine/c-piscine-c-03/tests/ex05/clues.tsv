@@ -1,0 +1,4 @@
+# clues.tsv for ft_strlcat — hints only, never answers.
+strlcat's return value is the length it TRIED to build, not how much actually fit. Which two lengths add together to make it, and does that sum depend on size at all?	fits fully (size 50)	empty src (size 50)	into empty dest (size 10)
+When size is too small, you copy only what fits and must still place a terminator inside the buffer. How many bytes can you actually write before the terminator has to go down?	truncated (size 10)	size 1
+What if size is less than or equal to dest's current length? There is no room to append anything -- yet the return value is still defined. Re-read what "the total length it tried to create" means when dest itself does not fit within size.	size 0	size == dest length (6)	size < dest length (3)

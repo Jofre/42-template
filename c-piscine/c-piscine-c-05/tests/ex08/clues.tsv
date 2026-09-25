@@ -1,0 +1,12 @@
+# clues.tsv for ft_ten_queens_puzzle — pedagogic hints only. NEVER state the
+# expected value, the algorithm, or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# This exercise's output is one undivided block rather than labelled cases, so
+# no line carries member labels and every hint fires together; they are ordered
+# most-fundamental first and CLUE_MODE=all reveals the rest.
+Start from the output rather than from the search. Read the subject on exactly what one solution looks like on stdout, what separates the numbers inside it, and what the function returns. Does your function print every solution before it returns anything?
+Two queens threaten each other along a row, a column, or either diagonal. Which of those four does your choice of board representation already make impossible by construction, and which are you therefore still obliged to test for yourself?
+A position that looks acceptable when you place it may turn out to lead nowhere. When you back out of such a choice, what state did you change on the way in, and is every bit of it restored before you try the next possibility?
+What exactly is the condition that distinguishes "this is a finished solution" from "this is a promising partial one"? Where does the printing belong relative to that test, and what should happen immediately after you print?
+The subject asks for a return value as well as for output. What is that number counting, and at which point in your recursion does it accumulate — on the way down, or on the way back up?
+Only write() is authorised here. If a solution is a run of digits, what does that constraint mean for how you turn each number into something write() can take?

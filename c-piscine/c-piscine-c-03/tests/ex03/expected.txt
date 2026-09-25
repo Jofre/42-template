@@ -1,0 +1,8 @@
+"abc" + "" (nb=5, empty src)	abc|abc|1
+"Hello " + "World!" (nb=0)	Hello |Hello |1
+"Hello " + "World!" (nb=3, truncated)	Hello Wor|Hello Wor|1
+"Hello " + "World!" (nb=100, all fits)	Hello World!|Hello World!|1
+append nb=3 past old '\0' (X-filled)	HiWor|HiWor|1
+"Hello " + "World!" (nb=6, nb==strlen)	Hello World!|Hello World!|1
+"" + "abc" (nb=3, empty dest)	abc|abc|1
+"Hello " + "Hi" (nb=100, short src)	Hello Hi|Hello Hi|1

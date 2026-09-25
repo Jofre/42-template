@@ -1,0 +1,18 @@
+# clues.tsv for bsq — hints only, never answers.
+#
+# Every group here is MEMBER-LESS on purpose, so each hint fires on any failing
+# case. bsq is a program, so each case below is its own invocation and its own
+# test target rather than a row of one table -- there is no CASE column to key
+# a hint to. Same shape, and the same reason, as c-piscine-rush-02's.
+#
+# Ordered most-fundamental first: only the first three are shown by default, and
+# CLUE_MODE=all shows the rest.
+The first line is not a row of the map. Its last THREE characters are the empty, obstacle and full characters, in that order, and everything in front of them is the number of lines. Read it from the END rather than from the start: "1123" is one line whose three characters are 1, 2 and 3.
+Print the map back with the square drawn on it — the header line is not part of the output. Every line ends with a newline, including the last one.
+When several biggest squares fit, the subject settles which one to draw: the square closest to the TOP first, and only then the one furthest LEFT. Decide what your scan does when it meets a square exactly as big as the best one so far — that single choice is the difference.
+The square is made of EMPTY cells only. An obstacle anywhere inside the block you were about to fill means that block was never a candidate.
+A map with no empty cell at all still has an answer: there is no square to draw, so the map is printed unchanged. It is a valid file, and "map error" is reserved for a file that is not.
+"map error" goes to standard output followed by a newline, and the program then moves on to the NEXT file rather than stopping.
+Read the validity list in the subject as a checklist, in order: a positive number, then three DIFFERENT printable characters, then every line the same length, then at least one cell, then only declared characters in the body. Breaking any one of them makes the file invalid.
+With more than one file there is exactly one blank line BETWEEN two outputs — none before the first, none after the last. Each output already ends in a newline, so the separator is one more newline in between.
+With no arguments at all the map arrives on standard input. Same map, same answer; only where the bytes come from changes.

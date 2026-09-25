@@ -1,0 +1,18 @@
+# clues.tsv for rush-02 — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label>...; most-fundamental first. All MEMBER-LESS, so
+# every hint fires on any failing case: rush-02 is a program and each invocation is its own
+# test, so there is no CASE column to key a hint on (same reasoning as rush-01's).
+#
+# The rule these must respect (AGENTS.md §0): a clue points at what the SUBJECT says, or asks
+# a question the student answers by reading their own output. It never describes an algorithm,
+# never names a data structure, and never quotes an expected string.
+Read the argument count first: the subject defines exactly two shapes, one argument and two. Which one is being run here, and which of them names a dictionary?
+The subject says the number must be a valid and positive integer. Take one input it should reject and ask what your parser does with every character of it, not just the first.
+Your program must handle numbers beyond the range of unsigned int — the reference dictionary runs past a decillion. Ask which C type you are holding the number in, and what happens when it no longer fits.
+The dictionary grammar is [a number][0 to n spaces]:[0 to n spaces][any printable characters]. Both spans are "0 to n", so zero spaces and several spaces are equally legal. Which of the two does your parser assume?
+The subject says to trim the spaces before and after the values. Look at one dictionary line with spaces on both sides of the colon and ask which characters you are keeping — the ones inside the value matter as much as the ones outside it.
+There can be empty lines in the dictionary, and the entries can be stored in any order. Neither is an error. What does your parser do the first time it meets one?
+The dictionary can contain more entries than the reference one, and the initial keys cannot be removed. So a key you did not expect is not a failure, but a key you needed and did not find is. Which is happening here?
+Two different situations both print the same dictionary error: the file did not parse, or it parsed but cannot express this number. Ask which of the two you are in before changing any code.
+Every allocation must be freed, and that is checked at the evaluation rather than by the output. Run it under valgrind once before you decide it works.
+The subject's own transcript pipes the output through cat -e. Do that with yours and compare the very end of the line, not just the words.

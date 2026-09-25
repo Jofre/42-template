@@ -1,0 +1,5 @@
+  Same contract as the iterative one.
+    * power 0 diverges        -> the base case
+    * negative powers         -> checked before recursing, not after
+    * only large results      -> overflow
+    * one multiplication too many or few -> the base case, off by one

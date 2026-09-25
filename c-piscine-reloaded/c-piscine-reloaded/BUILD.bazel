@@ -1,0 +1,401 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//tools:defs.bzl", "c_argv_table", "c_cycles", "c_diff", "c_files", "c_function", "c_header", "c_levels", "c_make", "c_mem_check", "c_program", "lvl_tags", "shell_exercise")
+
+# Piscine Reloaded: ONE project, ONE Vogsphere repository, ex00 ... ex27 at its
+# root. It is a best-of of the Piscine, and most of its tests are the Piscine's
+# own, copied from the exercise each one repeats (named beside every call) and
+# adapted where the subject differs. Copied rather than referenced, so this
+# project stands alone the way every Piscine module does.
+#
+# It mixes three kinds of exercise, each handled the way the Piscine already
+# handles it:
+#   ex00-ex05  shell and file turn-ins. The answer is generators/exNN.sh, and
+#              deliverable/exNN/ is generated from it and gitignored PER
+#              EXERCISE (.gitignore here) -- an archive's permissions and
+#              timestamps, and ex05's file name, cannot live in git.
+#   ex06-ex23, ex25-ex27  C, headers and programs, written in deliverable/exNN.
+#   ex24, ex27 a Makefile.
+#
+# ft_putchar. The subject: "If ft_putchar() is an authorized function, we will
+# compile your code with our ft_putchar.c." Six exercises authorise it (ex06,
+# 07, 08, 15, 18, 19). Their stubs declare it -- `void ft_putchar(char c);` --
+# and never define it, and every build of their code here links
+# tests/ft_putchar.c through `provided_srcs`, as the Moulinette links its own.
+# Layers that judge the student's file alone (norm, compile, forbidden,
+# prototype, symbols) never see it, so a call to ft_putchar is an authorised
+# undefined symbol there, and `write` is not authorised at all. An ft_putchar.c
+# turned in by mistake is an extra file, which the files layer fails.
+#
+# Layers the Piscine runs that are NOT here: c_reference_cost and c_cycles for
+# the ft_putchar exercises. Their budgets were measured on answers that call
+# write() directly, and a correct answer here pays for one ft_putchar call per
+# character; a budget it cannot meet would red correct work.
+
+# Rebuild the generated shell deliverables (ex00-ex05) from the generators:
+#   bazel run //c-piscine-reloaded/c-piscine-reloaded:generate
+sh_binary(
+    name = "generate",
+    srcs = ["//tools:generate.sh"],
+    args = [package_name()],
+)
+
+PUTCHAR = ["tests/ft_putchar.c"]
+
+# ---------------------------------------------------------------- shell / file
+# ex00 = Shell 00 ex02 (the archive is exo.tar here, not exo2.tar)
+shell_exercise(num = "00", mode = "check", deliverable = "exo.tar")
+
+# ex01 = Shell 00 ex00
+shell_exercise(num = "01", mode = "diff", deliverable = "z")
+
+# ex02 = Shell 00 ex08
+shell_exercise(num = "02", mode = "check", deliverable = "clean")
+
+# ex03 = Shell 01 ex02
+shell_exercise(num = "03", mode = "check", deliverable = "find_sh.sh")
+
+# ex04 = Shell 01 ex04. Host/network-coupled: its output and files layers are
+# manual, as in the Piscine, so no suite runs them (a test_suite drops manual
+# targets, the per-exercise :ex04 included). Name them, outside the sandbox:
+#   bazel test //c-piscine-reloaded/c-piscine-reloaded:ex04_output \
+#       //c-piscine-reloaded/c-piscine-reloaded:ex04_files --spawn_strategy=local
+#
+# oracle = True: whether each printed line is one of this machine's hardware
+# addresses is asked of //oracle (shell01_hwaddr), as in Shell 01 ex04 -- the
+# text pattern a check could use instead is a piece of a common answer.
+shell_exercise(
+    num = "04",
+    mode = "check",
+    deliverable = "MAC.sh",
+    oracle = True,
+    tags = ["manual", "env", "no-sandbox"],
+)
+
+# ex05 = Shell 01 ex05. files = False: the deliverable's NAME is the answer.
+shell_exercise(num = "05", mode = "check", files = False)
+
+# ---------------------------------------------------------------- C
+# ex06 = C 00 ex01, with ft_putchar instead of write
+c_function(num = "06", fn = "ft_print_alphabet", test = "test_alphabet.c", allowed = ["ft_putchar"], provided_srcs = PUTCHAR, clues = "clues.tsv")
+c_mem_check(num = "06", fn = "ft_print_alphabet", probe = "mem_print_alphabet.c", provided_srcs = PUTCHAR)
+c_files(num = "06", required = ["ft_print_alphabet.c"], strict = True)
+
+# ex07 = C 00 ex03, with ft_putchar instead of write
+c_function(num = "07", fn = "ft_print_numbers", test = "test_numbers.c", allowed = ["ft_putchar"], provided_srcs = PUTCHAR, clues = "clues.tsv")
+c_mem_check(num = "07", fn = "ft_print_numbers", probe = "mem_print_numbers.c", provided_srcs = PUTCHAR)
+c_files(num = "07", required = ["ft_print_numbers.c"], strict = True)
+
+# ex08 = C 00 ex04, with ft_putchar instead of write
+c_function(num = "08", fn = "ft_is_negative", test = "test_is_negative.c", allowed = ["ft_putchar"], provided_srcs = PUTCHAR, labeled = True, clues = "clues.tsv")
+c_diff(num = "08", fn = "ft_is_negative", harness = "diff_is_negative.c", oracle_fn = "c00_is_negative", diff_clues = "diff_clues.txt")
+c_files(num = "08", required = ["ft_is_negative.c"], strict = True)
+
+# ex09 = C 01 ex00
+c_function(num = "09", fn = "ft_ft", test = "test_ft.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_files(num = "09", required = ["ft_ft.c"], strict = True)
+
+# ex10 = C 01 ex02
+c_function(num = "10", fn = "ft_swap", test = "test_swap.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "10", fn = "ft_swap", harness = "diff_swap.c", oracle_fn = "c01_swap", diff_clues = "diff_clues.txt")
+c_files(num = "10", required = ["ft_swap.c"], strict = True)
+
+# ex11 = C 01 ex03
+c_function(num = "11", fn = "ft_div_mod", test = "test_div_mod.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "11", fn = "ft_div_mod", harness = "diff_div_mod.c", oracle_fn = "c01_div_mod", diff_clues = "diff_clues.txt")
+c_files(num = "11", required = ["ft_div_mod.c"], strict = True)
+
+# ex12 = C 05 ex00
+c_function(num = "12", fn = "ft_iterative_factorial", test = "test_iterative_factorial.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "12", fn = "ft_iterative_factorial", harness = "diff_iterative_factorial.c", oracle_fn = "c05_iter_factorial", diff_clues = "diff_clues.txt")
+c_files(num = "12", required = ["ft_iterative_factorial.c"], strict = True)
+
+# ex13 = C 05 ex01
+c_function(num = "13", fn = "ft_recursive_factorial", test = "test_recursive_factorial.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "13", fn = "ft_recursive_factorial", harness = "diff_recursive_factorial.c", oracle_fn = "c05_rec_factorial", diff_clues = "diff_clues.txt")
+c_files(num = "13", required = ["ft_recursive_factorial.c"], strict = True)
+
+# ex14 = C 05 ex05 ("less than two seconds", as in the Piscine)
+c_function(num = "14", fn = "ft_sqrt", test = "test_sqrt.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "14", fn = "ft_sqrt", harness = "diff_sqrt.c", oracle_fn = "c05_sqrt", diff_clues = "diff_clues.txt")
+c_files(num = "14", required = ["ft_sqrt.c"], strict = True)
+c_cycles(
+    num = "14",
+    fn = "ft_sqrt",
+    oracle_fn = "c05_sqrt_cycles",
+    harness = "diff_sqrt.c",
+    budget = 90,
+    syscall_budget = 0,
+)
+
+# ex15 = C 01 ex05, with ft_putchar instead of write
+c_function(num = "15", fn = "ft_putstr", test = "test_putstr.c", allowed = ["ft_putchar"], provided_srcs = PUTCHAR, clues = "clues.tsv")
+c_diff(
+    num = "15",
+    fn = "ft_putstr",
+    harness = "diff_putstr.c",
+    oracle_fn = "c01_putstr",
+    count = 100000,
+    diff_clues = "diff_clues.txt",
+)
+c_files(num = "15", required = ["ft_putstr.c"], strict = True)
+
+# ex16 = C 01 ex06
+c_function(num = "16", fn = "ft_strlen", test = "test_strlen.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "16", fn = "ft_strlen", harness = "diff_strlen.c", oracle_fn = "c01_strlen", diff_clues = "diff_clues.txt")
+c_files(num = "16", required = ["ft_strlen.c"], strict = True)
+c_cycles(
+    num = "16",
+    fn = "ft_strlen",
+    oracle_fn = "c01_strlen",
+    harness = "diff_strlen.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    budget = 3.5,
+    syscall_budget = 0,
+)
+
+# ex17 = C 03 ex00
+c_function(num = "17", fn = "ft_strcmp", test = "test_strcmp.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "17", fn = "ft_strcmp", harness = "diff_strcmp.c", oracle_fn = "c03_strcmp", diff_clues = "diff_clues.txt")
+c_files(num = "17", required = ["ft_strcmp.c"], strict = True)
+c_cycles(
+    num = "17",
+    fn = "ft_strcmp",
+    oracle_fn = "c03_strcmp",
+    harness = "diff_strcmp.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    budget = 6,
+    syscall_budget = 0,
+)
+
+# ex18 = C 06 ex01, with ft_putchar instead of write
+c_program(num = "18", name = "ft_print_params", allowed = ["ft_putchar"], provided_srcs = PUTCHAR)
+c_argv_table(num = "18")
+c_files(num = "18", required = ["ft_print_params.c"], strict = True)
+
+# ex19 = C 06 ex03, with ft_putchar instead of write
+c_program(num = "19", name = "ft_sort_params", allowed = ["ft_putchar"], provided_srcs = PUTCHAR)
+c_argv_table(num = "19")
+c_files(num = "19", required = ["ft_sort_params.c"], strict = True)
+
+# ex20 = C 07 ex00
+c_function(
+    num = "20",
+    fn = "ft_strdup",
+    test = "test_strdup.c",
+    allowed = ["malloc"],
+    malloc = True,
+    allocfail = "af_ft_strdup.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+c_diff(num = "20", fn = "ft_strdup", harness = "diff_strdup.c", oracle_fn = "c07_strdup", diff_clues = "diff_clues.txt")
+c_mem_check(num = "20", fn = "ft_strdup", probe = "mem_strdup.c")
+c_files(num = "20", required = ["ft_strdup.c"], strict = True)
+c_cycles(
+    num = "20",
+    fn = "ft_strdup",
+    oracle_fn = "c07_strdup",
+    harness = "diff_strdup.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    budget = 6,
+    syscall_budget = 0,
+)
+
+# ex21 = C 07 ex01
+c_function(
+    num = "21",
+    fn = "ft_range",
+    test = "test_range.c",
+    allowed = ["malloc"],
+    malloc = True,
+    labeled = True,
+    clues = "clues.tsv",
+)
+c_diff(num = "21", fn = "ft_range", harness = "diff_range.c", oracle_fn = "c07_range", diff_clues = "diff_clues.txt")
+c_mem_check(num = "21", fn = "ft_range", probe = "mem_range.c")
+c_files(num = "21", required = ["ft_range.c"], strict = True)
+
+# ex22 = C 08 ex02. The subject authorises, this once, the macro the Norm bans.
+c_header(
+    num = "22",
+    hdr = "ft_abs.h",
+    main = "test_abs.c",
+    norm_flags = ["-R", "CheckDefine"],
+    probe = "probe_abs.c",
+    cases = [{"name": "run", "args": [], "expected": "expected.txt", "labeled": True, "clues": "clues.tsv"}],
+)
+c_files(num = "22", required = ["ft_abs.h"], strict = True)
+
+# ex23 = C 08 ex03: the subject's own main, plus the level-3 int_fields case
+# (see c-piscine/c-piscine-c-08/BUILD.bazel for why it is stricter, and why
+# that puts it out of a beginner's way).
+c_header(
+    num = "23",
+    hdr = "ft_point.h",
+    main = "test_point.c",
+    cases = [
+        {"name": "compile", "expected": "expected.txt", "args": [], "clues": "clues.tsv"},
+        {
+            "name": "int_fields",
+            "main": "test_point_int.c",
+            "expected": "expected_int.txt",
+            "args": [],
+            "labeled": True,
+            "level": 3,
+            "clues": "clues_int.tsv",
+        },
+    ],
+)
+c_files(num = "23", required = ["ft_point.h"], strict = True)
+
+# ex24 — the Makefile, and nothing else: "We'll only fetch your Makefile and
+# test it with our files." The grader's files are tests/ex24/grader/: the five
+# sources the subject names (PLACEHOLDERS that compile -- this layer grades the
+# Makefile, and a real body would be another exercise's answer), their header,
+# and a decoy source a Makefile must never compile, because the Norm says every
+# source is named explicitly ("no *.c"). relink: the Norm again -- a Makefile
+# that relinks when it has nothing to do makes the project non-functional.
+c_make(
+    num = "24",
+    anchor = "deliverable/ex24/Makefile",
+    artifact = "libft.a",
+    rules = ["all", "clean", "fclean", "re"],
+    symbols = ["ft_putchar", "ft_putstr", "ft_strcmp", "ft_strlen", "ft_swap"],
+    relink = True,
+    relink_source = "norm",
+    overlay = {
+        "tests/ex24/grader/includes/ft.h": "includes/ft.h",
+        "tests/ex24/grader/srcs/ft_not_listed.c": "srcs/ft_not_listed.c",
+        "tests/ex24/grader/srcs/ft_putchar.c": "srcs/ft_putchar.c",
+        "tests/ex24/grader/srcs/ft_putstr.c": "srcs/ft_putstr.c",
+        "tests/ex24/grader/srcs/ft_strcmp.c": "srcs/ft_strcmp.c",
+        "tests/ex24/grader/srcs/ft_strlen.c": "srcs/ft_strlen.c",
+        "tests/ex24/grader/srcs/ft_swap.c": "srcs/ft_swap.c",
+    },
+)
+c_files(num = "24", required = ["Makefile"], strict = True)
+
+# ex25 = C 11 ex00
+c_function(num = "25", fn = "ft_foreach", test = "test_foreach.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_diff(num = "25", fn = "ft_foreach", harness = "diff_foreach.c", oracle_fn = "c11_foreach", diff_clues = "diff_clues.txt")
+c_mem_check(num = "25", fn = "ft_foreach", probe = "mem_foreach.c")
+c_files(num = "25", required = ["ft_foreach.c"], strict = True)
+
+# ex26 — NOT C 11 ex03: no length, and the array ends at its first NULL. Its
+# tests are this project's own, and there is no differential layer, since the
+# Piscine's reference takes a length.
+c_function(num = "26", fn = "ft_count_if", test = "test_count_if.c", allowed = [], labeled = True, clues = "clues.tsv")
+c_mem_check(num = "26", fn = "ft_count_if", probe = "mem_count_if.c")
+c_files(num = "26", required = ["ft_count_if.c"], strict = True)
+
+# ex27 = C 10 ex00: the program, its Makefile (all, clean, fclean -- no `re`,
+# the subject names three rules), and the byte-exact file differential.
+c_program(
+    num = "27",
+    name = "ft_display_file",
+    allowed = ["open", "read", "write", "close"],
+    cases = [
+        {
+            "name": "show",
+            "args": ["$(location tests/ex27/fixtures/sample.txt)"],
+            "fixtures": ["tests/ex27/fixtures/sample.txt"],
+            "expected": "show.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "noarg",
+            "args": [],
+            "stream": "stderr",
+            "expected": "noarg.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "toomany",
+            "args": ["a", "b"],
+            "stream": "stderr",
+            "expected": "toomany.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "cannot",
+            "args": ["this_file_does_not_exist_42"],
+            "stream": "stderr",
+            "expected": "cannot.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "blob",
+            "args": ["$(location tests/ex27/fixtures/blob.bin)"],
+            "fixtures": ["tests/ex27/fixtures/blob.bin"],
+            "expected": "blob.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+# relink, for the reason ex24 has it: the Norm covers this Makefile too. (C 10
+# ex00 leaves it off, since its subject does not ask; this project's Makefiles
+# are held to the Norm's rule the same way, so both of them are.)
+c_make(
+    num = "27",
+    anchor = "deliverable/ex27/Makefile",
+    artifact = "ft_display_file",
+    rules = [
+        "all",
+        "clean",
+        "fclean",
+    ],
+    symbols = ["main"],
+    relink = True,
+    relink_source = "norm",
+)
+# strict: "You cannot leave any additional file in your directory" is this
+# subject's general rule, and nothing here is reviewed by a person, so an extra
+# file is a fail, not a warning -- the binary a hand-run of make leaves behind
+# included, which //tools:submit would otherwise push. `make fclean` first.
+c_files(
+    num = "27",
+    required = ["Makefile"],
+    strict = True,
+    # The subject fixes no source filenames ("files needed for your program"),
+    # so every .c and .h here is optional, from the glob the build uses.
+    optional = [
+        f[len("deliverable/ex27/"):]
+        for f in glob(
+            [
+                "deliverable/ex27/*.c",
+                "deliverable/ex27/*.h",
+            ],
+            allow_empty = True,
+        )
+    ],
+)
+
+# The Piscine's read-loop differential for the same program (see
+# c-piscine/c-piscine-c-10/BUILD.bazel for what the corpus walks and why).
+sh_test(
+    name = "ex27_file_diff",
+    size = "medium",
+    srcs = ["//tools:file_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex27_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "c10_display_file",
+        "--count",
+        "60",
+    ],
+    data = [
+        ":ex27_bin",
+        "//oracle:oracle",
+        "//tools:file_check.sh",
+    ],
+    tags = lvl_tags("diff"),
+)
+
+c_levels()

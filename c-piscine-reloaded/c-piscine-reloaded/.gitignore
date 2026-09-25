@@ -1,0 +1,14 @@
+# The shell and file exercises are GENERATED: generators/exNN.sh is the answer,
+# and deliverable/exNN/ is rebuilt from it (bazel run :generate), so it is never
+# committed. Per exercise, not the whole deliverable/: this project also holds
+# the hand-written C exercises, which are.
+/deliverable/ex00/
+/deliverable/ex01/
+/deliverable/ex02/
+/deliverable/ex03/
+/deliverable/ex04/
+/deliverable/ex05/
+
+# What a hand-run `make` leaves behind (object files and libft.a are already
+# ignored repo-wide; these executables have no extension to match on).
+/deliverable/ex27/ft_display_file

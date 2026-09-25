@@ -1,0 +1,6 @@
+  One number per tree.
+    * an empty tree           -> the subject fixes that count
+    * a single node           -> whether a lone node is depth 0 or 1
+    * unbalanced trees        -> which of the two subtree answers is used; only
+                                 one of them describes the tree
+    * off by one everywhere   -> what the node itself adds to its subtrees

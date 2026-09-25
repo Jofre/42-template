@@ -1,0 +1,16 @@
+  The list is printed after the call, so a divergence is readable as a sequence.
+    * the empty list          -> inserting into nothing still has to produce a
+                                 list, and the caller has to see it
+    * a value smaller than every element -> the case that changes the caller's
+                                 own pointer, which is what the double pointer
+                                 is for
+    * a value larger than every element -> the walk has to end somewhere, and
+                                 what it looks at when it does
+    * the element is inserted but the list ends there -> the link out of the new
+                                 element; it goes somewhere, and it is not NULL
+    * one element is lost      -> the link INTO the new element is written
+                                 before the one out of it is read
+    * equal values            -> the subject asks only that the list stay in
+                                 ascending order, so either side of an equal
+                                 element is correct; if only these diverge, look
+                                 at the comparison's sign, not at your choice

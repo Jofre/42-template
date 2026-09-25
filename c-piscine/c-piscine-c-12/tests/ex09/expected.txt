@@ -1,0 +1,10 @@
+--- order ---
+a
+b
+c
+--- single ---
+a
+--- empty ---
+(no crash)
+--- mutate ---
+2 3 4

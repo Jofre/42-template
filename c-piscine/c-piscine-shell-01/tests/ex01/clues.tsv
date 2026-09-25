@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex01 (print_groups.sh)
+A user belongs to several groups by NAME, not number; the task is to print those names on a single line joined by commas, and the trap is the trailing newline most tools add at the end — your line must finish right after the last group name.

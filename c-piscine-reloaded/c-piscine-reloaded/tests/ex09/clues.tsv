@@ -1,0 +1,2 @@
+# clues.tsv for ft_ft — hints only, never answers.
+You are handed a pointer to an int. To change the value it points at -- not the pointer itself -- what must you do to the pointer before assigning?	start 0	start 7	already 42

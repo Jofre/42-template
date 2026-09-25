@@ -1,0 +1,5 @@
+  The string is printed after the call.
+    * digits or punctuation changed    -> the range test; only letters move
+    * bytes above 0x7f changed         -> whether char is signed here
+    * every letter shifted the wrong way -> the direction of the arithmetic
+    * the empty string diverges        -> a loop that cannot run zero times

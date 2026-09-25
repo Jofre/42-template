@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_remove_if
+When you delete a node, who now points to the one after it -- and if the deleted node was the head, what does *begin_list still hold? After freeing a node, where does your cursor advance to so two matches in a row both get removed, and are you freeing both the data (via free_fct) and the node itself?

@@ -1,0 +1,12 @@
+zero
+4
+ZERO
+forty-two
+9
+FORTY-TWO
+
+0
+
+0123456789ab
+12
+CHANGED-COPY

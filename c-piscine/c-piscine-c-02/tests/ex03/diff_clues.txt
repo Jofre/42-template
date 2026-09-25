@@ -1,0 +1,8 @@
+  One answer per string; group by content.
+    * the empty string only               -> the answer for a string with
+                                             nothing to inspect
+    * strings with '+' or '-' or spaces   -> those are not digits, whatever
+                                             atoi may have taught you
+    * only strings whose FIRST character is wrong -> testing one character
+                                             instead of all of them
+    * 1 and 0 swapped                     -> the sense of the test

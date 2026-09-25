@@ -1,0 +1,6 @@
+  The last element is printed, or nothing.
+    * the empty list          -> the subject says what to return, and a walk
+                                 that assumes an element exists cannot
+    * a one-element list      -> a loop that cannot run zero times
+    * the element BEFORE the last -> what the condition tests: the element, or
+                                 the element's link

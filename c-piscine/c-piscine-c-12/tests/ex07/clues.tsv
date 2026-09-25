@@ -1,0 +1,6 @@
+# clues.tsv for ft_list_at — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+The index is counted from the very start of the list. If the caller asks for the element at position zero, how many hops along the next pointers should you take before you stop?	index 0 first node
+To reach position nbr you advance one node at a time, following next. How many single steps separate the head from the node at index nbr, and does your counter land you exactly on it rather than one short or one beyond?	index 2 middle node	index 4 last node
+The list eventually runs out: the last node's next is the end marker. What should you hand back when the requested index points past the final node, and does your walk notice it has fallen off the end before it asks for one more next? Consider too what an immediately empty list should yield.	index 5 one past end	index 9 far past end	empty list index 0

@@ -1,0 +1,5 @@
+single node	1
+two nodes	2
+three nodes	3
+five nodes	5
+empty NULL list	0

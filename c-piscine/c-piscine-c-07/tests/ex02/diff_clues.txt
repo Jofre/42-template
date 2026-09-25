@@ -1,0 +1,7 @@
+  Same range as ex01, but the SIZE is also returned.
+    * the returned size       -> it has to describe the array you allocated, and
+                                 the subject says what it is for an empty range
+    * min >= max              -> what goes in the pointer as well as what is
+                                 returned; the subject specifies both
+    * the array is right, the size is not -> the two are computed twice from the
+                                 same thing, and have drifted

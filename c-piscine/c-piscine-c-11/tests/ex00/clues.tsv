@@ -1,0 +1,7 @@
+# clues.tsv for ft_foreach — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+You are handed a function through a pointer; your job is just to call it. For a single element, what do you pass to it, and how do you invoke a function you only know by pointer?	single element
+The elements must be visited in the order they sit in the array, each one handed to the same function exactly once. Are you walking forward from the first index, and is every element reached?	three positives in order	full array negatives and zero
+The element's value is never inspected or changed — whatever it is, it just goes to the function. Does a negative number or a zero travel through untouched?	full array negatives and zero
+The count tells you how many elements to touch. When that count is zero, how many times should the function be called?	length zero applies to nothing

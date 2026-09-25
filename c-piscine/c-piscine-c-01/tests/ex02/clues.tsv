@@ -1,0 +1,3 @@
+# clues.tsv for ft_swap — hints only, never answers.
+To exchange two values through pointers, copying one straight into the other loses information. What do you need so the first value survives long enough to land in the second?	11 & 22	-5 & 7	0 & 0
+What happens if both pointers point at the SAME variable? Trace your swap step by step for that case -- does the value survive, and is that what you printed?	same pointer (a == b)

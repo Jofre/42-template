@@ -1,0 +1,9 @@
+  n is a column of its own, so read the divergence against it.
+    * only n greater than the source length -> what the subject says fills the
+                                               rest, and how far
+    * only n smaller than the source length -> whether a terminator belongs
+                                               there at all -- the subject is
+                                               explicit, and this is where
+                                               strncpy surprises people
+    * n == 0 diverges                       -> a loop that cannot run zero times
+    * every case, one byte                  -> the bound, off by one

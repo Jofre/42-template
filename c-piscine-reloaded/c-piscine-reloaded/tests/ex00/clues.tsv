@@ -1,0 +1,2 @@
+# clues.tsv for Piscine Reloaded ex00 (Oh yeah, mooore...) — repeats Shell 00 ex02
+A tar can hold directories, files, a hard link and a symbolic link side by side; the trap is the difference between the two kinds of link and that each item's permission bits must be set before archiving, not after.

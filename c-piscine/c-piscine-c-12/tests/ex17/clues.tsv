@@ -1,0 +1,2 @@
+# clues.tsv for ft_sorted_list_merge
+Both lists arrive already sorted by cmp, so does merging mean appending list2 at the end, or weaving each of its nodes into the spot where cmp says it belongs? Reconsider the case where a node from list2 must land before the very first node of list1: if you only walk forward from the head, what updates the *begin_list1 pointer, and how do the empty-list cases fit the same logic?

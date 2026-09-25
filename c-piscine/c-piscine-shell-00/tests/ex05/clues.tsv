@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex05 (git_commit.sh)
+The default git history view is paged, verbose, and oldest-last; the trap is leaving in the decoration and the older commits — think about how to cap the number of entries and reduce each one to just its full hash.

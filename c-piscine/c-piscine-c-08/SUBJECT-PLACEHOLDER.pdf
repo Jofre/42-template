@@ -1,0 +1,45 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 981 >>
+stream
+BT /F1 18 Tf 56 770 Td (PLACEHOLDER - this is NOT the subject.) Tj /F1 11 Tf ET
+BT /F1 11 Tf 56 752 Td () Tj ET
+BT /F1 11 Tf 56 734 Td (Project: c-piscine-c-08) Tj ET
+BT /F1 11 Tf 56 716 Td () Tj ET
+BT /F1 11 Tf 56 698 Td (The subject PDF is 42's document, so this repository does not ship it:) Tj ET
+BT /F1 11 Tf 56 680 Td (it is not ours to republish, and 42 revises subjects between versions.) Tj ET
+BT /F1 11 Tf 56 662 Td (Use the exact version you are graded against.) Tj ET
+BT /F1 11 Tf 56 644 Td () Tj ET
+BT /F1 11 Tf 56 626 Td (1. Download the subject of c-piscine-c-08 from the 42 intranet.) Tj ET
+BT /F1 11 Tf 56 608 Td (2. Save it in this folder as en.subject.pdf - or es.subject.pdf, etc.) Tj ET
+BT /F1 11 Tf 56 590 Td (3. Delete this file.) Tj ET
+BT /F1 11 Tf 56 572 Td () Tj ET
+BT /F1 11 Tf 56 554 Td (The *.pdf rule in .gitignore keeps your copy out of your commits,) Tj ET
+BT /F1 11 Tf 56 536 Td (so a fork of this repository cannot republish it by accident.) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001273 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1343
+%%EOF

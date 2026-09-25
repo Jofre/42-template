@@ -1,0 +1,17 @@
+# Pinned Python tooling for the hermetic build.
+#
+# norminette's version decides which rules exist, so it is pinned exactly: an
+# unpinned copy means a build next month can reject code that passes today, or
+# accept code the campus box rejects. 3.3.58 is what the 2026-08-09 campus
+# audit found, and the same one .devcontainer/Dockerfile installs for running by
+# hand -- the Bazel norm layer uses THIS one and never the host's.
+#
+# It was 3.3.59 until that audit, taken from an earlier campus reading. The
+# direction of the correction is worth noting: campus was BEHIND what we pinned,
+# not ahead, so the norm layer had been slightly out of step with the grader in
+# whichever direction the two releases differ. Match the box; the box is what
+# grades you.
+#
+# When the campus box moves, run `bazel run //tools:env_audit` there, read the
+# norminette line out of the report, and change the version here.
+norminette==3.3.58

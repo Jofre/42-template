@@ -1,0 +1,6 @@
+# clues.tsv for ft_is_prime — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+Where does the very definition of a prime start? Below which integer can a number never qualify, and which two small numbers are the first that do? Decide what happens before you ever enter a divisor loop.	zero	one	two	three	minus one	minus five	INT_MIN
+To know a number has no divisor, how far up do you really have to search? If a factor existed above a certain point, its partner would already have appeared below it — what is that turning point? Test it on perfect squares of small numbers.	four	twelve	nine	twenty five	forty nine	eleven	seventeen	ninety seven	fifteen	twenty one	thirty five
+For very large inputs the loop bound itself can betray you. If you compare a divisor's square against nb, what happens to that product before the comparison even runs? Can you phrase the same limit without ever forming that product?	one billion eight	one billion seven	INT_MAX minus one	INT_MAX	one billion five	nine nine nine prime

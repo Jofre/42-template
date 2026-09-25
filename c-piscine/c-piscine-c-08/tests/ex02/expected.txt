@@ -1,0 +1,13 @@
+ABS(0)	0
+ABS(5)	5
+ABS(-5)	5
+ABS(1)	1
+ABS(-1)	1
+ABS(2147483647)	2147483647
+ABS(-2147483647)	2147483647
+ABS(2 - 5) expr arg	3
+ABS(0 - 8) expr arg	8
+ABS(10 - 3) expr arg	7
+2 * ABS(-3) outer	6
+10 - ABS(-4) outer	6
+1 + ABS(-6) outer	7

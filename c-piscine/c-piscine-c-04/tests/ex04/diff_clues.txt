@@ -1,0 +1,12 @@
+  Two inputs per line: the number and the base string.
+    * the base column is what fails     -> what makes a base INVALID; the
+                                           subject lists the shapes, and one of
+                                           them is about length
+    * only negative numbers             -> the sign, printed once, before the
+                                           digits
+    * only INT_MIN                      -> negating first; it has no positive
+                                           counterpart
+    * only base 1 or an empty base      -> a base too short to represent
+                                           anything is rejected, not divided by
+    * digits reversed                   -> the order the recursion unwinds in
+    * zero prints nothing               -> the loop that cannot run zero times

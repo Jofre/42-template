@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_clear
+Once you free a node, is its ->next still safe to read? Walk every node to the end, and for each one consider what has to happen to its data (via free_fct) and to the node itself -- in which order, and what do you need to grab BEFORE letting go of the current node?

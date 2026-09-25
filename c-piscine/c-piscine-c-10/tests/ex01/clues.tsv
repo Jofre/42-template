@@ -1,0 +1,2 @@
+# clues.tsv for ft_cat
+Like display_file but over several files in turn with one read/write loop. Binary-safe matters: a 0 byte is data, not an end marker, so drive the loop by the count read returns, never by a terminator. On a file that will not open, what does the subject's error text come from, and do you carry on with the remaining files?

@@ -1,0 +1,1 @@
+ex01_bin: no_such_file_ex01: No such file or directory

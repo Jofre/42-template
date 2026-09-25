@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_reverse_fun
+Notice the signature takes the head by value, not t_list ** — if you reverse by relinking next pointers, what node does the caller's begin still point to afterward? Given that you cannot hand back a new head, which part of a node are you still free to change, and does the subject actually require the links to move?

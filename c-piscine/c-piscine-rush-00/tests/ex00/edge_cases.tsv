@@ -1,0 +1,63 @@
+# Hostile sizes for the robustness layer (tests/ex00/robust_rush.c).
+# Format: <label><TAB><x><TAB><y>
+#
+# Nothing here is diffed against a rectangle: every case only has to come back
+# alive, promptly, without burying the terminal. Labels are referenced by
+# clues.tsv; rename one here and rename it there.
+#
+# --- part 1: sizes the subject leaves UNDEFINED -----------------------------
+# "Your function must never crash or enter an infinite loop" is a requirement;
+# what a non-positive size should PRINT is not specified, so it is not checked.
+# A huge dimension is only ever paired with a non-positive one — rush(2147483647,
+# 42) is 90 billion legitimate characters, not a bug.
+1x0 no rows	1	0
+0x1 no columns	0	1
+0x0 nothing at all	0	0
+5x0 no rows	5	0
+0x5 no columns	0	5
+2x0	2	0
+0x2	0	2
+-1x5 negative width	-1	5
+5x-1 negative height	5	-1
+-1x1	-1	1
+1x-1	1	-1
+-5x-5 both negative	-5	-5
+-1x-1 both negative	-1	-1
+-42x7	-42	7
+7x-42	7	-42
+INT_MIN width	-2147483648	3
+INT_MIN height	3	-2147483648
+INT_MIN both	-2147483648	-2147483648
+INT_MIN width, no rows	-2147483648	0
+no columns, INT_MIN height	0	-2147483648
+INT_MAX width, no rows	2147483647	0
+no columns, INT_MAX height	0	2147483647
+INT_MAX width, negative height	2147483647	-1
+negative width, INT_MAX height	-1	2147483647
+INT_MAX width, INT_MIN height	2147483647	-2147483648
+100000x0	100000	0
+0x100000	0	100000
+# --- part 2: legal sizes that sit on a counter ceiling ----------------------
+# These are perfectly valid rectangles — the value diff checks the ones up to
+# 4097 — but a `char` counter stops at 127, an `unsigned char` at 255, a `short`
+# at 32767, an `unsigned short` at 65535. Past its ceiling the counter wraps and
+# the loop never ends, so here we only ask whether the call comes back at all.
+# The last pair asks the same question of the call stack rather than a counter.
+128x1 char-counter ceiling	128	1
+1x128 char-counter ceiling	1	128
+255x1	255	1
+256x1 unsigned-char ceiling	256	1
+1x256 unsigned-char ceiling	1	256
+257x1	257	1
+32767x1	32767	1
+32768x1 short-counter ceiling	32768	1
+1x32768 short-counter ceiling	1	32768
+65535x1	65535	1
+65536x1 unsigned-short ceiling	65536	1
+1x65536 unsigned-short ceiling	1	65536
+100000x1 very wide	100000	1
+1x100000 very tall	1	100000
+1x400000 very tall (call depth)	1	400000
+# --- part 3: back to normal -------------------------------------------------
+3x3 still works after all that	3	3
+7x2 still works after all that	7	2

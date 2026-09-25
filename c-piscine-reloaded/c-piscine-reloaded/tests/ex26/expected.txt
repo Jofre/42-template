@@ -1,0 +1,5 @@
+empty array counts nothing	0
+no element matches	0
+every element matches	3
+some match some do not	3
+the first NULL ends the array	2

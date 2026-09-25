@@ -1,0 +1,7 @@
+  Which FAMILY of numbers diverges?
+    * only 0                -> the digit-peeling loop never runs for it
+    * every negative        -> the sign, or the digit that follows it
+    * only INT_MIN          -> negating first; INT_MIN has no positive
+                               counterpart in an int
+    * digits reversed       -> the order the recursion unwinds in
+    * one digit short       -> the base case, off by one

@@ -1,0 +1,8 @@
+  One answer per array.
+    * length 0                -> what is true of an empty array; the subject
+                                 states it
+    * arrays where NO element matches -> the value returned when the loop ends
+                                 without finding anything
+    * it stops at the first element -> returning inside the loop on a
+                                 non-match rather than on a match
+    * the answer is 1 and 0 swapped -> the subject fixes both values

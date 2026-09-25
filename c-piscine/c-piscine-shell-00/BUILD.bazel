@@ -1,0 +1,78 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//tools:defs.bzl", "c_levels", "shell_exercise")
+
+# Rebuild this module's deliverable/ from the generators:
+#   bazel run //c-piscine/c-piscine-shell-00:generate
+sh_binary(
+    name = "generate",
+    srcs = ["//tools:generate.sh"],
+    args = [package_name()],
+)
+
+shell_exercise(num = "00", mode = "diff", deliverable = "z")
+shell_exercise(num = "01", mode = "check", deliverable = "testShell00.tar")
+shell_exercise(num = "02", mode = "check", deliverable = "exo2.tar")
+shell_exercise(num = "03", mode = "check", deliverable = "id_ed25519_pub")
+shell_exercise(num = "04", mode = "check", deliverable = "midLS")
+shell_exercise(num = "05", mode = "check", deliverable = "git_commit.sh")
+shell_exercise(num = "06", mode = "check", deliverable = "git_ignore.sh")
+# glob, not a bare label, and that is the difference between a template that
+# builds and one that does not. resources.tar.gz is 42's, so it is stripped from
+# the shareable branch -- and a `fixtures = ["resources.tar.gz"]` naming a file
+# that is not there is a Bazel ANALYSIS error, which takes the whole package
+# down rather than failing one test. With the glob it simply stages nothing, and
+# the check SKIPS with an explanation (see tests/ex07/check.sh).
+shell_exercise(
+    num = "07",
+    mode = "check",
+    deliverable = "b",
+    # buildifier: disable=constant-glob
+    # The constant pattern is the POINT, and the comment above says why: a bare
+    # label naming a file the template branch does not ship is a Bazel ANALYSIS
+    # error, which takes the whole package down instead of failing one test.
+    # glob() with allow_empty turns that into "stage nothing, and SKIP".
+    fixtures = glob(["resources.tar.gz"], allow_empty = True),
+    # The expected b comes from //oracle (shell00_diff_apply), which replays
+    # sw.diff onto a in Rust. b is built from 42's own a, so it cannot be
+    # written down here, and building it in the check with the exercise's own
+    # command would put the answer in a file the template ships.
+    oracle = True,
+)
+shell_exercise(num = "08", mode = "check", deliverable = "clean")
+shell_exercise(num = "09", mode = "check", deliverable = "ft_magic")
+
+# TWO layers per exercise — exNN_norm and exNN_output — and that is the whole
+# list on purpose, not a thin spot to be filled in later. The ten rigour layers
+# the C modules carry have nothing to attach to in a shell module — the same
+# holds for c-piscine-shell-01, which declares its exercises the same way:
+#
+#   diff / diff_asan  there is no C function to fuzz and no //oracle counterpart
+#                     for a shell pipeline. oracle/src holds the C modules and
+#                     the rushes, plus the few references a shell check
+#                     cannot build from a fixture (shell00.rs, shell01.rs) --
+#                     each reached from inside that exercise's check.sh
+#                     through `oracle = True`, never as a layer of its own.
+#   perf / cycles     both need that same reader harness and that same oracle
+#                     corpus — perf is emitted by c_diff itself, cycles is its
+#                     own macro over c_diff's binary — so neither has anything
+#                     to attach to once diff is out.
+#   valgrind          there is no student-written binary to run under it;
+#                     valgrinding /bin/sh would report on the shell.
+#   asan              nothing here writes into a buffer a caller owns, so an
+#                     exactly-sized probe has no bound to choose.
+#   ilp32             there is no long and no pointer whose width can change.
+#   symbols           a script has no linker symbol table, so nothing it defines
+#                     can collide with the evaluator's own main().
+#   prototype         there is no signature to conform to.
+#   forbidden         the layer is nm over a compiled object, and there is no
+#                     object. What a shell subject restricts is which COMMANDS
+#                     you may use; checking that would be a different layer
+#                     entirely, reading generators/exNN.sh rather than nm.
+#
+# So the whole coverage lever in these modules is the case list inside
+# tests/exNN/check.sh (plus the expected fixture for an exercise in "diff" mode).
+# A weak shell exercise here is never a missing layer — it is a check that drives
+# the deliverable with the one input at which a right and a wrong answer agree.
+# That file is what to strengthen.
+
+c_levels()

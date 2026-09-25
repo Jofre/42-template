@@ -1,0 +1,19 @@
+  Each record is one block: the bytes, the size, then the whole render with row
+  breaks written as \n. Read the FIRST divergent row, not the last.
+
+    * size 0 diverges          -> the subject says nothing is displayed, and a
+                                  loop that cannot run zero times displays a row
+    * only the LAST row        -> the short row: what fills the hex column where
+                                  there is no byte left, and how wide that
+                                  column has to stay
+    * every row, in the address -> the address is the first byte of THAT row,
+                                  not of the block
+    * the third column only     -> which bytes count as printable; the two ends
+                                  of that range are the whole question, and 0x7f
+                                  is at one of them
+    * the hex column only       -> the grouping: how many bytes per group, and
+                                  where the separating spaces go
+    * one space missing everywhere -> the single space between the hex column
+                                  and the printable one, which is separate from
+                                  the padding inside the hex column
+    * sizes larger than 16 only -> the row loop, not the byte loop

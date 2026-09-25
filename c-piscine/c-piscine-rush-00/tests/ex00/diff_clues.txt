@@ -1,0 +1,18 @@
+  This layer replays thousands of sizes against the reference: every rectangle
+  up to 40x40, long 1-, 2- and 3-wide bands, the widths that sit on a counter or
+  buffer ceiling (64, 80, 100, 128, 256, 512, 1024, 4096 and their neighbours),
+  and a seeded random tail. The divergences printed above are the first ones
+  found, one line each.
+
+  How to read a divergence: the first two columns are x and y, the rest is the
+  rectangle with '\n' marking each line ending -- so a trailing space, a missing
+  final newline and an extra row are all visible in the text itself.
+
+  Then ask which FAMILY of sizes fails, not which single case:
+    * only sizes with a 1 in them          -> the row/column that is first and
+                                              last at the same time
+    * only sizes with a 2 in them          -> a fill loop that cannot run zero times
+    * every size, off by one character     -> a bound on the column loop
+    * every size, off by one line          -> a bound on the row loop
+    * wide-but-short but not tall-but-thin -> x and y are not doing the job you think
+    * fine until 128 or 256 wide           -> the type of the variable you count with

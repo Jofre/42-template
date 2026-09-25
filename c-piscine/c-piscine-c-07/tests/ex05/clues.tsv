@@ -1,0 +1,7 @@
+# clues.tsv for ft_split — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+What exactly is one token, stated as a rule about single bytes rather than about the string as a whole? Two questions decide it: how do you test whether one byte belongs to charset, and what has to be true of the byte immediately before a token starts and the byte immediately after it ends?	no separators single token	three words on spaces	charset with several chars
+Separators can pile up, and they can sit at the very start or very end. When two separators touch, is there really anything between them? Make sure such gaps never turn into a token.	leading trailing multiple spaces	adjacent separators no empty
+What if the charset is empty — does any byte ever count as a separator then? Consider what the entire input should collapse into.	empty charset whole string
+How many pointers does the array need, and what must the last one be so a caller can tell where the list ends? Think about what the array should hold when there are no tokens at all.	empty string	only separators

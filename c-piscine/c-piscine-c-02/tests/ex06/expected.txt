@@ -1,0 +1,9 @@
+"" (empty -> 1)	1
+" ~" (space..tilde edges)	1
+"Hello ~!" (printable)	1
+contains newline	0
+contains tab	0
+0x1F (just below space)	0
+0x7F / DEL (just above '~')	0
+0x80 (high byte, > 127)	0
+0xFF (high byte, > 127)	0

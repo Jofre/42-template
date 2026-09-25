@@ -1,0 +1,9 @@
+single element	1
+empty array	1
+non-decreasing ascending	1
+all equal elements	1
+out of order	0
+up then down	0
+descending data descending cmp	1
+two swapped ascending	0
+descending data ascending cmp	0

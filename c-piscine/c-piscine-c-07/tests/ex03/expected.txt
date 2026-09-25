@@ -1,0 +1,7 @@
+single element, sep unused	[Hello]
+two strings, dash separator	[ab-cd]
+three strings, comma-space separator	[Hello, World, 42]
+empty separator joins two	[HelloWorld]
+empty separator joins ab cd	[abcd]
+empty elements with separator	[-x-]
+size 0 empty string	[]

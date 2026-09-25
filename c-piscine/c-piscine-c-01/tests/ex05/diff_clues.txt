@@ -1,0 +1,7 @@
+  The output is the string itself, so a divergence is visible as text.
+    * one character short or long      -> the loop bound, or where the NUL is
+                                          counted
+    * the empty string diverges        -> a loop that cannot run zero times
+    * a trailing byte appears          -> the terminator is being written out
+    * everything is right but ordered oddly -> writing more than one byte per
+                                          call and losing track of the index

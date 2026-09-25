@@ -1,0 +1,7 @@
+  Built on the primality test, so check that one's own layer first.
+    * inputs that are ALREADY prime -> the subject says whether the answer may
+                                 be the input itself
+    * 0, 1 or negatives       -> the first prime is the answer for all of them,
+                                 and the subject names it
+    * only large inputs       -> the search runs past INT_MAX before it finds
+                                 anything

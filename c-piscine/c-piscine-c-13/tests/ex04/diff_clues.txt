@@ -1,0 +1,9 @@
+  After the inserts, each route from the root (L = left, R = right) is printed
+  with what your tree holds at its end: an item where one belongs, NULL where
+  the slot must stay empty. An item where NULL was due is an extra node.
+    * inserting into an empty tree -> the caller's own pointer has to change
+    * equal data              -> the subject states which side an equal item
+                                 goes, and the comparison's zero is what says so
+    * everything ends up on one side -> the comparison's sign convention
+    * an inserted item is lost -> the recursion is descending into a copy of the
+                                 link rather than into the link itself

@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex02 (find_sh.sh)
+Recursively locate files whose name truly ENDS in the .sh extension (not merely contains it, so a foo.sh.backup must be left out), then reduce each match to its bare basename with the extension peeled off — mind that the path and the suffix both have to go.

@@ -1,0 +1,7 @@
+# clues.tsv for ft_recursive_factorial — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+Every recursion needs a base case that returns without calling itself again. What is the smallest input, and what single value should it hand back so the multiplications above it work out?	factorial of 0	factorial of 1
+What stops the recursion from running forever? Each call must move strictly toward the base case — check that your recursive call gets closer to it, and trace a few small inputs by hand to see the chain of multiplications unwind.	factorial of 2	factorial of 3	factorial of 4	factorial of 5
+A negative number can never reach the base case by counting down. How should the function treat inputs below zero, and does that hold even for the most negative value possible?	negative -1	negative -5	INT_MIN
+These inputs are still small, but the products are not. An int only holds so much — how large can the input get before the multiplication no longer fits, and what happens just past that line?	factorial of 10	factorial of 12

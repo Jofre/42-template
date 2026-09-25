@@ -1,0 +1,2 @@
+# clues.tsv for ft_hexdump
+Match the canonical hexdump layout byte-for-byte: the offset column, the hex bytes in their fixed grouping, and the printable-characters column. How many bytes per line, what padding keeps the columns aligned on a short final line, and how are runs of identical lines collapsed?

@@ -1,0 +1,3 @@
+empty list	NULL
+single element	only
+tail of three	last

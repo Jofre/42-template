@@ -1,0 +1,8 @@
+no separators single token	[hello]
+three words on spaces	[a][b][c]
+leading trailing multiple spaces	[hello][world][42]
+charset with several chars	[a][b][c]
+adjacent separators no empty	[a][b]
+empty charset whole string	[hello world]
+empty string	
+only separators	

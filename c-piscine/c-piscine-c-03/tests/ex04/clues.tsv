@@ -1,0 +1,5 @@
+# clues.tsv for ft_strstr — hints only, never answers.
+At each position of the haystack, try to match the whole needle. On a match, what do you return -- an index, or a pointer to that position? If you reach the end with no match, what do you return?	find "Hello" at start	find "World" in middle	find "!" at end	find "o W" (spans a space)	whole string equals needle
+What should searching for an EMPTY needle return? Think about where an empty string can be said to "occur".	empty needle
+When the needle is absent, longer than the haystack, or only differs by case, what do you return -- and do you stop scanning before reading past the end?	case-sensitive miss "world"	not present "xyz"	needle longer than haystack
+With repeated characters a match can fail partway through. After a partial match fails, where should the next attempt begin so you don't skip a real occurrence?	overlap "ab" in "aab"	overlap "aa" in "aaa"	late match "abcd" in "abcabcd"

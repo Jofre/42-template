@@ -1,0 +1,26 @@
+1x1 single cell	o\n
+2x1 one row	oo\n
+1x2 one column	o\no\n
+2x2 all corners	oo\noo\n
+3x1 row of three	o-o\n
+1x3 column of three	o\n|\no\n
+3x2	o-o\no-o\n
+2x3	oo\n||\noo\n
+3x3 first interior	o-o\n| |\no-o\n
+4x4 (subject)	o--o\n|  |\n|  |\no--o\n
+5x1 (subject)	o---o\n
+1x5 (subject)	o\n|\n|\n|\no\n
+5x3 (subject)	o---o\n|   |\no---o\n
+5x5	o---o\n|   |\n|   |\n|   |\no---o\n
+6x2	o----o\no----o\n
+2x6	oo\n||\n||\n||\n||\noo\n
+7x3	o-----o\n|     |\no-----o\n
+3x7	o-o\n| |\n| |\n| |\n| |\n| |\no-o\n
+8x1 wide row	o------o\n
+1x8 tall column	o\n|\n|\n|\n|\n|\n|\no\n
+9x4	o-------o\n|       |\n|       |\no-------o\n
+4x9	o--o\n|  |\n|  |\n|  |\n|  |\n|  |\n|  |\n|  |\no--o\n
+10x2	o--------o\no--------o\n
+12x5	o----------o\n|          |\n|          |\n|          |\no----------o\n
+20x3 wide	o------------------o\n|                  |\no------------------o\n
+3x20 tall	o-o\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\n| |\no-o\n

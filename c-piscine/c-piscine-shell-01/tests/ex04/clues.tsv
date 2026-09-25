@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex04 (MAC.sh)
+The hardware address is buried inside the interface configuration dump alongside IPs and stats; the trap is printing whole lines or stray non-MAC text instead of isolating just the six colon-separated hex byte pairs, one per line.

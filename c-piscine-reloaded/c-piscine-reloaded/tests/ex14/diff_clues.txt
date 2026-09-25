@@ -1,0 +1,10 @@
+  One answer per input.
+    * perfect squares are right, others wrong -> the subject asks only about
+                                 perfect squares; everything else has one
+                                 answer, and it is stated
+    * 0 or 1 diverge          -> the loop that cannot run zero times, or a
+                                 search that starts past its own answer
+    * every negative          -> no integer square root exists; the subject says
+                                 what to return
+    * only very large squares -> the candidate squared overflows before the
+                                 candidate does

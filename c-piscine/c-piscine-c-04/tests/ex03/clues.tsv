@@ -1,0 +1,7 @@
+# clues.tsv for ft_atoi — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+How do you turn a run of digit characters into the integer they spell? Walk them left to right and build the number up one digit at a time; remember a digit character is not the same as the numeric value it stands for. What should an input with no digits at all give?	plain 42	single digit 7	just 0	leading zeros 000123	empty string	starts with letters
+Before any digits there can be blank bytes to skip. Which characters count as whitespace here, beyond a plain space? Are you skipping every one of them, and only at the very start?	tab then number	all whitespace bytes then number	spaces then plus then digit	only spaces
+After the whitespace comes a run of '+' and '-' signs. The result is negative only under one condition about how many '-' you saw — count them. What does a sign with no digit after it produce?	single plus	single minus	two minus signs	many mixed signs	sign but no digit	only signs no digit	space after minus sign	space after plus sign
+Reading the digits has to stop somewhere. The moment you meet a byte that is not a digit, what should happen to everything after it?	digits then a minus	digits then letters	signs then digits then junk

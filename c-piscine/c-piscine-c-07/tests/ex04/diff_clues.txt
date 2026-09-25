@@ -1,0 +1,9 @@
+  Number, source base, destination base -- three columns.
+    * either base column      -> what makes a base invalid; the two sides do not
+                                 have the same rules, and the subject says which
+                                 is which
+    * only negative numbers   -> the sign, written once, ahead of the digits
+    * only INT_MIN            -> negating first costs you exactly one number
+    * zero prints nothing     -> a loop that cannot run zero times
+    * the digits are right, reversed -> the order they are produced versus the
+                                 order they are needed

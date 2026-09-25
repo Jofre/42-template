@@ -1,0 +1,3 @@
+# clues.tsv for ft_str_is_uppercase — hints only, never answers.
+Which characters are uppercase, and why does an empty string return 1?	"" (empty -> 1)	"HELLO" (uppercase)	"ABCXYZ" (uppercase)
+Edges: '@' is just before 'A', '[' just after 'Z'. Digits, lowercase and spaces are not uppercase.	"@" (0x40, just before 'A')	"[" (0x5B, just after 'Z')	"Hello" (has lowercase)

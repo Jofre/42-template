@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex08 (add_chelou.sh)
+Each variable is a number written in its own symbol alphabet. Two questions settle the whole exercise: what does a symbol's place in its alphabet tell you, and what does the length of that alphabet tell you? The classic trap is treating the symbols as their ASCII values instead of as positional digits.
