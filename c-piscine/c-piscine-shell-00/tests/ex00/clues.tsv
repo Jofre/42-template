@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex00 (Z) — and Piscine Reloaded ex01, which reads this file (twin_of)
+What does the subject say cat must show for z: which character, and what comes after it? How many bytes is that file, and how can you see every byte of yours, newlines included (man cat, look for -e)? Does the way you create the file add a newline of its own: none, one, or two?

@@ -1,0 +1,14 @@
+# clues.tsv for ft_ten_queens_puzzle — pedagogic hints only. NEVER state the
+# expected value, the algorithm, or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# The boards are unlabelled rows, so the lines that carry no member label fire
+# on any failure, most-fundamental first, and CLUE_MODE=all reveals the rest.
+# The last row, what the function returns, is labelled "return value": its hint
+# is keyed to it and comes first, so a red there is explained before anything
+# about the boards.
+The last row is what your function RETURNS, not what it prints. Which number does the subject say it returns, and does yours agree with the number of boards it printed?	return value
+Read the subject's output example before anything else. What does one solution look like on stdout: how many digits, what (if anything) between them, and what ends the line? Which sentence says what the Nth digit stands for?
+Two queens threaten each other when they share a row, a column or a diagonal. Given what the Nth digit means, what would two digits of one line have in common if their queens shared a row? And what do two squares on one diagonal have in common: try it on paper with two or three of them.
+Is every line you print a real solution? If you draw one of your lines on a 10x10 grid, do any two of its queens threaten each other?
+Are you printing every solution, each of them once? Which solution opens the subject's example, and in what order do the rest follow?
+Only write() is authorised here. If a solution is a run of digits, what does that constraint mean for how you turn each number into something write() can take?

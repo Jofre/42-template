@@ -1,0 +1,12 @@
+[package]
+name = "oracle"
+version = "0.1.0"
+edition = "2021"
+description = "Reference implementations for live differential testing of 42 C-Piscine exercises (grader-side, std-only, no dependencies)."
+
+[[bin]]
+name = "oracle"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 2

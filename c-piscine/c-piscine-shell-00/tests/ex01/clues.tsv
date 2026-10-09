@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex01 (testShell00.tar) — guidance, never the commands.
+A tar archive records each member's permissions, byte size and modification TIME as they are on disk at the moment the archive is written. Does changing the file afterwards change what the archive holds? And how do you make a file an exact number of bytes, give it a precise octal mode, and stamp it with a modification time you choose?

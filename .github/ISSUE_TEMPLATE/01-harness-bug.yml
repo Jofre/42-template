@@ -1,0 +1,57 @@
+name: Harness bug
+description: A test, layer or tool of the harness does the wrong thing.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. Issues on https://github.com/Jofre/42-template are public (and one filed in your own copy of the repository reaches nobody but you), so **never paste your exercise code here**: not a source file, not a compiler error that quotes your source, not an output table whose GOT column shows what your program printed, and never a subject PDF. Before pasting a log line, remove paths and anything that names you or your machine: your login appears in Bazel's paths, and some layers print logins or hardware addresses.
+
+        If a check is **wrong about what an exercise must do** (it passes code that is wrong, or fails code your subject allows), do not use this form: showing it takes exercise code. Report it privately at https://github.com/Jofre/42-template/security/advisories/new instead. This form is for everything else: a crash, a test that stood down when it should have run, a tool that fails, a message that is wrong.
+  - type: input
+    id: project
+    attributes:
+      label: Project
+      description: The project folder, as it appears in the repository.
+      placeholder: c-piscine/c-piscine-c-05
+    validations:
+      required: true
+  - type: input
+    id: exercise
+    attributes:
+      label: Exercise
+      placeholder: ex03
+    validations:
+      required: false
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran.
+      placeholder: bazel test //c-piscine/c-piscine-c-05:basic
+    validations:
+      required: true
+  - type: textarea
+    id: ran
+    attributes:
+      label: The layer, and proof that it ran
+      description: The target that misbehaves, and the line of its log that says what it did, or the `SKIP —` line if it stood down. Only those lines.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: Describe it in words, without your exercise code. If an example helps, invent one that is not an exercise.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I ran it again while no file was being edited, and it still happens.
+          required: true
+        - label: This report holds none of my exercise code, no compiler error quoting it, no GOT column showing my program's output, no subject PDF, and no path or name that identifies me.
+          required: true

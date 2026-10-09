@@ -1,0 +1,3 @@
+# clues.tsv for ft_sorted_list_insert
+Walking down the list, what does cmp tell you about the exact moment your new element should stop and slot in — and which node is the predecessor you must hook it after? Reconsider the case where the new value belongs before the current first node: does *begin_list itself need to change, and have you kept a handle on the node you're stepping past so nothing after the insertion point gets lost?
+The elements these tests make come from the grader's own ft_create_elem, as the subject says they will from exercise 01 on, never from your ex00: a red here is this exercise's own. Is the prototype layer green too? It checks that your ft_list.h holds the t_list the subject prints, which the grader's elements are built on.

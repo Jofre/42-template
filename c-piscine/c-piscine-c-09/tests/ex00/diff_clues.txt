@@ -1,0 +1,15 @@
+  This layer compares the exact int ft_strcmp returns; the output table
+  compared only its sign. One number per line; group by the pair of strings.
+    * only the SIGN is wrong  -> when the first string is the greater one,
+                                 should the result be positive or negative?
+                                 (see man strcmp)
+    * pairs differing above 0x7f -> whether char is signed here, and how
+                                 man strcmp says the bytes are compared
+    * equal strings           -> the exit condition when both ends arrive
+                                 together
+    * prefixes ("ab" vs "abc") -> what is compared once one string runs out
+    * the magnitude differs but the sign is right -> the value itself,
+                                 which only this layer compares; put your
+                                 number next to the expected one for the same
+                                 pair: what in those two strings could produce
+                                 it? (man strcmp, NOTES)

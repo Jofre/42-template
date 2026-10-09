@@ -1,0 +1,11 @@
+--- str (head, middle, tail match) ---
+match
+match
+match
+--- mutate (ref 5) ---
+105 7 105 9 105
+--- nomatch (ref 5 vs 1,2,3) ---
+1 2 3
+--- empty ---
+(no crash)
+cmp called as (*cmp)(list_ptr->data, data_ref)	yes

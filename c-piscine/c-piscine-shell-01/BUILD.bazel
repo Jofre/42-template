@@ -1,0 +1,180 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//tools:defs.bzl", "c_levels", "exercise", "shell_exercise", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "01": exercise(page = 7, dir = "ex01/", files = ["print_groups.sh"], allowed = []),
+        "02": exercise(page = 8, dir = "ex02/", files = ["find_sh.sh"], allowed = []),
+        "03": exercise(page = 9, dir = "ex03/", files = ["count_files.sh"], allowed = []),
+        "04": exercise(page = 10, dir = "ex04/", files = ["MAC.sh"], allowed = []),
+        # files = None: the file's NAME is the exercise, so writing it down here
+        # would hand it over (see shell_exercise).
+        "05": exercise(page = 11, dir = "ex05/", files = None, allowed = []),
+        "06": exercise(page = 13, dir = "ex06/", files = ["skip.sh"], allowed = []),
+        "07": exercise(page = 14, dir = "ex07/", files = ["r_dwssap.sh"], allowed = []),
+        "08": exercise(page = 15, dir = "ex08/", files = ["add_chelou.sh"], allowed = []),
+    },
+)
+
+# Rebuild this module's deliverable/ from the generators:
+#   bazel run //c-piscine/c-piscine-shell-01:generate
+sh_binary(
+    name = "generate",
+    srcs = ["//tools:generate.sh"],
+    args = [package_name()],
+)
+
+# The expected group list comes from //oracle (shell01_groups): it lives in the
+# machine's user database, so no fixture can build it, and computing it here
+# would put the answer in the check.
+# script, on every turn-in that is a script: "./name" where the subject's
+# example runs it so (ex01, ex02, ex03, ex06, ex07), which lets its own #!
+# line pick the shell its POSIX-undefined constructs are read for, and "sh"
+# for the others, by the general rule that shell exercises must be
+# executable with /bin/sh. Every test that runs one runs it with /bin/sh.
+# They get the lint targets, exNN_posix (strict) and exNN_lint (robust); see
+# shell_exercise in //tools:defs.bzl.
+#
+# stable = False on every check-mode call: no turn-in here is one fixed file
+# the subject has every run write again (Shell 00 ex03's key is), so a
+# generator that writes it differently from one run to the next is not
+# graded for it. The call says so rather than defaulting it, so the next
+# exercise is decided (see stable in shell_exercise).
+#
+# tags = ["env"]: the groups are read from the machine's user database, so
+# what the check can see depends on the machine, and it is checked on every
+# one, at basic, never manual (shell_tags_problem): where every user it
+# tries has one group, or there is no second user, it says so with
+# ck_skipped, red under NO_SKIP=1 -- the probes are the oracle's, which an
+# arm replaces (tools/tests/selftest.sh). No run_tags: the database is read
+# through the C library, the same inside Bazel's sandbox as outside it.
+shell_exercise(
+    num = "01",
+    mode = "check",
+    oracle = True,
+    script = "./name",
+    stable = False,
+    tags = ["env"],
+)
+# readings: whether "all files ending with .sh" reaches a directory named
+# like one is open. check.sh accepts its name either way, and requires the
+# .sh file inside it; ex02_regular, at strict, takes one reading, which
+# regular.sh states. Shell 00 ex08's regular.sh reads its "files" the same
+# way. wording: the sentence as this subject says it, which regular.sh
+# quotes; Piscine Reloaded's ex03 runs the same check with its own subject's
+# words.
+shell_exercise(
+    num = "02",
+    mode = "check",
+    readings = {"regular": "regular.sh"},
+    script = "./name",
+    stable = False,
+    wording = {"files": "all files ending with .sh"},
+)
+shell_exercise(num = "03", mode = "check", script = "./name", stable = False)
+
+# MAC.sh prints this machine's hardware addresses, so what its output layer
+# can check depends on the machine -- and it is checked on every machine, at
+# basic, like every other exercise: it used to be manual, which left MAC.sh
+# with no check at any level and in no gate (finding 002). What the check
+# cannot see here, it says: on a machine without ifconfig, or one that
+# publishes no hardware address besides loopback (a container; //oracle's
+# shell01_hwaddr --machine answers it), it checks what every machine can --
+# MAC.sh is there and parses -- and SKIPs what MAC.sh prints
+# (tests/ex04/check.sh, whose branches //tools/tests:selftest runs); a skip is
+# a failure under NO_SKIP=1, as every skip here is.
+#
+# run_tags = ["no-sandbox"]: the output layer and the reading run MAC.sh,
+# which has to see the machine's interfaces as they are. The files layer only
+# runs the generator, so it gets no such tag. `env` says the exercise reads
+# the machine; nothing filters on it.
+#
+# oracle = True: whether each printed line is one of this machine's addresses
+# is asked of //oracle (shell01_hwaddr), which reads what the kernel publishes,
+# and so is whether there is any to print (shell01_hwaddr --machine). The text
+# pattern the check used instead is a piece of a common answer.
+#
+# "Your machine's MAC addresses" has two readings where the loopback interface
+# is concerned: the kernel publishes 00:00:00:00:00:00 for lo, and nothing in
+# the sentence says whether that counts. So ex04_output (basic) accepts that
+# line or its absence beside the hardware interfaces' addresses -- never
+# instead of them, since that line alone is on every Linux machine -- and
+# ex04_literal (strict) takes one reading, which tests/ex04/literal.sh
+# states. A broadcast address is no interface's own under
+# either reading, and both refuse it. A failure names the student's own line
+# it refused, never an address the machine has. Both ask the machine the same
+# two questions before running MAC.sh, and SKIP what it prints where the
+# answer is no: a correct MAC.sh has nothing to print there.
+shell_exercise(
+    num = "04",
+    mode = "check",
+    oracle = True,
+    readings = {"literal": "literal.sh"},
+    script = "sh",
+    stable = False,
+    tags = ["env"],
+    run_tags = ["no-sandbox"],
+)
+# No files layer (the contract says files = None), and it is the only one in
+# either module without one. This exercise's
+# deliverable is a single file whose NAME is the answer -- a name made of shell
+# metacharacters -- so writing it into this BUILD file to hand the files layer a
+# required set would publish the very thing the exercise asks for. The property
+# that layer would assert is asserted instead inside tests/ex05/check.sh, which
+# already reaches the file through a *MaRV* glob and so never types it.
+shell_exercise(num = "05", mode = "check", stable = False)
+shell_exercise(num = "06", mode = "check", script = "./name", stable = False)
+
+# ex07 reads /etc/passwd, a path its subject fixes, and a machine's own file
+# hides most of the exercise: a laptop's has no comment line, so "Remove
+# comments" is never exercised; its logins are plain lowercase words, so the
+# two readings of "reverse alphabetical order" print the same list; and a
+# small one is too short for the subject's own 7..15 window. The file cannot
+# be replaced (that needs root, and a mount namespace is refused in the dev
+# container), so `redirect` hands the program tests/ex07/passwd, an invented
+# file that shows every step, whenever it opens /etc/passwd
+# (//tools:path_redirect.so, loaded into the program's runs and nothing
+# else). The check's last run is on the machine's own file, with no redirect.
+# A machine where the preload library does not take says so, as a skip, for
+# each step only the fixture shows.
+#
+# oracle = True: //oracle's shell01_rdwssap computes, from the file the
+# program read, the names the subject's steps keep, and answers which
+# property an output breaks: a comment printed as a name, a name that is no
+# login reversed, a name from a line the steps drop, the order, the window.
+# The check prints PASS or FAIL for each, never the expected line.
+#
+# "Reverse alphabetical order" names no collation, and the grader's locale is
+# not known: ex07_output (basic) accepts bytes (the C locale) or the test
+# locale's collation (LC_ALL=en_US.UTF-8, .bazelrc), and ex07_literal (strict)
+# takes one reading, which tests/ex07/literal.sh states.
+#
+# Not manual (board item 9): it passes under the ordinary sandbox. `env` stays
+# -- it is a true statement about this exercise, and nothing filters on it.
+shell_exercise(
+    num = "07",
+    mode = "check",
+    oracle = True,
+    readings = {"literal": "literal.sh"},
+    redirect = {"/etc/passwd": "passwd"},
+    script = "./name",
+    stable = False,
+    tags = ["env"],
+)
+
+# oracle = True: //oracle's shell01_chelou computes the sum for the pairs the
+# check runs beyond the subject's two examples -- zero, each digit the shell
+# treats specially, a sum longer than 70 digits -- and reproduces both
+# examples first, or the check stops as a broken harness. The check compares
+# byte for byte and prints only the input of a failing pair.
+shell_exercise(num = "08", mode = "check", oracle = True, script = "sh", stable = False)
+
+# Piscine Reloaded repeats ex02, ex04 and ex05 as its ex03, ex04 and ex05, and
+# reads these exercises' tests rather than copies of them (twin_of in its
+# BUILD file), so a change to tests/ex02, ex04 or ex05 here changes that
+# project's too.
+
+c_levels()

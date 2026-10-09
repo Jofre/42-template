@@ -1,0 +1,11 @@
+  Two results per line, and they fail independently -- check which column moved.
+    * the quotient column only         -> the division itself, or its sign
+    * the remainder column only        -> the sign C gives a remainder; it
+                                          follows the dividend, not the divisor
+    * only negative operands           -> C truncates toward zero, it does not
+                                          floor
+    * both columns, every line         -> the results are written to the wrong
+                                          places, or not through the pointers
+    * "untouched" in a column          -> that pointer was never written
+                                          through: what did the function store,
+                                          and where did it put it?

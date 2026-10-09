@@ -1,0 +1,2 @@
+{"aborted": {"description": "no such target '//spike:nonexistent': target 'nonexistent' not declared in package 'spike' defined by /WS/spike/BUILD.bazel", "reason": "LOADING_FAILURE"}, "id": {"pattern": {"pattern": ["//spike:nonexistent"]}}}
+{"finished": {"exitCode": {"code": 1, "name": "BUILD_FAILURE"}}, "id": {"buildFinished": {}}}

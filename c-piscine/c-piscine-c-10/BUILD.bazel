@@ -1,0 +1,1022 @@
+load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_levels", "c_make", "c_program", "corpus_memory", "exercise", "hand_test", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+#
+# "Files to turn in: Makefile, and files needed for your program": the Makefile
+# is named, the sources are the student's to name, so every .c and .h in the
+# folder is allowed, in a subfolder too ("**/*.c": the Makefile says where its
+# sources lie) -- but a .c the Makefile never compiles is no file the program
+# needs, and is reported (make -Bn's list). Anything else FAILS (strict, the
+# project's default): p.2 says "You cannot leave any additional file in your
+# directory beyond those specified in the assignment", and a program grades
+# it. That is what keeps a stray binary out: one left in deliverable/ by a
+# hand-run of `cc -o` or `make` is what //tools:submit would push to
+# Vogsphere.
+#
+# errno is not on any "Allowed functions" line: ex01-ex03 allow it in a
+# sentence of their own, "You may use the variable errno". It is a variable
+# the forbidden layer reads from nm all the same -- <errno.h> reads it through
+# a call to __errno_location(), which that runner maps back to this name.
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(
+            page = 5,
+            dir = "ex00/",
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = ["close", "open", "read", "write"],
+        ),
+        "01": exercise(
+            page = 6,
+            dir = "ex01/",
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = ["close", "open", "read", "write", "strerror", "basename"],
+            variables = ["errno"],
+        ),
+        "02": exercise(
+            page = 7,
+            dir = "ex02/",
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = ["close", "open", "read", "write", "malloc", "free", "strerror", "basename"],
+            variables = ["errno"],
+        ),
+        "03": exercise(
+            page = 8,
+            dir = "ex03/",
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = ["close", "open", "read", "write", "malloc", "free", "strerror", "basename"],
+            variables = ["errno"],
+        ),
+    },
+)
+
+# THE EXIT STATUS, by the Run contract (docs/reference.md): the subject names
+# none, so no case here compares one at basic. A case the subject answers
+# with an error message it names is marked "invalid_input", and its status is
+# judged at no level; every other case gets a robust twin, exNN_<case>_exit,
+# which fails a non-zero return.
+#
+# WHAT "PERFORMS THE SAME FUNCTION AS THE SYSTEM'S" TOOL IS READ AS (ex01-ex03).
+# What that sentence asks of the messages on stderr and of the exit status
+# is a case the subject leaves open, so one reading of it is tested at
+# strict, never at basic (the Run contract). Those cases carry "level": 2,
+# and a status among them "exit" with this sentence in "exit_quote", which
+# makes it a reading (docs/reference.md, "Writing a c_program case"); each
+# one's row among docs/reference.md's raised targets states the reading it
+# tests. basic keeps what every reading agrees on: on an error path, the good
+# files' bytes still reach stdout, and nothing else does -- so a case there
+# compares stdout alone.
+#
+# THE PROGRAM'S NAME in those messages is part of that reading, so it is
+# judged at strict alone, where the hints ask about it. The tools themselves
+# differ on it (GNU cat and tail, util-linux's hexdump), and the runner
+# starts the program by a path ending in exNN_bin.
+#
+# WHERE THE EXPECTED FILES COME FROM. The ones the error paths, standard input
+# and several-file cases added were made by //oracle's model of the four
+# programs (`oracle c10_run --prog exNN_bin <tool> ARGS`), run from the
+# workspace root on the paths Bazel passes. The model
+# reproduces every older fixture here byte for byte too, and on every case
+# below it agreed with GNU coreutils 8.32 and util-linux 2.37.2 run as a bare
+# exNN_bin, on both streams and the status. None was typed, and none is cut
+# by running a system tool at test time. Each c_program below names its
+# command in `model`, and exNN_<case>_model re-runs it on the case and fails
+# when the file, or the status a case names, is no longer its answer: a
+# fixture edited by hand, or a model fixed after the file was made.
+#
+# EACH PROGRAM IS WHAT ITS MAKEFILE BUILDS, once the Makefile compiles
+# anything: its sources and its -I, so a turn-in that keeps a header in
+# includes/ and passes `-I includes` builds as make builds it, and a .c the
+# Makefile never compiles is never linked (makefile = "once_written",
+# tools/student_build.sh's UNTIL THE MAKEFILE IS WRITTEN). Until then -- no
+# Makefile, or a stub that only echoes -- every .c of the folder is the
+# program, so the output tests say what the program does before the
+# Makefile is written; exNN_build says what the Makefile does.
+c_program(
+    num = "00",
+    name = "ft_display_file",
+    makefile = "once_written",
+    # The method layer, at strict (ex00_fixed_array): no array of variable
+    # length and no alloca, which the pinned gcc names. The subject bounds no
+    # size here, so no size is judged.
+    fixed_array = "p.5: \"The use of the malloc function is forbidden. You must complete this exercise by declaring a fixed-size array.\"",
+    # Every expected file below is this command's answer for its case, and
+    # ex00_<case>_model holds it there (WHERE THE EXPECTED FILES COME FROM).
+    model = ["c10_run", "display_file"],
+    # One clues.tsv, each row keyed to the cases it is about (the file
+    # displayed, the arguments and errors, the empty file), so each reaches
+    # only those cases.
+    cases = [
+        {
+            "name": "show",
+            "args": ["$(location tests/ex00/fixtures/sample.txt)"],
+            "fixtures": ["tests/ex00/fixtures/sample.txt"],
+            "expected": "show.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "noarg",
+            "invalid_input": True,
+            "args": [],
+            "stream": "stderr",
+            "expected": "noarg.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "toomany",
+            "invalid_input": True,
+            "args": ["a", "b"],
+            "stream": "stderr",
+            "expected": "toomany.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "cannot",
+            "missing_file": "this_file_does_not_exist_42",
+            "invalid_input": True,
+            "args": ["this_file_does_not_exist_42"],
+            "stream": "stderr",
+            "expected": "cannot.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "blob",
+            "args": ["$(location tests/ex00/fixtures/blob.bin)"],
+            "fixtures": ["tests/ex00/fixtures/blob.bin"],
+            "expected": "blob.txt",
+            "clues": "clues.tsv",
+        },
+        # An EMPTY file is a valid one ("All files given as arguments will be
+        # valid"), and it can be read: its content is nothing, and "Cannot read
+        # file." is not what it gets -- on either stream (finding 110). A
+        # directory is not here: every file given is valid, so a directory is
+        # outside this subject at every level. Both cases make one run, so
+        # both say it is no error, and its status gets one robust twin,
+        # ex00_empty_exit (_emit_cases, ONE TWIN PER RUN).
+        {
+            "name": "empty",
+            "invalid_input": False,
+            "args": ["$(location tests/ex00/fixtures/empty.txt)"],
+            "fixtures": ["tests/ex00/fixtures/empty.txt"],
+            "expected": "empty.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "empty_stderr",
+            "invalid_input": False,
+            "args": ["$(location tests/ex00/fixtures/empty.txt)"],
+            "fixtures": ["tests/ex00/fixtures/empty.txt"],
+            "stream": "stderr",
+            "expected": "empty.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+
+# THE MAKEFILES' SENTENCES (c_make's quotes), the same four times. This
+# subject lists the rules -- "a Makefile with the following rules: all, clean,
+# fclean" -- and says nothing of what clean and fclean do, so what they do is
+# this repo's convention, checked at robust (exNN_build_rules); that each is
+# there is basic. Its line about cc says what the Moulinette does, so whether
+# it binds the recipes is open, and exNN_build_recipe, strict, holds one
+# reading. The Norm's "no *.c, no *.o" is not in the subject either:
+# exNN_build_wildcards, strict.
+_MAKE_QUOTES = {
+    "cc": "C 10, p.2: \"Moulinette compiles with the following flags: -Wall -Wextra -Werror, using cc.\"",
+    "wildcards": NORM_NO_WILDCARDS,
+}
+
+c_make(
+    num = "00",
+    artifact = "ft_display_file",
+    # c-10's subject says only "a Makefile with the following rules: all,
+    # clean, fclean" -- no `re`. Requiring one would red a correct Makefile
+    # over a rule nobody asked for, at level basic, which gates submit.
+    rules = [
+        "all",
+        "clean",
+        "fclean",
+    ],
+    symbols = ["main"],
+    quotes = _MAKE_QUOTES,
+    recipe = "any",
+    recipe_strict = True,
+    wildcards = True,
+)
+
+c_program(
+    num = "01",
+    name = "ft_cat",
+    makefile = "once_written",
+    # The method layer, at strict (ex01_fixed_array): no array of variable
+    # length, no alloca, and no object of fixed_array_bytes or more, each by
+    # the size the pinned gcc gives it, the object and never the stack frame
+    # that holds it. The bound is a reading of the sentence quoted below, and
+    # the target's own hint, this string, is where it is stated.
+    fixed_array = ("p.6: \"You must complete this exercise by declaring a fixed-size array. " +
+                   "This array should have a size limited to slightly less than 30 ko. To test " +
+                   "this size limit, use the ulimit command in your shell.\" This harness's " +
+                   "reading: every object smaller than 30 x 1024 = 30720 bytes, since ulimit " +
+                   "counts KiB; an upper bound only."),
+    fixed_array_bytes = 30720,
+    model = ["c10_run", "--prog", "ex01_bin", "cat"],
+    cases = [
+        {
+            "name": "one",
+            "args": ["$(location tests/ex01/fixtures/f1.txt)"],
+            "fixtures": ["tests/ex01/fixtures/f1.txt"],
+            "expected": "one.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "two",
+            "args": [
+                "$(location tests/ex01/fixtures/f1.txt)",
+                "$(location tests/ex01/fixtures/f2.txt)",
+            ],
+            "fixtures": [
+                "tests/ex01/fixtures/f1.txt",
+                "tests/ex01/fixtures/f2.txt",
+            ],
+            "expected": "two.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "blob",
+            "args": ["$(location tests/ex01/fixtures/blob.bin)"],
+            "fixtures": ["tests/ex01/fixtures/blob.bin"],
+            "expected": "blob.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "nonl",
+            "args": ["$(location tests/ex01/fixtures/nonl.txt)"],
+            "fixtures": ["tests/ex01/fixtures/nonl.txt"],
+            "expected": "nonl.txt",
+            "clues": "clues.tsv",
+        },
+        # No argument: cat copies stdin straight to stdout (binary-safe: the
+        # fixture holds a NUL byte and has no trailing newline).
+        {
+            "name": "stdin",
+            "args": [],
+            "stdin": "tests/ex01/fixtures/stdin.txt",
+            "expected": "fromstdin.txt",
+            "clues": "clues.tsv",
+        },
+        # Error paths. basic: the readable file's bytes still reach stdout,
+        # after a name that will not open (errcont) and after a directory,
+        # which opens and will not read (dircont). strict, the reading above:
+        # the message for each (errmsg, dirmsg), and the status after the
+        # first (errstatus).
+        {
+            "name": "errmsg",
+            "missing_file": "no_such_file_ex01",
+            "invalid_input": True,
+            "level": 2,
+            "args": [
+                "no_such_file_ex01",
+                "$(location tests/ex01/fixtures/f1.txt)",
+            ],
+            "fixtures": ["tests/ex01/fixtures/f1.txt"],
+            "stream": "stderr",
+            "expected": "errmsg.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "errcont",
+            "missing_file": "no_such_file_ex01",
+            "invalid_input": True,
+            "args": [
+                "no_such_file_ex01",
+                "$(location tests/ex01/fixtures/f1.txt)",
+            ],
+            "fixtures": ["tests/ex01/fixtures/f1.txt"],
+            "expected": "errcont.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "errstatus",
+            "missing_file": "no_such_file_ex01",
+            "exit": 1,
+            "exit_quote": "Create a program called ft_cat, which performs the same function as the system’s cat command-line tool.",
+            "level": 2,
+            "args": [
+                "no_such_file_ex01",
+                "$(location tests/ex01/fixtures/f1.txt)",
+            ],
+            "fixtures": ["tests/ex01/fixtures/f1.txt"],
+            "expected": "errcont.txt",
+            "clues": "clues.tsv",
+        },
+        # `.` is the directory the test runs in: it opens, and read() fails.
+        {
+            "name": "dircont",
+            "invalid_input": True,
+            "args": [
+                ".",
+                "$(location tests/ex01/fixtures/f1.txt)",
+            ],
+            "fixtures": ["tests/ex01/fixtures/f1.txt"],
+            "expected": "one.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dirmsg",
+            "invalid_input": True,
+            "level": 2,
+            "args": [
+                ".",
+                "$(location tests/ex01/fixtures/f1.txt)",
+            ],
+            "fixtures": ["tests/ex01/fixtures/f1.txt"],
+            "stream": "stderr",
+            "expected": "dirmsg.txt",
+            "clues": "clues.tsv",
+        },
+        # `-` among named files (finding 116). strict: "You don't need to
+        # handle options" leaves open whether it is standard input, in its
+        # place, or an option to skip, so this is the reading above, not every
+        # reading.
+        {
+            "name": "dash",
+            "level": 2,
+            "args": [
+                "$(location tests/ex01/fixtures/f1.txt)",
+                "-",
+                "$(location tests/ex01/fixtures/f2.txt)",
+            ],
+            "fixtures": [
+                "tests/ex01/fixtures/f1.txt",
+                "tests/ex01/fixtures/f2.txt",
+            ],
+            "stdin": "tests/ex01/fixtures/stdin.txt",
+            "expected": "dash.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+
+c_make(
+    num = "01",
+    artifact = "ft_cat",
+    rules = [
+        "all",
+        "clean",
+        "fclean",
+    ],
+    symbols = ["main"],
+    quotes = _MAKE_QUOTES,
+    recipe = "any",
+    recipe_strict = True,
+    wildcards = True,
+)
+
+# allocfail: ex02_program_allocfail, at robust, replays cbytes with one of the
+# program's malloc() calls refused per run, and ex02_ccarry_program_allocfail
+# replays ccarry, a file larger than the other cases. Each asks only that it
+# end by itself, within its time, with bounded output. The subject has no
+# "handle errors" sentence, so allocfail_rule states the reading this rests
+# on -- a reading, which is why it sits at robust, the repo's rigour (TODO.md
+# §23, WP-92). No text or status is asserted.
+c_program(
+    num = "02",
+    name = "ft_tail",
+    makefile = "once_written",
+    model = ["c10_run", "--prog", "ex02_bin", "tail"],
+    allocfail = [
+        "cbytes",
+        "ccarry",
+    ],
+    allocfail_rule = "The subject has no sentence on errors of this kind. This target " +
+                     "reads \"performs the same function as the system command tail\", " +
+                     "with malloc allowed, as reaching a refused allocation too: a " +
+                     "reading, and the repo's.",
+    cases = [
+        {
+            "name": "cbytes",
+            "args": ["-c", "20", "$(location tests/ex02/fixtures/sample.txt)"],
+            "fixtures": ["tests/ex02/fixtures/sample.txt"],
+            "expected": "cbytes.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "cbig",
+            "args": ["-c", "100000", "$(location tests/ex02/fixtures/sample.txt)"],
+            "fixtures": ["tests/ex02/fixtures/sample.txt"],
+            "expected": "cbig.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "czero",
+            "args": ["-c", "0", "$(location tests/ex02/fixtures/sample.txt)"],
+            "fixtures": ["tests/ex02/fixtures/sample.txt"],
+            "expected": "czero.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "cbin",
+            "args": ["-c", "10", "$(location tests/ex02/fixtures/bin.dat)"],
+            "fixtures": ["tests/ex02/fixtures/bin.dat"],
+            "expected": "cbin.txt",
+            "clues": "clues.tsv",
+        },
+        # Multiple FILEs: tail prints a "==> name <==" header per file, with a
+        # blank line before the second and later headers.
+        {
+            "name": "cmulti",
+            "args": [
+                "-c",
+                "15",
+                "$(location tests/ex02/fixtures/multi_a.txt)",
+                "$(location tests/ex02/fixtures/multi_b.txt)",
+            ],
+            "fixtures": [
+                "tests/ex02/fixtures/multi_a.txt",
+                "tests/ex02/fixtures/multi_b.txt",
+            ],
+            "expected": "cmulti.txt",
+            "clues": "clues.tsv",
+        },
+        # A file larger than one read buffer (~148 KiB). This catches the
+        # program that calls read() exactly ONCE and stops: it tails the wrong
+        # bytes because it never saw the end of the file. It does NOT catch the
+        # program that loops correctly but keeps no state -- see `ccarry`.
+        {
+            "name": "clarge",
+            "args": ["-c", "20", "$(location tests/ex02/fixtures/big.txt)"],
+            "fixtures": ["tests/ex02/fixtures/big.txt"],
+            "expected": "clarge.txt",
+            "clues": "clues.tsv",
+        },
+        # The count that cannot be answered out of ONE chunk.
+        #
+        # Why this case exists: `clarge` above is blind to the most natural way
+        # to get ft_tail wrong -- loop over read() but, on each iteration, throw
+        # away everything except the last N bytes of the chunk you just read.
+        # That is arithmetic, not luck. big.txt is 151552 bytes = 37 * 4096, so
+        # 1024/2048/4096 divide it exactly and the final chunk is a full buffer;
+        # the awkward sizes leave remainders (6552 at 29000, 20480 at 65536)
+        # that are still far larger than 20. Either way the last 20 bytes of the
+        # file lie WHOLLY INSIDE the final chunk, so the state-less program and
+        # the correct one print the same bytes. Verified: a model of exactly
+        # that bug is byte-identical to clarge.txt at BUF = 1024, 4096, 8192,
+        # 29000 and 65536.
+        #
+        # 40000 is above every one of those final-chunk sizes, so the answer
+        # provably spans a read boundary: no single chunk contains it, and
+        # `allowed` holds no lseek to go back for it, so the program can only
+        # get it right if it kept something from the reads it had already done.
+        # That is the question tests/ex02/clues.tsv asks of these cases, and until now
+        # no layer could tell whether the student had answered it or dodged it.
+        # (Deliberately not spelled out here: HOW to keep it. The fixture does
+        # not reveal the method and neither should the harness -- AGENTS.md §0.)
+        #
+        # Known limit, so nobody mistakes this for a total test. The bug hides
+        # again whenever the file's LAST chunk is on its own >= 40000 bytes,
+        # i.e. whenever (151552 % BUF, or BUF when it divides) >= 40000. That
+        # is not a "buffer bigger than half the file" rule -- the escaping
+        # sizes are scattered, because they depend on the remainder. Brute
+        # forced over every buffer size against this fixture: nothing below
+        # 50518 bytes escapes, and every power-of-two buffer from 512 B to
+        # 128 KiB is caught (their final chunks run 512..20480). So the case
+        # covers the whole range a read loop is realistically written in;
+        # closing the rest would need a bigger fixture and buy very little.
+        # Keep this paragraph honest if the fixture or the count ever changes,
+        # and re-derive it -- the numbers above are specific to both.
+        #
+        # ccarry.txt was cut from the fixture already in the tree with the tool
+        # the exercise imitates: `tail -c 40000 tests/ex02/fixtures/big.txt`
+        # (GNU coreutils 8.32), the same generator that reproduces all six
+        # other fixtures in this exercise byte-for-byte, cmulti included.
+        {
+            "name": "ccarry",
+            "args": ["-c", "40000", "$(location tests/ex02/fixtures/big.txt)"],
+            "fixtures": ["tests/ex02/fixtures/big.txt"],
+            "expected": "ccarry.txt",
+            "clues": "clues.tsv",
+        },
+        # No file named: tail reads standard input, which is the one thing the
+        # system tool does without a file, so every reading of "the same
+        # function" includes it -- basic, like ft_cat's `stdin` (finding 116).
+        {
+            "name": "stdin",
+            "args": ["-c", "20"],
+            "stdin": "tests/ex02/fixtures/sample.txt",
+            "expected": "cbytes.txt",
+            "clues": "clues.tsv",
+        },
+        # The count attached to the option, `-c20`. strict: the subject names
+        # -c and not how its count is written, so this is the reading above
+        # (finding 117).
+        {
+            "name": "attached",
+            "level": 2,
+            "args": ["-c20", "$(location tests/ex02/fixtures/sample.txt)"],
+            "fixtures": ["tests/ex02/fixtures/sample.txt"],
+            "expected": "cbytes.txt",
+            "clues": "clues.tsv",
+        },
+        # Error paths (findings 110, 115). basic: a name that will not open,
+        # before two that do -- the two files' headers and bytes still reach
+        # stdout, laid out as when every file opens, and nothing else does.
+        # strict, the reading above: the message and status for that name
+        # (errmsg, errstatus); and a directory (`.`, the directory the test
+        # runs in) as the LAST of several names (dir, dirmsg).
+        #
+        # Last, because that is the only place the reading above has one
+        # answer. What tail -c does after a directory is the filesystem's:
+        # where lseek(SEEK_END) on a folder answers (ext4) it dies there and
+        # reads no further name; where it does not (tmpfs, 9p, a merged
+        # overlayfs folder) it goes on to the next one. Both measured with
+        # coreutils 8.32, one folder apart (the model refuses the other
+        # order). So neither stopping nor carrying on after a directory is
+        # asked of anyone, at any level.
+        {
+            "name": "errfirst",
+            "missing_file": "no_such_file_ex02",
+            "invalid_input": True,
+            "args": [
+                "-c",
+                "5",
+                "no_such_file_ex02",
+                "$(location tests/ex02/fixtures/multi_a.txt)",
+                "$(location tests/ex02/fixtures/multi_b.txt)",
+            ],
+            "fixtures": [
+                "tests/ex02/fixtures/multi_a.txt",
+                "tests/ex02/fixtures/multi_b.txt",
+            ],
+            "expected": "errfirst.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "errmsg",
+            "missing_file": "no_such_file_ex02",
+            "invalid_input": True,
+            "level": 2,
+            "args": ["-c", "5", "no_such_file_ex02"],
+            "stream": "stderr",
+            "expected": "errmsg.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "errstatus",
+            "missing_file": "no_such_file_ex02",
+            "exit": 1,
+            "exit_quote": "Create a program called ft_tail, which performs the same function as the system command tail.",
+            "level": 2,
+            "args": ["-c", "5", "no_such_file_ex02"],
+            "expected": "errstatus.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dir",
+            "exit": 1,
+            "exit_quote": "Create a program called ft_tail, which performs the same function as the system command tail.",
+            "level": 2,
+            "args": [
+                "-c",
+                "5",
+                "$(location tests/ex02/fixtures/multi_a.txt)",
+                ".",
+            ],
+            "fixtures": ["tests/ex02/fixtures/multi_a.txt"],
+            "expected": "dir.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dirmsg",
+            "invalid_input": True,
+            "level": 2,
+            "args": [
+                "-c",
+                "5",
+                "$(location tests/ex02/fixtures/multi_a.txt)",
+                ".",
+            ],
+            "fixtures": ["tests/ex02/fixtures/multi_a.txt"],
+            "stream": "stderr",
+            "expected": "dirmsg.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+
+c_make(
+    num = "02",
+    artifact = "ft_tail",
+    rules = [
+        "all",
+        "clean",
+        "fclean",
+    ],
+    symbols = ["main"],
+    quotes = _MAKE_QUOTES,
+    recipe = "any",
+    recipe_strict = True,
+    wildcards = True,
+)
+
+# STANDARD INPUT, and "without redirection": whether ft_hexdump reads
+# standard input is left open. No case gives it any, and none requires or
+# forbids it (tests/ex03/clues.tsv says so too). ft_cat and ft_tail read it
+# at basic.
+# allocfail: ex03_program_allocfail, at robust, replays dump with one of the
+# program's malloc() calls refused per run: the same kind of reading as ex02's
+# above, stated in allocfail_rule, the same three questions, the repo's rigour
+# (TODO.md §23, WP-92).
+c_program(
+    num = "03",
+    name = "ft_hexdump",
+    makefile = "once_written",
+    model = ["c10_run", "--prog", "ex03_bin", "hexdump"],
+    allocfail = "dump",
+    allocfail_rule = "The subject has no sentence on errors of this kind. This target " +
+                     "reads \"performs the same function as the system's hexdump " +
+                     "command-line tool\", with malloc allowed, as reaching a refused " +
+                     "allocation too: a reading, and the repo's.",
+    cases = [
+        {
+            "name": "dump",
+            "args": ["$(location tests/ex03/fixtures/sample.bin)"],
+            "fixtures": ["tests/ex03/fixtures/sample.bin"],
+            "expected": "dump.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dedup",
+            "args": ["$(location tests/ex03/fixtures/dedup.bin)"],
+            "fixtures": ["tests/ex03/fixtures/dedup.bin"],
+            "expected": "dedup.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "empty",
+            "args": ["$(location tests/ex03/fixtures/empty.bin)"],
+            "fixtures": ["tests/ex03/fixtures/empty.bin"],
+            "expected": "empty.txt",
+            "clues": "clues.tsv",
+        },
+        # The subject requires handling the -C (canonical) option of hexdump.
+        {
+            "name": "canon",
+            "args": ["-C", "$(location tests/ex03/fixtures/sample.bin)"],
+            "fixtures": ["tests/ex03/fixtures/sample.bin"],
+            "expected": "canon.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "canon_dedup",
+            "args": ["-C", "$(location tests/ex03/fixtures/dedup.bin)"],
+            "fixtures": ["tests/ex03/fixtures/dedup.bin"],
+            "expected": "canon_dedup.txt",
+            "clues": "clues.tsv",
+        },
+        # Bytes > 127 exercise the printable-vs-'.' character column and the
+        # little-endian two-byte grouping on high bytes, in both modes.
+        {
+            "name": "high",
+            "args": ["$(location tests/ex03/fixtures/high.bin)"],
+            "fixtures": ["tests/ex03/fixtures/high.bin"],
+            "expected": "high.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "canon_high",
+            "args": ["-C", "$(location tests/ex03/fixtures/high.bin)"],
+            "fixtures": ["tests/ex03/fixtures/high.bin"],
+            "expected": "canon_high.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- the two line-boundary shapes the fixtures above never reach ----
+        #
+        # Every fixture above is 30, 69, 20 or 0 bytes long, so NONE of them is
+        # a nonzero multiple of 16 and every non-empty one ends on a SHORT final
+        # line. Two whole layout rules therefore went unmeasured, and a model
+        # hexdump carrying either bug was measured 7/7 green on the cases above.
+        #
+        # full.bin is 32 bytes: the file ends exactly ON a line boundary, so
+        # after the last full line there is nothing left to print. That is the
+        # difference between "flush whatever is in the buffer" and "flush it
+        # only IF there is anything in it" -- get it wrong and you emit one
+        # extra, fully-padded line before the closing offset. empty.bin cannot
+        # stand in for this: 0 bytes prints nothing at all, which students
+        # short-circuit with an early return that never reaches the flush.
+        #
+        # dupend.bin is 32 identical bytes: the file ENDS inside a suppressed
+        # run. hexdump prints the first line, one '*', and the closing offset --
+        # it does NOT reprint the run's last line on the way out. dedup.bin
+        # cannot show this, because its '*' run is followed by other data and
+        # then a short final line, so the run always gets closed by a line that
+        # differs from it.
+        #
+        # Both are dumped in both modes, because the two modes have separate
+        # renderers in every implementation and a rule fixed in one is routinely
+        # still broken in the other.
+        #
+        # All four expected files were produced by the tool the exercise
+        # imitates -- `hexdump [-C] FIXTURE`, util-linux 2.37.2 -- which also
+        # reproduces the seven fixtures above byte-for-byte, so it is the same
+        # generator the rest of this exercise was already trusting.
+        {
+            "name": "full",
+            "args": ["$(location tests/ex03/fixtures/full.bin)"],
+            "fixtures": ["tests/ex03/fixtures/full.bin"],
+            "expected": "full.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "canon_full",
+            "args": ["-C", "$(location tests/ex03/fixtures/full.bin)"],
+            "fixtures": ["tests/ex03/fixtures/full.bin"],
+            "expected": "canon_full.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dupend",
+            "args": ["$(location tests/ex03/fixtures/dupend.bin)"],
+            "fixtures": ["tests/ex03/fixtures/dupend.bin"],
+            "expected": "dupend.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "canon_dupend",
+            "args": ["-C", "$(location tests/ex03/fixtures/dupend.bin)"],
+            "fixtures": ["tests/ex03/fixtures/dupend.bin"],
+            "expected": "canon_dupend.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- several files: ONE stream (finding 109) ----
+        #
+        # hexdump reads the files it is given as one stream: the offsets carry
+        # on, a line holds the end of one file and the start of the next, and
+        # a run of identical lines collapses into one `*` across a boundary.
+        # That is the same function as the tool's, which the subject asks for
+        # in so many words, so these are basic. multi_a.bin (18 bytes) and
+        # multi_b.bin (7) share their second line; run_a.bin (20 x 'Z') and
+        # run_b.bin (44 x 'Z', "end\n") make one run of four identical lines
+        # that neither file holds on its own, and multi_b.bin after them ends
+        # the last line. Both formats, as above, for the same reason.
+        {
+            "name": "multi",
+            "args": [
+                "$(location tests/ex03/fixtures/multi_a.bin)",
+                "$(location tests/ex03/fixtures/multi_b.bin)",
+            ],
+            "fixtures": [
+                "tests/ex03/fixtures/multi_a.bin",
+                "tests/ex03/fixtures/multi_b.bin",
+            ],
+            "expected": "multi.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "canon_multi",
+            "args": [
+                "-C",
+                "$(location tests/ex03/fixtures/multi_a.bin)",
+                "$(location tests/ex03/fixtures/multi_b.bin)",
+            ],
+            "fixtures": [
+                "tests/ex03/fixtures/multi_a.bin",
+                "tests/ex03/fixtures/multi_b.bin",
+            ],
+            "expected": "canon_multi.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "stream",
+            "args": [
+                "$(location tests/ex03/fixtures/run_a.bin)",
+                "$(location tests/ex03/fixtures/run_b.bin)",
+                "$(location tests/ex03/fixtures/multi_b.bin)",
+            ],
+            "fixtures": [
+                "tests/ex03/fixtures/run_a.bin",
+                "tests/ex03/fixtures/run_b.bin",
+                "tests/ex03/fixtures/multi_b.bin",
+            ],
+            "expected": "stream.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "canon_stream",
+            "args": [
+                "-C",
+                "$(location tests/ex03/fixtures/run_a.bin)",
+                "$(location tests/ex03/fixtures/run_b.bin)",
+                "$(location tests/ex03/fixtures/multi_b.bin)",
+            ],
+            "fixtures": [
+                "tests/ex03/fixtures/run_a.bin",
+                "tests/ex03/fixtures/run_b.bin",
+                "tests/ex03/fixtures/multi_b.bin",
+            ],
+            "expected": "canon_stream.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- error paths (findings 110, 115) ----
+        #
+        # basic: a name that will not open, then one that does -- the good
+        # file's dump still reaches stdout, and nothing else does. strict, the
+        # reading above: the message and status for that name (errmsg,
+        # errstatus), and what is printed when not one name opens (allfail).
+        {
+            "name": "errcont",
+            "missing_file": "no_such_file_ex03",
+            "invalid_input": True,
+            "args": [
+                "-C",
+                "no_such_file_ex03",
+                "$(location tests/ex03/fixtures/sample.bin)",
+            ],
+            "fixtures": ["tests/ex03/fixtures/sample.bin"],
+            "expected": "canon.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "errmsg",
+            "missing_file": "no_such_file_ex03",
+            "invalid_input": True,
+            "level": 2,
+            "args": [
+                "-C",
+                "no_such_file_ex03",
+                "$(location tests/ex03/fixtures/sample.bin)",
+            ],
+            "fixtures": ["tests/ex03/fixtures/sample.bin"],
+            "stream": "stderr",
+            "expected": "errmsg.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "errstatus",
+            "missing_file": "no_such_file_ex03",
+            "exit": 1,
+            "exit_quote": "Create a program called ft_hexdump, which performs the same function as the system’s hexdump command-line tool, without redirection.",
+            "level": 2,
+            "args": [
+                "-C",
+                "no_such_file_ex03",
+                "$(location tests/ex03/fixtures/sample.bin)",
+            ],
+            "fixtures": ["tests/ex03/fixtures/sample.bin"],
+            "expected": "canon.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "allfail",
+            "missing_file": "no_such_file_ex03",
+            "invalid_input": True,
+            "level": 2,
+            "args": ["-C", "no_such_file_ex03"],
+            "stream": "stderr",
+            "expected": "allfail.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+
+c_make(
+    num = "03",
+    artifact = "ft_hexdump",
+    rules = [
+        "all",
+        "clean",
+        "fclean",
+    ],
+    symbols = ["main"],
+    quotes = _MAKE_QUOTES,
+    recipe = "any",
+    recipe_strict = True,
+    wildcards = True,
+)
+
+c_levels()
+
+# ---------------------------------------------------------------------------
+# THE DIFFERENTIAL LAYER, against //oracle's c10 reference.
+#
+# WHY, given that every exercise above already has fixtures. The subject's own
+# sentence is the reason: "You must complete this exercise by declaring a
+# fixed-size array." All four of these are a READ LOOP around a buffer, and a
+# read loop is wrong at exactly the sizes nobody commits a fixture for. The
+# corpus walks the boundaries around every buffer size people choose -- 4, 8,
+# 16, 32, 64, 128, 256, 512, 1024, 4096, and the ~30 000 ex01's subject names --
+# testing size-1, size and size+1 at each, and carries content a text fixture
+# cannot: NUL bytes, runs of 0xff, a file with no trailing newline, and a file
+# that is one enormous line.
+#
+# Measured against deliberately broken programs: a loop that reads ONCE fails 4
+# of 60, and one that writes `strlen(buf)` instead of the byte count fails 22 of
+# 60. Neither is visible in a committed text fixture.
+#
+# The reference itself was cross-checked against the system tools -- 340 cases
+# through the real `hexdump -C`, `tail -c` and `cat`, zero mismatches -- and the
+# runner was then driven with those same tools standing in for a correct
+# student, so the escape, the file materialisation and the comparison are all
+# proven end to end rather than assumed.
+#
+# ex03's corpus dumps one to three files per case as one stream, and ends with
+# the shapes only a stream has: a run of identical lines crossing a boundary,
+# a line made of the ends of three files.
+#
+# STANDARD ERROR is compared, and must be empty (--stderr-empty): every input
+# the reference generates is a readable file, and the subjects give such a file
+# no message. ex00: "Error messages must be displayed on their designated
+# output", and of its three messages none is about a file that can be read;
+# ex01-ex03: "performs the same function as the system's" tool, which is quiet
+# on a readable file -- a reading, and this layer is strict. A message printed
+# about an empty file, which basic's `empty_stderr` catches for ex00 alone,
+# is caught here for all four.
+#
+# WHAT IS NOT HERE, and it is deliberate:
+#
+#   * error paths, and ft_tail with two or more files, which print `==> path
+#     <==` headers. The path is chosen by the runner at run time, so a corpus
+#     carrying one would be testing the runner. The named cases above hold
+#     them, with fixed names: ex00's three messages, which its subject quotes;
+#     and for ex01-ex03 the good files' bytes at basic and the messages and
+#     statuses at strict (the reading at the top).
+#   * the exit status of a corpus run: a readable file is no error, so this
+#     layer would judge only the Run contract's convention, which the named
+#     cases' robust twins already do.
+#
+# `--expect-transform` refuses a corpus whose output never differs from its
+# input (which `cat` would pass); `--expect-substring '*'` refuses a hexdump
+# corpus that never produces the squeeze line.
+#
+# hand_test(), so each gets what every macro-emitted test gets from _test():
+# its exercise's tag, which puts it in :exNN (the old lvl_tags() gave none,
+# and these were missing from their suite: finding 070), and the level ladder
+# of its layer, read from _LAYER_LEVEL rather than written here.
+#
+# ONE TABLE for the plain replays and their memory twins below: c_levels()'
+# audit holds each plain replay to twins of exactly its corpus, and a count
+# written twice drifted once (ex03's went to 180 here and stayed 90 there).
+C10_FILE_CORPORA = [
+    ("00", "c10_display_file", "60", []),
+    ("01", "c10_cat", "60", []),
+    ("02", "c10_tail", "90", ["--expect-transform"]),
+    # 180 files, cut into one to three per case: about as many runs as
+    # when each case was one file.
+    ("03", "c10_hexdump", "180", ["--expect-transform", "--expect-substring", "*"]),
+]
+
+[
+    hand_test(
+        name = "ex%s_file_diff" % num,
+        layer = "diff",
+        size = "medium",
+        srcs = ["//tools:file_check.sh"],
+        args = [
+            "--bin",
+            "$(location :ex%s_bin)" % num,
+            "--oracle",
+            "$(location //oracle:oracle)",
+            "--fn",
+            fn,
+            "--count",
+            count,
+        ] + extra + ["--stderr-empty"],
+        data = [
+            ":ex%s_bin" % num,
+            "//oracle:oracle",
+            "//tools:file_check.sh",
+            "//tools:exit_status",
+            "//tools:runner_lib.sh",
+        ],
+    )
+    for num, fn, count, extra in C10_FILE_CORPORA
+]
+
+# THE CORPUS UNDER THE MEMORY CHECKERS (finding 113): each file corpus on the
+# ASan build (exNN_file_diff_asan, robust), judging memory and how each run
+# ended, never the bytes; and for ex02 and ex03, whose subjects allow malloc
+# (corpus_memory reads that from the contract), 25 cases under memcheck
+# (exNN_file_valgrind, strict). The corpus is where the files past one buffer
+# are (4096, 30000 bytes), and no fixed case's memory arm reads one. Measured
+# on correct programs (2026-10-02): 3-4 s under ASan, 23-25 s under memcheck,
+# each well inside "medium"'s 300 s.
+[
+    corpus_memory(
+        stem = "ex%s_file" % num,
+        runner = "//tools:file_check.sh",
+        args = [
+            "--oracle",
+            "$(location //oracle:oracle)",
+            "--fn",
+            fn,
+            "--count",
+            count,
+        ] + extra,
+        data = ["//oracle:oracle"],
+    )
+    for num, fn, count, extra in C10_FILE_CORPORA
+]

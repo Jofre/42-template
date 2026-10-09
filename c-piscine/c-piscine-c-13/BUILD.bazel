@@ -1,0 +1,276 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_function", "c_levels", "c_mem_check", "exercise", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box:
+# every exercise turns in its function and ft_btree.h, and nothing else.
+#
+# THE GRADER'S btree_create_node. p.3: "From exercise 01 onward, we'll use our
+# btree_create_node". So every exercise from 01 on links the grader's copy
+# (`linked`), built from Rust in //oracle on the structure p.3 prints -- never
+# the student's ex00: see c-12's BUILD file, whose ft_create_elem is the same
+# case (findings 136, 132).
+OURS = {"btree_create_node": "//oracle:c13_grader"}
+
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(page = 7, dir = "ex00/", files = ["btree_create_node.c", "ft_btree.h"], allowed = ["malloc"]),
+        "01": exercise(page = 8, dir = "ex01/", files = ["btree_apply_prefix.c", "ft_btree.h"], linked = OURS, allowed = []),
+        "02": exercise(page = 9, dir = "ex02/", files = ["btree_apply_infix.c", "ft_btree.h"], linked = OURS, allowed = []),
+        "03": exercise(page = 10, dir = "ex03/", files = ["btree_apply_suffix.c", "ft_btree.h"], linked = OURS, allowed = []),
+        "04": exercise(page = 11, dir = "ex04/", files = ["btree_insert_data.c", "ft_btree.h"], linked = OURS, allowed = ["btree_create_node"]),
+        "05": exercise(page = 12, dir = "ex05/", files = ["btree_search_item.c", "ft_btree.h"], linked = OURS, allowed = []),
+        "06": exercise(page = 13, dir = "ex06/", files = ["btree_level_count.c", "ft_btree.h"], linked = OURS, allowed = []),
+        "07": exercise(page = 14, dir = "ex07/", files = ["btree_apply_by_level.c", "ft_btree.h"], linked = OURS, allowed = ["malloc", "free"]),
+    },
+)
+
+c_function(
+    num = "00",
+    fn = "btree_create_node",
+    test = "test_btree_create_node.c",
+    malloc = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "00",
+    fn = "btree_create_node",
+    harness = "diff_btree_create_node.c",
+    oracle_fn = "c13_create_node",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "01",
+    fn = "btree_apply_prefix",
+    test = "test_btree_apply_prefix.c",
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "01",
+    fn = "btree_apply_prefix",
+    harness = "diff_btree_apply_prefix.c",
+    oracle_fn = "c13_apply_prefix",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "02",
+    fn = "btree_apply_infix",
+    test = "test_btree_apply_infix.c",
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "02",
+    fn = "btree_apply_infix",
+    harness = "diff_btree_apply_infix.c",
+    oracle_fn = "c13_apply_infix",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "03",
+    fn = "btree_apply_suffix",
+    test = "test_btree_apply_suffix.c",
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "03",
+    fn = "btree_apply_suffix",
+    harness = "diff_btree_apply_suffix.c",
+    oracle_fn = "c13_apply_suffix",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "04",
+    fn = "btree_insert_data",
+    test = "test_btree_insert_data.c",
+    malloc = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "04",
+    fn = "btree_insert_data",
+    harness = "diff_btree_insert_data.c",
+    oracle_fn = "c13_insert_data",
+    diff_clues = "diff_clues.txt",
+)
+
+# What cmpf is handed. The subject gives the prototype and no line calling
+# cmpf, so the ORDER of its two arguments is open: no level checks it, and
+# either order passes (WP-46's decision, TODO.md section 23; the swapped
+# order stays green, as the mutation run of 2026-10-03 recorded). What every
+# reading agrees on is what the two are: the data_ref the search was given
+# and a node's item. The fixture counts the calls that hand cmpf anything
+# else (its last row), and the diff harness's comparator answers "no match"
+# to a call that does not hand it the query, so a search that never does
+# finds nothing there. //tools/tests's selftest builds the fixture over a
+# toy that hands cmpf a node, and requires the last row to count it, so the
+# file is visible to it.
+exports_files(
+    ["tests/ex05/test_btree_search_item.c"],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
+c_function(
+    num = "05",
+    fn = "btree_search_item",
+    test = "test_btree_search_item.c",
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "05",
+    fn = "btree_search_item",
+    harness = "diff_btree_search_item.c",
+    oracle_fn = "c13_search_item",
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(
+    num = "06",
+    fn = "btree_level_count",
+    test = "test_btree_level_count.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "06",
+    fn = "btree_level_count",
+    harness = "diff_btree_level_count.c",
+    oracle_fn = "c13_level_count",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_function(
+    num = "07",
+    fn = "btree_apply_by_level",
+    test = "test_btree_apply_by_level.c",
+    malloc = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "07",
+    fn = "btree_apply_by_level",
+    harness = "diff_btree_apply_by_level.c",
+    oracle_fn = "c13_apply_by_level",
+    diff_clues = "diff_clues.txt",
+)
+
+# The module's capstone is the one exercise here whose working storage has to
+# fit the CALLER'S data -- which is why its `allowed` list is the only one
+# besides create_node/insert_data to carry malloc and free. A breadth-first
+# walk has to remember the nodes it has reached but not yet visited, and room
+# of a fixed size is the cheapest thing to reach for.
+#
+# Nothing else in this repo could contradict that guess, once. Measured on a
+# walk that kept its waiting nodes in room for 64: the fixture's hand-wired
+# trees reproduced BYTE FOR BYTE, clean under ASan+UBSan on their shapes, the
+# 400k differential OK and the 200k crash-fuzz OK -- those trees were 6 nodes
+# at most and the corpus was capped twice over (10 items drawn, 64 decoded).
+# The corpus now holds trees of 600 and 2000 items (finding 041), which room
+# for 64 does not survive, and a capacity past those still does. The valgrind
+# layer is no help either, because room of a fixed size is normally on the
+# stack, which memcheck does not see past (valgrind_test.sh's OK line says
+# so).
+#
+# So the size of a tree is an axis no layer measured, and two now do. The
+# output fixture ends on a HEAP-SHAPED tree of 20000 nodes (fifteen levels,
+# 8192 on the widest), checked by construction and shown as one line: every
+# reading of the subject agrees on that walk, so it is a basic case. And this
+# probe measures both dimensions under ASan: the same 20000-node tree, and a
+# 5000-deep SPINE, handed over with every node and every item allocated to its
+# exact size. The two are not redundant -- each catches a variant the other
+# misses. The heap tree reds room for the waiting nodes fixed at a round
+# number, and the spine does not (a spine is one node per level, so it is never
+# wide). The spine reds a variant with room enough for its waiting nodes but a
+# fixed number of something it keeps per LEVEL, and the heap tree does not,
+# because it is only fifteen levels deep. The first version used a complete
+# tree of 1023 nodes and a 200-deep spine and said it failed a capacity chosen
+# as a constant at any size -- and room for 1024 passed it (finding 041); the
+# sizes now sit past every power of two a guess is likely to stop at. Width and
+# depth both come from the caller's data, so the probe fails a capacity chosen
+# as a constant on either axis.
+#
+# It asserts nothing about the OUTPUT -- visit order, level numbers and
+# is_first_elem belong to the *_output and *_diff layers, and a second red
+# saying the same thing would only be noise. See the probe's own header for
+# what each shape is aimed at.
+c_mem_check(
+    num = "07",
+    fn = "btree_apply_by_level",
+    probe = "mem_btree_apply_by_level.c",
+)
+
+
+# ---------------------------------------------------------------- cost
+# Same unit, same reason, as c-12: every other c_cycles target measures per
+# BYTE over a hex field, and this corpus encodes a STRUCTURE -- the insertion
+# sequence a tree is built from, comma-joined. A per-byte figure over "61,62,63"
+# would measure the corpus's decimal formatting, not the traversal.
+#
+# The unit is the NODE, counted off that field: its number of comma-separated
+# items, which split() returns (0 for an empty field): c-12's ELEM.
+#
+# No instruction budget: a budget is a MEASURED number, and the only honest way
+# to get one is to measure a correct implementation of this exercise, which does
+# not exist yet. The per-node figure is reported meanwhile.
+#
+# syscall_budget = 0 is assertable from the subject and is the strongest thing
+# these targets can say: a traversal applies a function, it does not print.
+# btree_apply_* take the function to call as an argument, which is precisely the
+# subject saying the printing is not theirs to do.
+NODE = "split($1,a,/,/)"
+
+# The corpus's trees of 600 and 2000 nodes test capacity (finding 041; the
+# diff layers judge them) and are left out of every figure here, as C 12's
+# long lists are.
+LONG_CASES = 500
+
+c_cycles(
+    num = "01",
+    fn = "btree_apply_prefix",
+    oracle_fn = "c13_apply_prefix",
+    harness = "diff_btree_apply_prefix.c",
+    unit_expr = NODE,
+    max_unit = LONG_CASES,
+    unit_name = "node",
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "05",
+    fn = "btree_search_item",
+    oracle_fn = "c13_search_item",
+    harness = "diff_btree_search_item.c",
+    unit_expr = NODE,
+    max_unit = LONG_CASES,
+    unit_name = "node",
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "06",
+    fn = "btree_level_count",
+    oracle_fn = "c13_level_count",
+    harness = "diff_btree_level_count.c",
+    unit_expr = NODE,
+    max_unit = LONG_CASES,
+    unit_name = "node",
+    syscall_budget = 0,
+    gate_labeled = True,
+)
+
+# Per-level suites, so you can run just what you need while you work:
+# bazel test //<this module>:basic, and :strict, :robust or :complete for
+# more. What each level runs is in docs/reference.md.
+c_levels()

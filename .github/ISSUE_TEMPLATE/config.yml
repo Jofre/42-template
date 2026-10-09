@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Stuck on an exercise?
+    url: https://github.com/Jofre/42-template/blob/main/SUPPORT.md
+    about: The tracker is not for exercise help. The subject, man and your peers are; SUPPORT.md says where else to look.
+  - name: A check is wrong about what an exercise must do, or a security problem
+    url: https://github.com/Jofre/42-template/security/advisories/new
+    about: Report it privately. Showing it takes exercise code, which must never be posted in a public issue.

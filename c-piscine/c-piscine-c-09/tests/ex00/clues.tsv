@@ -1,0 +1,4 @@
+# clues.tsv for the libft assembly (c-09) — hints only, never answers.
+These five functions (putchar, swap, putstr, strlen, strcmp) are the ones you wrote in earlier modules -- if a behaviour is wrong here, fix it in its original exercise. The new skill in THIS exercise is packaging: what is a static library made of, the .c sources themselves or what compiling them produces? Which standard tool creates and updates such an archive?
+The strcmp lines print only the SIGN of what ft_strcmp returns (negative, zero or positive), as C 03 ex00's table does; the exact int is compared by the strict diff layer. When a strcmp line is red, which sign does man strcmp give for that pair of strings?
+Some strlen and putstr lines hold bytes above 0x7f, as UTF-8 text does (utf8_cafe, hi_ff, putstr_hi). Does your ft_strlen count, and your ft_putstr write, each of them like any other byte? What value does a plain char holding 0xff have on this machine?

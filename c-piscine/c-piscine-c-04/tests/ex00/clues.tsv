@@ -1,0 +1,4 @@
+# clues.tsv for ft_strlen — hints only, never answers.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+Where does a C string end? You have to walk it one byte at a time until you reach that marker. Two questions: what marks the end, and does that marker itself count toward the length?	"" (empty)	"a" (one char)	"Hello"
+Spaces, tabs, digits and bytes above 0x7f (UTF-8 text is made of them) are ordinary bytes — they are part of the string. If a length looks too small, are you stopping early on a byte you think is "not a real character", or on one whose value a plain char holds as negative?	"0" (the digit zero)	" " (single space)	"a b c" (spaces count)	embedded tabs "x\ty\tz"	"  leading and trailing  "	UTF-8 word "caf\xC3\xA9" (bytes above 0x7f)	lone byte \xFF

@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex09 (ft_magic)
+What does one line of a magic database hold (man magic): where in the file to look, what to look for, and what to say when it is there? Where does the subject say the "42" must be, and how does man magic count the position of a byte? Would your line also match a file that holds "42" somewhere else?

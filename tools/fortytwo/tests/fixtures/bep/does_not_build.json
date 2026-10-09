@@ -1,0 +1,8 @@
+{"id": {"pattern": {"pattern": ["//spike:broken", "//spike:sleeper"]}}}
+{"configured": {"targetKind": "sh_test rule", "testSize": "SMALL"}, "id": {"targetConfigured": {"label": "//spike:sleeper"}}}
+{"completed": {"success": true}, "id": {"targetCompleted": {"configuration": {"id": "c5eb5cc44a5c4807ddfaa4e75102098fe1f892d592d07784db279c8da4bbe0e9"}, "label": "//spike:sleeper"}}}
+{"configured": {"targetKind": "cc_test rule", "testSize": "MEDIUM"}, "id": {"targetConfigured": {"label": "//spike:broken"}}}
+{"completed": {}, "id": {"targetCompleted": {"configuration": {"id": "c5eb5cc44a5c4807ddfaa4e75102098fe1f892d592d07784db279c8da4bbe0e9"}, "label": "//spike:broken"}}}
+{"id": {"testResult": {"attempt": 1, "configuration": {"id": "c5eb5cc44a5c4807ddfaa4e75102098fe1f892d592d07784db279c8da4bbe0e9"}, "label": "//spike:sleeper", "run": 1, "shard": 1}}, "testResult": {"status": "PASSED", "testActionOutput": [{"name": "test.log", "uri": "file:///OUTPUT_BASE/execroot/_main/bazel-out/k8-fastbuild/testlogs/spike/sleeper/test.log"}]}}
+{"id": {"testSummary": {"configuration": {"id": "c5eb5cc44a5c4807ddfaa4e75102098fe1f892d592d07784db279c8da4bbe0e9"}, "label": "//spike:sleeper"}}, "testSummary": {"overallStatus": "PASSED", "totalRunCount": 1}}
+{"finished": {"exitCode": {"code": 1, "name": "BUILD_FAILURE"}}, "id": {"buildFinished": {}}}

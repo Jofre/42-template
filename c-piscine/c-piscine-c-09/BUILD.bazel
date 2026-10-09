@@ -1,0 +1,207 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_function", "c_levels", "c_libft", "c_make", "exercise", "student_lib", "subject", "turnin_file")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+#
+# ex01 is the Makefile, and nothing else: "Files to turn in: Makefile", "The
+# Makefile will get its source files from the 'srcs' directory", "We'll only
+# fetch your Makefile and test it with our files." So srcs/ and includes/ are
+# the GRADER's, and `provided` lays the harness's copies of them beside the
+# Makefile before the build: the five sources the subject names under srcs/
+# and ft.h under includes/, PLACEHOLDERS that compile (the real bodies are
+# ex00's answer, the prototypes C 08 ex00's), plus ft_not_listed.c, a decoy
+# for the subject's closing "Watch out for wildcards!": the grader's srcs/
+# may hold more than the five, and the build compiles none but those. A copy
+# of any of them in the turn-in fails ex01_build, which says where to try the
+# Makefile by hand instead (README.md).
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(
+            page = 5,
+            dir = "ex00/",
+            files = ["libft_creator.sh", "ft_putchar.c", "ft_swap.c", "ft_putstr.c", "ft_strlen.c", "ft_strcmp.c"],
+            allowed = ["write"],
+        ),
+        "01": exercise(
+            page = 6,
+            dir = "ex01/",
+            files = ["Makefile"],
+            allowed = [],
+            provided = {
+                "tests/ex01/grader/includes/ft.h": "includes/ft.h",
+                "tests/ex01/grader/srcs/ft_not_listed.c": "srcs/ft_not_listed.c",
+                "tests/ex01/grader/srcs/ft_putchar.c": "srcs/ft_putchar.c",
+                "tests/ex01/grader/srcs/ft_putstr.c": "srcs/ft_putstr.c",
+                "tests/ex01/grader/srcs/ft_strcmp.c": "srcs/ft_strcmp.c",
+                "tests/ex01/grader/srcs/ft_strlen.c": "srcs/ft_strlen.c",
+                "tests/ex01/grader/srcs/ft_swap.c": "srcs/ft_swap.c",
+            },
+        ),
+        "02": exercise(
+            page = 8,
+            dir = "ex02/",
+            files = ["ft_split.c"],
+            allowed = ["malloc"],
+        ),
+    },
+)
+
+# The five functions both libft exercises bundle. Named once so ex00 and ex01
+# cannot drift apart: the subject asks for the same five in both.
+_LIBFT_SYMBOLS = [
+    "ft_putchar",
+    "ft_swap",
+    "ft_putstr",
+    "ft_strlen",
+    "ft_strcmp",
+]
+
+# ex00: libft built by a shell script (libft_creator.sh), from the five
+# sources the contract names; the subject authorises only write() for them.
+#
+# The compile commands the script RUNS (ex00_build_recipe, strict): the
+# exercise says only "will compile the source files appropriately", which
+# leaves open what those commands must be, so the check is one reading, at
+# strict (its row in docs/reference.md states it), and never read from the
+# script's text (make_test.sh --recipe-only, under sh -x).
+c_libft(
+    num = "00",
+    script = "libft_creator.sh",
+    artifact = "libft.a",
+    symbols = _LIBFT_SYMBOLS,
+    test = "test_libft.c",
+    make = {
+        "quotes": {
+            "cc": "C 09, p.2: \"Moulinette compiles with the following flags: -Wall -Wextra -Werror, using cc.\" And p.5: \"A shell script called libft_creator.sh will compile the source files appropriately and will create your library.\"",
+        },
+        "recipe": "any",
+        "recipe_strict": True,
+    },
+)
+
+# Live-differential coverage for the bundled libft's ft_strcmp (== c-03 strcmp).
+# The output fixture prints the SIGN of each strcmp result only; this layer, at
+# strict, is where the exact int is compared -- see c-03's BUILD for why.
+# ex00 has no c_function to declare a unit of its files, so declare the one
+# source the diff harness links. Only one c_diff can attach to ex00 (its target
+# names are fixed); ft_strlen is left to c-01's c01_strlen, which is the same
+# contract (REPEATED-CONTRACT) -- but not the byte class that corpus pins: this
+# module is graded on its own files, so test_libft.c's strlen and putstr lines
+# include bytes >= 0x80 at basic (finding 061). c_diff compiles it twice, plain
+# and under the sanitizer.
+student_lib(
+    name = "ft_strcmp",
+    srcs = [turnin_file("00", "ft_strcmp.c")],
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strcmp",
+    harness = "diff_strcmp.c",
+    oracle_fn = "c09_strcmp",
+    diff_clues = "diff_clues.txt",
+)
+
+# ex01: the Makefile, and nothing else -- see the contract above for what the
+# grader brings. The five functions' behaviour is ex00's to grade, which turns
+# them in as loose sources; this exercise grades the Makefile.
+#
+# It used to be a c_libft over deliverable/ex01/srcs/ and includes/ft.h, which
+# made those the student's own work: a turn-in of the Makefile alone could not
+# even build, and the student wrote the five functions a second time and pushed
+# six files the subject never asked for.
+#
+# rules: page 6 lists "clean, fclean, re, all, and of course libft.a", so
+# `make libft.a` is checked by name too, like the other four, and the subject
+# defines what each does, so all of it is judged at basic. graph: the bullets
+# only this subject makes (every command printed, no unnecessary commands, no
+# unnecessary compiling -- one source touched rebuilds one object -- and .o
+# files near their .c). recipe: every compile runs cc with the three flags,
+# "in that order". foreign_object: "Watch out for wildcards!" from the
+# grader's side -- an object of its own in srcs/ that clean and fclean must
+# leave -- beside ft_not_listed.c, the decoy in the grader's srcs/ above.
+c_make(
+    num = "01",
+    artifact = "libft.a",
+    rules = ["all", "clean", "fclean", "re", "libft.a"],
+    symbols = _LIBFT_SYMBOLS,
+    graph = True,
+    recipe = "ordered",
+    foreign_object = "srcs",
+    clues = "clues.tsv",
+    not_checked = {
+        "wildcards": "the subject says \"Watch out for wildcards!\" itself, and the grader's ft_not_listed.c and foreign_object judge it at basic",
+    },
+    quotes = {
+        "cc": "C 09, p.6: \"It should compile the .c files with cc and with -Wall -Wextra -Werror flags in that order.\"",
+        "print": "C 09, p.6: \"Your Makefile should print all the commands it’s running.\"",
+        "unnecessary": "C 09, p.6: \"Your Makefile should not run any unnecessary commands.\" And p.7: \"Your Makefile should not compile any file unnecessarily.\"",
+        "objects": "C 09, p.6: \".o files should be near their corresponding .c files.\"",
+        "wildcards": "C 09, p.7: \"We’ll only fetch your Makefile and test it with our files.\" \"Watch out for wildcards!\"",
+        "all": "C 09, p.6: \"Running just make should be equivalent to make all.\" \"The all rule should be equivalent to make libft.a.\"",
+        "clean": "C 09, p.6: \"The clean rule should remove all the temporary generated files.\"",
+        "fclean": "C 09, p.7: \"The fclean rule should be like a make clean, plus removing all the binaries generated with make all.\"",
+        "re": "C 09, p.7: \"The re rule should be like a make fclean followed by make all.\"",
+    },
+)
+
+# ex02: ft_split.
+#
+# No exact-size ASan probe here, and the reasoning is written out once at
+# c-piscine/c-piscine-c-07/BUILD.bazel above its own ft_split rather than repeated:
+# the function decides its allocation sizes from the input at runtime, so a
+# probe could only re-derive the implementation and call the agreement a test.
+# c_diff's crash-fuzz twin runs the real allocation path under ASan instead.
+c_function(
+    num = "02",
+    fn = "ft_split",
+    test = "test_split.c",
+    malloc = True,
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# perf_length: the length series grows one string, word by word (C 07 ex05's
+# BUILD file says why). Reported, never gated.
+c_diff(
+    num = "02",
+    fn = "ft_split",
+    harness = "diff_split.c",
+    oracle_fn = "c09_split",
+    diff_clues = "diff_clues.txt",
+    perf_length = {"oracle_fn": "c09_split_len", "harness": "len_split.c"},
+)
+
+c_levels()
+
+c_cycles(
+    num = "00",
+    fn = "ft_strcmp",
+    oracle_fn = "c09_strcmp",
+    harness = "diff_strcmp.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # compare archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "02",
+    fn = "ft_split",
+    oracle_fn = "c09_split",
+    harness = "diff_split.c",
+    # Every input byte the function must read at least once: str and charset.
+    unit_expr = "(length($1)+length($2))/2",
+    unit_name = "byte",
+    # The corpus's two strings of 300 and 5000 words test capacity (finding
+    # 041; the diff layers judge them) and are left out here: kept in, they
+    # were half the bytes profiled, and the figure per byte measured their
+    # mix of short words rather than the usual cost of one.
+    max_unit = 1000,
+    # NO BUDGET, on purpose: what one byte costs here follows how the student
+    # tests a byte against the charset, so a budget would recommend the lookup
+    # it was measured from (c-12 ex14's rule). The figure is printed alone.
+    syscall_budget = 0,
+)

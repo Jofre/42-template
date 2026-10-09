@@ -1,0 +1,71 @@
+/*
+ * The PDF's styles, laid over page.html5's own (tools/exam_guide.sh inlines
+ * both). Local fonts only -- the PDF is built offline -- A4, every answer
+ * shown, nothing that scrolls.
+ *
+ * Two traps this file steps around, both measured on WeasyPrint 54:
+ *  - tables are `table-layout: fixed`, with widths the build computes per
+ *    table. Automatic layout never finished on Appendix D: a narrow cell holding
+ *    a long unbreakable code span sent it into a loop that ran for hours.
+ *  - no font-family names the emoji font. Named, Pango takes digits from it
+ *    (an emoji font has glyphs for 0-9), and every number in the PDF came out in
+ *    the wrong face. Unnamed, fontconfig still falls back to it for the emoji.
+ */
+@page {
+  size: A4;
+  margin: 18mm 16mm 20mm 16mm;
+  @bottom-center {
+    content: counter(page) " / " counter(pages);
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 8.5pt;
+    color: #5c6470;
+  }
+}
+body {
+  font-family: "DejaVu Serif", serif;
+  font-size: 10pt;
+  line-height: 1.5;
+  padding: 0;
+  background: #ffffff;
+}
+h1, h2, h3, h4, summary, th, table, .answer-label {
+  font-family: "DejaVu Sans", sans-serif;
+}
+code, pre, pre code {
+  font-family: "DejaVu Sans Mono", monospace;
+}
+pre { white-space: pre-wrap; overflow: visible; font-size: 8pt; page-break-inside: avoid; }
+/* A block with a language (```sh, ```c, ```makefile: pandoc gives its pre a
+   class) is never folded: pre-wrap broke a line at a space or after a hyphen,
+   and "> /dev/" over "null 2>&1" typed as shown is another command, a folded
+   recipe line is a broken Makefile, a folded // comment or #define changes
+   what the code says. Unfolded, a line too long for the page runs past the
+   right margin, which the render gate (build/render_check.py) refuses,
+   naming it. Tool output (a block with no language) still folds, as a
+   terminal would. */
+pre[class] { white-space: pre; }
+/* Inline code in running text stays on one line: split at one of its hyphens,
+   `-fno-sanitize-recover=all` reads as two words, and neither is the flag.
+   guide_post.py marks the spans too long for one line `wrap`, and puts each
+   word of every span in a .nb, so the rest break between words only. Both
+   are inline-blocks, which cannot break inside. Not `white-space: nowrap`:
+   WeasyPrint 54 printed text twice at a line break before a code span, a
+   word with nowrap ("lines; lines;") and a whole line without it, and
+   inline-blocks did neither. The render gate refuses a repeat. */
+p code, li code { display: inline-block; }
+p code.wrap, li code.wrap { display: inline; }
+code .nb { display: inline-block; }
+pre code { font-size: 8pt; }
+table { display: table; width: 100%; table-layout: fixed; overflow: visible; font-size: 8pt; }
+tr { page-break-inside: avoid; }
+h2 { page-break-before: always; }
+h2, h3, h4 { page-break-after: avoid; }
+a { color: inherit; }
+nav#TOC ul { list-style: none; padding-left: 1.2em; }
+nav#TOC > ul { padding-left: 0; }
+nav#TOC a::after { content: leader('.') target-counter(attr(href), page); }
+.toc-title { font-family: "DejaVu Sans", sans-serif; font-size: 1.2rem; font-weight: 700; margin-top: 1.5rem; }
+/* An answer is printed open under its label: never the label at the foot of
+   one page and the answer at the head of the next. */
+.answer { border-left: 3px solid #135f7d; padding-left: 0.8em; margin: 0.6em 0; page-break-inside: avoid; }
+.answer-label { font-weight: 700; font-size: 0.85em; color: #135f7d; margin: 0; page-break-after: avoid; }

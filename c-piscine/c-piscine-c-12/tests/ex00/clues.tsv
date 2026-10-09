@@ -1,0 +1,5 @@
+# clues.tsv for ft_create_elem — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+Should the new node store the exact pointer you were handed, or a copy of what it points to? Would a caller who compares the two pointers see the same address?	string: data	int pointer: data is the pointer passed	NULL data: data is NULL
+What does malloc hand you in the fields you have not written yet, and is next one of them? A reader of the list stops where next says the list ends: does yours say so?	string: next is NULL	int pointer: next is NULL	NULL data: next is NULL

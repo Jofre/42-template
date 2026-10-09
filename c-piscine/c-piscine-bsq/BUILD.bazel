@@ -1,0 +1,831 @@
+load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_levels", "c_make", "c_program", "corpus_memory", "exercise", "hand_test", "runner_quotes", "stderr_ignored", "subject")
+
+# c-piscine-bsq — the C Piscine's final project.
+#
+# THE SUBJECT CONTRACT (tools/subject.bzl), from the header box on page 4. It
+# has no "Turn-in directory" line -- a Program Name table instead, the form
+# every Common Core subject uses -- so BSQ turns in at deliverable/ itself,
+# the root of the repository that is pushed, and not under an ex00/ the
+# subject never names (finding 177). "Files to Submit: Makefile and all the
+# necessary files" names the Makefile and nothing else, so every .c and .h is
+# allowed wherever the team puts it -- srcs/ and includes/ included: the
+# Makefile says where (finding 172).
+#
+# Graded by both: "This project will be checked and graded by a program called
+# Moulinette", and the chapter it says so in is "Submission and
+# peer-evaluation" ("evaluated during the defence"). A group project: "Each
+# member of the group must be fully aware of all the details of the project".
+#
+# Strict (the default): "You need to submit only the files requested by the
+# subject of this project" (p.8), and what it requests is the Makefile and
+# "all the necessary files". So anything that is not a .c or a .h FAILS -- a
+# `bsq` binary left by a hand-run of make is the usual one -- and so does a
+# .c the Makefile never compiles, which is not necessary: the program's build
+# writes the list `make -Bn` gives (c_program below), and ex00_files reads it
+# (finding 164). While make cannot plan a build, or the Makefile compiles
+# nothing yet, no .c is judged that way.
+subject(
+    grader = "both",
+    group = True,
+    exercises = {
+        "00": exercise(
+            page = 4,
+            dir = None,
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = ["open", "close", "read", "write", "malloc", "free", "exit"],
+        ),
+    },
+)
+
+# Two halves, for the reason rush-02's BUILD file gives: c_make proves the
+# student's MAKEFILE works, and c_program builds the program with Bazel from the
+# sources and -I directories `make -Bn` names, with the harness's own flags, and
+# runs the cases -- the Makefile's recipes are read, never run -- so a broken
+# Makefile cannot hide behind green output tests, and a wrong program cannot hide
+# behind a working Makefile.
+#
+# The third half, which rush-02 does not have, is a real differential layer.
+# See "WHY THIS ONE GATES" at the bottom.
+
+# The Makefile itself. rules = [] is not the same as leaving it unset: this
+# subject mandates NO rule at all -- it asks only that the Makefile "compiles
+# your project" and that it "must not relink" -- so demanding clean, fclean or
+# re would red a conformant Makefile at level basic, inside the submit gate,
+# on three rules its subject never mentions.
+#
+# relink = True is the half the subject DOES state. It is not graph = True:
+# that also asserts where .o files land, which only c-09 ex01's subject asks
+# for.
+#
+# recipe: "Your program must compile using cc with the following flags" binds
+# the build that compiles the program, and the subject says a Makefile is
+# that build, so every compile command it runs is held to it at basic. The
+# Norm's "no *.c, no *.o" is not in the subject: ex00_build_wildcards, strict.
+c_make(
+    num = "00",
+    artifact = "bsq",
+    relink = True,
+    rules = [],
+    symbols = ["main"],
+    quotes = {
+        "cc": "BSQ, p.3: \"Your program must compile using cc with the following flags: -Wall -Wextra -Werror.\"",
+        "relink": "BSQ, p.5: \"You must have a valid Makefile that compiles your project. Your Makefile must not relink.\"",
+        "wildcards": NORM_NO_WILDCARDS,
+    },
+    recipe = "any",
+    wildcards = True,
+)
+
+# ---------------------------------------------------------------------------
+# WHAT THE SUBJECT LEAVES OPEN, AND WHERE EACH ONE IS TESTED
+#
+# The subject's "Definition of a valid file" settles more than most, which is
+# why the differential layer below is allowed to gate. It does not settle
+# everything. README.md beside this file gives the student's version of the
+# list ("What the subject leaves open"): change it with this comment.
+# The short version:
+#
+#   NOT TESTED, IN EITHER DIRECTION -- neither the cases here nor any corpus:
+#   * the FULL character appearing in a map body (the description and the
+#     validity list disagree, and both are literal);
+#   * MORE body lines than the count declares (fewer is forced, more is not);
+#   * bytes >= 0x80 among the three characters (isprint above 0x7f is
+#     locale-dependent);
+#
+#   TESTED AT STRICT, under ONE reading, in ex00_readings (bottom of this
+#   file), and never in a basic case or the main corpus, which hold only what
+#   every reading agrees on:
+#   * the count written "09", "+9", " 9" or "9 ";
+#   * a missing final newline after the last row ("Lines are separated by the
+#     usual newline character"). At basic, no_final_newline accepts either
+#     verdict and checks what both agree on: "map error", or the solved map
+#     with every row ending in a newline.
+#
+#   SETTLED, though it looks open: a count that overflows int. "It can be any
+#   valid int", and over any body a test can hold the line count disagrees
+#   too, so every reading says map error; the corpus's count_overflow records
+#   wrap to the body's own line count, so only a parse that wraps accepts one.
+#
+#   * EXIT STATUS at basic, and anything written to stderr. The subject pins
+#     "map error" to stdout and never mentions either, so no case compares
+#     stderr, and by the Run contract (docs/reference.md) a status is judged
+#     only at robust: a case with an invalid map is marked "invalid_input" and
+#     its status is judged at no level; every other case gets a robust twin,
+#     ex00_<case>_exit, which fails a non-zero return.
+#
+# A nonexistent path, a directory and an unreadable file ARE settled, and a
+# corpus of file CONTENTS cannot express them, so they are argv cases. The
+# nonexistent path is one, three times (missing_alone, map_then_missing,
+# missing_then_map). The other two are not here yet: an unreadable file
+# would have to be made at test time, which is root-dependent in a sandbox --
+# noted rather than faked -- and a directory waits with it.
+#
+# The sources the file-by-file layers read (norm, both compile arms,
+# forbidden) are the contract's: every .c and .h in the turn-in, subfolders
+# included. That is deliberately NOT "the program": the subject fixes no
+# filename, so how the program is split is the team's decision, and the only
+# statement of it is their Makefile. Everything that has to LINK asks
+# `make -Bn` instead -- their file list and their -I directories, our flags.
+# allocfail: ex00_program_allocfail, at robust, replays subject_example with one
+# of the program's own malloc() calls refused per run, and asks only what every
+# reading of the sentence allocfail_rule quotes agrees on: it ends by itself,
+# within its time, with bounded output. No message and no status are asserted.
+# No 42 grader refuses a program an allocation, so this is the repo's rigour
+# (TODO.md §23, WP-92). No leak target: this subject states no freeing rule.
+c_program(
+    num = "00",
+    name = "bsq",
+    makefile = True,
+    # Every case below, run with //oracle's reference program in the team's
+    # place (`oracle run bsq`, ex00_reference_cases, complete): the maps and
+    # outputs are the reference's (bsq_fixtures, held by ex00_oracle_fixtures),
+    # and this holds which map each case hands the program to which output it
+    # expects -- a case whose arguments, standard input or expected file
+    # drifted apart fails there, on any tree.
+    reference = True,
+    # The subject authorises malloc and free (the contract's allowed line, which
+    # c_program reads), so the leak layer and the allocation sweep are worth
+    # having: the example as a named file, and the example map on standard
+    # input (ex00_stdin_map_program_allocfail), a transport the named-file case
+    # does not exercise.
+    allocfail = [
+        "subject_example",
+        "stdin_map",
+    ],
+    allocfail_rule = "The subject: \"You must handle errors coherently, in accordance " +
+                     "with the instructions of this subject.\"",
+    cases = [
+        # The subject's own worked example, byte for byte. The fixture and its
+        # expected output are generated from //oracle's first record, so the
+        # two cannot drift from the reference the diff layer uses.
+        {
+            "name": "subject_example",
+            "args": ["$(location tests/ex00/fixtures/subject.map)"],
+            "fixtures": ["tests/ex00/fixtures/subject.map"],
+            "expected": "subject.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "one_cell",
+            "args": ["$(location tests/ex00/fixtures/one.map)"],
+            "fixtures": ["tests/ex00/fixtures/one.map"],
+            "expected": "one.txt",
+            "clues": "clues.tsv",
+        },
+        # Valid, and the answer is "nothing to draw". A program that reports
+        # "map error" when it finds no square fails here and only here.
+        {
+            "name": "no_empty_cell",
+            "args": ["$(location tests/ex00/fixtures/nosquare.map)"],
+            "fixtures": ["tests/ex00/fixtures/nosquare.map"],
+            "expected": "nosquare.txt",
+            "clues": "clues.tsv",
+        },
+        # Three of the validity rules, one per case, with the defect placed
+        # late in the file where a validator that checks two lines misses it.
+        {
+            "name": "dup_chars",
+            "invalid_input": True,
+            "args": ["$(location tests/ex00/fixtures/dupchars.map)"],
+            "fixtures": ["tests/ex00/fixtures/dupchars.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "ragged_line",
+            "invalid_input": True,
+            "args": ["$(location tests/ex00/fixtures/ragged.map)"],
+            "fixtures": ["tests/ex00/fixtures/ragged.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "undeclared_char",
+            "invalid_input": True,
+            "args": ["$(location tests/ex00/fixtures/undeclared.map)"],
+            "fixtures": ["tests/ex00/fixtures/undeclared.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        # THE RULES THE SUBJECT STATES, one per case, each certain under every
+        # reading. Every file here is written by the reference
+        # (bsq_fixtures; ex00_oracle_fixtures below holds them to it): an
+        # invalid map is a record of the corpus's error head, a valid one a
+        # map the reference solves, so a case and the corpus cannot say two
+        # things about one rule. Each has hints of its own that ask about its
+        # rule, since a file of hints shows its first three.
+        #
+        # "The first line must start with a valid positive number": a count
+        # of 0 and no row at all -- not positive, and not "at least one line".
+        {
+            "name": "count_zero",
+            "invalid_input": True,
+            "args": ["$(location tests/ex00/fixtures/count_zero.map)"],
+            "fixtures": ["tests/ex00/fixtures/count_zero.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        # Fewer rows than the first line promises: the map it describes is
+        # not there.
+        {
+            "name": "count_short",
+            "invalid_input": True,
+            "args": ["$(location tests/ex00/fixtures/count_short.map)"],
+            "fixtures": ["tests/ex00/fixtures/count_short.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        # "followed by three different printable characters": a control
+        # byte (0x01) as the full character, which the body never uses.
+        {
+            "name": "nonprintable_char",
+            "invalid_input": True,
+            "args": ["$(location tests/ex00/fixtures/nonprintable.map)"],
+            "fixtures": ["tests/ex00/fixtures/nonprintable.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        # "There is at least one line of at least one cell on the map": three
+        # empty lines, as many as the count promises.
+        {
+            "name": "zero_width",
+            "invalid_input": True,
+            "args": ["$(location tests/ex00/fixtures/zero_width.map)"],
+            "fixtures": ["tests/ex00/fixtures/zero_width.map"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        # "Note that the space character, or digits, can be part of the last 3
+        # characters of the line": valid maps, and solved. A space as the
+        # empty character, and '1', '2', '3' under a count of 4 ("4123").
+        {
+            "name": "space_char",
+            "args": ["$(location tests/ex00/fixtures/space_char.map)"],
+            "fixtures": ["tests/ex00/fixtures/space_char.map"],
+            "expected": "space_char.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "digit_chars",
+            "args": ["$(location tests/ex00/fixtures/digit_chars.map)"],
+            "fixtures": ["tests/ex00/fixtures/digit_chars.map"],
+            "expected": "digit_chars.txt",
+            "clues": "clues.tsv",
+        },
+        # "closest to the top of the map, then the one that is most to the
+        # left": two biggest squares, the higher one further right, so the
+        # rule applied the other way round draws the other one.
+        {
+            "name": "tie_top_first",
+            "args": ["$(location tests/ex00/fixtures/tie_top_first.map)"],
+            "fixtures": ["tests/ex00/fixtures/tie_top_first.map"],
+            "expected": "tie_top_first.txt",
+            "clues": "clues.tsv",
+        },
+        # OPEN, so what every reading agrees on (the list at the top): a map
+        # whose last row has no newline is "map error", or the solved map with
+        # every row ending in one. An unterminated row, a crash or a hang
+        # fails either way; which verdict is ex00_readings' question.
+        {
+            "name": "no_final_newline",
+            "args": ["$(location tests/ex00/fixtures/no_final_newline.map)"],
+            "fixtures": ["tests/ex00/fixtures/no_final_newline.map"],
+            "any_of": ["no_final_newline.txt", "maperror.txt"],
+            "clues": "clues.tsv",
+        },
+        # Two files in one run: exactly one blank line BETWEEN the outputs.
+        # Both orders, because "map error then a map" and "a map then map
+        # error" are different code paths in most implementations. Both hold
+        # an invalid map, so both are marked: a program may end either run
+        # non-zero for it, and two_maps' twin demanded 0 until the harness
+        # asked for the mark (diff_output.sh, A DEFAULT IS NOT A DECISION).
+        {
+            "name": "two_maps",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/subject.map)",
+                "$(location tests/ex00/fixtures/dupchars.map)",
+            ],
+            "fixtures": [
+                "tests/ex00/fixtures/subject.map",
+                "tests/ex00/fixtures/dupchars.map",
+            ],
+            "expected": "two.txt",
+            "clues": "clues.tsv",
+        },
+        # A NAME THAT WILL NOT OPEN (finding 110): "In case of an invalid
+        # file or map, your program should display map error on the standard
+        # output followed by a newline. Your program will then move on to the
+        # next available file, if any." A name no file has is not a valid
+        # file -- it has no first line to start with a number -- so it is a
+        # map error, alone and before or after a good map, at basic. Its
+        # outputs are the two-file cases' own: a map error where the invalid
+        # map stood. Measured on 2026-10-01 (tools/probe_under.sh, a program
+        # that drops such a name without a word): red on map_then_missing
+        # and missing_then_map, and on no other output target.
+        {
+            "name": "missing_alone",
+            "missing_file": "no_such_file_ex00",
+            "invalid_input": True,
+            "args": ["no_such_file_ex00"],
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "map_then_missing",
+            "missing_file": "no_such_file_ex00",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/subject.map)",
+                "no_such_file_ex00",
+            ],
+            "fixtures": ["tests/ex00/fixtures/subject.map"],
+            "expected": "two.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "missing_then_map",
+            "missing_file": "no_such_file_ex00",
+            "invalid_input": True,
+            "args": [
+                "no_such_file_ex00",
+                "$(location tests/ex00/fixtures/one.map)",
+            ],
+            "fixtures": ["tests/ex00/fixtures/one.map"],
+            "expected": "errthenmap.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "error_then_map",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/ragged.map)",
+                "$(location tests/ex00/fixtures/one.map)",
+            ],
+            "fixtures": [
+                "tests/ex00/fixtures/ragged.map",
+                "tests/ex00/fixtures/one.map",
+            ],
+            "expected": "errthenmap.txt",
+            "clues": "clues.tsv",
+        },
+        # Taller and wider than nine (finding 113). Every other fixture is 9
+        # rows at most, so the memory arms every case gets (_asan, _valgrind)
+        # never saw a tenth row, and a program that freed only the first nine
+        # was clean in all of them. Record 296 of `oracle bsq_maps 1 400`,
+        # written by `oracle bsq_fixtures` like every file here (tall.map,
+        # tall.txt): 20 rows of 23, the square 4 a side at row 7, column 17.
+        {
+            "name": "tall_map",
+            "args": ["$(location tests/ex00/fixtures/tall.map)"],
+            "fixtures": ["tests/ex00/fixtures/tall.map"],
+            "expected": "tall.txt",
+            "clues": "clues.tsv",
+        },
+        # No arguments at all: the map arrives on stdin -- a valid one, and an
+        # invalid one, since "map error" is owed whichever way a map arrives.
+        {
+            "name": "stdin_map",
+            "stdin": "tests/ex00/fixtures/subject.map",
+            "expected": "subject.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "stdin_invalid",
+            "invalid_input": True,
+            "stdin": "tests/ex00/fixtures/ragged.map",
+            "expected": "maperror.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+
+# The hints a case shows are its clue rows keyed to it, three at a time, most
+# fundamental first: //tools/tests's selftest reads this file the way the
+# output tests do and requires the row that fits a case to be among them
+# (finding 155), so the file is visible to it.
+exports_files(
+    ["tests/ex00/clues.tsv"],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
+c_levels()
+
+# ---------------------------------------------------------------------------
+# WHY THIS ONE GATES, where rush-02's differential does not.
+#
+# rush-02's targets are `manual` because its subject pins four outputs and no
+# composition rule, so a disagreement there is evidence rather than a verdict.
+# bsq is the opposite: the subject fixes the answer completely, including which
+# of several equally big squares to draw ("closest to the top of the map, then
+# the one that is most to the left"). There is exactly one correct output per
+# map, so these are real checks and they are allowed to be red.
+#
+# hand_test(), so each gets what every macro-emitted test gets from _test():
+# its exercise's tag, which puts it in :exNN (the old lvl_tags() gave none,
+# and these were missing from their suite: finding 070), and the level ladder
+# of its layer, read from _LAYER_LEVEL rather than written here.
+#
+# Each target gates on the exercise's own subject-example fixture: while that
+# is red, replaying hundreds of generated maps says the same thing hundreds of
+# times less usefully. The gate fails OPEN and NO_SKIP=1 forces it. It is
+# that case's run -- the program handed the example's map -- and not the
+# program run with no map at all, which a correct program answers with "map
+# error": gated that way, every target here said SKIP on every program that
+# passes the example. c_levels()' audit now refuses a gate that hands the
+# program none of its output test's input (_waiting_problems), or runs it
+# some other way than an output test of the package does (_gate_problems).
+BSQ_GATE = [
+    "--gate-differ",
+    "$(location //tools:diff_output.sh)",
+    "--gate-bin",
+    "$(location :ex00_bin)",
+    "--gate-expected",
+    "$(location tests/ex00/subject.txt)",
+    "--gate-arg",
+    "$(location tests/ex00/fixtures/subject.map)",
+]
+
+# The output test that gate is, by name (`waits` on each target behind it):
+# two cases print subject.txt, the example as an argument and on stdin, so
+# the gate's program and file alone do not say which (tools/defs.bzl,
+# _waits_for). Its red log lists every target that waits for it.
+BSQ_WAITS = "ex00_subject_example_output"
+
+# What standard error is held to, a choice at every call (tools/defs.bzl's
+# _RUNNER_CHOICES), and the Run contract's: ignored, unless the subject
+# requires something of it. BSQ's puts "map error" on standard output.
+BSQ_STDERR = stderr_ignored(
+    "BSQ's subject puts map error on standard output and asks nothing of standard error",
+)
+
+# The subject's sentences the faults quote (bsq_check.sh's --quotes, whose
+# header lists its keys), written once, here. Each target that passes it lists
+# :ex00_bsq_quotes in its data.
+BSQ_QUOTES = runner_quotes(
+    name = "ex00_bsq_quotes",
+    quotes = {
+        "tie": "BSQ, p.4: \"In the case that more than one solution exists, we will choose to represent the square that is closest to the top of the map, then the one that is most to the left.\"",
+        "error": "BSQ, p.5: \"In case of an invalid file or map, your program should display map error on the standard output followed by a newline. Your program will then move on to the next available file, if any.\"",
+    },
+)
+
+# :ex00_bin is NOT here: every target below already lists it, and Bazel rejects
+# a label that appears twice in one `data` attribute.
+BSQ_GATE_DATA = [
+    "//tools:diff_output.sh",
+    # How the gate's run ended, from waitpid(); diff_output.sh refuses to run
+    # without it (tools/exit_status.c).
+    "//tools:exit_status",
+    "tests/ex00/subject.txt",
+    "tests/ex00/fixtures/subject.map",
+]
+
+# ONE GENERATOR, THREE TRANSPORTS: every target below replays bsq_mixed,
+# valid and invalid maps interleaved by the reference, and they differ only in
+# how a map reaches the program -- a file named on argv, stdin with no
+# argument, several files in one run. The subject owes "map error" for an
+# invalid map whichever way it arrives, so every transport gets both kinds:
+# the stdin target once replayed valid maps only, and a program that read an
+# invalid map from stdin without a word passed all three (finding 181). The
+# counts differ, so the random tails do; the seed and the structured heads do
+# not.
+#
+# One map per exec. The corpus opens with what a hand-written fixture cannot
+# cover: every rectangle up to 8x8, the tie battery, squares flush against
+# each edge, space and digits and a backslash as map characters, a density
+# ladder, and every error slug of the reference, each isolating its rule.
+hand_test(
+    name = "ex00_bsq_diff",
+    layer = "diff",
+    size = "medium",
+    srcs = ["//tools:bsq_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "bsq_mixed",
+        "--count",
+        "120",
+    ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
+    data = [
+        ":ex00_bin",
+        ":ex00_bsq_quotes",
+        "//oracle:oracle",
+        "//tools:bsq_check.sh",
+        "//tools:runner_lib.sh",
+    ] + BSQ_GATE_DATA,
+    waits = BSQ_WAITS,
+)
+
+# The same generator, each map arriving on stdin with no argv.
+hand_test(
+    name = "ex00_bsq_stdin",
+    layer = "diff",
+    size = "medium",
+    srcs = ["//tools:bsq_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "bsq_mixed",
+        "--count",
+        "60",
+        "--mode",
+        "stdin",
+    ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
+    data = [
+        ":ex00_bin",
+        ":ex00_bsq_quotes",
+        "//oracle:oracle",
+        "//tools:bsq_check.sh",
+        "//tools:runner_lib.sh",
+    ] + BSQ_GATE_DATA,
+    waits = BSQ_WAITS,
+)
+
+# The same generator, three maps per exec. This is the only target that
+# checks the blank line between outputs, and the interleave is drawn by the
+# reference rather than by grouping a sorted corpus -- a strictly alternating
+# corpus sliced into groups of three is all-valid or all-invalid groups, which
+# is the trap rush01's generator documents.
+hand_test(
+    name = "ex00_bsq_multi",
+    layer = "diff",
+    size = "medium",
+    srcs = ["//tools:bsq_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "bsq_mixed",
+        "--count",
+        "40",
+        "--mode",
+        "multi",
+        "--group",
+        "3",
+    ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
+    data = [
+        ":ex00_bin",
+        ":ex00_bsq_quotes",
+        "//oracle:oracle",
+        "//tools:bsq_check.sh",
+        "//tools:runner_lib.sh",
+    ] + BSQ_GATE_DATA,
+    waits = BSQ_WAITS,
+)
+
+# ---------------------------------------------------------------------------
+# THE READINGS, at strict. What the subject leaves open (the list at the top)
+# gets ONE reading here, stated only in the hints this target prints (the
+# rows of tests/ex00/clues.tsv keyed to "readings", its --case).
+#
+# Each record isolates its reading: the rest of the map is consistent with it
+# (a count of 9 sits over nine rows), so only the open form can decide the
+# verdict. A program that takes the other reading fails this target alone,
+# and nothing at basic. Suffix _readings: layer diff, strict.
+hand_test(
+    name = "ex00_readings",
+    layer = "diff",
+    size = "small",
+    srcs = ["//tools:bsq_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "bsq_readings",
+        "--readings",
+        "--clues",
+        "$(location tests/ex00/clues.tsv)",
+        "--case",
+        "readings",
+    ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
+    data = [
+        ":ex00_bin",
+        ":ex00_bsq_quotes",
+        "//oracle:oracle",
+        "//tools:bsq_check.sh",
+        "//tools:runner_lib.sh",
+        "tests/ex00/clues.tsv",
+    ] + BSQ_GATE_DATA,
+    waits = BSQ_WAITS,
+)
+
+# ---------------------------------------------------------------------------
+# THE NAMED CASES' FILES ARE THE REFERENCE'S. Every map and expected output the
+# cases above read is written by `oracle bsq_fixtures`, and this fails when a
+# file under tests/ex00/ differs from what it writes -- a reference that
+# changed, or a fixture edited by hand -- or when a map or an output is there
+# that it does not write at all (--owns: every tests/ex00/*.txt and
+# fixtures/*.map is the reference's, so a case added with hand-typed files
+# fails here until the reference writes them; one reading a file there that
+# neither pattern matches stops this module loading, in c_levels()' audit).
+# It runs nothing of yours, so it sits with the reference's own checks (layer
+# oracle, complete). After a change to the reference:
+#
+#     bazel run //c-piscine/c-piscine-bsq:ex00_oracle_fixtures -- --write
+hand_test(
+    name = "ex00_oracle_fixtures",
+    layer = "oracle",
+    size = "small",
+    srcs = ["//tools:oracle_fixtures.sh"],
+    args = [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "bsq_fixtures",
+        "--in-dir-of",
+        "$(location tests/ex00/maperror.txt)",
+        # The same patterns as the data below: what is staged is what is owned.
+        "--owns",
+        "*.txt",
+        "--owns",
+        "fixtures/*.map",
+    ],
+    data = [
+        "//oracle:oracle",
+        "//tools:oracle_fixtures.sh",
+    ] + glob([
+        "tests/ex00/*.txt",
+        "tests/ex00/fixtures/*.map",
+    ]),
+)
+
+# MAPS FAR BIGGER THAN ANY CAPACITY A PROGRAM MIGHT PICK (finding 041). Every
+# map above is at most 30 a side and every fixture at most 20 rows, so a
+# program that kept its map in a 64 x 64 array, read the file in one read() of
+# 64 KiB, held a line in 4096 bytes or counted rows in 16 bits passed every
+# layer. The subject bounds no size ("Test your program with many maps of
+# different sizes", p.7), so every reading agrees on each answer -- and it
+# sets no time limit either, so no layer here may fail a program for being
+# slow (the owner's ruling R4, 2026-10-02). Hence two lists, answered by the
+# same reference (bsq_long and bsq_big), and each gated on the subject's
+# example like the corpus targets above:
+#
+#   bsq_long  BASIC. One line of 70000 cells, 70000 lines of one cell, and a
+#             300 x 300 map with no empty cell: every capacity above is passed
+#             by one of them, and no square is bigger than one cell, so
+#             finding it costs any program a constant per cell whatever its
+#             method. Every correct program finishes these.
+#   bsq_big   STRICT (the _bsq_big suffix's level, tools/defs.bzl). A million
+#             cells whose biggest square is past 64 a side, ten thousand
+#             lines of a hundred, and a million cells with three obstacles,
+#             whose biggest square is 652 a side: maps where the method
+#             matters, so a correct program that is slow enough may not
+#             finish one in the time a test has. The nearly empty one is the
+#             map a solver that grows every candidate a cell at a time, and
+#             reads the whole square at each step, does not finish; on the
+#             other two it took 13 s a map (the mutation run of 2026-10-03,
+#             finding 041c), and nothing reached the guard below.
+#
+# NO SPEED REQUIREMENT, at either level. The limit each map gets is a guard
+# against a program that never finishes, never a deadline: what the test's own
+# time class ("large", 900 s, less the margin the report is written in)
+# leaves for each map of its list -- 840 s over the list, 280 s each of the
+# three long maps, 210 s each of the four big ones. That is as far as a
+# harness can go -- Bazel ends the test at its limit whatever the runner
+# does -- so a program slower than that on one map is reported as DID NOT
+# FINISH, saying it may be an infinite loop or too slow, and the tally says
+# the map did not finish, never that its answer was wrong. No layer measures
+# yet how BSQ's cost grows with the map (TODO.md, WP-69).
+# Measured on a correct program (2026-10-02): 0.6 s for the long maps and
+# 2.5 s for the big ones, as an argument and on stdin alike; 2.7 s on the
+# ASan build for the big ones, 3.4 s for the long ones under memcheck.
+BSQ_FIXED = {
+    fn: [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        fn,
+        "--fixed",
+        count,
+        "--timeout",
+        guard,
+    ]
+    for fn, count, guard in [("bsq_long", "3", "280"), ("bsq_big", "4", "210")]
+}
+
+[hand_test(
+    name = "ex00_%s%s" % (fn, "_stdin" if mode == "stdin" else ""),
+    layer = "output",
+    # strict for the big maps, as their suffix says (_SUFFIX_LAYER)
+    level = 2 if fn == "bsq_big" else None,
+    size = "large",
+    srcs = ["//tools:bsq_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+    ] + BSQ_FIXED[fn] + [
+        "--mode",
+        mode,
+    ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
+    data = [
+        ":ex00_bin",
+        ":ex00_bsq_quotes",
+        "//oracle:oracle",
+        "//tools:bsq_check.sh",
+        "//tools:runner_lib.sh",
+    ] + BSQ_GATE_DATA,
+    waits = BSQ_WAITS,
+) for fn in ["bsq_long", "bsq_big"] for mode in ["argv", "stdin"]]
+
+# EVERY CORPUS ABOVE, UNDER THE MEMORY CHECKERS (finding 113). Every map above
+# ran on the plain build only, and the fixed cases' _asan and _valgrind arms
+# are 20 rows at most, so a program that freed only the rows a small map has,
+# or wrote one past a row buffer only on a long line, was green everywhere.
+# corpus_memory (tools/defs.bzl) replays each corpus exactly as its plain
+# target does -- the same maps, the same transport -- on the ASan build
+# (<stem>_diff_asan, robust) and 25 of its runs under memcheck (<stem>_valgrind,
+# strict: the subject allows malloc):
+#
+#   ex00_bsq        ex00_bsq_diff's maps, valid and invalid, one per run as an
+#                   argument
+#   ex00_bsq_stdin  ex00_bsq_stdin's, on standard input
+#   ex00_bsq_multi  ex00_bsq_multi's, three per run: where one map's
+#                   leftovers meet the next map's reading
+#   ex00_readings   ex00_readings' maps, the forms the subject leaves open (a
+#                   count written "+9" or " 9", a last row with no newline):
+#                   input no other corpus holds
+#   ex00_bsq_long, ex00_bsq_long_stdin  the long maps, as an argument and
+#                   on stdin: one read() of a 70000 cell line is where a
+#                   buffer sized for the usual map overflows
+#   ex00_bsq_big, ex00_bsq_big_stdin  the big maps, the same two ways. No
+#                   memcheck arm (no_valgrind).
+#
+# Memory and how each run ended are judged, never the map -- so a twin makes
+# no stderr choice, standard error being where the checker reports (tools/
+# defs.bzl, _RUNNER_CHOICES). c_levels()' audit holds each plain replay above
+# to these twins, corpus by corpus. Gated like
+# the corpus targets: a memory report about a program whose own example is
+# still red describes code about to change.
+[corpus_memory(
+    stem = stem,
+    runner = "//tools:bsq_check.sh",
+    args = [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        fn,
+        "--count",
+        count,
+    ] + extra + BSQ_GATE,
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+    ] + BSQ_GATE_DATA,
+    waits = BSQ_WAITS,
+) for stem, fn, count, extra in [
+    ("ex00_bsq", "bsq_mixed", "120", []),
+    ("ex00_bsq_stdin", "bsq_mixed", "60", ["--mode", "stdin"]),
+    ("ex00_bsq_multi", "bsq_mixed", "40", ["--mode", "multi", "--group", "3"]),
+]]
+
+# The readings corpus is a fixed list that reads no --count. --readings is
+# passed although no reading is judged under a checker: it is how bsq_check.sh
+# accepts a record tagged with an open form at all.
+corpus_memory(
+    stem = "ex00_readings",
+    runner = "//tools:bsq_check.sh",
+    args = [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "bsq_readings",
+        "--readings",
+    ] + BSQ_GATE,
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+    ] + BSQ_GATE_DATA,
+    waits = BSQ_WAITS,
+    size = "small",
+)
+
+[corpus_memory(
+    stem = "ex00_%s%s" % (fn, "_stdin" if mode == "stdin" else ""),
+    runner = "//tools:bsq_check.sh",
+    args = BSQ_FIXED[fn] + [
+        "--mode",
+        mode,
+    ] + BSQ_GATE,
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+    ] + BSQ_GATE_DATA,
+    waits = BSQ_WAITS,
+    size = "large",
+    no_valgrind = None if fn == "bsq_long" else (
+        "a million cells at memcheck's 20-50x is minutes for a correct program, " +
+        "and every other corpus of this exercise has a memcheck sample"
+    ),
+) for fn in ["bsq_long", "bsq_big"] for mode in ["argv", "stdin"]]

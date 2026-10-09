@@ -1,0 +1,9 @@
+index 0 first node	a
+index 2 middle node	c
+index 4 last node	e
+index 5 one past end	NULL
+index 9 far past end	NULL
+empty list index 0	NULL
+index 2^31 on a short list	NULL
+index UINT_MAX on a short list	NULL
+empty list index UINT_MAX	NULL

@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex05 (git_commit.sh)
+What does the subject's cat -e transcript show for each commit: how long is the id, and is anything printed besides it? How many commits does git's history show you when you ask for nothing special, and what else does it print for each one? What does man git-log say about limiting how many commits are shown, and about the format of each?

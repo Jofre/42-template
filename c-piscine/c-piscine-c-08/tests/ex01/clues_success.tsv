@@ -1,0 +1,5 @@
+# clues_success.tsv for ft_boolean.h's `success` case -- hints only, never answers.
+# This case runs the same program as `even` and also reads how it ended, so its
+# one hint is about that and nothing else. Keyed to no case: it fires on any
+# failure, and when every row passed it is the only hint that applies.
+The value main returns becomes the program's exit status -- what the shell reads as $? once it ends. The subject's main returns one of your header's names: which one, and what does your header make that name expand to? The EXIT STATUS lines above say what this check expects and whose rule it is. If a row of the table failed instead, the hints for that are the `even` case's.

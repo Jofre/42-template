@@ -1,0 +1,25 @@
+  Number, source base, destination base -- three columns, each two hex digits
+  per byte -- then the result, as hex, or NULL.
+    * either base column      -> what makes a base invalid. C 04 lists
+                                 invalid bases twice, once for writing a
+                                 number and once for reading one: which list
+                                 does each side answer to, and which sentence
+                                 of the subject says so? (Whitespace in
+                                 base_to is a case the subject leaves open:
+                                 no input here holds one, and the target that
+                                 holds one reading of it is
+                                 ex04_base_to_space_output, at strict.)
+    * only numbers with whitespace after a sign -> where ft_atoi's order puts
+                                 whitespace, signs and digits
+    * only bases holding a byte above 0x7f, or a control byte -> in every
+                                 case here such a byte decides nothing: the
+                                 other base, or a rule C 04's lists state,
+                                 makes the answer NULL either way. What does
+                                 your base check do with a char whose value
+                                 is negative? (Whether such a byte may be a
+                                 digit at all is ex04_readings' question.)
+    * only negative numbers   -> the sign, written once, ahead of the digits
+    * only INT_MIN            -> negating first costs you exactly one number
+    * zero prints nothing     -> a loop that cannot run zero times
+    * the digits are right, reversed -> the order they are produced versus the
+                                 order they are needed

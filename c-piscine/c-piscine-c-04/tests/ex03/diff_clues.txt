@@ -1,0 +1,21 @@
+  The input is text; group the failures by what the text contains.
+    * leading whitespace ignored or not -> the subject lists exactly which bytes
+                                           count as whitespace, and it is more
+                                           than the space
+    * multiple signs ("--42", "+-42")   -> the subject says what a run of signs
+                                           means; it is not "the first one wins"
+    * a sign after whitespace           -> the order the two are allowed in
+    * trailing garbage ("42abc")        -> where the number is allowed to end
+    * only very long digit strings      -> every value here fits an int:
+                                           does anything your loop computes
+                                           on the way to it not fit? (What C
+                                           promises about each type's width:
+                                           docs/testing.md, under ilp32.)
+    * only INT_MIN                      -> accumulating the positive value first
+                                           costs you exactly one representable
+                                           number
+    * only strings starting with a byte of 0x80 or more, or a control byte
+                                        -> whether your whitespace test names
+                                           the bytes the subject lists, or a
+                                           range that a char holding one of
+                                           these also falls in

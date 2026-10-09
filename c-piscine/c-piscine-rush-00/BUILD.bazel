@@ -1,0 +1,161 @@
+load("//tools:defs.bzl", "c_levels", "exercise", "hand_test", "rush_common", "rush_owed", "rush_variant", "subject")
+load(":team.bzl", "ASSIGNED")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from the header box on page 8:
+# "Turn-in directory: ex00/", "Files to turn in: main.c, ft_putchar.c,
+# rush0X.c", "Allowed functions: write" -- with 0X the variant in team.bzl
+# (rush_owed), so the files layer requires what THIS team owes and nothing
+# more, and a missing one FAILS.
+#
+# `optional` is what may sit beside them: every variant (the ones you do not
+# owe are bonus -- p.5, "You can earn bonus points by submitting other
+# versions of the project with their corresponding names" -- so a finished
+# one is not an extra file), and any other .c or .h, for the same bonus: "a
+# single binary accepting a command line argument to switch from one version
+# to another" needs files of its own, and a header is how a team declares a
+# struct (the Norm forbids one in a .c file). The template ships no header:
+# the subject names three files. Every .c and .h here is normed at basic --
+# "If you have bonus files/functions, they are included in the norm check"
+# (p.4) -- the variants by rush_variant(), the rest by rush_common()'s
+# ex00_extra_norm. Anything else FAILS (strict, the default): p.15, "You must
+# submit only the files explicitly requested in the project instructions",
+# and a binary, a notes file or an object is none of them.
+#
+# The names are written out rather than built from VARIANTS: the template
+# build reads these lists as text (answer_scan.sh --declared), and a name the
+# subject gives has to be visible there.
+subject(
+    grader = "defense",
+    group = True,
+    exercises = {
+        "00": exercise(
+            page = 8,
+            dir = "ex00/",
+            files = ["main.c", "ft_putchar.c"] + rush_owed(ASSIGNED),
+            optional = [
+                "rush00.c",
+                "rush01.c",
+                "rush02.c",
+                "rush03.c",
+                "rush04.c",
+                "rush.h",
+                "*.c",
+                "*.h",
+            ],
+            allowed = ["write"],
+        ),
+    },
+)
+
+# ---------------------------------------------------------------------------
+# Which variant does your team owe? Say it in team.bzl, next to this file: its
+# ASSIGNED line is the one thing in this project a team edits, and nothing here
+# needs touching. team.bzl is the team's file, not the harness's: once it has
+# shipped, a harness change never edits it, so an update cannot collide with the
+# line a team wrote (docs/design.md: per-team state stays out of harness files).
+#
+# Only the variants named there are GATED: their tests run under
+# `bazel test //...` and have to be green before `bazel run //tools:submit` will
+# push the module. Every other variant is a bonus -- its tests are tagged
+# "manual", so an untouched stub can never block your submission, and a stub
+# you have deleted has no targets at all. All but its Norm check: the subject
+# says bonus files "are included in the norm check", so a rush0N.c that is
+# there is normed at basic whatever ASSIGNED says (a stub passes). Work on a
+# bonus variant with its own suite:
+#     bazel test //c-piscine/c-piscine-rush-00:ex00_rush03
+# and add it to ASSIGNED once you want it gated with the rest.
+#
+# Widen the list as you finish bonus variants, because leaving a WRITTEN variant
+# ungated has a cost this repo has already paid: a comment-only commit silently
+# re-pasted rush00's body into the other four, so every one of them drew
+# rush00's characters and rush01 stopped compiling outright, and neither was
+# visible for weeks because `bazel test //...` never touched them. An ungated
+# variant is one a later edit can break without the suite noticing.
+#
+# The five variants draw the same rectangle with different characters, and they
+# are not equally revealing: rush00 uses one character for all four corners, so
+# it cannot see a corner mix-up, while rush01..rush04 use a single character for
+# both walls, so they cannot see a horizontal/vertical wall swap. Running all
+# five is the only way to cover both.
+# ---------------------------------------------------------------------------
+VARIANTS = ["00", "01", "02", "03", "04"]
+
+# ex00_rush0N_symbols (strict; the `_symbols` row of docs/reference.md)
+# checks the global names rush0N.c defines against rush_variant's
+# `exports`, whose default this module keeps (its docstring says why).
+
+# main.c + ft_putchar.c: norm, both campus compilers, and ft_putchar's own
+# output/forbidden tests (linked against ft_putchar.c alone).
+rush_common()
+
+# Every layer, once per variant. See //tools:defs.bzl for the list. A variant
+# outside ASSIGNED whose rush0N.c has been deleted emits nothing.
+[
+    rush_variant(variant = v, gated = v in ASSIGNED)
+    for v in VARIANTS
+]
+
+# ---------------------------------------------------------------------------
+# EVERY FILE A CASE HERE READS IS THE REFERENCE'S. `oracle rush00_fixtures`
+# writes them all, and this fails when a file there differs from what it
+# writes -- a reference that changed, or a file edited by hand -- or when a
+# file its --owns patterns match is there that it does not write:
+#
+#   cases.tsv, rush0N.txt      each variant's curated table (_output): the
+#                              case list and its expected rows, cut from one
+#                              list (FIXED) so their labels cannot drift
+#   edge_cases.tsv, survive.txt  the survival layer's cases and rows
+#                              (_survive), from one list (SURVIVE)
+#   putchar.txt                ft_putchar's bytes (ex00_putchar_output)
+#   defense.txt, defense_rush0N.txt  the subject's defense case, rush(123,
+#                              42), as each variant draws it (_defense)
+#
+# Each of those tests says which files it reads (a case_reads tag), and
+# c_levels()' audit fails this package if one reads a file here that no
+# pattern below matches. It runs nothing of yours, so it sits with the
+# reference's own checks (layer oracle, complete). After a change to the
+# reference (tests/ex00/regen.sh runs this, after the reference's
+# self-check):
+#
+#     bazel run //c-piscine/c-piscine-rush-00:ex00_oracle_fixtures -- --write
+_RUSH00_DIR = "tests/ex00/"
+
+RUSH00_OWNED = [
+    "cases.tsv",
+    "defense*.txt",
+    "edge_cases.tsv",
+    "putchar.txt",
+    "rush0*.txt",
+    "survive.txt",
+]
+
+hand_test(
+    name = "ex00_oracle_fixtures",
+    layer = "oracle",
+    size = "small",
+    srcs = ["//tools:oracle_fixtures.sh"],
+    args = [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "rush00_fixtures",
+        "--in-dir-of",
+        "$(location tests/ex00/defense.txt)",
+    ] + [
+        a
+        for p in RUSH00_OWNED
+        for a in ["--owns", p]
+    ],
+    # The files the patterns above name, read from them: what is staged is
+    # what is owned, and a pattern that matches nothing staged stops the run
+    # (exit 2). A name is staged as itself and a pattern globbed, so no glob
+    # names one file (//tools:conventions keeps those for 42's material).
+    data = [
+        "//oracle:oracle",
+        "//tools:oracle_fixtures.sh",
+    ] + [_RUSH00_DIR + p for p in RUSH00_OWNED if "*" not in p] + glob(
+        [_RUSH00_DIR + p for p in RUSH00_OWNED if "*" in p],
+    ),
+)
+
+c_levels()

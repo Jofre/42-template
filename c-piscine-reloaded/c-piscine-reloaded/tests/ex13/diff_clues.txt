@@ -1,0 +1,6 @@
+  Same contract as the iterative one, so compare against that first.
+    * 0 diverges              -> the base case
+    * every negative          -> the subject says what an invalid input returns,
+                                 and a recursion has to check before it recurses
+    * only large inputs       -> overflow, and what the subject says to return
+    * it never terminates     -> the base case is not reachable from every input

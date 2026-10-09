@@ -1,0 +1,3 @@
+  ex03_readings: the toy reading's own corpus, an invented legend that only
+  ex03_readings prints, never its ASan twin.
+    * any of them             -> which sentence of the toy subject decides it?

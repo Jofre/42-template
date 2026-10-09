@@ -1,0 +1,6 @@
+# clues.tsv for ft_iterative_factorial — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+What should the product of NO numbers at all — the "empty product" — be? Decide what value your accumulator starts at and what the loop returns when it never runs.	0!	1!
+Factorial is undefined for a negative input. What single sentinel value does this exercise's error convention return to flag that? Does the most negative possible int take that same path, or does negating it trip you up first?	(-1)!	(-5)!	INT_MIN!
+Each step multiplies by a larger number, so the result climbs astonishingly fast. Inside a plain int, how many terms can you keep multiplying before the product can no longer be represented?	10!	12!

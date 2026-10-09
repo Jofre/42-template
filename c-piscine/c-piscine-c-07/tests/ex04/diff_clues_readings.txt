@@ -1,0 +1,12 @@
+  ex04_readings: in every case here, base_from or base_to holds a byte above
+  0x7f, or a control byte, and breaks no rule C 04's lists of invalid bases
+  state. Number, source base, destination base -- three columns, each two
+  hex digits per byte -- then the result, as hex, or NULL.
+    * any of them             -> whether such a byte may be a digit of a base.
+                                 C 04's lists are headed "Examples of invalid
+                                 arguments" and name none of these bytes, and
+                                 this harness's reading, at strict, never the
+                                 subject's, is that each is a symbol like any
+                                 other. Which bytes does your base check
+                                 refuse, and which sentence do you read as
+                                 deciding it?

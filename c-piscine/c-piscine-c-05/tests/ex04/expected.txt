@@ -1,0 +1,14 @@
+index 0	0
+index 1	1
+index 2	1
+index 3	2
+index 4	3
+index 5	5
+index 6	8
+index 7	13
+index 10	55
+index 20	6765
+index 30	832040
+index -1	-1
+index -5	-1
+index INT_MIN	-1

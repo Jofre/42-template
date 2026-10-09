@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_foreach
+The subject applies f to each element in order: what exactly does f expect as its argument, the node or what the node points at? Which end of the list does that order start from, and is any element skipped? And what should an empty list (a NULL begin_list) make this function do: may it touch begin_list->data at all?

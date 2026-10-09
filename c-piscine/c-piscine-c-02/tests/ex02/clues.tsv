@@ -1,0 +1,3 @@
+# clues.tsv for ft_str_is_alpha — hints only, never answers.
+What counts as a letter, and why should an EMPTY string return 1 (are all zero of its characters letters)?	"" (empty -> 1)	"Hello" (letters)	"abcXYZ" (mixed case)
+Does your function accept a character just outside the letters: '@' just before 'A', '[' just after 'Z', '`' just before 'a', '{' just after 'z'? If one of them gets in, which of your comparisons let it, and is its bound off by one?	"@" (0x40, just before 'A')	"[" (0x5B, just after 'Z')	"`" (0x60, just before 'a')	"{" (0x7B, just after 'z')

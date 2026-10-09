@@ -1,0 +1,219 @@
+# Each contract check of tools/subject.bzl and tools/defs.bzl, fed a broken
+# contract (see :contract_problems in BUILD.bazel): the case, a tab, and words
+# its message must hold -- or OK, where nothing may be wrong. Read by
+# //tools/tests:macro_fixtures_test.
+audit-case-gate-folder	OK
+audit-case-gate-no-folder	ex00_program_allocfail: the gate runs $(location :ex00_bin) on "42", from the test's own folder, against $(location tests/ex00/a.txt), and no output test of this package runs the program that way
+audit-case-gate-stdin	ex00_beside_valgrind: the gate runs $(location :ex00_bin) on "42", from the test's own folder, against $(location tests/ex00/a.txt), and no output test of this package runs the program that way
+audit-clues-keyed	OK
+audit-clues-keyed-no-case	ex00_sweep: it hands ex00's keyed clues.tsv to its runner without --case
+audit-clues-per-case	tests/ex00/clues_args.tsv: ex00 keys its hints to its cases (--case, as ex00_a_output does)
+audit-clues-read	OK
+audit-clues-unread	tests/ex00/clues_other.tsv: no test of this package hands it to a runner
+audit-argv-guarded	OK
+audit-argv-unguarded	ex00_argv_diff_asan: it replays an argument corpus under ASan on $(location :ex00_bin_asan), and ex00 has a guarded build, :ex00_argvguard_bin_asan
+audit-corpus-asan-on-plain	ex00_sweep_diff_asan: it replays its corpus with --sanitized on a program that is not an ASan build
+audit-corpus-covers	OK
+audit-corpus-covers-nothing	ex00_sweep_diff_asan: its corpus_memory() covers ex00_swept, which is no plain replay of a corpus in this package
+audit-corpus-covers-twinned	ex00_sweep_diff_asan: its corpus_memory() covers ex00_sweep, whose own corpus has a twin already (ex00_sweep_diff_asan)
+audit-corpus-each-twinned	OK
+audit-corpus-judging-options	OK
+audit-corpus-no-asan	ex00_sweep: it replays a generated corpus (its runner's default corpus) through //tools:rush01_check.sh on the plain build, and no test replays that corpus under ASan/UBSan
+audit-corpus-memory-rule-missing	ex00_sweep_valgrind: it replays a corpus under memcheck quoting no rule, and ex00_run_valgrind quotes the subject's own sentence
+audit-corpus-memory-rule-quoted	OK
+audit-corpus-no-malloc	OK
+audit-corpus-no-memcheck	ex00_sweep: its subject allows malloc, and no test replays its corpus (its runner's default corpus) under memcheck
+audit-corpus-no-valgrind	ex00_bsq_diff: its subject allows malloc, and no test replays its corpus (--fn maps) under memcheck
+audit-corpus-ok	OK
+audit-corpus-two-transports	ex00_bsq_stdin: it replays a generated corpus (--fn maps --mode stdin) through //tools:rush01_check.sh on the plain build, and no test replays that corpus under ASan/UBSan
+audit-below-its-suffix	ex00_exit: it sits at basic, below its _exit layer's robust.
+audit-empty-manual-tag	ex00_output: the no_manual_test_in_this_module tag is the empty :manual suite's, and no test may carry it.
+audit-exercise-without-test	ex01: the exercise has no test, so its //c-piscine/c-piscine-toy:ex01 runs nothing
+audit-fixture-prototype-declared	OK
+audit-fixture-prototype-missing	ex00_bin: a harness over a student's function names ex00_prototype as the test of its signature, and this package declares no such test
+audit-gate-case-run	OK
+audit-gate-no-argument	ex00_sweep, ex00_sweep_diff_asan: the gate runs $(location :ex00_bin) with no argument against $(location tests/ex00/example.txt), and no output test of this package runs the program that way
+audit-gate-stdin-case	ex00_sweep, ex00_sweep_diff_asan: the gate runs $(location :ex00_bin) with no argument
+audit-harness-untagged	ex00_diffbin: it links a harness over a student's files and carries no prototype_test= tag
+audit-ladder	ex00_output: its lvl_* tags (lvl_basic) are not a level and every level above it
+audit-layout-read	OK
+audit-layout-tag-read	OK
+audit-layout-tag-unread	tests/layout/tag/toy.h: no test of this package reads it
+audit-layout-twin-basic	ex00_layout_prototype: it sits at basic, below its _layout_prototype layer's strict
+audit-layout-twin-strict	OK
+audit-layout-unread	tests/layout/toy.h: no test of this package reads it (no exNN_prototype or exNN_layout_prototype passes it with --layout or --layout-tag)
+audit-manual-in-fixtures	OK
+audit-manual-listed	OK
+audit-manual-unlisted	ex00_output: it is manual, so no suite and no /... pattern runs it, and tools/defs.bzl's _MANUAL does not list it
+audit-no-exercise-tag	ex00_diff: it has no ex00 tag, so //c-piscine/c-piscine-toy:ex00 does not run it
+audit-no-layer	ex00_diff: it carries 0 layer tags (none)
+audit-not-an-exercise	check: a project's test is named exNN_<what>, after its exercise
+audit-ok	OK
+audit-raise-listed	OK
+audit-raise-not-raised	ex00_raised_output: _RAISED puts it at strict, and it sits at basic, where its name puts it
+audit-raise-other-level	ex00_raised_output: it sits at robust, above the basic its name gives it, and tools/defs.bzl's _RAISED does not say so
+audit-raise-stale	_RAISED names tools/tests/macro_fixtures/levels:ex00_raised_output, which this package does not declare
+audit-raise-not-turned-in	OK
+audit-raise-note	ex00_raised_output: _RAISED raises it, and it passes its runner --note, a second place to say why it sits above its layer
+audit-raise-silent-runner	ex00_raised_output: _RAISED raises it, and its runner (//tools:norminette_test.sh) does not source tools/runner_lib.sh
+audit-raise-unlisted	ex00_output: it sits at strict, above the basic its name gives it, and tools/defs.bzl's _RAISED does not say so
+audit-rules-harness-untagged	ex00_diffbin: it links a harness over a student's files and carries no prototype_test= tag
+audit-rules-memcheck-diffio	ex00_valgrind: it runs :ex00_diffbin under memcheck, and :ex00_diffbin links //tools:diffio
+audit-rules-memcheck-plain	OK
+audit-rules-oracle-owned	OK
+audit-rules-oracle-subdir	ex00_run_output: the case reads tests/ex00/fixtures/b.txt, in the directory ex00_oracle_fixtures holds to //oracle's records, and none of its --owns patterns (*.txt fixtures/*.map) matches it
+audit-rules-oracle-unowned	ex00_run_output: the case reads tests/ex00/fixtures/m.in, in the directory ex00_oracle_fixtures holds to //oracle's records, and none of its --owns patterns (*.txt fixtures/*.map) matches it
+audit-rules-oracle-unreadable	ex00_oracle_fixtures: it runs tools/oracle_fixtures.sh, and the audit cannot read its --in-dir-of $(location FILE)
+audit-suffix-other-layer	ex00_diff_asan: its name ends in _diff_asan, which is the diff_asan layer's (_SUFFIX_LAYER), and it is tagged asan
+audit-suffix-unknown	ex00_frobnicate: its name ends in no suffix tools/defs.bzl's _SUFFIX_LAYER knows
+audit-two-layers	ex00_output: it carries 2 layer tags (output, norm)
+before-subject	c_function(num = "00"): tools/tests/macro_fixtures declares no subject() before this call
+case-any-of-ok	OK
+case-any-of-one	"any_of" is a list of two or more file names
+case-args-blank	"args" holds "a b", which Bazel does not hand the program as one argument
+case-args-empty	"args" holds "", which Bazel does not hand the program as one argument
+case-args-location-ok	OK
+case-args-quoted	"args" holds "\"4 3 2 1\"", which Bazel does not hand the program as one argument
+case-argv-file-ok	OK
+case-cwd-files-dot	"cwd_files": "." is not a name inside the run folder
+case-cwd-files-header	"cwd_files" is not a key of a header case
+case-cwd-files-location	"args" holds "$(location x.dict)", a path from where Bazel runs the test
+case-cwd-files-ok	OK
+case-cwd-files-outside	"cwd_files": "../a" is not a name inside the run folder
+case-cwd-files-program	"cwd_files": "toy" is where the run folder holds the program itself
+case-key-of-another-shape	"stream" is not a key of a header case
+case-level-basic	"level" raises a case to strict, robust, complete: 2 to 4
+case-named-valgrind	a case is not named "valgrind"
+case-no-kind	exactly one of any_of, expected, survive, and it has none
+case-ok	OK
+case-reading-basic	"level" raises a case to strict, robust, complete: 2 to 4
+case-reading-no-level	a reading case needs "level"
+case-reading-no-main	a reading case needs "main"
+case-reading-ok	OK
+case-reading-program-key	"args" is not a key of a reading case
+case-reading-two-words	"name" is one word
+case-survive-compares	"labeled" shapes a comparison, and a survive case compares no output
+case-survive-ok	OK
+case-two-kinds	exactly one of any_of, expected, survive, and it has expected, survive
+case-unknown-key	"expect" is not a key of a program case
+diff-harness-ok	OK
+diff-harness-other-name	c_diff(num = "00", harness = "reader_toy.c"): a differential reader harness is named diff_<what>.c
+diff-harness-prefix-only	c_diff(num = "00", harness = "diff_.c"): a differential reader harness is named diff_<what>.c
+exercise-dir-without-slash	exercise(dir = "ex00"): the subject's turn-in directory line, verbatim
+exercise-linked-c-file	the library is a grader_library() target
+exercise-linked-ok	OK
+exercise-linked-turned-in	"b" is the grader's, and "b.c" is a file the student turns in
+exercise-ok	OK
+exercise-page-zero	exercise(page = 0): the page the header box is printed on
+exercise-path-outside	"../a.c" is not a path inside the turn-in directory
+exercise-provided-and-required	"a.c" is both required of the student and brought by the grader
+exercise-provided-outside-tests	"grader/b.c" -- the harness's copy of a file the grader brings lives under tests/
+harness-prototype-missing	_student_bin(ex00_diffbin, prototype = None): a harness links
+harness-prototype-none-with-reason	OK
+harness-prototype-none-without-reason	_student_bin(ex00_bin, prototype = "none: "): a harness links a student's functions the way the grader's main() does
+harness-prototype-not-a-test	_student_bin(ex00_bin, prototype = "ex00_output"): a harness links
+harness-prototype-own-program	OK
+harness-prototype-without-harness	_student_bin(ex06_bin, prototype = "ex06_prototype"): a program with no harness is the student's own
+issued-folder	c_issued(num = "00"): file = "sub/toy.dat". It is the name 42 gives the file
+issued-ok	OK
+issued-pattern	c_issued(num = "06", file = "toy.c"): the subject() contract does not name that file for exercise 06
+issued-required	c_issued(num = "00", file = "toy_twice.c"): the contract's `files` requires it
+issued-unlisted	c_issued(num = "00", file = "toy.dat"): the subject() contract does not name that file for exercise 00
+linked-layer-none-linked	OK
+linked-layer-refused	c_function(num = "15"): the grader links toy_base into this exercise (its contract's `linked`), and the allocfail layer's runner cannot link a grader library yet: its program would not link, and that would read as the student's fault. Give the runner a --lib, as asan_check.sh and cycles_check.sh take (ilp32_test.sh takes --lib32 for its 32-bit build; its 64-bit program, --gate-bin, is built with the library linked).
+linked-not-a-grader-library	exercise 01 links b from //x:b_impl, which is no grader_library() target
+linked-not-exported	exercise 01 links b from //x:b_grader, which exports c
+linked-ok	OK
+linked-reader-links	OK
+linked-reader-none-linked	OK
+linked-reader-refused	c_program(num = "15"): the grader links toy_base into this exercise (its contract's `linked`), and c_program does not link a grader library into the programs it builds
+no-entry	c_program(num = "99"): exercise 99 is not in this package's subject() contract
+refused-program-makefile-unused	c_program(ex06): makefile = False, and the subject() contract has ex06 turn in a Makefile
+refused-program-content-only	c_program(ex18): the contract allows open, and no case names a file that will not open
+refused-program-model-nothing-to-answer	c_program(ex18): model, and no case has one expected file for it to answer
+refused-program-malloc-argument	c_program(ex18): malloc = True. Whether the program may allocate is its subject
+refused-program-make-optional	c_program(num = "22"): the contract lists Makefile in `optional`, and with makefile = True, every output test, at basic, runs the program it builds
+refused-program-make-unnamed	c_program(num = "12"): c_program builds from Makefile, and the subject() contract does not ask for it
+refused-program-stale-sentence	c_program(ex18): no_missing_file_case says no case names a file that will not open, and missing does
+refused-test-no-stderr-choice	ex18_toy_file_diff runs //tools:file_check.sh, which asks every call to say what standard error is held to
+refused-test-split-stderr-reason	ex18_toy_argv_diff passes --stderr-ignored "the toy subject says nothing of it", which Bazel's tokenising of `args` does not hand over as one argument
+standin-runner-bare	ex09_output hands ex09_bin_asan, built from a student's files, to //tools:toy_runner.sh
+standin-runner-bare-file	OK
+standin-runner-colon	ex09_output hands :ex09_bin, built from a student's files, to //tools:toy_runner.sh
+standin-runner-full-label	ex09_output hands //tools/tests/macro_fixtures:ex09_memprobe, built from
+standin-runner-main-repo	ex09_output hands @//tools/tests/macro_fixtures:ex09_bin, built from
+standin-runner-not-ours	OK
+standin-runner-ok	OK
+subject-grader-unknown	subject(grader = "peers"): one of moulinette, defense, both
+subject-ok	OK
+subject-root-and-others	00 turn(s) in at the root of deliverable/ (dir = None), and the project has other exercises
+test-env-grader-by-hand	ex00_output sets RL_GRADER itself
+test-env-other	OK
+test-env-raised-by-hand	ex00_output sets RL_RAISED itself
+turnin-file-graders	turnin_file("14", "srcs/toy.c"): the grader brings that file
+turnin-file-named	OK
+turnin-file-pattern	OK
+turnin-file-unlisted	turnin_file("00", "other.c"): the subject() contract does not let exercise 00 hold that file
+untranscribed	c_levels: tests/ has ex98, which this project's subject() contract does not list
+make-foreign-outside	foreign_object is a directory of the turn-in
+make-graph-unquoted	graph checks what a subject's sentence requires, and quotes has no "objects"
+make-not-checked-and-on	not_checked says why wildcards is off, and wildcards is asked for
+make-not-checked-no-reason	not_checked["recipe"] is why the check is off
+make-not-checked-unknown	not_checked has "graph", which is no check that is off by default
+make-anchor-ok	OK
+make-anchor-script-ok	OK
+make-anchor-unnamed	c_make builds from Makefile, and the subject() contract does not ask for it
+make-anchor-optional	the contract lists Makefile in `optional`
+make-anchor-provided	the contract says the grader brings srcs/toy.c
+make-anchor-program-ok	OK
+make-anchor-program-provided	c_program(num = "14"): the contract says the grader brings srcs/toy.c (`provided`), and c_program builds the student's own
+make-ok	OK
+make-recipe-undecided	recipe is not decided
+make-recipe-unquoted	recipe checks what a subject's sentence requires, and quotes has no "cc"
+make-relink-norm	OK
+make-relink-unquoted	relink checks what a subject's sentence requires, and quotes has no "relink"
+make-script-decides-recipe	OK
+make-script-wildcards	a creator script has no rules and no objects to judge
+make-strict-without-recipe	recipe_strict says where the recipe check goes, and there is no recipe
+make-tab-in-sentence	holds a newline or a tab
+make-unknown-key	quotes has "rules", which no check reads
+make-wildcards-undecided	wildcards is not decided
+make-wildcards-unquoted	wildcards checks what a subject's sentence requires, and quotes has no "wildcards"
+make-relink-norm-unquoted	relink checks what a subject's sentence requires, and quotes has no "relink"
+make-relink-source-unknown	relink_source is None (the subject's words) or "norm", not "peers"
+make-relink-source-alone	relink_source says whose the no-relink rule is, and relink is not asked for
+function-malloc-ok	OK
+function-malloc-off	c_function(num = "25"): the contract's allowed functions name malloc, and malloc = False turns off the leak layer
+function-malloc-free-off	c_function(num = "26"): the contract's allowed functions name free
+function-malloc-no-line	OK
+function-malloc-helper	OK
+allocfail-ok	OK
+allocfail-unquoted	sets allocfail: allocfail_rule is required
+allocfail-no-malloc	sets allocfail but not malloc = True
+allocfail-sentence-alone	sets allocfail_rule without allocfail: the sentence would back no check
+allocfail-two-lines	sets allocfail: allocfail_rule is one line
+memory-rule-ok	OK
+memory-rule-no-malloc	memory_rule is quoted by the valgrind arms, and there are none
+memory-rule-no-cases	memory_rule is quoted by the valgrind arms, and there are none
+memory-rule-two-lines	memory_rule is one line of the subject
+audit-makefile-without-build	ex00: the subject() contract has it turn in a Makefile, and no ex00_build judges it
+audit-makefile-with-build	OK
+audit-waiting-gate-input	OK
+audit-waiting-gate-no-input	ex00_diff: it waits for ex00_output, whose run hands the program input ($(location tests/ex00/toy.map)), and its gate hands it none
+audit-waiting-list-misnamed	ex00_output: it hands its runner the list waiting_ex01_output, and its own is waiting_ex00_output
+audit-waiting-named	OK
+audit-waiting-other-exercise	ex01_diff: it waits for ex00_output, the output test of another exercise
+audit-waiting-other-exercise-said	ex01_diff: it waits for ex00_output, the output test of another exercise
+audit-waiting-other-exercise-survive	ex01_none_output: it waits for ex00_output, the output test of another exercise
+audit-waiting-said	OK
+audit-waiting-said-wrong	ex00_diff: it says it waits for ex00_other_output, and its gate is ex00_bin printing tests/ex00/expected.txt, which ex00_other_output does not run
+audit-waiting-survive-named	OK
+audit-waiting-survive-unnamed	ex00_none_output: it waits for ex00_output, which is no output test of this package handing its list on
+audit-waiting-two-run-it	ex00_diff: its gate is ex00_bin printing tests/ex00/expected.txt, which ex00_a_output, ex00_b_output each run. Say which one it waits for
+audit-waiting-unnamed	ex00_diff: it waits for an output test (its gate is ex00_bin printing tests/ex00/expected.txt), and no output test of this package that runs that hands its list on
+exercise-flat-beside-makefile	exercise(optional = ["**/*.h", "*.c"]): "*.c" beside a Makefile reaches no subfolder
+exercise-nested-beside-makefile	OK
+libft-make-ok	OK
+libft-make-own	c_libft(make = {"script": ...}): script is c_libft's own argument
+libft-make-unknown	c_libft(make = {"recipes": ...}): no argument of c_make it may carry
+waiting-lists	ex00_a_output: ex00_a_valgrind (strict), ex00_none_output (basic) | ex00_b_output: ex00_b_valgrind (strict)

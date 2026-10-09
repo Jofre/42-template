@@ -1,0 +1,3 @@
+# clues_returns_one.tsv for ft_count_if's strict reading (Piscine Reloaded) — hints only, never answers.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+Which sentence decides what is counted here: this subject's "the elements of the array that return 1", or C 11 ex03's "does not return 0"? What does yours do with an element for which f returns 2? This harness's reading, at strict, takes this subject's words literally: only an element for which f returns 1 is counted. The basic table only ever returns 0 or 1, where the two agree.	f returns 1, 2 or 0

@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex03 (id_ed25519_pub)
+A key pair has two halves: which one may anyone see, and which must never leave your machine? Which of the two does the subject ask for in id_ed25519_pub, and where did the tool that made the pair write each half? Which algorithm does the subject name, and does the file you turned in say it was made with that one?

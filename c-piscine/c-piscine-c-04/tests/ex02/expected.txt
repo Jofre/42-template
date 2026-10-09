@@ -1,0 +1,14 @@
+zero	0
+one digit	7
+two digits	42
+ends in zero	10
+trailing zeros	100
+big positive	1000000000
+negative one digit	-7
+negative two digits	-42
+negative trailing zeros	-100
+big negative	-1000000000
+INT_MAX	2147483647
+INT_MAX - 1	2147483646
+INT_MIN + 1	-2147483647
+INT_MIN	-2147483648

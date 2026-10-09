@@ -1,0 +1,72 @@
+# clues.tsv for bsq — hints only, never answers.
+#
+# Format: <hint><TAB><case name>...; a row fires on the cases it names, a row naming
+# "valgrind" on every case's memory arm, and a row naming nothing on every failing case.
+# bsq is a program, so each case is its own invocation and its own test target, keyed by
+# its c_program case name in BUILD.bazel, or, for a target that replays a corpus, by its
+# target's name after ex00_ (BUILD.bazel passes it as --case). The keyed rows come first,
+# since three rows show at a time and a keyed row takes no slot in any other case. Same
+# shape, and the same reason, as c-piscine-rush-02's.
+#
+# An untouched stub fails every case, so any row here can fire at the first red: ask
+# about a concept, and never list the program's steps.
+#
+# The subject's example and the maps around it. Only the first three rows that fire
+# are shown (CLUE_MODE=all shows the rest), so each row is keyed to the cases it speaks
+# to, never to all of them, and the narrowest come first: a row keyed to fewer cases
+# takes a slot in fewer, and every case's own row is among its three. Keyed to every
+# case, the drawing rows came first on an invalid map too, and the row asking where
+# "map error" goes was the sixth shown to dup_chars, hidden (finding 155, the mutation
+# run of 2026-10-03). //tools/tests's selftest holds every case this file names to the
+# row that fits it, and fails on a case it has no row of the table for.
+With no arguments, where does the subject say the map comes from? Given the same map that way, should anything in your output differ from what you print when it is a file?	stdin_map
+This run names a file that does not exist. The subject says what your program displays for an invalid file: does a name that cannot be opened meet the subject's definition of a valid file, starting with its first line? What does open return when the file is not there (man 2 open), and does your program look at it?	missing_alone	map_then_missing	missing_then_map
+Once one file turns out invalid, what does the subject say your program does with the files after it? And with more than one file, where do the empty lines between two outputs go when one of the outputs is a map error?	map_then_missing	missing_then_map
+With more than one file, the subject puts an empty line between two outputs. Each output already ends in a newline: how many more does an empty line take, and does one belong before the first output or after the last?	two_maps	map_then_missing	missing_then_map	error_then_map
+A map with no empty cell at all: does it break any condition in the subject's definition of a valid file? If it breaks none, it is not a map error: so what is the biggest square on it, and what is left to draw?	no_empty_cell
+Where does the subject say "map error" is displayed, and what follows it? And once one file turns out invalid, what does the subject say your program does with the files after it?	dup_chars	ragged_line	undeclared_char	two_maps	missing_alone	map_then_missing	missing_then_map	error_then_map
+The first line is not a row of the map. Which of its characters does the subject say are the empty, obstacle and full characters, and which are the number of lines? The subject allows digits among those three: in a first line such as 1123, where does the number end?	subject_example	one_cell	no_empty_cell	dup_chars	ragged_line	undeclared_char	tall_map
+Beside the subject's example of ./bsq example_file, which line of the input file does not appear in the output? And does every line of yours, the last included, end the way the example's lines do?	subject_example	one_cell	no_empty_cell	two_maps	map_then_missing	missing_then_map	error_then_map	tall_map	stdin_map
+When several biggest squares fit, which one does the subject say to draw? In the order your program looks at candidates, does a square exactly as big as the best one so far replace it, or not? Which of the two does the subject's rule need?	subject_example	one_cell	two_maps	map_then_missing	missing_then_map	error_then_map	tall_map	stdin_map
+Which characters does the subject let your program replace with the "full" character? Under the square you drew, is every cell one of those?	subject_example	one_cell	two_maps	map_then_missing	missing_then_map	error_then_map	tall_map	stdin_map
+The subject lists what makes a file valid. For each condition on that list, which input breaks it and nothing else, and what does your program do with that input? Above that list, the subject describes what a map's lines contain: does that sentence name every character the list allows in them, and where the two differ, which one would you point to at the evaluation?	subject_example	one_cell	no_empty_cell	dup_chars	ragged_line	undeclared_char	tall_map
+#
+# The count_zero and count_short cases: the number on the first line.
+How many lines does this file's first line promise, and how many lines follow it? What does the subject's definition of a valid file say about a map whose count and whose rows disagree?	count_zero	count_short
+Which numbers does the subject accept as the number of lines: is 0 a "valid positive number"? And what does "at least one line of at least one cell" say about a file with no row at all?	count_zero	count_short
+When your program has read the number of lines, which later step would notice that the rows it promised never came?	count_zero	count_short
+#
+# The nonprintable_char case: the three characters of the first line.
+The subject asks three things of the last three characters of the first line. Which of them does this file break? (cat -v shows a byte a terminal does not.)	nonprintable_char
+Which bytes does "printable" leave out? What do man isprint and man ascii say about the bytes below the space?	nonprintable_char
+Does your program look at the full character before it knows whether the map is valid, even though no row of this map uses it?	nonprintable_char
+#
+# The zero_width case: a map of empty lines.
+How many cells does each line of this map hold? Which sentence of the subject's definition of a valid file says how small a map may be?	zero_width
+All the lines of this map have the same length, and there are as many as the first line promises. Which condition of the validity list does it still break?	zero_width
+#
+# The space_char and digit_chars cases: characters the subject names.
+The subject says the space, or digits, can be among the last three characters of the first line. In this file's first line, which characters are the number of lines, and which are the map's?	space_char	digit_chars
+Does anything in your program treat a space as something to skip, or a digit as part of a number, while it reads the map's characters or its rows?	space_char	digit_chars
+Beside this file, which of your output's lines differ from the map, and are the cells you changed all "empty" ones?	space_char	digit_chars
+#
+# The tie_top_first case: two biggest squares.
+Two squares of the biggest size fit in this map. Which does the subject say to draw: which comes first in its sentence, the top or the left?	tie_top_first
+In the order your program meets candidates, which of the two does it meet first? When a later one is exactly as big, does it replace the one kept, or not?	tie_top_first
+#
+# The no_final_newline case: a map whose last row has no newline. The subject leaves
+# this file's verdict open, so these rows ask which sentence decides and never settle
+# it; the output is what every reading agrees on.
+The subject says the lines of a map are "separated by the usual newline character". Does that sentence decide whether the last row needs one? Which other sentence would you point to?	no_final_newline
+Whichever verdict you choose, this case accepts it: "map error", or the solved map. What does every line of your output end with, the last one included?	no_final_newline
+#
+# The stdin_invalid case: an invalid map, on standard input.
+With no argument, where does the subject say the map comes from? Is anything it says about an invalid map different when the map arrives that way?	stdin_invalid
+This is the ragged_line case's file, given on standard input instead of by name. If that case passes, what does your program do differently with a map it reads from standard input?	stdin_invalid
+#
+# ex00_readings, at strict: the subject leaves these open, and the target takes ONE
+# reading of each (BUILD.bazel, oracle/src/bsq.rs). They state that reading, which is
+# what a strict target is for; no basic target holds you to it.
+This harness's reading of the count, at strict, never the subject's: decimal digits only, with a positive value that fits an int. Under it, "09" counts nine lines, and "+9", " 9" and "9 " are map error. Which sentence of the subject would you point to if you read them another way?	readings
+This harness's reading of the last row, at strict: the subject says lines are "separated" by a newline, so the last row needs none of its own, and the map is solved. Does your program need the newline to know a row has ended?	readings
+Every one of these files is certain under its reading alone: "+9" sits over nine rows, so the line count agrees with it. Which step of your program reads the number, and what does it do with a character that is not a digit?	readings

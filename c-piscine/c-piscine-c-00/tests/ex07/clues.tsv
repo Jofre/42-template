@@ -1,0 +1,4 @@
+# clues.tsv for ft_putnbr — hints only, never answers.
+A number is printed digit by digit, and C gives you arithmetic that hands you one digit at a time -- but think about WHICH digit it hands you first, and therefore what has to happen before any of them reach the screen. And how do you turn a digit value like 7 into the character that shows "7"?	0	7	10	42	100
+A negative number needs a leading sign and then its digits. How do you handle the sign without breaking the digit logic?	-1	-10	-42
+INT_MIN is -2147483648. If your approach makes the number positive before printing, what breaks for this exact value? It has no positive counterpart in int -- trace what your code does for it.	INT_MIN

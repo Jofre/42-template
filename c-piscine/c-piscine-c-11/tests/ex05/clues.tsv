@@ -1,0 +1,27 @@
+# clues.tsv for do_op — pedagogic hints only. NEVER state expected output, messages, or the fix.
+# Format: <hint><TAB><case name>...: each row keyed to the c_program cases of BUILD.bazel
+# it is about. do-op is a PROGRAM: it owns main and reads its inputs from argv, so each case
+# is a test of its own, and an untouched stub fails every one: any row here can fire at the
+# first red, so ask about a concept, and never list the program's steps.
+#
+# The subject's own cases and their neighbours, each row keyed to the cases it speaks
+# to: one paragraph keyed to seventeen cases opened every failure the same way, and
+# nothing asked about a result that came out wrong (finding 155, the mutation run of
+# 2026-10-03). The function-pointer row restates the sentence no test can read.
+do-op is run as a program, so its input arrives as text in argv, not from scanf. Which slots of argv hold the two numbers and which holds the operator, and what does the subject say happens with any other number of arguments?	add	addsimple	noargs	toomany	threeargs
+Which operation did this case ask for, and what does C's own operator give for those two ints: for a remainder, which sign does it take? Does your program hand the two numbers to it in the order they came?	add	sub	mul	neg	div	mod	modneg	addsimple
+Each number arrives as a string: which earlier exercise already turns a string into an int, and what does it make of the characters around the digits? The subject's own example hands it some.	sub	garbageright	garbageleft
+Which operators does the subject list, and what does it say your program prints for anything else?	unknown	unknownword
+Which divisor makes a divide or a remainder something the machine refuses to compute, and what does the subject print instead?	divzero	modzero
+The subject also says: "You should use an array of pointers to function to take care of the operator." No output can show how your program picks the operation, so no test here reads that sentence, and an evaluator reading your code will. What does an array whose elements are pointers to function look like in C, and how is a function called through one of them?	add	sub	mul	div	mod	unknown
+#
+# The int-limit cases (intmax, intmin): both operands and the result are ints.
+What are the largest and the smallest values an int holds (INT_MAX and INT_MIN, in limits.h)? Does the code that reads a number reach both, and does the code that prints one print both?	intmax	intmin
+Which int is the only one whose negation does not fit in an int? What happens to a number printer that makes a negative number positive before it prints the digits?	intmax	intmin
+#
+# The strict cases intmin_div and intmin_mod: INT_MIN / -1 and INT_MIN % -1.
+What is -2147483648 divided by -1, and does the answer fit in an int? The subject leaves open what to print for it, so these cases ask one thing only: does the program end by itself, killed by no signal?	intmin_div	intmin_mod
+Which signal does the machine send a program that asks it for a division whose quotient does not fit (man 7 signal, SIGFPE)? Is a divisor of 0 the only one that makes a division something the machine refuses?	intmin_div	intmin_mod
+#
+# The strict case opsuffix: an operator argument such as "+x".
+The subject lists five operators and says an invalid one prints 0, and it reads values leniently ("42amis" is 42), which leaves open whether "+x" is the operator "+" or no operator at all. This harness's reading, at strict: the operator argument is read whole. Which characters does "+x" hold, and is that argument one of the five?	opsuffix

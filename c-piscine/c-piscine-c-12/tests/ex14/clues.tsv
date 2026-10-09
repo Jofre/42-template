@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_sort
+Which comparator results mean "already in order" — only a negative one, or negative and zero? Beyond that: after you have done whatever work brings one element closer to its place, how do you know the list is finished rather than merely improved? And if you rearrange by relinking rather than by moving what nodes carry, could the very first node change, and who owns that pointer?

@@ -1,0 +1,15 @@
+  The list is printed after the call, from the same head the caller passed.
+    * two elements            -> the smallest list that has an order to reverse
+    * only odd lengths wrong,
+      or only even ones       -> what does your code do differently when
+                                 the length is odd?
+    * the empty list, or one element -> both are already reversed; neither may
+                                 crash
+    * only the first value is printed, the old one -> the caller still holds
+                                 the node it passed: what does it reach now?
+    * the order is right, the list ends early -> which links were changed, and
+                                 does the caller's head still lead through all
+                                 of them?
+    * more nodes than it had  -> a link that now points back into the list
+    * only long lists differ   -> does anything you keep have a size of its
+                                 own?

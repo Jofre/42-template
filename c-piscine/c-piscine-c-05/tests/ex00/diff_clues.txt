@@ -1,0 +1,7 @@
+  One answer per input; group by which inputs fail.
+    * 0 diverges              -> the subject fixes 0! and it is not 0
+    * every negative          -> the subject says what an invalid input returns
+    * only large inputs       -> the result stops fitting in an int long before
+                                 the input looks large; the subject says what to
+                                 return then
+    * off by one factor       -> where the loop starts or stops

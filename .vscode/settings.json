@@ -1,0 +1,53 @@
+{
+  "editor.insertSpaces": false,
+  "editor.tabSize": 4,
+  "editor.rulers": [80],
+  "files.eol": "\n",
+  "editor.detectIndentation": false,
+  "editor.formatOnSave": false,
+  "editor.formatOnType": false,
+  "editor.formatOnPaste": false,
+  "editor.inlineSuggest.enabled": false,
+  "editor.snippetSuggestions": "none",
+  "editor.tabCompletion": "off",
+  "antigravity.disableCompletions": true,
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.formatting": "Disabled",
+  "[c]": {
+    "editor.insertSpaces": false,
+    "editor.tabSize": 4,
+    "editor.detectIndentation": false,
+    "editor.formatOnSave": false,
+    "editor.formatOnType": false,
+    "editor.formatOnPaste": false
+  },
+  "[cpp]": {
+    "editor.insertSpaces": false,
+    "editor.tabSize": 4,
+    "editor.detectIndentation": false,
+    "editor.formatOnSave": false,
+    "editor.formatOnType": false,
+    "editor.formatOnPaste": false
+  },
+  "files.exclude": {
+    "**/bazel-*": true
+  },
+  "files.watcherExclude": {
+    "**/bazel-*": true,
+    "**/.cache/bazel/**": true
+  },
+  "search.exclude": {
+    "**/bazel-*": true
+},
+  // Bazel's execroot is a symlink forest of the whole workspace, and that
+  // includes .git -> the real repo. Reached through the bazel-* symlinks, the
+  // git extension finds a second "repository" whose working tree is build
+  // output, and offers thousands of files to commit. files.exclude and
+  // watcherExclude only hide it from the explorer; repository detection is a
+  // separate scan and needs this. "openEditors" still finds this repo (you open
+  // files in it) but never walks into the execroot.
+  "git.autoRepositoryDetection": "openEditors",
+"bazelTestExplorer.nocacheTestResults": false,
+"bazelTestExplorer.enableTestCaseDiscovery": false,
+"bazelTestExplorer.testStrategyExclusive": true
+}

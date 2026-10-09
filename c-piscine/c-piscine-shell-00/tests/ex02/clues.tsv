@@ -1,0 +1,3 @@
+# clues.tsv for c-piscine-shell-00 ex02 (exo2.tar) — and Piscine Reloaded ex00, which reads this file (twin_of)
+A tar can hold directories, files, a hard link and a symbolic link side by side. What is the difference between the two kinds of link: what does each one refer to? And does a permission you set on disk after the archive is written ever reach it?
+A symbolic link stores the path it was given as text, byte for byte, and ls -l prints that text after the arrow. Does yours print exactly what the subject's listing shows, and is its size the same?

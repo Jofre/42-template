@@ -1,0 +1,39 @@
+ex00_bin prototype_test=ex00_prototype
+ex00_memprobe prototype_test=ex00_prototype
+ex01_bin prototype_test=ex01_prototype
+ex02_bin prototype_test=ex02_prototype
+ex03_bin prototype_test=ex03_prototype
+ex04_bin prototype_test=ex04_prototype
+ex04_memprobe prototype_test=ex04_prototype
+ex05_bin prototype_test=ex05_prototype
+ex06_bin own program
+ex06_bin_allocfail prototype_test=none
+ex06_bin_asan own program
+ex10_bin own program
+ex10_bin_asan own program
+ex11_bin own program
+ex11_bin_allocfail prototype_test=none
+ex11_bin_asan own program
+ex12_bin own program
+ex12_bin_asan own program
+ex13_bin own program
+ex13_bin_allocfail prototype_test=none
+ex13_bin_asan own program
+ex15_bin prototype_test=ex15_prototype
+ex15_reading_bin prototype_test=ex15_prototype
+ex16_bin prototype_test=ex16_prototype
+ex17_bin prototype_test=ex17_prototype
+ex19_bin own program
+ex19_bin_asan own program
+ex20_make_bin own program
+ex21_putchar_bin prototype_test=none
+ex24_argvguard_bin_asan prototype_test=none builds as ex24_bin_asan
+ex24_bin own program
+ex24_bin_asan own program
+ex27_bin own program
+ex27_bin_asan own program
+ex28_bin own program
+ex28_bin_asan own program
+ex29_argvguard_bin_asan prototype_test=none builds as ex29_bin_asan
+ex29_bin own program
+ex29_bin_asan own program

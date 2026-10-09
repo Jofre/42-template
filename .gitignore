@@ -1,0 +1,68 @@
+# JetBrains
+.idea
+
+# Bazel convenience symlinks (bazel-42, bazel-bin, bazel-out, bazel-testlogs).
+# They point into ~/.cache/bazel/...; the execroot they target symlinks .git
+# back here, which makes editors detect a phantom second repository.
+/bazel-*
+
+# C build artifacts (e.g. from `make`/manual cc inside deliverable while testing)
+*.o
+*.a
+*.out
+
+# These executables are named by their subjects and have no extension, so none
+# of the rules above cover them. Running `make` by hand in the deliverable
+# leaves one where the next `git add -A` would commit a binary. These rules
+# keep it out of YOUR commits only: //tools:submit pushes deliverable/ as it is
+# on disk, ignored files included, and leaves out only *.o *.a *.out *.gch --
+# so delete the program (make fclean) before submitting. docs/submitting.md,
+# "What gets pushed".
+c-piscine/c-piscine-rush-02/deliverable/ex00/rush-02
+c-piscine/c-piscine-bsq/deliverable/bsq
+
+# Shell-piscine deliverables are generated from generators/ (bazel run //...:generate)
+c-piscine/c-piscine-shell-*/deliverable/
+# ...in a scratch dir beside deliverable/, which generate.sh removes itself: one
+# left behind is from a run that was killed, and is safe to delete.
+.generating-*/
+
+# clangd's per-project preamble/index cache (created next to compile_flags.txt)
+/.cache/
+
+
+# Per-checkout Bazel overrides (where Bazel's state goes, etc.), written by
+# tools/setup.sh. The right value differs per machine and per user, and every
+# clone and worktree has its own, so unlike .submit-level this one is not shared.
+.bazelrc.local
+
+# Editor detritus. tools/header_art.txt is tracked on purpose; its .backup is not.
+*.backup
+
+# Python bytecode: importing build/guide_post.py from another script (a
+# check of its column widths, V21) wrote one, and a commit took it along.
+__pycache__/
+
+# 42's own documents: the per-module subject PDFs and the Norm. They are 42's to
+# hand out, not this project's to redistribute, so none are shipped here — you
+# download your own from the intranet. Ignored so that dropping them into a
+# module directory (which is a perfectly good place to keep them) cannot commit
+# them into your copy by accident. Tracking one anyway: `git add -f <file>`.
+*.pdf
+
+# 42 issues resources.tar.gz with the c-piscine-shell-00 subject (the intranet, beside the Shell 00 subject): yours to
+# download, not this project's to redistribute. Save it as
+#     c-piscine/c-piscine-shell-00/resources.tar.gz
+# The tests read it from there; it is never turned in.
+# Ignored at any depth, so no copy of it reaches a commit.
+resources.tar.gz
+
+# 42 issues numbers.dict with the c-piscine-rush-02 subject (the intranet, beside the Rush 02 subject): yours to
+# download, not this project's to redistribute. Save it as
+#     c-piscine/c-piscine-rush-02/deliverable/ex00/numbers.dict
+# It is turned in: //tools:submit pushes it even though this rule keeps
+# it out of your commits, so every teammate and every clone downloads
+# their own, and a test is red until it is there. Tracking it anyway,
+# in a fork nobody else can see: `git add -f c-piscine/c-piscine-rush-02/deliverable/ex00/numbers.dict`.
+# Ignored at any depth, so no copy of it reaches a commit.
+numbers.dict

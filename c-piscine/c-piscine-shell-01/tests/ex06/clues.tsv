@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex06 (skip.sh)
+The subject says every second line, starting from the first. If you number the lines of its ls -l example from 1, which numbers does its skip.sh output keep, and is the "total" line one of them? Which numbers does yours keep?

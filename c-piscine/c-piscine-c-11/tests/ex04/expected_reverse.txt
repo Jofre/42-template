@@ -1,0 +1,4 @@
+two elements against f	1
+descending data ascending cmp	1
+descending with ties ascending cmp	1
+ascending data descending cmp	1

@@ -1,0 +1,3 @@
+# clues.tsv for c-piscine-shell-00 ex06 (git_ignore.sh)
+Which files belong in this list: everything a .gitignore pattern matches, or only what git is not already keeping track of? If a file is tracked and a pattern also matches it, should it appear? And does git already know its own ignore rules: could you ask it, rather than re-create them with shell globs?
+Is the .gitignore at the top of the repository the only place git reads ignore rules from (man gitignore)? And for an ignored file inside a subdirectory, which path does git itself print for it?

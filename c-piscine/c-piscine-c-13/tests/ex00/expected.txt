@@ -1,0 +1,12 @@
+item: hello
+left: NULL
+right: NULL
+null item: NULL
+null left: NULL
+null right: NULL
+int item: 42
+int left: NULL
+int right: NULL
+dirty item: dirt
+dirty left: NULL
+dirty right: NULL

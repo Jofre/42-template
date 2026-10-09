@@ -1,0 +1,4 @@
+# clues.tsv for c-piscine-shell-01 ex08 (add_chelou.sh)
+Each variable is a number written in a base of its own, whose digits are the symbols the subject lists for it. What does a symbol's place in that list tell you, and what does the length of the list tell you? Is a symbol's ASCII value any part of the number it stands for?
+Which of the symbols in FT_NBR1's base mean something to the shell itself (a quote, a backslash, a question mark), and what becomes of them when a variable holding them is expanded without quotes, or handed to a command that reads backslash escapes?
+The sum of two long numbers is long too: does every command you use print a long number on a single line, and what does its manual say about line length?

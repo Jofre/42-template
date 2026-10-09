@@ -1,0 +1,7 @@
+  One answer per index; the whole sequence shifts if the start is wrong.
+    * index 0 or 1            -> the two base cases the subject states; both are
+                                 given, and they are not the same value
+    * every index off by one  -> the sequence is being started one step early or
+                                 late
+    * negative indexes        -> the subject says what those return
+    * only large indexes      -> the result stops fitting in an int

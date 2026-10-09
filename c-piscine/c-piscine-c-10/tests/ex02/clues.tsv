@@ -1,0 +1,27 @@
+# clues.tsv for ft_tail — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><case name>...: each row keyed to the c_program cases of BUILD.bazel
+# it is about. A row fires on those cases' tests and on their memory arms; a row keyed
+# "valgrind" fires on every case's memory arm. Each case is a test of its own, and an
+# untouched stub fails every one, so any row here can fire at the first red: ask about a
+# concept, and never list the program's steps.
+#
+# The last N bytes (cbytes, cbig, czero, cbin, cmulti, clarge, ccarry).
+tail -c N prints only the LAST N bytes. Reading a file forward, when do you find out which bytes those are, and how do you hold on to them without assuming the whole file fits one fixed buffer? What about N = 0, and N larger than the file?	cbytes	cbig	czero	cbin	cmulti	clarge	ccarry
+#
+# The case stdin: -c N with no file named.
+With no file named, where does the system's tail read from (man 1 tail)? Which file descriptor is that, and does it need open() at all?	stdin
+Can your program know how long standard input is before it has read to its end? What does that mean for holding on to the last N bytes?	stdin
+#
+# The strict case attached: the count written against the option, -c20.
+The subject names the -c option but not how its count is written, and the system's tail takes "-c 20" and "-c20" alike (man 1 tail; POSIX's Utility Syntax Guidelines, on option-arguments). This harness's reading, at strict, of "the same function": it takes both. What do those guidelines allow an option-argument to look like?	attached
+#
+# The case errfirst: a name that will not open, before two that do.
+When one of several names cannot be opened, which headers does the system's tail still print, and where do the blank lines between headers go? Try the tool on a missing name followed by two files: what decides whether a blank line comes before a header?	errfirst
+Does anything besides the files' headers and bytes reach standard output here? Where does a message about the missing name belong?	errfirst
+#
+# The strict cases (errmsg, errstatus, dir, dirmsg), which read "performs the same function as
+# the system command tail" as tail's own messages, headers and exit status.
+This harness's reading, at strict, of "the same function as the system command tail": tail's own behaviour on an error, its message on standard error, its headers and its exit status. What does the system's tail print on each stream for the same arguments, and what does echo $? show right after it?	errmsg	errstatus	dir	dirmsg
+Each of tail's messages starts with a name: whose? Where does your program find the name it was started under, and what would basename make of it (man 3 basename)?	errmsg	errstatus	dir	dirmsg
+tail words a name it cannot open differently from a file that opened and would not be read: which system call failed in each, and what does errno hold after it (man 3 errno)?	errmsg	errstatus	dir	dirmsg
+A directory opens without complaint (man 2 open): what does read return on it, and has tail printed the directory's header by the time it finds out?	errmsg	errstatus	dir	dirmsg

@@ -1,0 +1,6 @@
+  The function returns nothing, so what is printed is the side effect.
+    * length 0                -> a loop that cannot run zero times
+    * the first or last element missing -> the loop bound
+    * the order is wrong      -> the subject says the order; it is not a set
+    * nothing at all appears  -> the pointer is being called, or not, on the
+                                 element rather than on its value

@@ -1,0 +1,981 @@
+load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_issued", "c_levels", "c_make", "c_program", "corpus_memory", "exercise", "hand_test", "stderr_ignored", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from the header box on page 6:
+# "Turn-in directory: ex00/", "Files to turn in: Makefile and all the necessary
+# files". The Makefile is named, everything else is the team's choice -- p.9,
+# "You are free to organize your files as you wish, provided you submit the
+# mandatory files" -- so every .c and .h is allowed wherever the Makefile says
+# (srcs/ and includes/ too): pinning source names here would invent a
+# requirement the subject explicitly declines to make. numbers.dict by name:
+# it is 42's issued resource, the program's data, and "all the necessary
+# files" plainly covers it. It is stripped from the shareable template, which
+# `optional` tolerates -- optional means "may be here", not "must be"; that it
+# must be is c_issued's test, below, which is red while it is missing and so
+# stays out of the files layer, green on a fresh clone.
+#
+# Strict (the default), because p.9 also says "Submit only the files requested
+# by the subject of this project": anything else FAILS -- a rush-02 binary
+# left by a hand-run of make is the usual one -- and so does a .c the Makefile
+# never compiles, which is not one of "the necessary files": the program's
+# build writes the list `make -Bn` gives (c_program below), and ex00_files
+# reads it (finding 164). While make cannot plan a build, or the Makefile
+# compiles nothing yet, no .c is judged that way. Headers stay allowed
+# wherever they are: whether one is necessary cannot be seen without a
+# dependency scan.
+#
+# Graded at a defense: "This assignment is not verified by a program", and
+# "The group will be automatically registered for the defense".
+subject(
+    grader = "defense",
+    group = True,
+    exercises = {
+        "00": exercise(
+            page = 6,
+            dir = "ex00/",
+            files = ["Makefile"],
+            optional = ["numbers.dict", "**/*.c", "**/*.h"],
+            allowed = ["write", "malloc", "free", "open", "read", "close"],
+        ),
+    },
+)
+
+# ---------------------------------------------------------------------------
+# rush-02 — convert a number to its written letter value.
+#
+# Two independent halves, the same split c-10 uses:
+#
+#   c_make    proves the TEAM'S Makefile works: `make fclean` then `make`
+#             produces ./rush-02, the rules the subject lists are there, and
+#             every compile runs cc with the subject's flags.
+#   c_program builds the program with Bazel from the sources and -I
+#             directories `make -Bn` names, with the harness's own flags, and
+#             runs the argv cases. The recipes are read, never run, so a broken
+#             Makefile cannot hide behind green output tests, and a wrong
+#             program cannot hide behind a working Makefile.
+#
+# rules = ["rush-02", "clean", "fclean"] is deliberate. p.4 of the subject says
+# "a Makefile, which will compile your project using the rules $NAME, clean and
+# fclean" -- $NAME being the program, so `make rush-02` has to build it -- and
+# p.7 says it is built with `make fclean` then `make`. It never mentions `re` or
+# `all`, so requiring either would fail a correct Makefile over a rule nobody
+# asked for. graph is left off for the same reason: the incremental-build and
+# object-placement checks come from c-09 ex01's subject alone. What clean and
+# fclean DO the subject does not say, so that is this repo's convention, at
+# robust (ex00_build_rules); that each is there is basic.
+#
+# recipe: "Your program must compile using cc with the following flags" binds
+# the build, and the subject names the Makefile as the build, so every compile
+# command it runs is held to it at basic. The Norm's "no *.c, no *.o" is not
+# in the subject: ex00_build_wildcards, strict.
+# ---------------------------------------------------------------------------
+
+c_make(
+    num = "00",
+    artifact = "rush-02",
+    symbols = ["main"],
+    rules = [
+        "rush-02",
+        "clean",
+        "fclean",
+    ],
+    quotes = {
+        "cc": "Rush 02, p.3: \"Your program must compile using cc with the following flags: -Wall -Wextra -Werror.\"",
+        "wildcards": NORM_NO_WILDCARDS,
+    },
+    recipe = "any",
+    wildcards = True,
+)
+
+# ---------------------------------------------------------------------------
+# WHAT THE CASES ASSERT, AND AT WHICH LEVEL. The subject pins four outputs and
+# no composition rule: whether 101 reads "one hundred one" or "one hundred
+# and one", whether a leading group of one is spelled out and which of
+# several decompositions is used are all unstated, and bonus 1 legalises
+# "-", "," and "and" on top. So basic asserts what every reading agrees on
+# (docs/design.md, "An open question is not an untested one"):
+#
+#   * The subject's four transcripts ("forty two", "zero", "Error", "one
+#     hundred thousand") and its replaced 20, against the harness's own
+#     dictionaries.
+#   * What the subject states in words, on numbers every reading spells
+#     alike: a teen (a key of its own); round numbers in the "<group>
+#     <scale>" shape of "one hundred thousand", the group one word other
+#     than one -- a million, ten digits past unsigned int ("Your program
+#     should handle numbers beyond the range of unsigned int", p.6), forty
+#     digits at ref.dict's largest scale; a dictionary whose every value is
+#     made up, on the transcripts' numbers ("The values inside it must be
+#     used to print the result", p.7).
+#   * Both argument forms of p.6. The one-argument form runs as the
+#     subject's transcript does -- `./rush-02 42`, from a folder holding
+#     numbers.dict, which p.7 greps right there first -- with the harness's
+#     own dictionary staged as that numbers.dict, so it never depends on
+#     42's copy. A program that opens numbers.dict where it runs and one
+#     that opens it beside itself both pass. The two-argument cases name
+#     their dictionary, which is what that form is for.
+#   * "Error" for a number that is not a valid and positive integer (p.6):
+#     the subject's 10.4, an empty argument, a sign, a letter inside.
+#   * "Dict Error" for a dictionary that breaks its grammar -- no colon, a
+#     key that is no number, a tab inside a value, which is not one of "any
+#     printable characters" -- or lacks a unit the number needs (p.7), the
+#     whole number's or one in the middle of it, which no other split of
+#     the number can stand in for.
+#   * What a dictionary may hold (p.7): values holding colons and runs of
+#     spaces, trimmed at their ends only, and extra keys shaped like the
+#     ones a number needs, before the real ones ("more entries can be
+#     added").
+#   * Zero and three arguments. The subject names no answer for them
+#     ("You must handle errors coherently. You may either print an error
+#     message or simply return control to the user"), so these `survive`
+#     cases assert only that the program ends by itself: no signal, no
+#     hang, no runaway output, whatever it prints.
+#
+# Where the subject leaves the answer open, a case accepts either (any_of,
+# or survive) at basic, and a strict case takes one reading, stated in its
+# hints and its row of docs/reference.md: a dictionary with CR LF line
+# endings (is a CR one of "the spaces" to trim, or a byte that is not
+# printable? dict_crlf_strict); a number past the dictionary's largest scale
+# (Dict Error, or a spelling that combines scale words?
+# past_dictionary_strict). A zero-padded number ("0042", "00": is it a valid
+# and positive integer?) is accepted either way and read at no level.
+#
+# Past the named cases, two corpora (below) hold every program, at strict,
+# to what no reading explains: Error for a valid number, Dict Error from a
+# dictionary that can spell it, words that are not the dictionary's.
+#
+# Every dictionary, argument file and expected output under tests/ex00/ is
+# written by //oracle (`rush02_fixtures`), each output as the reference's
+# answer to the dictionary and number of the cases that name it, and
+# ex00_oracle_fixtures (below) fails when a file differs. Which run a case
+# makes is written here alone, so reference = True runs every case as written
+# with the reference program in place of the team's (ex00_reference_cases,
+# complete): a case whose number, dictionary or run folder no longer gives
+# the file it expects fails there, on any tree.
+#
+# NOT TESTED: the exit status at basic. The subject never states one, for
+# any path, so by the Run contract (docs/reference.md) a status is judged
+# only at robust: a case the subject answers with an error message it names
+# ("Error", "Dict Error") is marked "invalid_input" and its status is judged
+# at no level, an any_of or survive case gets none either, and every other
+# case gets a robust twin, ex00_<case>_exit, which fails a non-zero return.
+# Nor which stream carries "Error" and "Dict Error": every transcript pipes
+# stdout through `cat -e`, so stdout is what the subject shows; stderr is
+# never mentioned either way.
+# ---------------------------------------------------------------------------
+
+# The sources the file-by-file layers read -- norm, both compile layers,
+# forbidden symbols -- are the contract's: every .c and .h the team turned in.
+# Which of them the program is made of only the Makefile says, so everything
+# that has to LINK asks `make -Bn` -- their file list and -I directories, our
+# flags -- and a .c it never compiles is not one of "the necessary files":
+# ex00_files reports it (the build writes the list it reads). Hard-coding the
+# list would move that decision into this file, where it goes stale silently
+# the first time anyone renames anything.
+#
+# `name` is the subject's "Executable name: rush-02": the one-argument cases
+# run the program under it, as ./rush-02.
+#
+# allocfail: ex00_program_allocfail, at robust, replays one_arg_42 with one of
+# the program's malloc() calls refused per run -- as that case runs, as
+# ./rush-02 beside numbers.dict, which its gate does too (an earlier sweep ran
+# it from a folder with no dictionary, so its gate was red on every correct
+# program and it SKIPped). The sentence allocfail_rule
+# quotes allows any message or none, so it asks only that the run end by
+# itself, within its time, with bounded output; no text, no status.
+# allocfail_leaks adds ex00_program_allocfail_leaks, because this subject
+# states a freeing rule, the one allocfail_leaks_rule quotes (and the valgrind
+# arms, as memory_rule): a run that ended by itself must hold nothing at exit,
+# as the valgrind arm asks of the plain run. Both at robust: the evaluation's
+# memory check never sees a refused allocation, so on this path the rule is
+# the repo's to apply (TODO.md §23, WP-92).
+_FREE_RULE = ("Rush 02, p.7: \"Any memory allocated on the heap (with malloc(3)) " +
+              "must be freed correctly. This will be verified during the evaluation.\"")
+
+c_program(
+    num = "00",
+    name = "rush-02",
+    makefile = True,
+    reference = True,
+    # The one memory rule a Piscine subject states in its own words: the
+    # valgrind arms quote it when they fail, and the allocfail leak target
+    # applies it to the runs that end after a refused allocation.
+    memory_rule = _FREE_RULE,
+    # And a dictionary that breaks its grammar, the Dict Error path:
+    # ex00_dict_nocolon_program_allocfail(_leaks), held to the same rules
+    # as the run that converts.
+    allocfail = [
+        "one_arg_42",
+        "dict_nocolon",
+    ],
+    allocfail_rule = "The subject: \"You must handle errors coherently. You may either " +
+                     "print an error message or simply return control to the user.\"",
+    allocfail_leaks = True,
+    allocfail_leaks_rule = _FREE_RULE,
+    cases = [
+        # ---- the one-argument form: the subject's transcript as written ----
+        # `./rush-02 42` beside numbers.dict, which is the harness's ref.dict
+        # here (custom.dict for the transcript's replaced 20).
+        {
+            "name": "one_arg_42",
+            "cwd_files": {"tests/ex00/fixtures/ref.dict": "numbers.dict"},
+            "args": ["42"],
+            "expected": "forty_two.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "one_arg_zero",
+            "cwd_files": {"tests/ex00/fixtures/ref.dict": "numbers.dict"},
+            "args": ["0"],
+            "expected": "zero.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "one_arg_error",
+            "invalid_input": True,
+            "cwd_files": {"tests/ex00/fixtures/ref.dict": "numbers.dict"},
+            "args": ["10.4"],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "one_arg_hundred_thousand",
+            "cwd_files": {"tests/ex00/fixtures/ref.dict": "numbers.dict"},
+            "args": ["100000"],
+            "expected": "hundred_thousand.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "one_arg_custom",
+            "cwd_files": {"tests/ex00/fixtures/custom.dict": "numbers.dict"},
+            "args": ["20"],
+            "expected": "custom20.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- the two-argument form: the same transcript, dictionary named ---
+        {
+            "name": "dict_arg_42",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "forty_two.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dict_arg_zero",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "0",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "zero.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dict_arg_error",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "10.4",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dict_arg_hundred_thousand",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "100000",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "hundred_thousand.txt",
+            "clues": "clues.tsv",
+        },
+        # A replaced value, which is the whole point of argv[1]: the subject
+        # greps 20 out of the dictionary, shows its value has been changed,
+        # and runs the program.
+        {
+            "name": "dict_arg_custom",
+            "args": [
+                "$(location tests/ex00/fixtures/custom.dict)",
+                "20",
+            ],
+            "fixtures": ["tests/ex00/fixtures/custom.dict"],
+            "expected": "custom20.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- numbers that are not a valid and positive integer (p.6) -------
+        # The empty one from a file of arguments, which //oracle writes:
+        # Bazel drops "" from `args`.
+        {
+            "name": "number_empty",
+            "invalid_input": True,
+            "args": ["$(location tests/ex00/fixtures/ref.dict)"],
+            "argv_file": "tests/ex00/empty_arg.argv",
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "number_negative",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "-42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "number_letter",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "4a2",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "error.txt",
+            "clues": "clues.tsv",
+        },
+        # A leading zero: whether "0042" is a valid and positive integer the
+        # subject never says, so the number's words and Error both pass.
+        {
+            "name": "lead_zero_42",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "0042",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "any_of": [
+                "forty_two.txt",
+                "error.txt",
+            ],
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "lead_zero_00",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "00",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "any_of": [
+                "zero.txt",
+                "error.txt",
+            ],
+            "clues": "clues.tsv",
+        },
+        # ---- what the subject states in words, spelled alike by every reading
+        # A teen, which the reference dictionary has a key of its own for.
+        {
+            "name": "teen",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "13",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "thirteen.txt",
+            "clues": "clues.tsv",
+        },
+        # Round numbers in the "<group> <scale>" shape of the subject's "one
+        # hundred thousand", the group one word other than one: a million;
+        # one past unsigned int ("Your program should handle numbers beyond
+        # the range of unsigned int", p.6); and ref.dict's largest scale,
+        # forty digits, past every integer type C has.
+        {
+            "name": "round_million",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "7000000",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "seven_million.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "beyond_uint",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "9000000000",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "nine_billion.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "largest_scale",
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "2000000000000000000000000000000000000000",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "two_duodecillion.txt",
+            "clues": "clues.tsv",
+        },
+        # 10^42, the first number ref.dict cannot spell. It is a valid and
+        # positive integer, so never Error -- but Dict Error ("If the
+        # dictionary does not allow you to perform the conversion") or a
+        # spelling that combines scale words? The subject does not say: basic
+        # asks only that the program end by itself, and past_dictionary_strict
+        # takes one reading (_RAISED, docs/reference.md).
+        {
+            "name": "past_dictionary",
+            "survive": True,
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "1000000000000000000000000000000000000000000",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "past_dictionary_strict",
+            "level": 2,
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "1000000000000000000000000000000000000000000",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+        # Every value made up: "The values inside it must be used to print
+        # the result" (p.7), on the transcripts' own numbers.
+        {
+            "name": "replaced_42",
+            "args": [
+                "$(location tests/ex00/fixtures/replaced.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/replaced.dict"],
+            "expected": "replaced42.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "replaced_zero",
+            "args": [
+                "$(location tests/ex00/fixtures/replaced.dict)",
+                "0",
+            ],
+            "fixtures": ["tests/ex00/fixtures/replaced.dict"],
+            "expected": "replaced0.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "replaced_hundred_thousand",
+            "args": [
+                "$(location tests/ex00/fixtures/replaced.dict)",
+                "100000",
+            ],
+            "fixtures": ["tests/ex00/fixtures/replaced.dict"],
+            "expected": "replaced100000.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- argument counts the subject does not define -------------------
+        # "up to 2 arguments", and errors handled "coherently": printing an
+        # error or returning, both do. Only a crash or a hang is wrong.
+        {
+            "name": "args_none",
+            "survive": True,
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "args_three",
+            "survive": True,
+            "args": [
+                "$(location tests/ex00/fixtures/ref.dict)",
+                "42",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/ref.dict"],
+            "clues": "clues.tsv",
+        },
+        # A value is "[any printable characters]", trimmed of the spaces
+        # before and after it: colons inside it, and runs of spaces inside and
+        # around it. 20 is one key, as in the subject's own example.
+        {
+            "name": "dict_colon",
+            "args": [
+                "$(location tests/ex00/fixtures/colon.dict)",
+                "20",
+            ],
+            "fixtures": ["tests/ex00/fixtures/colon.dict"],
+            "expected": "colon20.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dict_spaced",
+            "args": [
+                "$(location tests/ex00/fixtures/spaced.dict)",
+                "20",
+            ],
+            "fixtures": ["tests/ex00/fixtures/spaced.dict"],
+            "expected": "spaced20.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- everything the subject says a parser MUST accept ---------------
+        # quirks.dict has blank lines, entries out of order, zero spaces and
+        # several spaces around the colon, spaces after the values of 40 and 2
+        # (the two 42 is spelled with: "You will trim the spaces before and
+        # after the values"), and one key beyond the reference set. None of
+        # that is an error, so this must produce the same answer as the tidy
+        # dictionary does.
+        {
+            "name": "dict_quirks",
+            "args": [
+                "$(location tests/ex00/fixtures/quirks.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/quirks.dict"],
+            "expected": "forty_two.txt",
+            "clues": "clues.tsv",
+        },
+        # Extra keys shaped like the ones 100000 needs (123, 1234, 1001, ...),
+        # before the real ones: "more entries can be added".
+        {
+            "name": "dict_decoys",
+            "args": [
+                "$(location tests/ex00/fixtures/decoys.dict)",
+                "100000",
+            ],
+            "fixtures": ["tests/ex00/fixtures/decoys.dict"],
+            "expected": "hundred_thousand.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- a dictionary past every capacity a program might pick ----------
+        # Every dictionary above is under 1 KiB, so one read() of 4096 bytes,
+        # one of 64 KiB, or an array of 64 entries passed them all (finding
+        # 041). This one is 67 KiB, legal by every rule on p.7 (blank lines,
+        # long values, extra keys 42 never looks up), with the entries 42 needs
+        # at its end -- "2: two" past byte 65536 -- and "forty" cut in two by
+        # byte 4096. Made by the reference (//oracle:rush02_big_dict), whose
+        # check() holds each of those promises. Every reading spells 42 the
+        # way the subject's transcript does, so it is basic.
+        {
+            "name": "dict_big",
+            "args": [
+                "$(location //oracle:rush02_big_dict)",
+                "42",
+            ],
+            "fixtures": ["//oracle:rush02_big_dict"],
+            "expected": "forty_two.txt",
+            "clues": "clues.tsv",
+        },
+        # ---- the ways a dictionary can fail ---------------------------------
+        {
+            "name": "dict_nocolon",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/nocolon.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/nocolon.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+        # A dictionary that will not open (finding 110). basic asks what
+        # every reading agrees on, that the run ends by itself: "You must
+        # handle errors coherently. You may either print an error message or
+        # simply return control to the user" (p.3). Whether p.7's "If the
+        # dictionary does not allow you to perform the conversion of the
+        # provided number, your program must output "Dict Error\n"" reaches a
+        # dictionary that cannot be opened is open: dict_missing_strict takes
+        # one reading, stated in its hints and its row of docs/reference.md.
+        # Measured on 2026-10-01 (tools/probe_under.sh, one mistake in front
+        # of a working program): an answer that reading does not take turns
+        # dict_missing_strict red and nothing else, and never ending turns
+        # both red.
+        {
+            "name": "dict_missing",
+            "missing_file": "no_such_file_ex00",
+            "args": [
+                "no_such_file_ex00",
+                "42",
+            ],
+            "survive": True,
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dict_missing_strict",
+            "missing_file": "no_such_file_ex00",
+            "level": 2,
+            "invalid_input": True,
+            "args": [
+                "no_such_file_ex00",
+                "42",
+            ],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dict_badkey",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/badkey.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/badkey.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+        # A tab inside the value of 40: not a printable character, and not at
+        # an end, where trimming could reach it. An error under every reading.
+        {
+            "name": "dict_tab",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/tab.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/tab.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+        # Every line ended with CR LF. A program that trims the CR with the
+        # spaces prints forty two, one that reads it as a byte that is not
+        # printable prints Dict Error: both pass here, and dict_crlf_strict
+        # takes one reading.
+        {
+            "name": "dict_crlf",
+            "args": [
+                "$(location tests/ex00/fixtures/crlf.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/crlf.dict"],
+            "any_of": [
+                "dicterr.txt",
+                "forty_two.txt",
+            ],
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "dict_crlf_strict",
+            "level": 2,
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/crlf.dict)",
+                "42",
+            ],
+            "fixtures": ["tests/ex00/fixtures/crlf.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+        # Parses cleanly, but the key 5 is gone and nothing else can express
+        # it: a unit, where a missing scale could be argued to compose from
+        # others ("ten hundred").
+        {
+            "name": "dict_cannot_express",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/nofive.dict)",
+                "5",
+            ],
+            "fixtures": ["tests/ex00/fixtures/nofive.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+        # The same unit gone from the middle of a number: 4542 is "four
+        # thousand five hundred forty two" or "forty five hundred forty two",
+        # and every spelling needs the 5 with words before and after it. A
+        # program that prints the words it can find, or prints as it goes and
+        # stops at the gap, prints more than the dictionary error.
+        {
+            "name": "dict_cannot_express_mid",
+            "invalid_input": True,
+            "args": [
+                "$(location tests/ex00/fixtures/nofive.dict)",
+                "4542",
+            ],
+            "fixtures": ["tests/ex00/fixtures/nofive.dict"],
+            "expected": "dicterr.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+
+# 42's numbers.dict is part of the turn-in: the one-argument form reads it
+# from where the program runs, and "Files to turn in: Makefile and all the
+# necessary files" (p.6). The template ships no copy and its .gitignore keeps
+# a student's out of commits (tools/resources.tsv), so this is red at basic
+# until deliverable/ex00/numbers.dict is there, saying where to get it. The
+# cases above never read it: they stage the harness's own dictionary.
+c_issued(
+    num = "00",
+    file = "numbers.dict",
+)
+
+c_levels()
+
+# ---------------------------------------------------------------------------
+# The named cases' files are the reference's (layer oracle, complete): every
+# dictionary, argument file and expected output under tests/ex00/ that
+# `oracle rush02_fixtures` writes, byte for byte, and no file of those kinds
+# that it does not write (--owns). It runs nothing of yours. After a change
+# to the reference:
+#
+#     bazel run //c-piscine/c-piscine-rush-02:ex00_oracle_fixtures -- --write
+hand_test(
+    name = "ex00_oracle_fixtures",
+    layer = "oracle",
+    size = "small",
+    srcs = ["//tools:oracle_fixtures.sh"],
+    args = [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "rush02_fixtures",
+        "--in-dir-of",
+        "$(location tests/ex00/error.txt)",
+        # The same patterns as the data below: what is staged is what is owned,
+        # so a case added with a hand-typed dictionary or output fails here
+        # until the reference writes it.
+        "--owns",
+        "*.txt",
+        "--owns",
+        "*.argv",
+        "--owns",
+        "fixtures/*.dict",
+    ],
+    data = [
+        "//oracle:oracle",
+        "//tools:oracle_fixtures.sh",
+    ] + glob([
+        "tests/ex00/*.txt",
+        "tests/ex00/*.argv",
+        "tests/ex00/fixtures/*.dict",
+    ]),
+)
+
+# ---------------------------------------------------------------------------
+# What every reading agrees on, over generated corpora (layer diff, strict):
+# tools/rush02_check.sh --settled, one exec per number, fails only "Error"
+# for a valid number, "Dict Error" from a dictionary holding every key of the
+# reference dictionary, output that is not the dictionary's values with a
+# space, "-", "," or "and" between them, the shapes the named cases above
+# hold at basic spelled other than by their keys (a teen or a ten alone, a
+# round "<group> <scale>": the corpus opens with them), nothing at all, and a
+# run that does not end by itself (finding 160: these were in the manual
+# targets below only; the shapes, the mutation run of 2026-10-03). Any other
+# difference from the reference -- "and", a leading "one", another split of
+# the number, a spelling past the dictionary that combines scale words -- is
+# a composition this target does not judge: shown, and passed.
+#
+# ex00_settled_words_diff sweeps every length up to 42 digits with ref.dict,
+# and past it; ex00_settled_dicts_diff hands each case a fresh dictionary of
+# random values, so English typed into the program fails on the first one.
+#
+# Both wait, like every diff layer, for the subject's own example to pass:
+# `ex00_bin ref.dict 42` (dict_arg_42). While it is red they say SKIP, and
+# NO_SKIP=1 forces them open (tools/runner_lib.sh, rl_gate).
+RUSH02_GATE = [
+    "--gate-differ",
+    "$(location //tools:diff_output.sh)",
+    "--gate-bin",
+    "$(location :ex00_bin)",
+    "--gate-expected",
+    "$(location tests/ex00/forty_two.txt)",
+    "--gate-number",
+    "42",
+]
+
+# That run's output test, by name (`waits` on both targets): five cases print
+# forty_two.txt, so the gate's program and file alone do not say which
+# (tools/defs.bzl, _waits_for). Its red log lists both.
+RUSH02_WAITS = "ex00_dict_arg_42_output"
+
+# A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the Run
+# contract's: ignored, unless the subject requires something of it.
+RUSH02_STDERR = stderr_ignored("Rush 02's subject names no message for standard error")
+
+# :ex00_bin is NOT here: every target below already lists it, and Bazel
+# rejects a label that appears twice in one `data` attribute.
+RUSH02_GATE_DATA = [
+    "//tools:diff_output.sh",
+    "tests/ex00/forty_two.txt",
+]
+
+hand_test(
+    name = "ex00_settled_words_diff",
+    layer = "diff",
+    size = "medium",
+    srcs = ["//tools:rush02_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--dict",
+        "$(location tests/ex00/fixtures/ref.dict)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--count",
+        "200",
+        "--settled",
+    ] + RUSH02_GATE + RUSH02_STDERR,
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+        "//tools:exit_status",
+        "//tools:runner_lib.sh",
+        "tests/ex00/fixtures/ref.dict",
+    ] + RUSH02_GATE_DATA,
+    waits = RUSH02_WAITS,
+)
+
+hand_test(
+    name = "ex00_settled_dicts_diff",
+    layer = "diff",
+    size = "medium",
+    srcs = ["//tools:rush02_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--dict",
+        "$(location tests/ex00/fixtures/ref.dict)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "rush02_dicts",
+        "--count",
+        "150",
+        "--settled",
+    ] + RUSH02_GATE + RUSH02_STDERR,
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+        "//tools:exit_status",
+        "//tools:runner_lib.sh",
+        "tests/ex00/fixtures/ref.dict",
+    ] + RUSH02_GATE_DATA,
+    waits = RUSH02_WAITS,
+)
+
+# ---------------------------------------------------------------------------
+# The whole comparison against the Rust reference (//oracle), one exec per
+# number: the same corpora, every difference shown.
+#
+# TAGGED `manual` ON PURPOSE, so it never runs under `bazel test //...` and never
+# gates a submission. Run it yourself once you have an implementation:
+#
+#     bazel test //c-piscine/c-piscine-rush-02:ex00_rush02_diff --test_output=all
+#
+# The subject fixes four outputs and no composition rule -- it never settles
+# whether 101 is "one hundred one" or "one hundred and one", and bonus 1 allows
+# "-", "," and "and" outright. So the reference implements ONE reading (the one
+# the subject's own transcripts demonstrate) and a disagreement here is evidence
+# to read, not a verdict. Gating on it would fail teams for answering a question
+# the subject deliberately left to them -- the same reason rush-01 validates
+# rather than byte-diffs. What no reading explains gates above, at strict.
+#
+# It exists because the subject's four examples cannot reach the interesting
+# ground: every value past 4294967295, every carry across a scale boundary, and
+# every group whose hundreds digit is zero live beyond them. The corpus sweeps
+# every length up to 42 digits -- duodecillion (10^39), the key ref.dict adds
+# to 42's numbers.dict, which stops at undecillion, reaches 10^42 - 1 -- and
+# past them.
+hand_test(
+    name = "ex00_rush02_diff",
+    layer = "diff",
+    tags = ["manual"],
+    size = "medium",
+    srcs = ["//tools:rush02_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--dict",
+        "$(location tests/ex00/fixtures/ref.dict)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--count",
+        "200",
+    ] +
+    # A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the Run
+    # contract's: ignored, unless the subject requires something of it.
+    stderr_ignored("Rush 02's subject names no message for standard error"),
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+        "//tools:exit_status",
+        "//tools:runner_lib.sh",
+        "tests/ex00/fixtures/ref.dict",
+    ],
+)
+
+# The same runner over GENERATED dictionaries: a fresh one per case, with random
+# values, random spacing either side of the colon, blank lines, entries shuffled,
+# extra keys beyond the reference set, and one case in five missing a key the
+# number needs so "Dict Error" is produced rather than hand-written.
+#
+# This is the half that cannot be faked. The named fixtures above mostly use
+# English number words (replaced.dict alone makes every value up), so a program
+# that hardcodes most of them still passes most cases; here the values are
+# random strings and it fails on the first case -- in the settled target above
+# too, which gates on exactly that.
+# The subject makes that mandatory, not optional -- p.7 says the first of two
+# arguments IS the replacement dictionary, and its own transcript redefines 20 to
+# "hey everybody !". (Bonus 2 is a dictionary in another LANGUAGE, which is a
+# different thing.)
+#
+# Also `manual`, for the composition reason above.
+hand_test(
+    name = "ex00_rush02_dictfuzz",
+    layer = "diff",
+    tags = ["manual"],
+    size = "medium",
+    srcs = ["//tools:rush02_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--dict",
+        "$(location tests/ex00/fixtures/ref.dict)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "rush02_dicts",
+        "--count",
+        "150",
+    ] + stderr_ignored("Rush 02's subject names no message for standard error"),
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+        "//tools:exit_status",
+        "//tools:runner_lib.sh",
+        "tests/ex00/fixtures/ref.dict",
+    ],
+)
+
+# BOTH CORPORA UNDER THE MEMORY CHECKERS (finding 113), and NOT manual. The
+# two targets above are manual because the subject leaves composition open;
+# these assert no spelling at all -- only memory and how each run ended, which
+# every reading agrees on, and p.7 itself asks for heap memory to be freed.
+# Each corpus replays exactly as its plain target does, on the ASan build
+# (<stem>_diff_asan, robust) and 25 of its cases under memcheck
+# (<stem>_valgrind, strict):
+#
+#   ex00_rush02          ex00_rush02_diff's numbers, every length up to 42
+#                        digits and past it, read with the reference
+#                        dictionary
+#   ex00_rush02_dictfuzz ex00_rush02_dictfuzz's generated dictionaries:
+#                        random values, keys beyond the reference set, blank
+#                        lines, Dict Error when a key is dropped
+#
+# -- paths none of the fixed cases reaches. c_levels()' audit holds each plain
+# replay to its twins, corpus by corpus.
+[corpus_memory(
+    stem = stem,
+    runner = "//tools:rush02_check.sh",
+    args = [
+        "--dict",
+        "$(location tests/ex00/fixtures/ref.dict)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+    ] + corpus,
+    data = [
+        "//oracle:oracle",
+        "tests/ex00/fixtures/ref.dict",
+    ],
+) for stem, corpus in [
+    ("ex00_rush02", ["--count", "200"]),
+    ("ex00_rush02_dictfuzz", ["--fn", "rush02_dicts", "--count", "150"]),
+]]

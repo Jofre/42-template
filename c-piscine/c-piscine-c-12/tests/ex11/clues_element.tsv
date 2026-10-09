@@ -1,0 +1,3 @@
+# clues_element.tsv for ft_list_find's strict reading — hints only, never answers.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+The subject's sentence says "the address of the first element's data", and its prototype says what type comes back. Which of the two decides what a pointer of that type points to? This harness's reading, at strict, is the prototype's: the element itself. The basic table accepts any of the three readings, so a red here alone is about the reading, not about which element you found.	find head: what is returned	find middle: what is returned	find tail: what is returned

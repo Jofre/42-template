@@ -1,0 +1,38 @@
+# clues.tsv for rush01 — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><case name>...; most-fundamental first. A row fires on the cases it names:
+# rush01 is a program, each invocation is its own test, keyed by its c_program case name in
+# BUILD.bazel, and a target that replays a corpus is keyed by its name after ex00_ (BUILD.bazel
+# passes it as --case). A row naming "valgrind" fires on every case's memory arm, and a row
+# naming nothing on every failure. An untouched stub fails every case, so any row here can
+# fire at the first red: ask about a concept, and never list the program's steps.
+#
+# The input: the seven malformed ones and the sweep, whose probes hand the program no
+# argument, two, and an empty one. First for them: an argument count or a string the
+# subject calls an error is what they fail on, and the output-shape row below fired
+# first on twoargs (finding 155, the mutation run of 2026-10-03). Not the subject's
+# example, which hands the program one well-formed argument.
+The program is handed exactly ONE argument, and that argument is one string holding sixteen values. Anything else is, in the subject's own words, an error: no argument at all, a second argument, fifteen values, seventeen, or a value that is not a number between '1' and '4'. And the subject fixes exactly one thing to print for every one of those situations — the word Error and a newline, nothing more, with no clue as to which check tripped and no difference between "you gave me nonsense" and "this puzzle has no solution". This harness reads it from the same stream it reads the grid from. So before trusting the string: how many arguments did your program actually receive, and how many values were really inside the one it read?	noarg	twoargs	fifteen	seventeen	zero	five	nonnumeric	sweep
+#
+# Well-formed and unsolvable (unsolvable, unsolvable_near_miss).
+Every value here is a digit from '1' to '4', and still no grid the subject's rules allow shows these sixteen views. Which sentence of the subject says what to display when there is no solution, and what did your program display instead?	unsolvable	unsolvable_near_miss
+#
+# The subject's example, every error case and the sweep (ex00_sweep): what the output is.
+What does the subject's `| cat -e` transcript show a correct answer to be, byte by byte: how many lines, what between two digits, and what each `$` marks? Now read your GOT column the same way: is there anything in it the transcript does not have, such as a banner, a blank line at the end, or a space just before a newline?	subject	noarg	twoargs	fifteen	seventeen	zero	five	nonnumeric	unsolvable	unsolvable_near_miss	sweep
+#
+# A grid: the subject's example, the sweep, and an unsolvable case answered with one.
+The sixteen views are one rule a solution has to keep. What other rule does the subject set on the grid itself, for every row and every column? Does the grid your program printed keep it: can you find one height twice in any row, or in any column? The sweep checks that rule on every grid your program prints.	subject	unsolvable	unsolvable_near_miss	sweep
+A view is a COUNT of how many boxes you can see from one end of a row or a column — not a sum, not a position, not a height. Walking in from that end, a box is visible only if every box you have already walked past is shorter than it: the subject's own example is a row where the box of height 3 hides the box of height 1 behind it, so that side sees 3 boxes and not 4. Count by hand the two views of one row of the grid your program printed, and of one column: do those four numbers match the four you were handed?	subject	unsolvable	unsolvable_near_miss	sweep
+#
+# ex00_readings, at strict: the shape of the one argument, which the subject leaves open.
+# The target takes ONE reading (BUILD.bazel, tools/rush01_check.sh --probe-shape) and these
+# rows state it, which is what a strict target is for; no basic target holds you to it.
+This harness's reading, at strict, never the subject's, of "Each element of the string is a number ranging between '1' and '4'. This is the only acceptable input": single digits separated by single spaces, nothing before the first or after the last. Under it, a leading, trailing or doubled space, a tab, and a '0' or a '+' in front of a digit are other input, so each is an error. Which sentence of the subject would you point to if you read it another way?	readings
+How does your program find where one value ends and the next begins? Would it notice a second space between two values, or a tab where a space should be?	readings
+When your program reads one value, does it take exactly one character, or as many as look like a number? What does it make of "+4", or of "04"?	readings
+#
+# The bonus sizes (ex00_bonus_9x9). Boards run from 1x1 to 9x9, so no row names a count, a
+# range or a size.
+How many values does the argument hold for a board of N by N, and what is the largest one that can make sense there? Does your program work both out from the string it was handed, or does something in it still assume the 4x4 board?	bonus_9x9
+This target holds a board of any size to the rule the subject sets on its 4x4 grid, for every row and every column. Can you find one height twice in any row, or in any column, of the grid your program printed?	bonus_9x9
+A view counts the boxes seen from one end of a line, a taller box hiding every shorter one behind it. Count by hand the two views of one row and of one column of your grid: do they match the clues you were handed for them?	bonus_9x9
+When a case ran out of time, does your program finish that same board when you run it yourself, and how long does it take?	bonus_9x9

@@ -1,0 +1,262 @@
+load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_diff", "c_function", "c_levels", "c_make", "c_mem_check", "c_program", "exercise", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+# Every exercise but ex05 names exactly one file and asks for nothing else
+# (strict, the project's default).
+#
+# ex05 names no file by name -- "Files to turn in : Your program files" -- so
+# every .c and .h in the folder is allowed, in a subfolder too (the Makefile
+# says where its sources lie), less a .c it never compiles. The Makefile is
+# REQUIRED: page 12 says "Here's an example of tests the Moulinette will run:
+# $> make clean $> make", which no turn-in without one survives, and ex05_build
+# requires it too -- so the two layers state one fact (findings 111 and 124: it
+# used to be optional here, and before that listed as a file nobody asked for,
+# while ex05_build required it). Anything else FAILS, as in every exercise of
+# this module: p.2, "You cannot leave any additional file in your directory
+# than those specified in the subject". A do-op binary left by a hand-run of
+# make is the usual one.
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(page = 6, dir = "ex00/", files = ["ft_foreach.c"], allowed = []),
+        "01": exercise(page = 7, dir = "ex01/", files = ["ft_map.c"], allowed = ["malloc"]),
+        "02": exercise(page = 8, dir = "ex02/", files = ["ft_any.c"], allowed = []),
+        "03": exercise(page = 9, dir = "ex03/", files = ["ft_count_if.c"], allowed = []),
+        "04": exercise(page = 10, dir = "ex04/", files = ["ft_is_sort.c"], allowed = []),
+        "05": exercise(
+            page = 11,
+            dir = "ex05/",
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = ["write"],
+        ),
+        "06": exercise(page = 13, dir = "ex06/", files = ["ft_sort_string_tab.c"], allowed = []),
+        "07": exercise(page = 14, dir = "ex07/", files = ["ft_advanced_sort_string_tab.c"], allowed = []),
+    },
+)
+
+c_function(num = "00", fn = "ft_foreach", test = "test_foreach.c", labeled = True, clues = "clues.tsv")
+c_diff(num = "00", fn = "ft_foreach", harness = "diff_foreach.c", oracle_fn = "c11_foreach", diff_clues = "diff_clues.txt")
+
+# ft_foreach / ft_map / ft_count_if / ft_is_sort each carry a `length` SAFETY
+# bound: they must never read past tab[length-1]. These run the function under
+# ASan on an exact-sized heap array — a stray read past the bound is caught here
+# (output diffing can't see it, since the returned value can still be correct).
+c_mem_check(num = "00", fn = "ft_foreach", probe = "mem_foreach.c")
+
+c_function(num = "01", fn = "ft_map", test = "test_map.c", malloc = True, labeled = True, clues = "clues.tsv")
+c_diff(num = "01", fn = "ft_map", harness = "diff_map.c", oracle_fn = "c11_map", diff_clues = "diff_clues.txt")
+
+c_mem_check(num = "01", fn = "ft_map", probe = "mem_map.c")
+
+c_function(num = "02", fn = "ft_any", test = "test_any.c", labeled = True, clues = "clues.tsv")
+c_diff(num = "02", fn = "ft_any", harness = "diff_any.c", oracle_fn = "c11_any", diff_clues = "diff_clues.txt")
+
+c_function(num = "03", fn = "ft_count_if", test = "test_count_if.c", labeled = True, clues = "clues.tsv")
+c_diff(num = "03", fn = "ft_count_if", harness = "diff_count_if.c", oracle_fn = "c11_count_if", diff_clues = "diff_clues.txt")
+
+c_mem_check(num = "03", fn = "ft_count_if", probe = "mem_count_if.c")
+
+# "Sorted" is a reading here. The subject never says whether an array in the
+# reverse of f's order counts, so the basic fixture, and the diff layer's
+# corpus, hold only arrays on which both readings agree (a self-check in the
+# reference holds the corpus to that); one reading is a target of its own,
+# ex04_reverse_output, at strict, every row of which is such an array, and
+# whose own hint and row in docs/reference.md state the reading it tests.
+c_function(
+    num = "04",
+    fn = "ft_is_sort",
+    test = "test_is_sort.c",
+    labeled = True,
+    clues = "clues.tsv",
+    readings = [
+        {
+            "name": "reverse",
+            "main": "test_is_sort_reverse.c",
+            "expected": "expected_reverse.txt",
+            "labeled": True,
+            "clues": "clues_reverse.tsv",
+            "level": 2,
+        },
+    ],
+)
+c_diff(num = "04", fn = "ft_is_sort", harness = "diff_is_sort.c", oracle_fn = "c11_is_sort", diff_clues = "diff_clues.txt")
+
+c_mem_check(num = "04", fn = "ft_is_sort", probe = "mem_is_sort.c")
+
+# THE EXIT STATUS, by the Run contract (docs/reference.md): do-op's subject
+# names none, so no case compares one at basic, and every case but the two
+# "survive" ones gets a robust twin, ex05_<case>_exit, which fails a non-zero
+# return (a case the subject leaves open judges no status). The subject gives an
+# output for every input here -- an invalid operator prints 0, a bad argument
+# count prints nothing, a zero divisor prints its "Stop" line -- rather than
+# calling any of them an error, so none is marked "invalid_input". The three
+# cases with "exit": 0 carry the same rule, written out before it existed.
+# do-op is what its Makefile builds once it compiles anything, and its
+# folder's sources until then: C 10's BUILD file says why (makefile =
+# "once_written").
+c_program(num = "05", name = "do_op", makefile = "once_written", cases = [
+    {"name": "add", "args": ["42", "+", "21"], "expected": "add.txt", "clues": "clues.tsv"},
+    {"name": "sub", "args": ["42amis", "-", "--+-20toto12"], "expected": "sub.txt", "clues": "clues.tsv"},
+    {"name": "mul", "args": ["3", "*", "4"], "expected": "mul.txt", "clues": "clues.tsv"},
+    {"name": "neg", "args": ["10", "-", "25"], "expected": "neg.txt", "clues": "clues.tsv"},
+    {"name": "divzero", "args": ["1", "/", "0"], "expected": "divzero.txt", "clues": "clues.tsv"},
+    {"name": "modzero", "args": ["25", "%", "0"], "expected": "modzero.txt", "clues": "clues.tsv"},
+    {"name": "unknown", "args": ["1", "p", "1"], "expected": "unknown.txt", "clues": "clues.tsv"},
+    {"name": "noargs", "args": [], "expected": "noargs.txt", "exit": 0, "clues": "clues.tsv"},
+    {"name": "addsimple", "args": ["1", "+", "1"], "expected": "addsimple.txt", "clues": "clues.tsv"},
+    {"name": "div", "args": ["10", "/", "3"], "expected": "div.txt", "clues": "clues.tsv"},
+    {"name": "mod", "args": ["10", "%", "3"], "expected": "mod.txt", "clues": "clues.tsv"},
+    {"name": "modneg", "args": ["-10", "%", "3"], "expected": "modneg.txt", "clues": "clues.tsv"},
+    {"name": "garbageright", "args": ["1", "+", "toto3"], "expected": "garbageright.txt", "clues": "clues.tsv"},
+    {"name": "garbageleft", "args": ["toto3", "+", "4"], "expected": "garbageleft.txt", "clues": "clues.tsv"},
+    {"name": "unknownword", "args": ["foo", "plus", "bar"], "expected": "unknownword.txt", "clues": "clues.tsv"},
+    {"name": "toomany", "args": ["1", "+", "1", "extra"], "expected": "noargs.txt", "exit": 0, "clues": "clues.tsv"},
+    {"name": "threeargs", "args": ["1", "+"], "expected": "noargs.txt", "exit": 0, "clues": "clues.tsv"},
+    # THE INT LIMITS (finding 118). "Your program should treat value as int"
+    # has one answer when both operands and the result are ints, so these sit
+    # at basic. INT_MAX as an operand, and INT_MIN as a result reached with no
+    # INT_MIN operand -- which a program that prints a number by negating it
+    # first gets wrong. The expected files are the arithmetic, by construction:
+    # 2147483647 * 1, and -2147483647 - 1 (2^31 - 1, and -2^31).
+    {"name": "intmax", "args": ["2147483647", "*", "1"], "expected": "intmax.txt", "clues": "clues.tsv"},
+    {"name": "intmin", "args": ["-2147483647", "-", "1"], "expected": "intmin.txt", "clues": "clues.tsv"},
+    # INT_MIN / -1 and INT_MIN % -1: the quotient does not fit an int, and the
+    # subject leaves what to print open. Every reading agrees that the program
+    # ends by itself, killed by no signal -- the division is one x86 answers
+    # with SIGFPE -- so the case asserts that and nothing else ("survive"), at
+    # strict, where the Run contract puts a case the subject leaves open.
+    # Each SKIPs while ex05_add_output is red (tools/defs.bzl's
+    # _survive_gate): an unwritten do-op ends by itself too, and was green.
+    #
+    # Their asan arms, and intmin's, run under UBSan, which also fails a
+    # number read or an operation that overflows int on the way (-2147483648
+    # read as 2147483648 then negated, say). That is THIS REPO's decision, at
+    # robust, where its asan layer sits: rigour the subject does not ask for,
+    # and basic and strict never see it.
+    {"name": "intmin_div", "args": ["-2147483648", "/", "-1"], "survive": True, "level": 2, "clues": "clues.tsv"},
+    {"name": "intmin_mod", "args": ["-2147483648", "%", "-1"], "survive": True, "level": 2, "clues": "clues.tsv"},
+    # An operator whose first character is one of the five, and which is
+    # longer (finding 123). strict: the subject lists five operators and says
+    # an invalid one prints 0, but it reads values leniently ("42amis" is 42),
+    # which leaves open whether the operator argument is read whole or by its
+    # first character. This case holds one reading, which its hint and its row
+    # in docs/reference.md state; basic keeps the subject's own invalid
+    # operators, "p" and "plus".
+    {"name": "opsuffix", "args": ["1", "+x", "1"], "expected": "unknown.txt", "level": 2, "clues": "clues.tsv"},
+])
+
+c_function(num = "06", fn = "ft_sort_string_tab", test = "test_sort_string_tab.c", labeled = True, clues = "clues.tsv")
+# perf_length: the corpus's arrays are a few strings long, so a cubic sort is
+# linear in how many arrays it is handed (finding 044). The length series
+# grows one array instead, and reports what doubling it does to one call;
+# never gated, because for a sort that exponent is the algorithm.
+#
+# readings: "ascii order" (p.13) ends at 0x7f and gives no place to a byte
+# above it, so the diff corpus holds only arrays a comparison of signed and
+# one of unsigned char order alike (bytes above 0x7f among them, where they
+# decide nothing), and the arrays they part on are ex06_readings'. The order
+# that target expects there is not a reading of the sentence, which does not
+# reach them, but a convention this repo chose, stated in its own hint (its
+# row in docs/reference.md says why); so at robust ("level": 3;
+# docs/reference.md, "Run contract"), as C 06 ex03's
+# ex03_high_bytes_argv_diff, the same question, is. Its ASan twin keeps them
+# under the sanitizer.
+c_diff(
+    num = "06",
+    fn = "ft_sort_string_tab",
+    harness = "diff_sort_string_tab.c",
+    oracle_fn = "c11_sort_string_tab",
+    diff_clues = "diff_clues.txt",
+    perf_length = {"oracle_fn": "c11_sort_string_tab_len", "harness": "len_sort_string_tab.c"},
+    readings = {
+        "diff_clues": "diff_clues_readings.txt",
+        "level": 3,
+        "oracle_fn": "c11_sort_string_tab_readings",
+    },
+)
+
+c_function(num = "07", fn = "ft_advanced_sort_string_tab", test = "test_advanced_sort_string_tab.c", labeled = True, clues = "clues.tsv")
+c_diff(
+    num = "07",
+    fn = "ft_advanced_sort_string_tab",
+    harness = "diff_advanced_sort_string_tab.c",
+    oracle_fn = "c11_advanced_sort_string_tab",
+    diff_clues = "diff_clues.txt",
+    perf_length = {"oracle_fn": "c11_advanced_sort_string_tab_len", "harness": "len_advanced_sort_string_tab.c"},
+)
+
+# no c_mem_check on ex02, ex06, ex07: SENTINEL-BOUND.
+#
+# The split follows the prototypes. ft_foreach/ft_map/ft_count_if/ft_is_sort
+# take an `int length` -- a NUMBER the function is trusted to respect, where
+# reading tab[length] is silent and only an exactly-sized heap array catches it,
+# which is what the probes above are for. ft_any, ft_sort_string_tab and
+# ft_advanced_sort_string_tab take no length: the NULL terminator IS the bound.
+#
+# That makes a probe pointless rather than merely redundant, and it was measured
+# rather than assumed -- on an exactly-sized 3-slot array (2 entries + sentinel)
+# walked one slot long, from a separate translation unit, which is the shape
+# this repo builds:
+#
+#   reading the sentinel slot      no out-of-bounds report on any of the four
+#                                  toolchain/-O combinations -- it is in bounds
+#   dereferencing it               SIGSEGV under clang-12 and gcc-10, at both
+#                                  -O0 and -O2; ASan reports SEGV on 0x0
+#
+# A fatal signal is what exNN_output already fails on, ahead of the byte
+# comparison, because a crash outranks a comparison. So the bug is caught today
+# by a layer that runs today; a probe would add a stack trace, not a verdict.
+
+# No valgrind arm on ex00 and ex02..ex07: ft_map is the only exercise here the
+# subject allows malloc (declared malloc = True above, which is what emits its
+# arm), and ex06/ex07 sort the caller's array in place. See the `allowed` rule
+# written out in c-piscine/c-piscine-c-00/BUILD.bazel.
+
+
+# ex05 HAS a build layer now, and a stub Makefile to hang it on.
+#
+# It is the only exercise in this module whose subject prints a
+# build-and-run transcript -- p.12 opens the Moulinette's own session with
+# `make clean` then `make` then `./do-op` -- and it was the only one with
+# nothing checking that. A student with no Makefile passed every layer here
+# and met that transcript for the first time at evaluation.
+#
+# `rules = ["clean"]`, not the default clean/fclean/re: the transcript shows
+# only `make clean`, and demanding the other two would red a correct Makefile
+# over rules this subject never asks for. What clean does the subject does
+# not say, so that is this repo's convention, at robust (ex05_build_rules);
+# that it is there is basic.
+#
+# The line about cc says what the Moulinette does; whether it binds the
+# recipes is open, and ex05_build_recipe, strict, holds one reading. The
+# Norm's "no *.c, no *.o" is not in the subject (ex05_build_wildcards, strict).
+#
+# It is RED until the Makefile is written, which is the same state every other
+# unstarted exercise is in -- an output layer red against a stub deliverable.
+# The build layer is not different in kind, only in what it reads.
+c_make(
+    num = "05",
+    artifact = "do-op",
+    symbols = ["main"],
+    rules = ["clean"],
+    quotes = {
+        "cc": "C 11, p.2: \"Moulinette compiles with these flags: -Wall -Wextra -Werror, and uses cc.\"",
+        "wildcards": NORM_NO_WILDCARDS,
+    },
+    recipe = "any",
+    recipe_strict = True,
+    wildcards = True,
+)
+
+# The hints a case of do-op shows are its clue rows keyed to it, three at a
+# time: //tools/tests's selftest reads this file the way the output tests do
+# and requires the row that fits a case to come first (finding 155), so the
+# file is visible to it.
+exports_files(
+    ["tests/ex05/clues.tsv"],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
+c_levels()

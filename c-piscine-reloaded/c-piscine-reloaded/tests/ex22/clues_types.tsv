@@ -1,0 +1,3 @@
+# clues_types.tsv for ft_abs.h's wider arguments -- hints only, never answers.
+# These cases pass an argument that is not an int; the subject names no type.
+The subject says ABS replaces "its argument" with its absolute value, and names no type. What type does the expression your macro expands to have when the argument is a long long, or a double? Does anything in its body only make sense for an int?	ABS(3000000000LL)	ABS(-3000000000LL)	ABS(-3000000001LL)	ABS(4000000001LL)	ABS(-2.5)	ABS(2.25)	ABS(-0.75)

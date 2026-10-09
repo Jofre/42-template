@@ -1,0 +1,5 @@
+# clues.tsv for ex24 (the Makefile) — pedagogic hints only. NEVER state the expected value or the fix.
+# The build test prints its own reasons; these are the questions behind them.
+Where does the subject say the sources and the headers live, and where must the library end up? Your Makefile runs from the exercise directory: every path in it is relative to that.
+Which files may your Makefile compile? Only the five the subject names — and the Norm asks for every source to be written out, never matched with a wildcard.
+What should a second `make`, right after the first, have left to do? And what exactly does each of clean, fclean and re promise to leave behind?

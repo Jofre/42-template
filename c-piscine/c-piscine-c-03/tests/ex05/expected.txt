@@ -1,0 +1,15 @@
+empty src (size 50)	ret=6 dest="Hello "
+into empty dest (size 10)	ret=2 dest="Hi"
+fits fully (size 50)	ret=12 dest="Hello World!"
+truncated (size 10)	ret=12 dest="Hello Wor"
+size 0	ret=6 dest="Hello "
+size 1	ret=7 dest="Hello "
+size == dest length (6)	ret=12 dest="Hello "
+size < dest length (3)	ret=9 dest="Hello "
+size == dest len + 1 (7)	ret=12 dest="Hello "
+size == dest len + 2 (8)	ret=12 dest="Hello W"
+trunc into empty dest (size 4)	ret=6 dest="Wor"
+both empty (size 50)	ret=0 dest=""
+bytes above 0x7f in src (size 50)	ret=9 dest="Hello \xe9t\xe9"
+X-filled buffer, truncated (size 5)	ret=7 buf=HiWo\x00XXX
+X-filled buffer, fits (size 20)	ret=7 buf=HiWorld\x00

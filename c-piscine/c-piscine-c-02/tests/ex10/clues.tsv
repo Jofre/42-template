@@ -1,0 +1,7 @@
+# clues.tsv for ft_strlcpy — hints only, never answers.
+# The contract is the manual page: man 3bsd strlcpy, one page for strlcpy and
+# strlcat. glibc 2.35 has neither function, so the page ships only in libbsd-dev
+# (the dev container carries it; docs/environment.md, what you run by hand). With
+# no page installed: https://man.openbsd.org/strlcpy.3
+What does strlcpy return -- and does that value depend on size at all? man 3bsd strlcpy says (no page installed? man.openbsd.org/strlcpy.3). Then the copy: the buffer holds size bytes and must end with a terminator inside it. How many characters can you actually copy before the terminator must go down?	"Hi" size 50 (fits)	"Hello" size 6 (fits exactly)	"" size 5 (empty src)	"Hello" size 5 (truncated by 1)
+What happens when size is 0? There is no room even for a terminator, so you must write nothing at all -- yet what should you still return?	"Hello" size 0 (writes nothing)	"Hello" size 1 (only the \0)	"Hello World" size 6 (big truncate)

@@ -1,0 +1,4 @@
+single element	[1]
+three positives in order	[1][2][3]
+full array negatives and zero	[1][2][3][42][-5][0]
+length zero applies to nothing	

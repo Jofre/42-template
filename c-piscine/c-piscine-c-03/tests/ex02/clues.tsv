@@ -1,0 +1,4 @@
+# clues.tsv for ft_strcat — hints only, never answers.
+strcat appends src onto the END of dest and returns a pointer. Three questions: where does dest currently end, what happens to its old terminator, and which pointer should you hand back?	"abc" + "" (empty src)	"" + "abc" (empty dest)	"Hello " + "World!"	"ab" + "cde"
+This buffer is filled with 'X' past the string's terminator. After appending, is a fresh terminator placed in the right spot, or does leftover garbage leak into the result?	append past old '\0' (buffer was X-filled)
+This source holds bytes of 0x80 and above, as UTF-8 text does. Is each of them appended like any other byte, or does something in your loop take one for the end? What value does a plain char holding 0xC3 have on this machine?	"hi" + high-byte src \xC3\xA9\x80

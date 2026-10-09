@@ -1,0 +1,8 @@
+"abc" + "" (nb=5, empty src)	ret="abc" dest="abc" ret==dest:1
+"Hello " + "World!" (nb=0)	ret="Hello " dest="Hello " ret==dest:1
+"Hello " + "World!" (nb=3, truncated)	ret="Hello Wor" dest="Hello Wor" ret==dest:1
+"Hello " + "World!" (nb=100, all fits)	ret="Hello World!" dest="Hello World!" ret==dest:1
+append nb=3 past old '\0' (X-filled)	ret="HiWor" dest="HiWor" ret==dest:1
+"Hello " + "World!" (nb=6, nb==strlen)	ret="Hello World!" dest="Hello World!" ret==dest:1
+"" + "abc" (nb=3, empty dest)	ret="abc" dest="abc" ret==dest:1
+"Hello " + "Hi" (nb=100, short src)	ret="Hello Hi" dest="Hello Hi" ret==dest:1

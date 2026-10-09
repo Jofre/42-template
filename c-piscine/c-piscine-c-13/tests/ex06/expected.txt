@@ -1,0 +1,8 @@
+empty tree	0
+single node	1
+left chain of four	4
+right chain of four	4
+long left side, one node on the right	5
+long right side, one node on the left	5
+deepest on an inner path, left then right	5
+deepest on an inner path, right then left	5

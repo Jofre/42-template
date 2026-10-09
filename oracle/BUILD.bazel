@@ -1,0 +1,112 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("//tools:defs.bzl", "hand_test")
+load("//tools:grader_lib.bzl", "grader_library")
+
+# The live differential-test reference. Built once by Bazel with a hermetic Rust
+# toolchain and reused (as a runfiles data dep) by every c_diff test — the
+# student's C output is compared against this at runtime. Grader-side tooling:
+# never compiled into any deliverable. See oracle/README.md.
+rust_binary(
+    name = "oracle",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    edition = "2021",
+    # Cargo.toml's [profile.release] is never read by Bazel: under the default
+    # fastbuild, rules_rust passes -Copt-level=0. Corpus generation is ~90% of a
+    # diff test's wall time and the diff layer is the heaviest in the suite, so
+    # that default was costing ~4x on the whole differential loop — measured, one
+    # pass over all 74 corpora at count=400000: 81.8s at -O0 vs 19.5s at -O2,
+    # with byte-identical output. Same reasoning the cycles layer already applies
+    # to the C side (it builds its own -O2 binary rather than trust fastbuild).
+    #
+    # -Dwarnings: a warning here is a red build on the author's machine, never
+    # noise in a student's first run. The toolchain is pinned (MODULE.bazel),
+    # so the set of warnings cannot move under anyone else; a needless `mut`
+    # in c08.rs printed one in the middle of every cold build until this.
+    # //tools:conventions holds every Rust compile in the repo to the flag.
+    rustc_flags = [
+        "-Copt-level=2",
+        "-Dwarnings",
+    ],
+    # (Linker forced to bfd for all Rust via .bazelrc — see the rules_rust
+    # extra_rustc_flags there — to silence rustc's gold-deprecation warning.)
+    visibility = ["//visibility:public"],
+)
+
+# THE GRADER'S OWN CONSTRUCTORS, which C 12 and C 13 say the grader links from
+# exercise 01 on ("we'll use our ft_create_elem" / "our btree_create_node").
+# Each subject() contract names its library per exercise (`linked`), and every
+# program the harness builds for those exercises links it in place of the
+# student's ex00. Rust, for the reason tools/grader_lib.bzl gives; each also
+# has a :<name>_i686 twin for the ilp32 layer.
+grader_library(
+    name = "c12_grader",
+    src = "grader/c12.rs",
+    exports = ["ft_create_elem"],
+    visibility = ["//visibility:public"],
+)
+
+grader_library(
+    name = "c13_grader",
+    src = "grader/c13.rs",
+    exports = ["btree_create_node"],
+    visibility = ["//visibility:public"],
+)
+
+# Rush 02's dictionary of more than 64 KiB (oracle/src/rush02.rs, big_dict),
+# written to a file for the ex00_dict_big case. Made from the reference, never
+# typed: the filler, its placement and the split across byte 4096 are what
+# `oracle check` holds. Here, not in the project's BUILD file, because no
+# genrule may stand where a student's code can reach it (tools/conventions.sh);
+# this one runs the reference alone.
+genrule(
+    name = "rush02_big_dict",
+    outs = ["rush02_big.dict"],
+    cmd = "$(location :oracle) rush02_big_dict 1 0 > $@",
+    tools = [":oracle"],
+    visibility = ["//c-piscine/c-piscine-rush-02:__pkg__"],
+)
+
+# The anti-bugged-oracle guard, wired into `bazel test`. `oracle check` holds
+# every reference to its own hand-written case tables and to property assertions
+# swept over seeded inputs (ordered-permutation, round-trip, involution, the
+# div_mod and strlcat return identities, ...) — a few thousand to 20 000 cases
+# depending on the module, with rush instead sweeping every 1..60 x 1..60 box
+# exhaustively — plus, in c00, rush, rush01 and bsq only, checks that the
+# generators still emit the corners they promise. It is entirely in-crate: it
+# does NOT compare against libc and does NOT read the curated expected.txt
+# fixtures — see the header of tools/oracle_check.sh for the exact scope and
+# the per-module sweep widths, and do not restate it as more than that.
+#
+# Modest as it is, it has to be a test target: without this the check is dead
+# code, and a regression in a reference would instead surface as a CORRECT
+# student's *_diff going red — the worst failure mode this repo has. Sub-second,
+# so it is cheap.
+hand_test(
+    name = "oracle_check",
+    layer = "oracle",
+    # 19s in a full suite, a third of "small"'s 60 (finding 066).
+    size = "medium",
+    srcs = ["//tools:oracle_check.sh"],
+    args = ["--oracle", "$(location :oracle)"],
+    data = [":oracle"],
+)
+
+# What //tools/tests:conventions reads here: the README a student is pointed
+# at, and the reference's own sources, which the level-ladder check covers
+# like every other file a person reads.
+filegroup(
+    name = "conventions_srcs",
+    srcs = [
+        "BUILD.bazel",
+        "Cargo.toml",
+        "README.md",
+    ] + glob(
+        [
+            "src/**/*.rs",
+            "grader/*.rs",
+        ],
+        allow_empty = False,
+    ),
+    visibility = ["//tools/tests:__pkg__"],
+)

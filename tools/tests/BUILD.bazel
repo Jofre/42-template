@@ -1,0 +1,892 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("@rules_python//python:defs.bzl", "py_test")
+load("//tools:defs.bzl", "hand_test", "lvl_tags", "starlark_selftest")
+load(":starlark_unit.bzl", "starlark_unit")
+
+# Shared so :selftest and :selftest_bash cannot drift apart: the second exists
+# only to run the SAME arms under a different shell, and it stops proving that
+# the moment its inputs differ.
+# Shared for the same reason as SELFTEST_DATA below, and it earned it: these
+# were two inline copies, and the moment :selftest gained the pinned-valgrind
+# flags, :selftest_bash went on running without them -- so the cross-shell run
+# that exists to prove the runners are shell-agnostic reported seven failures
+# that had nothing to do with the shell. Two lists that must be identical
+# should be one list.
+SELFTEST_ARGS = [
+        "--anchor",
+        "$(rootpath //tools:diff_output.sh)",
+        "--norminette",
+        "$(rootpath //tools:norminette)",
+        "--nm",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm)",
+        "--nm-lib",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
+        # The pinned valgrind. The two cycles runners require it now, so without
+        # it every arm here would exit 2 on the wiring instead of reaching the
+        # skip or the refusal it was written to check.
+        "--valgrind",
+        "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
+        "--valgrind-callgrind-tools",
+        "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux)",
+        "--callgrind-annotate",
+        "$(rootpath @valgrind_ubuntu//:usr/bin/callgrind_annotate)",
+        # The pinned shellcheck. Two runners take one now: shell_test.sh's norm
+        # mode, which grades the shell modules, and conventions.sh. Both refuse
+        # to fall back to a host copy, so the selftest has to hand one over the
+        # same way Bazel does or those arms would only ever exercise the refusal.
+        "--shellcheck",
+        "$(rootpath @shellcheck_linux_x86_64//:shellcheck)",
+        # The pinned clang and the libraries it loads. prototype_check.sh's
+        # --names mode reads clang's AST dump, and the compiler on PATH may be
+        # a gcc (it is on some campus boxes), so its arms take the one every
+        # layer is built with, as Bazel hands it over.
+        "--clang",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12)",
+        "--clang-lib",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/lib/libclang-cpp.so.12)",
+        "--clang-lib",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1)",
+        # The pinned gcc, for the method layer's --fixed-array arms: only gcc
+        # names an object by its size (-Wlarger-than=), and the arms prove the
+        # runner on the compiler every exNN_fixed_array target is handed.
+        "--gcc",
+        "$(rootpath @gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10)",
+        # The pinned llvm-symbolizer and the library it loads, handed to the
+        # sanitizer runners' arms as defs.bzl hands them to every layer.
+        "--symbolizer",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/bin/llvm-symbolizer)",
+        "--symbolizer-lib",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1)",
+        # The pinned ld.bfd and a library beside the libbfd it loads, for the
+        # runners that link what they compile (asan_check, allocfail_check,
+        # cycles_check, ref_compare, header_check, method_check --expect), as
+        # tools/defs.bzl hands them over (_pinned_ld_args, TO VERIFY V38).
+        "--ld",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd)",
+        "--ld-lib",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
+]
+
+SELFTEST_DATA = [
+        "@clang_12_ubuntu//:runtime",
+        # What a sanitized link by the pinned clang pulls from its own tree:
+        # asan_check.sh's arms build with it (TO VERIFY V38).
+        "@clang_12_ubuntu//:sanitizer_runtime",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd",
+        "@gcc_10_ubuntu//:runtime",
+        "@gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/lib/libclang-cpp.so.12",
+        "@clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1",
+        "@binutils_x86_64_linux_gnu//:runtime",
+        # libLLVM, which it loads too, is listed above for clang-12.
+        "@clang_12_ubuntu//:usr/lib/llvm-12/bin/llvm-symbolizer",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm",
+        "@binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so",
+        "@shellcheck_linux_x86_64//:shellcheck",
+        "@valgrind_ubuntu//:runtime",
+        "@valgrind_ubuntu//:usr/bin/callgrind_annotate",
+        "@valgrind_ubuntu//:usr/bin/valgrind.bin",
+        "@valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux",
+        "//tools:allocfail_check.sh",
+        "//tools:allocfail_shim.c",
+        "//tools:allocfail_counter.h",
+        "//tools:allocfail_program.c",
+        "//tools:argv_table.sh",
+        "//tools:argv_guard_main.c",
+        "//tools:asan_check.sh",
+        "//tools:asan_run.sh",
+        "//tools:argv_check.sh",
+        "//tools:bsq_check.sh",
+        "//tools:file_check.sh",
+        "//tools:compile_check.sh",
+        "//tools:conventions.sh",
+        "//tools:cycles_check.sh",
+        "//tools:diff_output.sh",
+        # Not a runner: the reader harnesses' helpers, whose dio_line must
+        # refuse a corpus line longer than its buffer (the rust_diff arms),
+        # which Rush 00's judging harnesses below include too, and which the
+        # diff_asan arms compile a toy harness against.
+        "//tools:diffio.h",
+        # Not a runner: how a run ended, from waitpid(). diff_output.sh,
+        # argv_table.sh, progname_test.sh and asan_run.sh refuse to run
+        # without it (tools/exit_status.c).
+        "//tools:exit_status",
+        # Not a runner: the preload library shell_test.sh's --redirect loads
+        # into a check's runs (tools/path_redirect.c).
+        "//tools:path_redirect.so",
+        "//tools:files_test.sh",
+        "//tools:forbidden_symbols.sh",
+        "//tools:gen_header.sh",
+        "//tools:generate.sh",
+        "//tools:init.sh",
+        "//tools:reset_headers.sh",
+        "//tools:header_check.sh",
+        "//tools:header_norm.sh",
+        "//tools:method_check.sh",
+        "//tools:method_shim.c",
+        "//tools:ilp32_test.sh",
+        "//tools:env_drift.sh",
+        # Not a runner: the campus report, run in a sandbox repository.
+        "//tools:env-audit.sh",
+        "//tools:standin.sh",
+        "//tools:student_build.sh",
+        "//tools:no_turnin.sh",
+        "//tools:make_test.sh",
+        "//tools:norminette",
+        "//tools:oracle_check.sh",
+        "//tools:model_check.sh",
+        "//tools:oracle_fixtures.sh",
+        "//tools:reference_cases.sh",
+        "//tools:issued_test.sh",
+        "//tools:norminette_test.sh",
+        "//tools:probe_under.sh",
+        "//tools:progname_test.sh",
+        "//tools:prime.sh",
+        "//tools:prototype_check.sh",
+        "//tools:ref_compare.sh",
+        "//tools:run_check.sh",
+        "//tools:rush01_check.sh",
+        "//tools:rush02_check.sh",
+        "//tools:runner_lib.sh",
+        "//tools:rust_diff.sh",
+        "//tools:shell_check.sh",
+        "//tools:setup.sh",
+        # Sourced by setup.sh, prime.sh, init.sh and env_drift.sh; and the
+        # wrapper bazelisk runs, which the arms drive with a fake Bazel.
+        "//tools:drives.sh",
+        "//tools:bazel",
+        # Sourced by prime.sh, which writes a trace with it, and env-audit.sh,
+        # which reads them.
+        "//tools:prime_trace.sh",
+        "//tools:shell_test.sh",
+        "//tools:first_red.sh",
+        # Not runners: 42's entry and the installer that puts it on PATH.
+        "//tools:42.sh",
+        "//tools:fortytwo/install.sh",
+        "//tools:defs.bzl",
+        "//tools:stub_check.sh",
+        "//tools:placeholder_pdf.sh",
+        "//tools:answer_scan.sh",
+        "//tools:submit.sh",
+        "//tools:symbols_test.sh",
+        # Its functional arms live in :selftest_slow, because running valgrind
+        # is what makes them slow. Its ARGUMENT handling is instant, though, and
+        # was reachable from neither target -- so the fast selftest carries the
+        # file to assert that much. Without it the arm ran `sh <missing path>`,
+        # which dash also exits 2 for: a check that looked like it was passing
+        # judgement on the runner while never loading it.
+        "//tools:valgrind_test.sh",
+        # Not a runner: the library every harness output fixture links, so
+        # the arms that crash a fixture mid-table test it with what it ships.
+        "//tools:unbuffered_stdout.c",
+        # Not a runner: the malloc every reader harness links (//tools:diffio),
+        # which the arms build a toy reader with.
+        "//tools:dirty_malloc.c",
+        # And a toy reader built through //tools:diffio itself, as Bazel
+        # builds every reader (:diffio_probe, below), so the arms see the
+        # library's wiring and not a copy of it.
+        ":diffio_probe",
+        "diffio_probe.c",
+        "diffio_probe_toy.c",
+        # Not runners: exercises' own check scripts. What they grade is a
+        # reading of one subject sentence, an absence asked only of output
+        # that exists, or a fixture built to tell a right answer from the
+        # usual slips, and the library arms cannot see a check.sh that stops
+        # applying it -- revert one to the old grep, or the old fixture, and
+        # every helper still passes. So the arms run the scripts themselves,
+        # on toy turn-ins that print or delete fixed names and answer none of
+        # the exercises. Piscine Reloaded's twins run these same files
+        # (twin_of), so there is no second copy to test.
+        "//c-piscine/c-piscine-shell-00:tests/ex02/check.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex04/check.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex04/newest_first.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex06/check.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex06/literal.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex08/check.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex08/literal.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex08/regular.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex09/check.sh",
+        # Shell 01 ex02's check and reading, on toy turn-ins as above.
+        "//c-piscine/c-piscine-shell-01:tests/ex02/check.sh",
+        "//c-piscine/c-piscine-shell-01:tests/ex02/regular.sh",
+        # And four of Shell 01's, run on stand-in oracles (shell scripts):
+        # what each does with the reference's answer -- ex01's comma join seen
+        # or said unseen, ex08's refusal to judge with a reference that
+        # disagrees with the subject's examples, ex04's refused lines named
+        # and its skips, asked of the host, proven on any machine with
+        # stand-in probes, ex07's words each failing its own line and no other.
+        "//c-piscine/c-piscine-shell-01:tests/ex01/check.sh",
+        "//c-piscine/c-piscine-shell-01:tests/ex04/check.sh",
+        "//c-piscine/c-piscine-shell-01:tests/ex04/literal.sh",
+        "//c-piscine/c-piscine-shell-01:tests/ex07/check.sh",
+        "//c-piscine/c-piscine-shell-01:tests/ex07/literal.sh",
+        "//c-piscine/c-piscine-shell-01:tests/ex08/check.sh",
+        # Not runners either: C 01 ex03's fixture and its expected rows, built
+        # over a ft_div_mod that stores nothing, which must fail every row --
+        # its out-parameters start at a value no row expects (finding 076's
+        # class). Piscine Reloaded's ex11 is its twin, held to it by c_twin.
+        "//c-piscine/c-piscine-c-01:tests/ex03/test_div_mod.c",
+        "//c-piscine/c-piscine-c-01:tests/ex03/expected.txt",
+        "//c-piscine/c-piscine-c-02:tests/ex12/diff_print_memory.c",
+        "//c-piscine/c-piscine-c-13:tests/ex05/test_btree_search_item.c",
+        "//c-piscine/c-piscine-bsq:tests/ex00/clues.tsv",
+        "//c-piscine/c-piscine-rush-01:tests/ex00/clues.tsv",
+        "//c-piscine/c-piscine-c-11:tests/ex05/clues.tsv",
+        # Not runners either: Rush 00's two harnesses that JUDGE a size --
+        # survive_rush.c (a legal size's shape) and test_defense.c (the
+        # defense case's verdict row) -- with the header and the sizes they
+        # read, and the table a body that prints nothing must get. Every
+        # tree the suite runs passes both, so only these arms, on bodies
+        # that answer nothing, show that either can go red (finding 141).
+        "//c-piscine/c-piscine-rush-00:tests/ex00/edge_cases.tsv",
+        "//c-piscine/c-piscine-rush-00:tests/ex00/survive.txt",
+        "//c-piscine/c-piscine-rush-00:tests/ex00/survive_rush.c",
+        "//c-piscine/c-piscine-rush-00:tests/ex00/rush_capture.h",
+        "//c-piscine/c-piscine-rush-00:tests/ex00/test_defense.c",
+]
+
+# A toy reader harness linked through //tools:diffio, the library every c_diff
+# and c_perf reader links (tools/diffio_probe.c says what it reads). The
+# selftest runs it: every block malloc hands out in such a program starts
+# holding 0xa5 (tools/dirty_malloc.c), which the library owes to its source
+# file AND its -Wl,--wrap=malloc. An arm that compiled dirty_malloc.c with the
+# flag by hand stayed green with either taken out of the library (finding
+# 136's fix, the wave 6 review); built by Bazel through the library, the
+# probe reads the unwritten field as NULL the moment the wrap is gone.
+cc_binary(
+    name = "diffio_probe",
+    srcs = ["diffio_probe.c", "diffio_probe_toy.c"],
+    copts = ["-Wall", "-Wextra", "-Werror"],
+    deps = ["//tools:diffio"],
+)
+
+# Tests for the TEST HARNESS itself.
+#
+# Every false green fixed on this branch had one shape: a layer reporting OK
+# having checked nothing. They were found by reading each script and asking "can
+# this exit 0 while broken?" — which is what this asks automatically, with
+# known-bad inputs that MUST go red and known-good ones that must stay green.
+# A runner that stops detecting its bug fails here instead of silently passing
+# every exercise in the repo.
+hand_test(
+    name = "selftest",
+    layer = "selftest",
+    size = "small",
+    # size stays "small" -- it says what this test COSTS, and Bazel schedules on
+    # it. The timeout is raised separately because cost and worst-case wall clock
+    # are different things here: 66 arms, most of which compile a C fixture, and
+    # every one of those compiles competes with whatever else the suite is doing.
+    # Measured: 1.6s idle, 9.6s alongside a module, 30s in a full `bazel test
+    # //...`, and 69.2s in one -- which BLEW the 60s that size = "small" implies
+    # and reported TIMEOUT. A timeout is indistinguishable from a real failure at
+    # a glance, so the file that exists to prove the harness still works became
+    # the harness looking broken, on the machines least able to tell the
+    # difference: a loaded box, or a slow one.
+    #
+    # Do not "fix" this by trimming arms. The arms are the point, and the
+    # expensive layers are already split into :selftest_slow for the separate
+    # reason that a minute-long check is one nobody runs.
+    #
+    # SHARDED, and "long", because one process running every arm in turn
+    # stopped fitting any timeout on a loaded box. In four full-suite runs on
+    # a 24-core machine running other suites too, it took 285.4s once and
+    # TIMED OUT at 300-316s three times under "moderate"; under "long" it took
+    # 850.7s and 820.8s, and :selftest_bash TIMED OUT at 900s, in two suites
+    # run at once (load 55-60). At load 11 the whole file takes about 100s.
+    # The time is the arms' own -- hundreds of short processes each, which a
+    # loaded scheduler slows tenfold -- and trimming arms is not the answer.
+    #
+    # So each of eight shards runs the arms of some of the file's SECTIONS,
+    # and all of its plain code (selftest.sh, "SHARDS", says what an arm may
+    # rely on). They were dealt in turn, and one shard held the conventions
+    # section, a run of conventions.sh per arm: 450 of the file's 750 seconds
+    # of arms, that shard 466-590s against 120-150s for the others, and
+    # :selftest_bash 714s of its 900 (finding 066). They are dealt by weight
+    # now ("SHARD WEIGHTS"), conventions is eight sections, and its plain
+    # runs of the check happen only in the shard whose arms read them:
+    # measured on one run, 144-172s per shard, :selftest_bash 217-306s --
+    # and with two full suites on the machine 373s and 742s, so they are
+    # eight shards, not four: each runs all the plain code (10-15s) and an
+    # eighth of the arms. Each shard has the whole timeout, its log is
+    # bazel-testlogs/tools/tests/selftest/shard_N_of_8/test.log, and every
+    # section's time is printed in it ("[section ...]"). A hand run still
+    # runs every arm in one process: sh, or
+    # `bazel run --test_sharding_strategy=disabled` (plain `bazel run`
+    # refuses a sharded test).
+    #
+    # The output-table arms (wave 3) added about ninety arms of their own,
+    # and diff_output.sh was brought back to the process count it had before
+    # them (one scratch directory, the newline and binary facts read by the
+    # awk that renders the table): 9 ms a run against 8 before and 16 in
+    # between, measured on one passing case.
+    shard_count = 8,
+    timeout = "long",
+    srcs = ["selftest.sh"],
+    args = SELFTEST_ARGS,
+    # Every runner the selftest drives has to be here, and the ones added most
+    # recently were chosen by what a break COSTS rather than by what is easy to
+    # fixture: argv_table.sh is the only runner that executes c-06 ex01-ex03 at
+    # all, shell_test.sh is the only runner either shell module has, and
+    # header_check.sh is the only c-08 layer that RUNS the header exercise (norm
+    # and compile also see the header; neither runs the program). asan_check.sh
+    # is not the repo's only sanitizer layer, but it alone chooses the
+    # allocation: its probe hands the function a block sized to fit exactly,
+    # so one step past the end lands in a redzone instead of on a neighbouring
+    # byte the whole-program layers would let through. A silent break in any of
+    # those greens a whole module with nothing else left checking it.
+    #
+    # stub_check.sh is not a test layer at all — no exercise runs it — and it is
+    # here because it is the only runner whose failure is not a red test but a
+    # PUBLISHED ANSWER. It checked `*/deliverable/*.c` and nothing else, so it
+    # reported "OK — all 123 deliverable(s) are stubs" over a tree still holding
+    # c-08's four finished header answers, and they shipped on the template
+    # branch other people clone. Its arms are one green and one red per file
+    # KIND, because the defect was a whole kind being out of scope rather than a
+    # rule being wrong, and no arm on a neighbouring kind would have noticed.
+    #
+    # progname_test.sh earned its place the hard way: it had NO arm here, and
+    # went on discarding the child's exit status for as long as that was true, so
+    # a program that printed the right line and then segfaulted passed. It is the
+    # only layer that runs c-06 ex00's binary at the basic level.
+    #
+    # Its arrival also demonstrated why want_red insists on exit 1 and treats
+    # anything else as "nothing was checked". The first run of the new arms
+    # reported exit 2 — because the runner was missing from this very list, and
+    # `sh` exits 2 when it cannot open the script it was handed. Under a
+    # tolerant "any non-zero counts as red" rule, three arms would have printed
+    # "ok (red, as required)" having executed nothing at all.
+    #
+    # Note that argv_table.sh resolves its reporter as ./diff_output.sh relative
+    # to its own path, so the two must stay in this list together — they land in
+    # the same runfiles directory, which is what makes that lookup work.
+    #
+    # All fixtures are written at run time into a mktemp dir, so nothing here is
+    # a checked-in input file: the test builds its own known-bad programs with
+    # the pinned clang-12 and ld.bfd it is handed (--clang, --ld; never the
+    # box's cc, TO VERIFY V28) and cleans up after itself. Cost is dominated by
+    # those compiles, so it is sensitive to what else runs alongside — see the
+    # timeout note above for the measured spread and why it is raised. Keeping
+    # the expensive layers OUT is a separate decision from that timeout: valgrind
+    # and anything needing //oracle's Rust build belong in :selftest_slow,
+    # because a check that takes a minute is one nobody runs.
+    data = SELFTEST_DATA,
+)
+
+# The SAME arms, replayed with a different shell interpreting every runner.
+#
+# This repo does not pin /bin/sh, and the reason it does not need to is that the
+# runners are shell-agnostic. That is a claim about behaviour, so it is executed
+# rather than asserted: `bazel test //tools/tests:selftest_bash` runs all 139
+# arms with bash reading each runner instead of the system sh (dash here and on
+# the campus box).
+#
+# //tools:conventions already refuses a bashism statically -- shellcheck's
+# SC3xxx family, at warning level, because every runner declares #!/bin/sh. This
+# is the half a linter cannot do. dash and bash disagree about things no static
+# check reads: `echo` with backslash escapes, how `local` behaves, arithmetic
+# corners. If a runner ever grows a dependency on one of them, this goes red and
+# names the arm.
+#
+# It SKIPS, loudly, where bash is not installed -- and NO_SKIP=1 turns that skip
+# into a failure, like every other gated thing here.
+hand_test(
+    name = "selftest_bash",
+    layer = "selftest",
+    size = "small",
+    # The same arms as :selftest, so the same shards, the same timeout and the
+    # same reasons.
+    shard_count = 8,
+    timeout = "long",
+    srcs = ["selftest.sh"],
+    args = SELFTEST_ARGS,
+    data = SELFTEST_DATA,
+    env = {"SELFTEST_SH": "bash"},
+)
+
+# The same question as :selftest, for the runners too expensive to ask it of on
+# every build. Split rather than merged because a two-second check is one people
+# run constantly and a minute-long one is not — and a self-test nobody runs
+# protects nothing. See the script's header for why valgrind_test.sh was the
+# first one moved here: it is the only layer in the repo that can see a leak, so
+# nothing else would notice if its output-matching regex stopped matching.
+#
+# medium (300s), not small: valgrind runs the program on a synthetic CPU at
+# 20-50x native. Eight tiny programs still finish well inside that.
+# Shared by the two slow targets below, for the reason SELFTEST_DATA above
+# gives: the second run stops proving anything the moment its inputs differ
+# from the first's.
+SLOW_ARGS = [
+        "--anchor",
+        "$(rootpath //tools:diff_output.sh)",
+        "--perf-run",
+        "$(rootpath //tools:perf_run)",
+        # The pinned valgrind, handed on to every arm. These arms exist to prove
+        # the leak layer still detects a leak, so they have to exercise the same
+        # valgrind the layer runs -- checking one binary while the suite grades
+        # with another would make this file agree with nothing.
+        "--valgrind",
+        "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
+        "--valgrind-tools",
+        "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux)",
+        "--callgrind-annotate",
+        "$(rootpath @valgrind_ubuntu//:usr/bin/callgrind_annotate)",
+        "--valgrind-callgrind-tools",
+        "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux)",
+        # The pinned 32-bit toolchain. The ilp32 layer's VERDICT -- build at
+        # -m32, run, diff -- was tested nowhere: both arms in the fast selftest
+        # stop at the missing-compiler skip. It belongs here rather than there
+        # because a zig compile is seconds, not milliseconds, which is the same
+        # reason valgrind is here.
+        "--zig",
+        "$(rootpath @zig_linux_x86_64//:zig)",
+        # And the pinned 64-bit clang with the libraries it loads, which
+        # builds the 64-bit programs those arms hand the layer as its gate
+        # (--gate-bin) through tools/student_build.sh, as the output layer's
+        # program is built: a host compiler that warned on one of the clean
+        # toys would turn its gate into a stand-in, and the arm into a SKIP.
+        "--cc",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12)",
+        "--cc-lib",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/lib/libclang-cpp.so.12)",
+        "--cc-lib",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1)",
+        # And the pinned ld.bfd with a library beside the libbfd it loads:
+        # cycles_check.sh links its -O2 build with them (TO VERIFY V38).
+        "--ld",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd)",
+        "--ld-lib",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
+        # //oracle and the preload library, for the Shell 01 check scripts'
+        # arms: ex07 and ex08 judge through the Rust references, and ex07's
+        # program reads its fixture through the library.
+        "--oracle",
+        "$(rootpath //oracle:oracle)",
+        "--redirect-lib",
+        "$(rootpath //tools:path_redirect.so)",
+]
+
+SLOW_DATA = [
+        "@clang_12_ubuntu//:runtime",
+        "@binutils_x86_64_linux_gnu//:runtime",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd",
+        "@binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/lib/libclang-cpp.so.12",
+        "@clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1",
+        "@zig_linux_x86_64//:sdk",
+        "@zig_linux_x86_64//:zig",
+        "//tools:cycles_check.sh",
+        "//tools:diff_output.sh",
+        "//tools:exit_status",
+        "//tools:ilp32_test.sh",
+        "//tools:perf_run",
+        "//tools:perf_test.sh",
+        # A corpus runner, for the arms of a corpus replayed under memcheck
+        # (--valgrind, which runs each sampled case through valgrind_test.sh).
+        "//tools:rush02_check.sh",
+        "//tools:standin.sh",
+        "//tools:student_build.sh",
+        "//tools:unbuffered_stdout.c",
+        "//tools:runner_lib.sh",
+        "//tools:valgrind_test.sh",
+        "//tools:shell_check.sh",
+        "//tools:shell_test.sh",
+        "//tools:path_redirect.so",
+        "//oracle:oracle",
+        "//c-piscine/c-piscine-shell-01:tests/ex07/check.sh",
+        "//c-piscine/c-piscine-shell-01:tests/ex07/literal.sh",
+        "//c-piscine/c-piscine-shell-01:tests/ex07/passwd",
+        "//c-piscine/c-piscine-shell-01:tests/ex08/check.sh",
+        "@valgrind_ubuntu//:runtime",
+        "@valgrind_ubuntu//:usr/bin/callgrind_annotate",
+        "@valgrind_ubuntu//:usr/bin/valgrind.bin",
+        "@valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux",
+        "@valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux",
+]
+
+hand_test(
+    name = "selftest_slow",
+    layer = "selftest",
+    size = "medium",
+    # 123-151s in a full suite, half of "medium"'s 300 (finding 066).
+    timeout = "long",
+    srcs = ["selftest_slow.sh"],
+    args = SLOW_ARGS,
+    data = SLOW_DATA,
+)
+
+# The same arms, with BASH interpreting every runner.
+#
+# This was recorded as "not covered" and left there: a bash twin was judged to
+# "double a slow test for two runners whose arms are the least shell-sensitive
+# in the repo (they parse tool output)". Two things have changed. The cost is
+# TWELVE SECONDS, not the minutes the word "slow" implies -- this target is
+# `medium` because valgrind and zig are slow to START, not because its arms are
+# long. And it is no longer only valgrind and perf: the ilp32 arms added since
+# build their fixtures with heredocs and read a compiler's output, which is
+# exactly the shape dash and bash disagree about.
+#
+# The skip guard is selftest_slow.sh's own, shared with selftest.sh: a machine
+# without bash SKIPS rather than passing, and NO_SKIP=1 turns that into exit 2.
+hand_test(
+    name = "selftest_slow_bash",
+    layer = "selftest",
+    size = "medium",
+    # As :selftest_slow.
+    timeout = "long",
+    srcs = ["selftest_slow.sh"],
+    args = SLOW_ARGS,
+    data = SLOW_DATA,
+    env = {"SELFTEST_SH": "bash"},
+)
+
+# ---------------------------------------------------------------------------
+# The style gate, GRADED. //tools:conventions is the same script run by hand
+# over the real workspace; this is it under `bazel test`, so a broken convention
+# reds on the next run instead of waiting for someone to remember the command.
+#
+# It had zero reverse dependencies for its whole life -- the checker that
+# enforces "every SKIP honours NO_SKIP" was the one thing nothing checked.
+#
+# EVERY MODULE, by package: what //tools/tests:conventions reads, and the
+# modules whose turn-in folders :macro_fixtures_test holds first_red to.
+# Hand-written once, here; conventions.sh refuses to run when a module in
+# tools/submit.sh's REMOTES table is missing from what it can see, so a module
+# left out of this list fails loudly in both.
+_MODULES = [
+    # Piscine Reloaded: one project.
+    "//c-piscine-reloaded/c-piscine-reloaded",
+] + [
+    "//c-piscine/c-piscine-%s" % m
+    for m in [
+        "bsq",
+        "c-00",
+        "c-01",
+        "c-02",
+        "c-03",
+        "c-04",
+        "c-05",
+        "c-06",
+        "c-07",
+        "c-08",
+        "c-09",
+        "c-10",
+        "c-11",
+        "c-12",
+        "c-13",
+        "rush-00",
+        "rush-01",
+        "rush-02",
+        "shell-00",
+        "shell-01",
+    ]
+]
+
+# The file list is the part that used to make this impossible, and none of it is
+# hand-written per file: c_levels() emits a :conventions_srcs glob for every
+# module, //tools and this package glob their own, and the root package covers
+# the few files that belong to no package. What IS hand-written is the module
+# list, _MODULES above -- and conventions.sh refuses to run when a module in
+# tools/submit.sh's REMOTES table is missing from what it can see, so adding a
+# module and forgetting this list fails loudly instead of quietly shrinking the
+# gate.
+#
+# `medium`, not `small`: it runs shellcheck and buildifier over the whole repo
+# and walks every module, which takes seconds on an idle machine and ran past
+# small's 60 s on a loaded one -- a TIMEOUT that says nothing about the
+# conventions it exists to report on.
+hand_test(
+    name = "conventions",
+    layer = "selftest",
+    size = "medium",
+    # 96-132s in a full suite, near half of "medium"'s 300: a second suite on
+    # the machine took it past (finding 066). One process walks the tree, so
+    # the time is its own; a longer limit, not a smaller check.
+    timeout = "long",
+    srcs = ["//tools:conventions.sh"],
+    args = [
+        "--shellcheck",
+        "$(rootpath @shellcheck_linux_x86_64//:shellcheck)",
+        "--buildifier",
+        "$(rootpath @buildifier_prebuilt//:buildifier)",
+    ],
+    data = [
+        "//:conventions_srcs",
+        "//tools:conventions_srcs",
+        "//tools/cc_toolchain:conventions_srcs",
+        "//oracle:conventions_srcs",
+        ":conventions_srcs",
+        # The toy exercises' package holds a turn-in too (deliverable/), so
+        # its BUILD file is held to the rules a module's is.
+        "//tools/tests/macro_fixtures:conventions_srcs",
+        "//tools/tests/macro_fixtures/root:conventions_srcs",
+        "//tools/tests/macro_fixtures/levels:conventions_srcs",
+        "@buildifier_prebuilt//:buildifier",
+        "@shellcheck_linux_x86_64//:shellcheck",
+    ] + [m + ":conventions_srcs" for m in _MODULES],
+)
+
+# 42's own tests (tools/fortytwo/tests), under unittest on the hermetic Python.
+# A py_test, so lvl_tags() gives it its layer and level, as it does
+# //tools/cc_toolchain's rule. It reads the projects' contracts and the scripts
+# whose facts 42 takes rather than copies (first_red.sh, submit.sh, defs.bzl,
+# drives.sh), and runs no Bazel: the end-to-end runs are docs/testing.md's.
+py_test(
+    name = "fortytwo_test",
+    size = "small",
+    srcs = ["fortytwo_test.py"],
+    data = [
+        # docs/bazel.md, whose `42 ... --dry-run` lines test_docs.py runs.
+        "//:conventions_srcs",
+        "//tools:conventions_srcs",
+        "//tools:fortytwo_tests",
+    ] + [m + ":conventions_srcs" for m in _MODULES],
+    tags = lvl_tags("selftest"),
+    deps = ["//tools:fortytwo"],
+)
+
+# A macro's decisions, checked where they are made. shell_exercise decides at
+# load time, from a glob, which files in a twin's tests/exNN/ no target reads,
+# and no runner ever sees that decision, only its result; so selftest.sh cannot
+# reach it. starlark_unit.bzl calls each such helper on inputs of its own, in
+# both directions, and this test is red naming any case that disagreed.
+starlark_unit(name = "starlark_unit")
+
+# This package's own scripts, for the test above.
+filegroup(
+    name = "conventions_srcs",
+    srcs = ["BUILD.bazel"] + glob(
+        ["*.sh"],
+        allow_empty = False,
+    ) + glob(["*.bzl"]),
+)
+
+# The defs.bzl guards that fail() at loading -- an unknown case key, a
+# malformed exit, c_header's exit below robust -- have no runner to hand a bad
+# input to. starlark_selftest() calls each one on an input it must refuse and
+# on one it must accept while this package loads, and fail()s the load when a
+# guard answers wrong; the test it emits lists the arms.
+starlark_selftest(name = "starlark_selftest")
+
+# No deliverable can break the build graph: toy exercises in every broken state
+# a student's tree can be in, built through the same macros every module uses
+# (//tools/tests/macro_fixtures -- see its BUILD file). This test's data are
+# the programs built from them, so a fixture package that stops loading, or a
+# broken toy that fails the build instead of becoming a stand-in, is this test
+# failing to build; its script checks that every broken program says why, in
+# a stand-in of the right kind, that the ones that build are unaffected, that
+# the output layer reads a stand-in as a build failure (or, over an exercise
+# not started, as nothing to build) rather than as wrong output, and that the
+# macros emitted every test as layers.expected lists it. Its ./root package is
+# the toy turned in at the root of deliverable/, with srcs/ and includes/: its
+# program is real only if the tree was staged and the Makefile's -I was taken,
+# and the same -I list reaches its static layers. Its ./levels package is a
+# toy module for c_levels(): exercises found from the contract, tests/,
+# deliverable/ and generators/, a folder the subject has no exercise for
+# reported, and the audit passed on every test; and its c_function reading
+# runs a main of its own, not the exercise's. It also compares every
+# contract check's message on a broken contract with what it must say, a case
+# dict's and the audit's among them, and every program built from the toys'
+# files against harnesses.expected: each harness names the test of the
+# signatures it calls (_student_bin's `prototype`), so a tag that stopped
+# being written is red here and not only a quieter audit.
+hand_test(
+    name = "macro_fixtures_test",
+    layer = "selftest",
+    size = "small",
+    srcs = ["macro_fixtures_test.sh"],
+    args = [
+        "--dir",
+        "tools/tests/macro_fixtures",
+        "--diff-output",
+        "$(rootpath //tools:diff_output.sh)",
+        "--layers",
+        "$(rootpath //tools/tests/macro_fixtures:layers)",
+        "--expected-layers",
+        "$(rootpath //tools/tests/macro_fixtures:layers.expected)",
+        "--root-dir",
+        "tools/tests/macro_fixtures/root",
+        "--root-layers",
+        "$(rootpath //tools/tests/macro_fixtures/root:layers)",
+        "--root-expected-layers",
+        "$(rootpath //tools/tests/macro_fixtures/root:layers.expected)",
+        "--root-files-names",
+        "$(rootpath //tools/tests/macro_fixtures/root:ex00_files_names)",
+        "--root-includes",
+        "$(rootpath //tools/tests/macro_fixtures/root:ex00_bin_includes.txt)",
+        "--ex14-files-names",
+        "$(rootpath //tools/tests/macro_fixtures:ex14_files_names)",
+        "--contract-problems",
+        "$(rootpath //tools/tests/macro_fixtures:contract_problems)",
+        "--contract-expected",
+        "$(rootpath //tools/tests/macro_fixtures:contract_problems.expected)",
+        "--levels-layers",
+        "$(rootpath //tools/tests/macro_fixtures/levels:layers)",
+        "--levels-expected-layers",
+        "$(rootpath //tools/tests/macro_fixtures/levels:layers.expected)",
+        "--harnesses",
+        "$(rootpath //tools/tests/macro_fixtures:harnesses)",
+        "--expected-harnesses",
+        "$(rootpath //tools/tests/macro_fixtures:harnesses.expected)",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:ex04_files_names)",
+        "backup/toy_twice.c,main.c,toy_extra.c,toy_twice.c",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:ex06_bin_sources.txt)",
+        "unknown",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:ex10_bin_sources.txt)",
+        "-",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:ex19_bin_sources.txt)",
+        "toy19.c",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:ex20_make_bin_sources.txt)",
+        "toy20.c",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:ex27_bin_sources.txt)",
+        "-",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:ex28_bin_sources.txt)",
+        "toy28.c",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:make_bins)",
+        "ex20_make_bin",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:ex21_extra_norm_files)",
+        "deliverable/ex21/toy_switch.c",
+        # No layer of ex04 reads a file its contract does not name -- the
+        # stray main.c and toy_extra.c are ex04_files' report alone (tools/
+        # defs.bzl's _turnin_files; the mutation run of 2026-10-03).
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:stray_reads)",
+        "-",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/levels:deliverable_files_names)",
+        "old/toy_old.c,toy_loose.c",
+        # Who waits for an output test, as subject()'s finalizer writes it
+        # (tools/defs.bzl, _WAITING): the toys' gated layers with their
+        # level; one case's own memory arm, and the survive case its gate's
+        # label names -- its output and its run under the sanitizer, which
+        # waits on the same case -- never another case's sharing the file;
+        # and nothing for a toy whose layers wait for nothing (the root toy,
+        # whose one case turns its valgrind arm off). Quoted: sh_test splits
+        # `args` at blanks.
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures:waiting_ex00_output)",
+        "'ex00_ilp32 (complete),ex00_memcheck (strict)'",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/levels:waiting_ex00_exact_output)",
+        "'ex00_exact_valgrind (strict),ex00_survive_asan (robust),ex00_survive_output (basic)'",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/levels:waiting_ex00_raised_output)",
+        "'ex00_raised_valgrind (strict)'",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/root:waiting_ex00_output)",
+        "-",
+        "--first-red",
+        "$(rootpath //tools:first_red.sh)",
+        "--turnin-dirs",
+        "$(rootpath //tools/tests/macro_fixtures:turnin_dirs)",
+        "--root-turnin-dirs",
+        "$(rootpath //tools/tests/macro_fixtures/root:turnin_dirs)",
+        # And every module's, as c_levels() emits them, with the toy
+        # module's; the module's BUILD.bazel is beside it (conventions_srcs).
+        "--module-turnin-dirs",
+        "$(rootpath //tools/tests/macro_fixtures/levels:turnin_dirs)",
+    ] + [
+        a
+        for m in _MODULES
+        for a in [
+            "--module-turnin-dirs",
+            "$(rootpath %s:turnin_dirs)" % m,
+        ]
+    ] + [
+        "--shell-tags",
+        "$(rootpath //tools/tests/macro_fixtures:shell_tags)",
+        "--redirect-args",
+        "$(rootpath //tools/tests/macro_fixtures:redirect_args)",
+        "--argvguard-builds",
+        "$(rootpath //tools/tests/macro_fixtures:argvguard_builds)",
+    ],
+    data = [
+        "//tools:diff_output.sh",
+        "//tools/tests/macro_fixtures:ex00_bin",
+        "//tools/tests/macro_fixtures:ex01_bin",
+        "//tools/tests/macro_fixtures:ex02_bin",
+        "//tools/tests/macro_fixtures:ex03_bin",
+        "//tools/tests/macro_fixtures:ex04_bin",
+        "//tools/tests/macro_fixtures:ex05_bin",
+        "//tools/tests/macro_fixtures:ex06_bin",
+        "//tools/tests/macro_fixtures:ex06_bin_asan",
+        "//tools/tests/macro_fixtures:ex06_bin_allocfail",
+        "//tools/tests/macro_fixtures:ex10_bin",
+        "//tools/tests/macro_fixtures:ex11_bin",
+        "//tools/tests/macro_fixtures:ex11_bin_asan",
+        "//tools/tests/macro_fixtures:ex11_bin_allocfail",
+        "//tools/tests/macro_fixtures:ex12_bin",
+        "//tools/tests/macro_fixtures:ex13_bin",
+        "//tools/tests/macro_fixtures:ex15_bin",
+        "//tools/tests/macro_fixtures:ex15_reading_bin",
+        "//tools/tests/macro_fixtures:ex13_bin_allocfail",
+        "//tools/tests/macro_fixtures:ex14_files_names",
+        "//tools/tests/macro_fixtures:ex04_files_names",
+        "//tools/tests/macro_fixtures:ex06_bin_sources.txt",
+        "//tools/tests/macro_fixtures:ex10_bin_sources.txt",
+        "//tools/tests/macro_fixtures:ex19_bin_sources.txt",
+        "//tools/tests/macro_fixtures:ex20_make_bin_sources.txt",
+        "//tools/tests/macro_fixtures:ex27_bin",
+        "//tools/tests/macro_fixtures:ex27_bin_sources.txt",
+        "//tools/tests/macro_fixtures:ex28_bin",
+        "//tools/tests/macro_fixtures:ex28_bin_sources.txt",
+        "//tools/tests/macro_fixtures:ex29_argvguard_bin_asan",
+        "//tools/tests/macro_fixtures:make_bins",
+        "//tools/tests/macro_fixtures:ex21_extra_norm_files",
+        "//tools/tests/macro_fixtures:stray_reads",
+        "//tools/tests/macro_fixtures:ex19_bin",
+        "//tools/tests/macro_fixtures/levels:deliverable_files_names",
+        "//tools/tests/macro_fixtures:contract_problems",
+        "//tools/tests/macro_fixtures:contract_problems.expected",
+        "//tools/tests/macro_fixtures:layers",
+        "//tools/tests/macro_fixtures:layers.expected",
+        "//tools/tests/macro_fixtures:harnesses",
+        "//tools/tests/macro_fixtures:harnesses.expected",
+        "//tools/tests/macro_fixtures/root:ex00_bin",
+        "//tools/tests/macro_fixtures/root:ex00_bin_includes.txt",
+        "//tools/tests/macro_fixtures/root:ex00_files_names",
+        "//tools/tests/macro_fixtures/root:layers",
+        "//tools/tests/macro_fixtures/root:layers.expected",
+        "//tools/tests/macro_fixtures/levels:ex03_bin",
+        "//tools/tests/macro_fixtures/levels:ex03_open_bin",
+        "//tools/tests/macro_fixtures/levels:layers",
+        "//tools/tests/macro_fixtures/levels:layers.expected",
+        # first_red's reading of the contracts, held to turnin_dir(): the
+        # script, what it reads, and what the macros computed.
+        "//tools:first_red.sh",
+        "//tools/tests/macro_fixtures:conventions_srcs",
+        "//tools/tests/macro_fixtures:turnin_dirs",
+        "//tools/tests/macro_fixtures/root:conventions_srcs",
+        "//tools/tests/macro_fixtures/root:turnin_dirs",
+        "//tools/tests/macro_fixtures/levels:conventions_srcs",
+        "//tools/tests/macro_fixtures/levels:turnin_dirs",
+        # Where shell_exercise's tags and run_tags land.
+        "//tools/tests/macro_fixtures:shell_tags",
+        # Where shell_exercise's redirect lands, and what each guarded-argv
+        # build compiles.
+        "//tools/tests/macro_fixtures:redirect_args",
+        "//tools/tests/macro_fixtures:argvguard_builds",
+        # The waiting lists above, and three toy output tests whole: every
+        # fixture test is manual, so a runfile one of them names and nothing
+        # writes broke them all while //... stayed green (17 of them, when
+        # c_levels() alone wrote the lists). Built here, such a break is a
+        # build error of this test.
+        "//tools/tests/macro_fixtures:waiting_ex00_output",
+        "//tools/tests/macro_fixtures/levels:waiting_ex00_exact_output",
+        "//tools/tests/macro_fixtures/levels:waiting_ex00_raised_output",
+        "//tools/tests/macro_fixtures/root:waiting_ex00_output",
+        "//tools/tests/macro_fixtures:ex00_output",
+        "//tools/tests/macro_fixtures/root:ex00_output",
+        "//tools/tests/macro_fixtures/levels:ex00_survive_output",
+    ] + [m + ":turnin_dirs" for m in _MODULES] + [m + ":conventions_srcs" for m in _MODULES],
+)

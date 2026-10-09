@@ -1,0 +1,6 @@
+string: data	forty-two
+string: next is NULL	yes
+int pointer: data is the pointer passed	yes
+int pointer: next is NULL	yes
+NULL data: data is NULL	yes
+NULL data: next is NULL	yes

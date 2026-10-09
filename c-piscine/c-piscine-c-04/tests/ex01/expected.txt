@@ -1,0 +1,9 @@
+Hello
+
+Hello, world!
+42
+0
+  leading and trailing  
+tab	and	tabs
+cafÃ©
+ÿ

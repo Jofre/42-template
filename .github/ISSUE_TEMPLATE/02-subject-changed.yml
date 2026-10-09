@@ -1,0 +1,48 @@
+name: Subject does not match the harness
+description: Your subject says something different from what the harness checks.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        42 revises its subjects, and each project's harness is built from one version. Tell us where yours differs. Issues on https://github.com/Jofre/42-template are public: quote only the line that differs, and never attach or paste the subject PDF, which is 42's document.
+  - type: input
+    id: project
+    attributes:
+      label: Project
+      placeholder: c-piscine/c-piscine-c-05
+    validations:
+      required: true
+  - type: input
+    id: exercise
+    attributes:
+      label: Exercise
+      placeholder: ex03
+    validations:
+      required: true
+  - type: dropdown
+    id: field
+    attributes:
+      label: What differs
+      options:
+        - Files to turn in
+        - Allowed functions
+        - Prototype
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: line
+    attributes:
+      label: The line in your subject
+      description: The one line that differs (from the subject's header box, or its prototype), and what the harness expects instead.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Subject version
+      description: The version or date your subject shows, if it shows one.
+    validations:
+      required: false

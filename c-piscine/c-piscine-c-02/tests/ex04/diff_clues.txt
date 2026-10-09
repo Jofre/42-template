@@ -1,0 +1,11 @@
+  One answer per string; group by content.
+    * the empty string only        -> the answer for a string with nothing to
+                                      inspect
+    * strings with digits, spaces or punctuation -> what the subject counts as
+                                      lowercase; anything that is not a letter
+                                      is not lowercase
+    * only strings ending correctly -> stopping at the first match rather than
+                                      requiring all of them
+    * 1 and 0 swapped              -> the sense of the test
+    * strings with bytes above 0x7f  -> whether char is signed on this
+                                        machine, and what a range check sees

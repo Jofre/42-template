@@ -1,0 +1,6 @@
+{"id": {"pattern": {"pattern": ["//spike:sleeper"]}}}
+{"configured": {"targetKind": "sh_test rule", "testSize": "SMALL"}, "id": {"targetConfigured": {"label": "//spike:sleeper"}}}
+{"completed": {"success": true}, "id": {"targetCompleted": {"configuration": {"id": "08259dd0323297917d22e336a645059fe705b2e4e617701ddbed58ac8ed5df21"}, "label": "//spike:sleeper"}}}
+{"id": {"testResult": {"attempt": 1, "configuration": {"id": "08259dd0323297917d22e336a645059fe705b2e4e617701ddbed58ac8ed5df21"}, "label": "//spike:sleeper", "run": 1, "shard": 1}}, "testResult": {"status": "TIMEOUT", "testActionOutput": [{"name": "test.log", "uri": "file:///OUTPUT_BASE/execroot/_main/bazel-out/k8-fastbuild/testlogs/spike/sleeper/test.log"}]}}
+{"id": {"testSummary": {"configuration": {"id": "08259dd0323297917d22e336a645059fe705b2e4e617701ddbed58ac8ed5df21"}, "label": "//spike:sleeper"}}, "testSummary": {"overallStatus": "TIMEOUT", "totalRunCount": 1}}
+{"finished": {"exitCode": {"code": 3, "name": "TESTS_FAILED"}}, "id": {"buildFinished": {}}}

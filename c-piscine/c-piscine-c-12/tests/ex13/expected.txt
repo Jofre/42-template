@@ -1,0 +1,16 @@
+--- both ---
+a
+b
+c
+d
+--- empty1 ---
+c
+d
+--- empty2 ---
+a
+b
+--- both empty ---
+(empty)
+--- singles ---
+a
+c

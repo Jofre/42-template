@@ -1,0 +1,7 @@
+# clues.tsv for ft_is_sort — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+Sortedness is a property of the whole array, but is it something you have to look at the whole array at once to check, or does it follow from a much more local question asked repeatedly? What does the SIGN of the comparator tell you about which of two values should come first?	non-decreasing ascending	out of order	up then down
+How many real pairs does an array of length one, or of length zero, actually have? With nothing to compare, what can you safely conclude — and how do you make sure you never reach past the end of the array?	single element	empty array
+When two neighbours are equal the comparator hands back zero. Is zero an out-of-order signal, or is it fine? Think carefully about the exact threshold that means "wrong order".	all equal elements
+The comparator defines the order; do you ask f about each pair, or your own idea of "bigger"? When the data runs the way f describes, are its neighbouring pairs in order? (The subject never says whether the reverse of f's order also counts as sorted. This table holds no such array, nor does the diff layer; ex04_reverse_output, at strict, does, and says which reading it takes.)	descending data descending cmp

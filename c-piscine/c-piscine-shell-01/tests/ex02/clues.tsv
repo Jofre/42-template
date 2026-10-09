@@ -1,0 +1,3 @@
+# clues.tsv for c-piscine-shell-01 ex02 (find_sh.sh) — and Piscine Reloaded ex03, which reads this file (twin_of)
+Which names count as ending in .sh: only those whose last three characters are .sh, or also one that merely contains it, like foo.sh.backup? And for each match, what does the subject's example show: its directory path, its name, its extension? Which of those does your output still carry?
+A name can hold .sh more than once, as in my.shell.sh, and a name can end in sh with no dot before it: which part of each name is its extension, and which of those names are .sh files at all?

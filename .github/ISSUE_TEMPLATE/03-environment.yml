@@ -1,0 +1,52 @@
+name: Setup or environment problem
+description: Setting up fails, or the harness behaves differently on one kind of machine.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues on https://github.com/Jofre/42-template are public (and one filed in your own copy of the repository reaches nobody but you). Before pasting output, remove paths and anything that names you: your login appears in home and temporary paths.
+
+        If `bazel run //tools:env_drift` asked you for a `tools/env-audit.sh` report from a campus machine, attach it below only after replacing your login and the machine's name everywhere in it, and renaming the file (its name is the machine's), or send it privately at https://github.com/Jofre/42-template/security/advisories/new instead.
+  - type: dropdown
+    id: machine
+    attributes:
+      label: Machine
+      options:
+        - My own Linux
+        - WSL
+        - A campus machine
+        - The dev container
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The exact command that fails.
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: The error
+      description: The lines that show what went wrong, with paths and logins removed.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: drift
+    attributes:
+      label: What `bazel run //tools:env_drift` says
+      description: Its verdict and any row it reports, with paths and logins removed.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: report
+    attributes:
+      label: The `tools/env-audit.sh` report, if `env_drift` asked for one
+      description: Drag the file here, after replacing your login and the machine's name everywhere in it and renaming it.
+    validations:
+      required: false

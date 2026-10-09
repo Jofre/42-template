@@ -1,0 +1,3 @@
+# clues.tsv for ft_list_push_strs
+As you walk strs from index 0 upward, does inserting each string at the front or at the back yield the order the subject asks for? Reconsider which string the subject wants to end up as the very first element, and pick your insertion end accordingly.
+The elements these tests make come from the grader's own ft_create_elem, as the subject says they will from exercise 01 on, never from your ex00: a red here is this exercise's own. Is the prototype layer green too? It checks that your ft_list.h holds the t_list the subject prints, which the grader's elements are built on.	size 3: node 1	size 3: node 2	size 3: node 3	size 1: node 1

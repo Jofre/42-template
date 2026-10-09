@@ -1,0 +1,27 @@
+strlen:
+  empty=0
+  one=1
+  hello=5
+  spaced=9
+  utf8_cafe=5
+  hi_ff=1
+strcmp:
+  eq=zero
+  lt=negative
+  gt=positive
+  prefix_short=negative
+  prefix_long=positive
+  both_empty=zero
+  empty_vs_a=negative
+  a_vs_empty=positive
+  hi_80_vs_01=positive
+  hi_ff_vs_a=positive
+  hi_A80_vs_A7f=positive
+swap:
+  basic a=7 b=3
+  signed a=10 b=-5
+  extreme a=2147483647 b=-2147483648
+  alias x=42
+putchar:[A42]
+putstr:[hello42]
+putstr_hi:[cafÃ©ÿ]

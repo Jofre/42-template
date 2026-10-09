@@ -1,0 +1,36 @@
+{
+  // Editor-agnostic test runner: works in VS Code AND Antigravity (and the
+  // terminal). Bazel caches results, so re-runs are instant and show cached
+  // PASSED/FAILED per target, with failing test output inlined. Run via:
+  // Terminal > Run Task…, or Run Test Task for the default.
+  //
+  // The default is ONE module at its basic level: the module of the file open
+  // in the editor, read from its path (<course>/<project>/...). The whole repo
+  // is the second task, and it needs memory to spare: on a campus box, about
+  // 2.5 GB free, it is more than the machine has (docs/environment.md).
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Bazel: test this module (basic)",
+      "type": "process",
+      "command": "sh",
+      "args": [
+        "-c",
+        "m=$(printf '%s' \"$1\" | cut -d/ -f1-2); if grep -qs '^c_levels(' \"$m/BUILD.bazel\"; then exec bazel test \"//$m:basic\" --test_output=errors; fi; echo 'Open a file of the module to test first: one under its deliverable/ or tests/.' >&2; exit 2",
+        "sh",
+        "${relativeFileDirname}"
+      ],
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Bazel: test all (the whole repo: needs memory to spare)",
+      "type": "shell",
+      "command": "bazel test //... --test_output=errors",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    }
+  ]
+}

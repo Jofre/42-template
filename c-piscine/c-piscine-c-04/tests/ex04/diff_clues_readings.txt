@@ -1,0 +1,11 @@
+  ex04_readings: every base here holds a byte above 0x7f, or a control byte,
+  and breaks no rule C 04's list of invalid bases states. Two inputs per
+  line: the number and the base string.
+    * any of them             -> whether such a byte may be a digit of a base.
+                                 The subject's list is headed "Examples of
+                                 invalid arguments" and names none of these
+                                 bytes, and this harness's reading, at strict,
+                                 never the subject's, is that each is a symbol
+                                 like any other. Which bytes does your base
+                                 check refuse, and which sentence do you read
+                                 as deciding it?

@@ -1,0 +1,2293 @@
+load(
+    "//tools:defs.bzl",
+    "c_files",
+    "c_argv_table",
+    "c_function",
+    "c_header",
+    "c_make",
+    "c_mem_check",
+    "c_program",
+    "contract_problem",
+    "exercise",
+    "hand_test",
+    "rush_common",
+    "shell_exercise",
+    "subject",
+    "turnin_dir",
+    "turnin_file",
+)
+load("//tools:grader_lib.bzl", "grader_library")
+load("//tools:names_file.bzl", "names_file")
+
+# Its programs are the data of //tools/tests:macro_fixtures_test.
+package(default_visibility = ["//tools/tests:__pkg__"])
+
+# What a macro called BEFORE subject() fails with -- asked here, above the
+# contract, on purpose; read with the other contract checks in
+# :contract_problems below.
+_BEFORE_SUBJECT = contract_problem("no_contract", {"macro": "c_function", "num": "00"})
+
+# A toy project's subject contract, as every project opens with one
+# (tools/subject.bzl): the macros take every turn-in path, file name and
+# grader file from here. Only ex15 and ex18 name an "Allowed functions" line
+# (every other toy has allowed = None), so only ex15 has a forbidden layer:
+# ex18's every call is refused while loading (see A REFUSAL, WATCHED), so it
+# emits nothing, and ex21's rush_common reads the missing line as no layer,
+# as c_function does, never as "None" (an empty list, which fails any call).
+# A toy turning in at the root of
+# deliverable/, with its sources in srcs/ and includes/, is its own package,
+# ./root: a root turn-in is a whole repository, so it is a project's only
+# exercise. c_levels(), which this package does not call, has a toy module
+# of its own, ./levels: what it finds, and the audit it runs on the whole.
+subject(
+    grader = "moulinette",
+    group = False,
+    exercises = {
+        "00": exercise(page = 1, dir = "ex00/", files = ["toy_twice.c"], allowed = None),
+        "01": exercise(page = 1, dir = "ex01/", files = ["toy_twice.c"], allowed = None),
+        "02": exercise(page = 1, dir = "ex02/", files = ["toy_twice.c"], allowed = None),
+        "03": exercise(page = 1, dir = "ex03/", files = ["toy_twice.c"], optional = ["toy.h"], allowed = None),
+        "04": exercise(page = 1, dir = "ex04/", files = ["toy_twice.c"], allowed = None),
+        "05": exercise(page = 1, dir = "ex05/", files = ["toy_twice.c"], allowed = None),
+        "06": exercise(page = 1, dir = "ex06/", files = ["Makefile"], optional = ["**/*.c"], allowed = None),
+        "07": exercise(page = 1, dir = "ex07/", files = ["toy.h"], allowed = None),
+        "08": exercise(page = 1, dir = "ex08/", files = ["Makefile"], allowed = None),
+        "09": exercise(page = 1, dir = "ex09/", files = ["toy.sh"], allowed = None),
+        "10": exercise(page = 1, dir = "ex10/", files = ["Makefile"], optional = ["**/*.c"], allowed = None),
+        "11": exercise(page = 1, dir = "ex11/", files = ["toy.c"], allowed = None),
+        # Rush 01's shape: the .c files flat ("cc *.c"), a header anywhere.
+        "12": exercise(page = 1, dir = "ex12/", files = [], optional = ["*.c", "**/*.h"], allowed = None),
+        "13": exercise(page = 1, dir = "ex13/", files = [], optional = ["*.c", "**/*.h"], allowed = None),
+        # C 09 ex01's shape: a Makefile alone, and the grader brings a file in
+        # a subfolder of the turn-in.
+        "14": exercise(
+            page = 1,
+            # A comment is not the contract: first_red read this line's
+            # dir = None and took the root for this exercise's folder.
+            dir = "ex14/",
+            files = ["Makefile"],
+            provided = {"tests/ex14/grader/srcs/toy.c": "srcs/toy.c"},
+            allowed = None,
+        ),
+        # C 12's shape: the grader links a function of its own, compiled from
+        # Rust (tools/grader_lib.bzl), which the harness calls. "None" allowed,
+        # as C 12 ex02 says, so that it has a forbidden layer: that layer and
+        # the symbols layer are told the grader brings toy_base (--provided).
+        "15": exercise(
+            page = 1,
+            dir = "ex15/",
+            files = ["toy_twice.c"],
+            linked = {"toy_base": "//tools/tests/macro_fixtures:toy_grader"},
+            allowed = [],
+        ),
+        # C 12's and C 13's other shape: a header the student turns in, whose
+        # structure the subject prints (tests/layout/toy.h, and its names in
+        # tests/layout/tag/toy.h). ex16 from ex01 on, where the grader links a
+        # function of its own; ex17 as ex00, where it does not.
+        "16": exercise(
+            page = 1,
+            dir = "ex16/",
+            files = ["toy_twice.c", "toy.h"],
+            linked = {"toy_base": "//tools/tests/macro_fixtures:toy_grader"},
+            allowed = None,
+        ),
+        "17": exercise(page = 1, dir = "ex17/", files = ["toy_twice.c", "toy.h"], allowed = None),
+        # A program that may open files: what c_program asks of its cases.
+        "18": exercise(page = 1, dir = "ex18/", files = ["toy_reader.c"], allowed = ["open", "read", "write", "close"]),
+        # BSQ's and Rush 02's shape: "Makefile and all the necessary files".
+        "19": exercise(page = 1, dir = "ex19/", files = ["Makefile"], optional = ["**/*.c"], allowed = None),
+        # C 10's shape: the same file list, and a program built from its
+        # sources directly, beside a c_make for the Makefile.
+        "20": exercise(page = 1, dir = "ex20/", files = ["Makefile"], optional = ["**/*.c"], allowed = None),
+        # Rush 00's shape: two files every variant shares, a variant, and
+        # any other .c a team writes for a bonus of its own.
+        "21": exercise(page = 1, dir = "ex21/", files = ["main.c", "ft_putchar.c"], optional = ["rush03.c", "*.c"], allowed = None),
+        # A Makefile the contract only allows: what c_make and c_program
+        # refuse to build from (contract_problem("make_anchor"), and
+        # c_program's refusal below; finding 124). Nothing is declared for it.
+        "22": exercise(page = 1, dir = "ex22/", files = [], optional = ["Makefile", "**/*.c"], allowed = None),
+        # A script turn-in that reads a file at a path its toy subject fixes,
+        # the shape of Shell 01 ex07: shell_exercise's redirect.
+        "23": exercise(page = 1, dir = "ex23/", files = ["toy.sh"], allowed = None),
+        # A program built by its Makefile whose runs are an argument table
+        # (C 06's shape, with a Makefile): c_argv_table's guarded replay is
+        # built through the same Makefile.
+        "24": exercise(page = 1, dir = "ex24/", files = ["Makefile"], optional = ["**/*.c"], allowed = None),
+        # Functions whose subject names malloc, and free: what c_function's
+        # `malloc` may not turn off (contract_problem("function_malloc")).
+        # No macro is called on them.
+        "25": exercise(page = 1, dir = "ex25/", files = ["toy_dup.c"], allowed = ["malloc"]),
+        "26": exercise(page = 1, dir = "ex26/", files = ["toy_drop.c"], allowed = ["free"]),
+        # C 10's shape again, its program c_program(makefile =
+        # "once_written"): the Makefile decides once it compiles anything,
+        # and until then the folder's sources are the program.
+        "27": exercise(page = 1, dir = "ex27/", files = ["Makefile"], optional = ["**/*.c", "**/*.h"], allowed = None),
+        "28": exercise(page = 1, dir = "ex28/", files = ["Makefile"], optional = ["**/*.c", "**/*.h"], allowed = None),
+        # ex27's shape again, run through an argument table (C 06's runs):
+        # the guarded-argv replay builds what the graded program builds.
+        "29": exercise(page = 1, dir = "ex29/", files = ["Makefile"], optional = ["**/*.c", "**/*.h"], allowed = None),
+    },
+)
+
+# ex15's grader function: invented, as every exercise here is.
+grader_library(
+    name = "toy_grader",
+    src = "grader/toy.rs",
+    exports = ["toy_base"],
+)
+
+# TOY EXERCISES IN EVERY BROKEN STATE A STUDENT'S TREE CAN BE IN.
+#
+# The harness used to be proven on two trees only: the stubs and one set of
+# answers. Both compile, both hold every file, so neither ever showed what a
+# syntax error, a leftover main() or a missing file did to the BUILD GRAPH --
+# and each of those failed it: FAILED TO BUILD with no log, or a package that
+# would not load, with every other exercise of the module unreported beside it
+# (findings 034, 108, 128, 172). docs/design.md: "prove a check on more than
+# two trees".
+#
+# So this package declares invented exercises -- never a Piscine one, and every
+# file under deliverable/ is a stub by tools/stub_check.sh's rules (the broken
+# ones are broken outside any function body, where a stub may hold anything) --
+# through the same macros every module uses, one broken state each:
+#
+#   ex00  builds and passes                  the control: nothing here may change
+#   ex01  a syntax error                     its programs are stand-ins
+#   ex02  a main() beside the function       it does not link
+#   ex03  nothing turned in, and a literal   its layers are "not turned in"
+#         path to a header that is not there   tests; the package still loads
+#   ex04  two files the subject never asked  only ex04_files is red, naming
+#         for: toy_extra.c, and a main.c       both: every other layer --
+#         that defines a second main()         the fixture, the memory probe,
+#                                              ASan, the 32-bit build, norm,
+#                                              symbols -- compiles the files
+#                                              the contract names and no
+#                                              other (:stray_reads)
+#   ex05  two copies a desktop would name    only ex05_files is red, and names
+#         "toy_twice copy.c" and "toy_twice    both; every other layer leaves
+#         (1).c" beside the function           them out (defs.bzl's _safe())
+#   ex06  a Makefile program, no Makefile    its programs are stand-ins
+#   ex07  a header exercise, no header       "not turned in"
+#   ex08  a Makefile exercise, no Makefile   "not turned in"
+#   ex09  a shell exercise, no generator     "not turned in"
+#   ex10  a Makefile program NOT STARTED:    its programs are EMPTY stand-ins,
+#         the stub Makefile only echoes        which first_red files as "not
+#                                              written yet", never as broken
+#   ex11  a program (no Makefile) with a     its program and ASan twin are
+#         syntax error, on a line saying       stand-ins: the compiler quotes
+#         "internal compiler error"            that line, and it is no crash
+#   ex12  a program compiled as `cc *.c`,    its program is a stand-in, and its
+#         its header moved to includes/ and    compile layers are red: the
+#         included as "toy12.h"                grader's include path has no
+#                                              includes/ on it
+#   ex13  the same, included as              a real program, compile layers
+#         "includes/toy13.h"                   green
+#   ex14  a Makefile turned in alone, with   ex14_files is red, naming
+#         a copy of the file the grader        srcs/toy.c among the files the
+#         brings in srcs/                      grader brings
+#   ex15  a function the GRADER links        its program is real: the macros
+#         (`linked`, from Rust), called        link the library everywhere,
+#         by the harness; and a reading        and hand its archives to the
+#         (c_function's `readings`)            ilp32 layer (" grader-lib");
+#                                              its forbidden and symbols
+#                                              layers are told the grader
+#                                              brings toy_base (" provided");
+#                                              the reading has its own program
+#                                              and output test, at strict
+#   ex16  a header in `files` whose          ex16_prototype checks the layout
+#         structure the subject prints,        (" layout"), at basic; the twin
+#         and a function the grader links      ex16_layout_prototype checks
+#                                              the names alone (" layout-tag"),
+#                                              at strict
+#   ex17  the same header, and no            ex17_prototype checks no layout;
+#         function the grader links            the twin checks both (" layout
+#                                              layout-tag"), at strict
+#   ex19  a Makefile program, and a .c its   ex19_files is red, naming
+#         Makefile never compiles; c_make      toy19_unused.c among the sources
+#         checks the Makefile too, called      the Makefile does not build, from
+#         before c_program as BSQ's is         the program's own list: no second
+#                                              build of it is declared
+#   ex20  the same files, and no program     ex20_files is red, naming
+#         declared: the Makefile is            toy20_unused.c the same way: the
+#         c_make's alone                       list is a build for it alone
+#                                              (ex20_make_bin)
+#   ex21  a rush (rush_common), with a       ex21_extra_norm norms toy_switch.c
+#         variant and a .c of a bonus of       alone (:ex21_extra_norm_files);
+#         its own beside the shared files      main.c, ft_putchar.c and the
+#                                              variant are normed elsewhere
+#   ex27  C 10's shape, makefile =           its program is REAL, built from
+#         "once_written", and the stub         toy27.c: an exercise whose
+#         Makefile only echoes                 Makefile is not written yet is
+#                                              tested on its program
+#   ex28  the same, its Makefile written:    its program is real, built from
+#         toy28.c with -I includes, its        toy28.c alone with -I includes:
+#         header in includes/ included by      the Makefile decides, and the
+#         name, and a second main() in         second main is never linked
+#         toy28_unused.c
+#   ex29  ex27's shape, run through an       its guarded-argv program is
+#         argument table (c_argv_table)        REAL, built from toy29.c as its
+#                                              graded one is: the guard takes
+#                                              the sources a stub Makefile
+#                                              leaves to be built too
+#
+# ex04 also keeps a copy of its function in backup/: the files layer walks
+# the whole turn-in, so ex04_files names backup/toy_twice.c as well, by path.
+#
+# Every test here is tagged manual (tools/defs.bzl's _test does it for this
+# package): most are red by design, and `bazel test //...` must stay about the
+# modules. What is checked on every run is //tools/tests:macro_fixtures_test:
+# that this package loads and its programs build (they are its data), that each
+# program is a real one or a stand-in of the right kind, and that the tests
+# emitted here are the ones layers.expected lists (see :layers at the end).
+#
+# What no test can check is each layer's VERDICT. Measured by hand on
+# 2026-10-04 (after ex29, the guarded build over a stub Makefile) with
+#
+#     bazel test $(bazel query 'tests(//tools/tests/macro_fixtures:*)')
+#
+# 214 tests, 54 red; with --test_env=NO_SKIP=1, 84 red (the 30 skips below).
+# "skips" below means green, and red under NO_SKIP=1. Every test here is
+# manual, so a runfile one of them names and nothing writes breaks only
+# these runs: macro_fixtures_test builds three of them whole for that.
+#
+#   ex00  all green, its memory probe's pair (asan, probe_memcheck) too.
+#   ex01  red: norm, compile_clang, compile_gcc, output, prototype, symbols.
+#         green: files, norm_notice (skips). ilp32 and memcheck skip.
+#   ex02  red: output, symbols (the second main is exported). green: norm,
+#         norm_notice, both compiles, files, prototype. ilp32, memcheck skip.
+#   ex03  red, NOT TURNED IN: norm, both compiles, prototype, symbols; red:
+#         files, output. norm_notice and ilp32 (NOT TURNED IN, gated) skip,
+#         and so does memcheck.
+#   ex04  red: files (main.c, toy_extra.c and backup/toy_twice.c). The
+#         rest green, its memory probe's pair (asan, probe_memcheck) too: no
+#         layer compiles a file the contract does not name (2026-10-03; the
+#         probe, ASan and 32-bit builds failed on main.c's second main()
+#         before, the fixture linked out of an archive did not).
+#   ex05  red: files, naming 'toy_twice copy.c' and 'toy_twice (1).c'. The
+#         rest green: no other layer sees either file.
+#   ex06  red, NOT TURNED IN: norm, both compiles; red: output, exit.
+#         norm_notice (gated), asan, valgrind and program_allocfail skip.
+#   ex07  red, NOT TURNED IN: norm, both compiles, output. norm_notice skips.
+#   ex08  red, NOT TURNED IN: build. build_exit and build_rules (gated:
+#         its call quotes no sentence for clean, fclean or re, so what they
+#         do is this repo's convention, at robust) skip.
+#   ex09  red, NOT TURNED IN: files, norm, output. lint (gated) skips.
+#   ex10  red: output and exit, "NOTHING TO BUILD YET". green: norm,
+#         norm_notice, both compiles. asan and valgrind skip.
+#   ex11  red: norm, both compiles, output, exit. norm_notice, asan, valgrind
+#         and program_allocfail skip.
+#   ex12  red: both compiles (saying the header is in a subfolder no -I
+#         reaches), output, exit. green: norm, norm_notice. asan and
+#         valgrind skip.
+#   ex13  all green; program_allocfail says the toy asks for no memory.
+#   ex14  red: files, naming srcs/toy.c under FILES THE GRADER BRINGS.
+#   ex15  all green: its fixture, and its reading's, are what the stub and
+#         the grader's function print. ilp32 builds at 32 bits with the
+#         library's i686 archive (measured 2026-09-28, with NO_SKIP=1 too);
+#         forbidden, whose stub calls nothing (2026-09-30).
+#   ex16  red: prototype and layout_prototype, "the structure in your toy.h
+#         is not the one", "does not name its structure": the stub toy.h
+#         holds no t_toy. The rest green, as ex15 (2026-10-01).
+#   ex17  red: layout_prototype, the same way. The rest green (2026-10-01).
+#   ex19  red: files, naming toy19_unused.c under SOURCES YOUR MAKEFILE DOES
+#         NOT BUILD; build (the stub Makefile only echoes). green: output,
+#         exit, norm, norm_notice, both compiles, asan, valgrind. build_exit
+#         and build_rules skip.
+#   ex20  red: files, naming toy20_unused.c under SOURCES YOUR MAKEFILE DOES
+#         NOT BUILD; build (the stub Makefile only echoes). build_exit and
+#         build_rules skip. (Measured with its c_program, since refused:
+#         2026-10-03, ex20_files and ex20_build alone.)
+#   ex21  red: putchar_output (the stub puts nothing out). green: shared_norm,
+#         extra_norm and their notices, both shared compiles, symbols. No
+#         forbidden layer: its contract has no "Allowed functions" line.
+#   ex23  red: output and regular, "toy.sh exists" (the stub generator
+#         writes none). green: files, norm. lint and posix skip.
+#   ex24  red: output (the stub prints nothing for ["x"]). green: norm,
+#         norm_notice, both compiles, exit, asan, argv_asan.
+#   ex27  all green: output, exit, asan and valgrind on the program its
+#         sources make, norm, norm_notice, both compiles.
+#   ex28  all green: the same, built from toy28.c with -I includes; both
+#         compiles find toy28.h through the Makefile's -I (" make-includes").
+#   ex29  red: output (the stub prints nothing for ["x"]). green: norm,
+#         norm_notice, both compiles, exit, asan, and argv_asan on the
+#         guarded program its sources make, as its graded one is (the guard
+#         took the stub Makefile alone, and argv_asan skipped on an empty
+#         stand-in: 2026-10-04).
+#
+# Re-measure after changing a macro or a runner, and update this list.
+
+# `fn` names each exercise's unit, so it is unique per exercise; the function
+# they all turn in is toy_twice.
+[
+    c_function(
+        num = num,
+        fn = "toy_twice_" + num,
+        test = "test_toy.c",
+        exports = ["toy_twice"],
+    )
+    for num in ["00", "01", "02", "04", "05"]
+]
+
+# ex16 and ex17: a header in `files`, read against tests/layout/ (see the
+# contract above).
+[
+    c_function(
+        num = num,
+        fn = "toy_twice_" + num,
+        test = "test_toy.c",
+        exports = ["toy_twice"],
+    )
+    for num in ["16", "17"]
+]
+
+# ex15 also takes a reading (c_function's `readings`): a harness of its own
+# over the same unit, raised to strict, whose program links the grader's
+# function like the fixture's.
+c_function(
+    num = "15",
+    fn = "toy_twice_15",
+    test = "test_toy.c",
+    exports = ["toy_twice"],
+    readings = [{
+        "name": "reading",
+        "main": "test_reading.c",
+        "expected": "reading.txt",
+        "level": 2,
+    }],
+)
+
+# A header named by hand that is not there: before _zone(), a declared input
+# Bazel failed to find ("missing input file") for every layer that named it.
+# Named through turnin_file(), as a module's BUILD file must name one.
+c_function(
+    num = "03",
+    fn = "toy_twice_03",
+    test = "test_toy.c",
+    hdrs = [turnin_file("03", "toy.h")],
+    exports = ["toy_twice"],
+)
+
+[
+    c_files(num = num)
+    for num in ["00", "01", "02", "03", "04", "05", "15"]
+]
+
+# A harness that is no output fixture: the memory probe's program. It names
+# ex00_prototype as every harness over a student's files must (_student_bin's
+# `prototype`), and :harnesses below lists it with the output fixtures.
+c_mem_check(
+    num = "00",
+    fn = "toy_twice",
+    probe = "mem_toy.c",
+)
+
+# ex04's, beside its stray main.c: the probe and its ASan twin link every
+# source they are given directly, so they are where a second main() in a
+# file the contract does not name used to break the build (:stray_reads).
+c_mem_check(
+    num = "04",
+    fn = "toy_twice",
+    probe = "mem_toy.c",
+)
+
+# Its case also hands the program a file and feeds it one on stdin, so the
+# files a case reads (the case_reads tag :layers lists) are seen to hold all
+# three kinds.
+# The rule an allocfail target prints under its verdict: a toy's, since these
+# are no subject's exercises.
+TOY_RULE = "A toy rule, for the macro fixtures: errors are handled."
+
+# ex06, ex11 and ex13 also build the allocation-failure twin
+# (exNN_bin_allocfail, c_program's `allocfail`): from no Makefile, from a
+# syntax error, and from a real program -- a stand-in of each kind where the
+# others' programs are, and a program where theirs is.
+c_program(
+    num = "06",
+    name = "toy",
+    makefile = True,
+    allocfail = "run",
+    allocfail_rule = TOY_RULE,
+    cases = [{
+        "name": "run",
+        "expected": "empty.txt",
+        "fixtures": ["tests/ex06/fixtures/arg.txt"],
+        "stdin": "tests/ex06/stdin.txt",
+    }],
+)
+
+c_header(
+    num = "07",
+    main = "test_toy.c",
+)
+
+c_make(
+    num = "08",
+    artifact = "libtoy.a",
+    not_checked = {
+        "recipe": "the toy subject says nothing about how its library compiles",
+        "wildcards": "the toy subject does not bind the Norm",
+    },
+)
+
+# tags and run_tags: "env" on every test that judges the turn-in, and
+# "no-sandbox" only on the ones that run it -- never on the files layer, which
+# runs the generator alone (:shell_tags below).
+shell_exercise(
+    num = "09",
+    mode = "diff",
+    tags = ["env"],
+    run_tags = ["no-sandbox"],
+)
+
+# A Makefile program driven by an argument table: the guarded-argv replay
+# (exNN_argv_asan) is built from the program's own Makefile, as its graded
+# program is (:argvguard_builds), where it used to be refused while loading.
+c_program(num = "24", name = "toy_args", makefile = True)
+
+c_argv_table(num = "24")
+
+# The same table over a program whose Makefile is not written yet
+# (makefile = "once_written", ex27's stub): the graded program is the
+# folder's sources, and so is its guarded-argv build, which used to take the
+# Makefile alone and be an empty stand-in beside a real program (V35).
+c_program(num = "29", name = "toy29", makefile = "once_written")
+
+c_argv_table(num = "29")
+
+# A check-mode toy whose runs read a fixture in place of a path the subject
+# fixes (redirect): every target that runs the turn-in -- the output test and
+# each reading -- is handed the fixture and the preload library, and no
+# other is (:redirect_args). Its generator is a stub, so its tests are red;
+# what the redirect does to a run is proven by the selftest's --redirect
+# arms on a turn-in that reads the path.
+shell_exercise(
+    num = "23",
+    mode = "check",
+    readings = {"regular": "regular.sh"},
+    redirect = {"/etc/toy.conf": "toy.conf"},
+    script = "sh",
+    stable = False,
+)
+
+c_program(
+    num = "10",
+    name = "toy_stub",
+    makefile = True,
+    cases = [{
+        "name": "run",
+        "expected": "empty.txt",
+    }],
+)
+
+c_program(
+    num = "11",
+    name = "toy_syntax",
+    allocfail = "run",
+    allocfail_rule = TOY_RULE,
+    cases = [{
+        "name": "run",
+        "expected": "empty.txt",
+    }],
+)
+
+# THE INCLUDE PATH IS THE GRADER'S. Both toys hold main.c and a header in
+# includes/, and the grader compiles them as Rush 01's does: `cc *.c` in the
+# turn-in directory, with no -I. ex12 includes "toy12.h", which no compiler
+# run that way finds; ex13 includes "includes/toy13.h", which one does. The
+# program built for the run layers, and every static layer, must agree.
+[
+    c_program(
+        num = num,
+        name = "toy" + num,
+        allocfail = "run" if num == "13" else None,
+        allocfail_rule = TOY_RULE if num == "13" else None,
+        cases = [{
+            "name": "run",
+            "expected": "empty.txt",
+        }],
+    )
+    for num in ["12", "13"]
+]
+
+c_files(num = "14")
+
+# A REFUSAL, WATCHED. A macro refuses a BUILD file with fail(), and a package
+# that fails to load cannot be a test, so the checks above are each guard's
+# own helper -- and a macro that stopped calling its helper stayed green
+# everywhere (review of WP-50). These are the real macros, called with
+# `refusals` (tools/defs.bzl's _refuse): what each would have failed the load
+# with is collected in the list, nothing is emitted, and :contract_problems
+# compares it. A guard deleted or bypassed leaves its list empty, which reads
+# "OK" there, or emits ex18's targets, which layers.expected does not hold.
+#
+# ex18 may open files, and its cases are BSQ's shape before finding 110 was
+# fixed: one about a file's content, one the program must refuse, and none
+# naming a file that will not open.
+_REFUSED_CONTENT_ONLY = []
+
+c_program(
+    num = "18",
+    name = "toy_reader",
+    cases = [
+        {"name": "show", "args": ["in.txt"], "expected": "empty.txt"},
+        {"name": "bad", "invalid_input": True, "args": ["bad.txt"], "expected": "empty.txt"},
+    ],
+    refusals = _REFUSED_CONTENT_ONLY,
+)
+
+# The same program with the case, and a sentence saying there is none.
+_REFUSED_STALE = []
+
+c_program(
+    num = "18",
+    name = "toy_reader_stale",
+    cases = [{
+        "name": "missing",
+        "missing_file": "no_such_file_ex18",
+        "invalid_input": True,
+        "args": ["no_such_file_ex18"],
+        "expected": "empty.txt",
+    }],
+    no_missing_file_case = "it reads one fixed file",
+    refusals = _REFUSED_STALE,
+)
+
+# A `model` with no case it could answer: the program's one case, a missing
+# name, compares no output ("survive"), so no file would be held to it.
+_REFUSED_MODEL = []
+
+c_program(
+    num = "18",
+    name = "toy_reader_model",
+    cases = [{
+        "name": "missing",
+        "missing_file": "no_such_file_ex18",
+        "args": ["no_such_file_ex18"],
+        "survive": True,
+    }],
+    model = ["c10_run", "cat"],
+    refusals = _REFUSED_MODEL,
+)
+
+# A call that still says whether the program may allocate: that is the
+# contract's (ex18's subject allows open, read, write and close), read by
+# c_program as corpus_memory() reads it.
+_REFUSED_MALLOC = []
+
+c_program(
+    num = "18",
+    name = "toy_reader_malloc",
+    malloc = True,
+    cases = [{
+        "name": "missing",
+        "missing_file": "no_such_file_ex18",
+        "args": ["no_such_file_ex18"],
+        "survive": True,
+    }],
+    refusals = _REFUSED_MALLOC,
+)
+
+# A program built by a Makefile the contract does not require (finding
+# 124's class, as c_make holds it): ex22 only allows one, and ex12 names
+# none. Every output test at basic would run a program that needs it.
+_REFUSED_MAKE_OPTIONAL = []
+
+c_program(
+    num = "22",
+    name = "toy_make_optional",
+    makefile = True,
+    cases = [{"name": "run", "expected": "empty.txt"}],
+    refusals = _REFUSED_MAKE_OPTIONAL,
+)
+
+_REFUSED_MAKE_UNNAMED = []
+
+c_program(
+    num = "12",
+    name = "toy_make_unnamed",
+    makefile = True,
+    cases = [{"name": "run", "expected": "empty.txt"}],
+    refusals = _REFUSED_MAKE_UNNAMED,
+)
+
+# A program whose contract turns in a Makefile (ex06's), declared to be built
+# without it (_makefile_problem): from every .c of the folder, with no -I.
+_REFUSED_NO_MAKEFILE = []
+
+c_program(
+    num = "06",
+    name = "toy_no_make",
+    cases = [{
+        "name": "run",
+        "expected": "empty.txt",
+    }],
+    refusals = _REFUSED_NO_MAKEFILE,
+)
+
+# A corpus runner's call that says nothing of standard error (_RUNNER_CHOICES).
+_REFUSED_NO_CHOICE = []
+
+hand_test(
+    name = "ex18_toy_file_diff",
+    layer = "diff",
+    srcs = ["//tools:file_check.sh"],
+    args = ["--fn", "toy"],
+    refusals = _REFUSED_NO_CHOICE,
+)
+
+# One that says it, in a sentence Bazel would split at its blanks: written
+# plainly, the runner got "unknown option" (stderr_ignored() quotes it).
+_REFUSED_SPLIT_REASON = []
+
+hand_test(
+    name = "ex18_toy_argv_diff",
+    layer = "diff",
+    srcs = ["//tools:argv_check.sh"],
+    args = [
+        "--fn",
+        "toy",
+        "--stderr-ignored",
+        "the toy subject says nothing of it",
+    ],
+    refusals = _REFUSED_SPLIT_REASON,
+)
+
+# The .c files the Makefile compiles, as its program's build wrote them
+# (ex19_bin_sources.txt), reach the files layer (--built): after c_program,
+# as c_levels() emits it in a module. c_make first, as BSQ and Rush 02 call
+# it: it once declared a build of the Makefile for that list (ex19_make_bin)
+# because the program's did not exist yet, and nothing read it (:make_bins).
+c_make(
+    num = "19",
+    artifact = "toy19",
+    not_checked = {
+        "recipe": "the toy subject says nothing about how its program compiles",
+        "wildcards": "the toy subject does not bind the Norm",
+    },
+)
+
+c_program(
+    num = "19",
+    name = "toy19",
+    makefile = True,
+    cases = [{
+        "name": "run",
+        "expected": "empty.txt",
+    }],
+)
+
+c_files(num = "19")
+
+# The same list where no program is declared and the Makefile is c_make's
+# alone (a Makefile that builds a library, as C 09's): the files layer
+# declares a build for the list alone (ex20_make_bin_sources.txt), from the
+# contract, so a project of this shape cannot leave it out. A c_program of
+# such an exercise builds through its Makefile (makefile = True or
+# "once_written"), whose build writes the list: makefile = False is refused
+# there (_makefile_problem, watched below as refused-program-makefile-unused).
+c_make(
+    num = "20",
+    artifact = "toy20",
+    not_checked = {
+        "recipe": "the toy subject says nothing about how its program compiles",
+        "wildcards": "the toy subject does not bind the Norm",
+    },
+)
+
+c_files(num = "20")
+
+# C 10's programs, makefile = "once_written" (tools/student_build.sh, UNTIL
+# THE MAKEFILE IS WRITTEN): ex27's Makefile is a stub, so its program is its
+# sources; ex28's is written, so its program is what it compiles, -I and all.
+[
+    c_program(
+        num = num,
+        name = "toy" + num,
+        makefile = "once_written",
+        cases = [{
+            "name": "run",
+            "expected": "empty.txt",
+        }],
+    )
+    for num in ["27", "28"]
+]
+
+# A RUSH'S OTHER .c FILES ARE NORMED: a bonus of the team's own shape is no
+# variant and no shared file, and "bonus files are included in the norm
+# check" (Rush 00, p.4). Only where there is one, so no fixture of a module
+# ever made the target; this one does, and lists what it norms.
+rush_common(
+    num = "21",
+    clues = "clues_putchar.tsv",
+)
+
+names_file(
+    name = "ex21_extra_norm_files",
+    names = [
+        a[len("$(location "):-1]
+        for a in existing_rule("ex21_extra_norm")["args"]
+        if a.startswith("$(location ") and not a.endswith("norminette)")
+    ] if existing_rule("ex21_extra_norm") else [],
+)
+
+# A test's level tags, from basic up: a slice is the ladder from that level.
+LEVELS = ["lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"]
+
+# A test holding tests/ex00's *.txt and fixtures/*.map to //oracle, as
+# existing_rules() gives one: its runner, and its arguments as written.
+_ORACLE_OWNER = {
+    "args": [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "toy_fixtures",
+        "--in-dir-of",
+        "$(location tests/ex00/a.txt)",
+        "--owns",
+        "*.txt",
+        "--owns",
+        "fixtures/*.map",
+    ],
+    "kind": "sh_test",
+    "srcs": ["//tools:oracle_fixtures.sh"],
+    "tags": ["oracle", "ex00"] + LEVELS[3:],
+}
+
+# A corpus runner's three replays, as the audit reads them: the plain one, its
+# twin on the ASan build, and its memcheck sample.
+_CORPUS_PLAIN = {
+    "args": ["--bin", "$(location :ex00_bin)"],
+    "srcs": ["//tools:rush01_check.sh"],
+    "tags": ["diff", "ex00"] + LEVELS[1:],
+}
+# A replay named exNN_<what>_sweep is the output layer's, at basic (Rush 01's
+# ex00_sweep): the same replay under that name.
+_CORPUS_SWEEP = dict(_CORPUS_PLAIN, tags = ["output", "ex00"] + LEVELS)
+_CORPUS_ASAN = {
+    "args": ["--bin", "$(location :ex00_bin_asan)", "--sanitized"],
+    "srcs": ["//tools:rush01_check.sh"],
+    "tags": ["diff_asan", "ex00"] + LEVELS[2:],
+}
+# An argument corpus's plain replay (C 06's shape): argv_check.sh, whose
+# ASan twin runs the guarded build where there is one.
+_ARGV_PLAIN = {
+    "args": ["--bin", "$(location :ex00_bin)", "--fn", "toy_args"],
+    "srcs": ["//tools:argv_check.sh"],
+    "tags": ["diff", "ex00"] + LEVELS[1:],
+}
+_CORPUS_MEMCHECK = {
+    "args": ["--bin", "$(location :ex00_bin)", "--valgrind", "v", "--valgrind-tools", "t"],
+    "srcs": ["//tools:rush01_check.sh"],
+    "tags": ["valgrind", "ex00"] + LEVELS[1:],
+}
+# A fixed case's valgrind arm quoting the subject's sentence about memory, as
+# c_program's memory_rule hands it over.
+_RULE = ["--rule", "$(location :ex00_memory_rule)"]
+_RULE_ARM = {
+    "args": ["--bin", "$(location :ex00_bin)", "--label", "run"] + _RULE,
+    "srcs": ["//tools:valgrind_test.sh"],
+    "tags": ["valgrind", "ex00"] + LEVELS[1:],
+}
+
+# A corpus runner's gate, and the output test of the subject's example it
+# stands for: the program run on one map, compared with one file.
+_GATE = [
+    "--gate-differ",
+    "$(location //tools:diff_output.sh)",
+    "--gate-bin",
+    "$(location :ex00_bin)",
+    "--gate-expected",
+    "$(location tests/ex00/example.txt)",
+]
+_GATE_EXAMPLE = {
+    "args": [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--expected",
+        "$(location tests/ex00/example.txt)",
+        "--case",
+        "example",
+        # Its list of who waits for it (_waiting_args), which the waiting
+        # audit asks of every output test a gate resolves to.
+        "--waiting",
+        "$(location :waiting_ex00_example_output)",
+        "--",
+        "$(location tests/ex00/example.map)",
+    ],
+    "srcs": ["//tools:diff_output.sh"],
+    "tags": ["output", "ex00"] + LEVELS,
+}
+
+# A case's output test, run as ./toy beside a file of its own, and a program
+# arm's gate that replays it (_case_gate_problems): the sweep's own program,
+# then the gate's, and the words after "--" come at each call.
+_CASE_OUTPUT = {
+    "args": [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--expected",
+        "$(location tests/ex00/a.txt)",
+        "--case",
+        "beside",
+        "--waiting",
+        "$(location :waiting_ex00_beside_output)",
+        "--run-as",
+        "toy",
+        "--cwd-file",
+        "toy.cfg=$(location tests/ex00/fixtures/cfg.txt)",
+        "--",
+        "42",
+    ],
+    "srcs": ["//tools:diff_output.sh"],
+    "tags": ["output", "ex00"] + LEVELS,
+}
+_CASE_SWEEP = {
+    "args": [
+        "--bin",
+        "$(location :ex00_bin_allocfail)",
+        "--label",
+        "ex00/beside",
+        "--gate-differ",
+        "$(location //tools:diff_output.sh)",
+        "--gate-bin",
+        "$(location :ex00_bin)",
+        "--gate-expected",
+        "$(location tests/ex00/a.txt)",
+    ],
+    "srcs": ["//tools:allocfail_check.sh"],
+    "tags": ["allocfail", "ex00"] + LEVELS[2:],
+}
+_CASE_FOLDER = ["--run-as", "toy", "--cwd-file", "toy.cfg=$(location tests/ex00/fixtures/cfg.txt)"]
+
+# EVERY CONTRACT CHECK, FED THE BROKEN CONTRACT IT GUARDS AGAINST: one line
+# per case, "case: the message", or "case: OK" where nothing is wrong. A check
+# is a value before it is a fail() (tools/subject.bzl), because a package that
+# does not load cannot be a test; //tools/tests:macro_fixtures_test compares
+# these lines with contract_problems.expected beside this file. Invented
+# entries, like every exercise here. The same holds for a case dict's check
+# (_case_problem) and for c_levels()' audit of a whole package
+# (_audit_problems), whose failures stop a package from loading too.
+# A toy exercise's output test and the tests that wait for it, as
+# existing_rules() gives them, for the waiting cases of _PROBLEMS.
+_WAIT_OUT_ARGS = ["--bin", "$(location :ex00_bin)", "--expected", "$(location tests/ex00/expected.txt)"]
+
+# Output tests of ex00_bin and expected.txt, each handing its list on.
+_WAIT_OUT = {
+    n: {
+        "args": _WAIT_OUT_ARGS + ["--waiting", "$(location :waiting_%s)" % n],
+        "tags": ["output", "ex00"] + LEVELS,
+    }
+    for n in ["ex00_output", "ex00_a_output", "ex00_b_output"]
+}
+
+_WAIT_TOY = {
+    "ex00_diff": {
+        "args": ["--gate-bin", "$(location :ex00_bin)", "--gate-expected", "$(location tests/ex00/expected.txt)"],
+        "tags": ["diff", "ex00"] + LEVELS[1:],
+    },
+    "ex00_ilp32": {
+        "args": ["--gate-bin", "$(location :ex00_bin)", "--expected", "$(location tests/ex00/expected.txt)"],
+        "tags": ["ilp32", "ex00"] + LEVELS[3:],
+    },
+    "ex00_output": _WAIT_OUT["ex00_output"],
+}
+
+# A survive case: it compares nothing, and waits for ex00_output by label.
+_WAIT_SURVIVE = {
+    "args": ["--bin", "$(location :ex00_bin)", "--survive", "--gate-expected",
+             "$(location tests/ex00/expected.txt)", "--gate-label", "ex00_output"],
+    "tags": ["output", "ex00"] + LEVELS,
+}
+
+_PROBLEMS = {
+    "before-subject": _BEFORE_SUBJECT,
+    "exercise-ok": contract_problem("exercise", {"allowed": [], "dir": "ex00/", "files": ["a.c"], "page": 1}),
+    "exercise-dir-without-slash": contract_problem("exercise", {"allowed": [], "dir": "ex00", "files": ["a.c"], "page": 1}),
+    "exercise-page-zero": contract_problem("exercise", {"allowed": [], "dir": "ex00/", "files": ["a.c"], "page": 0}),
+    "exercise-path-outside": contract_problem("exercise", {"allowed": [], "dir": "ex00/", "files": ["../a.c"], "page": 1}),
+    # "Makefile, *.h, *.c" transcribed letter for letter: the Makefile says
+    # where its sources lie, so a pattern beside it reaches subfolders.
+    "exercise-flat-beside-makefile": contract_problem("exercise", {
+        "allowed": [],
+        "dir": "ex00/",
+        "files": ["Makefile"],
+        "optional": ["**/*.h", "*.c"],
+        "page": 1,
+    }),
+    "exercise-nested-beside-makefile": contract_problem("exercise", {
+        "allowed": [],
+        "dir": "ex00/",
+        "files": ["Makefile", "ft.h"],
+        "optional": ["**/*.c", "srcs/*.h", "ft_*.c"],
+        "page": 1,
+    }),
+    "exercise-provided-and-required": contract_problem("exercise", {
+        "allowed": [],
+        "dir": "ex00/",
+        "files": ["a.c"],
+        "page": 1,
+        "provided": {"tests/ex00/a.c": "a.c"},
+    }),
+    "exercise-linked-ok": contract_problem("exercise", {
+        "allowed": [],
+        "dir": "ex00/",
+        "files": ["a.c"],
+        "linked": {"b": "//oracle:b_grader"},
+        "page": 1,
+    }),
+    "exercise-linked-c-file": contract_problem("exercise", {
+        "allowed": [],
+        "dir": "ex00/",
+        "files": ["a.c"],
+        "linked": {"b": "tests/b.c"},
+        "page": 1,
+    }),
+    "exercise-linked-turned-in": contract_problem("exercise", {
+        "allowed": [],
+        "dir": "ex00/",
+        "files": ["b.c"],
+        "linked": {"b": "//oracle:b_grader"},
+        "page": 1,
+    }),
+    # THE CONTRACT'S `linked`, AT ANALYSIS (tools/subject.bzl's
+    # linked_problem()): each label a grader_library() -- exports None is a
+    # target that is not one, a cc_library over a C copy -- exporting the name.
+    "linked-ok": contract_problem("linked", {
+        "exercises": {"01": exercise(page = 1, dir = "ex01/", files = ["a.c"], linked = {"b": "//x:b_grader"}, allowed = [])},
+        "exports": {"//x:b_grader": ["b"]},
+    }),
+    "linked-not-a-grader-library": contract_problem("linked", {
+        "exercises": {"01": exercise(page = 1, dir = "ex01/", files = ["a.c"], linked = {"b": "//x:b_impl"}, allowed = [])},
+        "exports": {"//x:b_impl": None},
+    }),
+    "linked-not-exported": contract_problem("linked", {
+        "exercises": {"01": exercise(page = 1, dir = "ex01/", files = ["a.c"], linked = {"b": "//x:b_grader"}, allowed = [])},
+        "exports": {"//x:b_grader": ["c"]},
+    }),
+    # A MACRO THAT WOULD IGNORE `linked` (tools/defs.bzl's _TAKES_LINKED):
+    # c_program on ex15 fails while loading; c_diff, which links it, and
+    # c_program on an exercise the grader links nothing into, do not. And a
+    # layer of a macro that cannot link it (c_function's allocfail).
+    "linked-reader-refused": contract_problem("linked_reader", {"macro": "c_program", "num": "15"}),
+    "linked-reader-links": contract_problem("linked_reader", {"macro": "c_diff", "num": "15"}),
+    "linked-reader-none-linked": contract_problem("linked_reader", {"macro": "c_program", "num": "00"}),
+    "linked-layer-refused": contract_problem("linked_layer", {"macro": "c_function", "num": "15", "layer": "allocfail"}),
+    "linked-layer-none-linked": contract_problem("linked_layer", {"macro": "c_function", "num": "00", "layer": "allocfail"}),
+    "exercise-provided-outside-tests": contract_problem("exercise", {
+        "allowed": [],
+        "dir": "ex00/",
+        "files": ["a.c"],
+        "page": 1,
+        "provided": {"grader/b.c": "b.c"},
+    }),
+    "subject-ok": contract_problem("subject", {
+        "exercises": {"00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = [])},
+        "grader": "moulinette",
+        "group": False,
+    }),
+    "subject-root-and-others": contract_problem("subject", {
+        "exercises": {
+            "00": exercise(page = 1, dir = None, files = ["a.c"], allowed = []),
+            "01": exercise(page = 1, dir = "ex01/", files = ["a.c"], allowed = []),
+        },
+        "grader": "moulinette",
+        "group": False,
+    }),
+    "subject-grader-unknown": contract_problem("subject", {
+        "exercises": {"00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = [])},
+        "grader": "peers",
+        "group": False,
+    }),
+    "no-entry": contract_problem("no_entry", {"macro": "c_program", "num": "99"}),
+    "untranscribed": contract_problem("untranscribed", {"seen": ["ex00", "ex98"]}),
+    "turnin-file-named": contract_problem("turnin_file", {"name": "toy_twice.c", "num": "00"}),
+    "turnin-file-pattern": contract_problem("turnin_file", {"name": "main.c", "num": "12"}),
+    "turnin-file-unlisted": contract_problem("turnin_file", {"name": "other.c", "num": "00"}),
+    "turnin-file-graders": contract_problem("turnin_file", {"name": "srcs/toy.c", "num": "14"}),
+    # c_issued()'s file is the contract's, named in `optional`.
+    "issued-ok": contract_problem("issued", {"file": "toy.h", "num": "03"}),
+    "issued-unlisted": contract_problem("issued", {"file": "toy.dat", "num": "00"}),
+    "issued-required": contract_problem("issued", {"file": "toy_twice.c", "num": "00"}),
+    "issued-pattern": contract_problem("issued", {"file": "toy.c", "num": "06"}),
+    "issued-folder": contract_problem("issued", {"file": "sub/toy.dat", "num": "00"}),
+    # A CASE DICT, one per shape and kind, and each way one can be wrong.
+    "case-ok": contract_problem("case", {"case": {"expected": "e.txt", "name": "a"}, "shape": "program"}),
+    # c_function's `readings`: a harness of its own, named, and above basic.
+    "case-reading-ok": contract_problem("case", {"case": {"expected": "e.txt", "level": 2, "main": "m.c", "name": "r"}, "shape": "reading"}),
+    "case-reading-no-level": contract_problem("case", {"case": {"expected": "e.txt", "main": "m.c", "name": "r"}, "shape": "reading"}),
+    "case-reading-no-main": contract_problem("case", {"case": {"expected": "e.txt", "level": 2, "name": "r"}, "shape": "reading"}),
+    "case-reading-basic": contract_problem("case", {"case": {"expected": "e.txt", "level": 1, "main": "m.c", "name": "r"}, "shape": "reading"}),
+    "case-reading-two-words": contract_problem("case", {"case": {"expected": "e.txt", "level": 2, "main": "m.c", "name": "a reading"}, "shape": "reading"}),
+    "case-reading-program-key": contract_problem("case", {"case": {"args": ["1"], "expected": "e.txt", "level": 2, "main": "m.c", "name": "r"}, "shape": "reading"}),
+    "case-any-of-ok": contract_problem("case", {"case": {"any_of": ["a.txt", "b.txt"]}, "shape": "header"}),
+    "case-survive-ok": contract_problem("case", {"case": {"args": ["1"], "level": 2, "survive": True}, "shape": "program"}),
+    "case-unknown-key": contract_problem("case", {"case": {"expect": "e.txt"}, "shape": "program"}),
+    "case-key-of-another-shape": contract_problem("case", {"case": {"expected": "e.txt", "stream": "stderr"}, "shape": "header"}),
+    "case-no-kind": contract_problem("case", {"case": {"name": "a"}, "shape": "program"}),
+    "case-two-kinds": contract_problem("case", {"case": {"expected": "e.txt", "survive": True}, "shape": "program"}),
+    "case-any-of-one": contract_problem("case", {"case": {"any_of": ["a.txt"]}, "shape": "program"}),
+    "case-survive-compares": contract_problem("case", {"case": {"labeled": True, "survive": True}, "shape": "program"}),
+    "case-level-basic": contract_problem("case", {"case": {"expected": "e.txt", "level": 1}, "shape": "program"}),
+    # An argument Bazel would not hand over whole: quoted, with a blank,
+    # empty. A $(location ...) is one word whatever it names.
+    "case-args-quoted": contract_problem("case", {"case": {"args": ["\"4 3 2 1\""], "expected": "e.txt"}, "shape": "program"}),
+    "case-args-blank": contract_problem("case", {"case": {"args": ["a b"], "expected": "e.txt"}, "shape": "program"}),
+    "case-args-empty": contract_problem("case", {"case": {"args": [""], "expected": "e.txt"}, "shape": "program"}),
+    "case-args-location-ok": contract_problem("case", {"case": {"args": ["$(location tests/ex00/a.txt)", "x=$(location b.txt)", "-c20"], "expected": "e.txt"}, "shape": "program"}),
+    "case-cwd-files-ok": contract_problem("case", {"case": {"args": ["a"], "cwd_files": {"x.dict": "a"}, "expected": "e.txt"}, "shape": "program"}),
+    "case-cwd-files-location": contract_problem("case", {"case": {"args": ["$(location x.dict)"], "cwd_files": {"x.dict": "a"}, "expected": "e.txt"}, "shape": "program"}),
+    "case-cwd-files-outside": contract_problem("case", {"case": {"cwd_files": {"x.dict": "../a"}, "expected": "e.txt"}, "shape": "program"}),
+    "case-cwd-files-header": contract_problem("case", {"case": {"cwd_files": {"x.dict": "a"}, "expected": "e.txt"}, "shape": "header"}),
+    "case-argv-file-ok": contract_problem("case", {"case": {"argv_file": "tests/ex00/a.argv", "expected": "e.txt"}, "shape": "program"}),
+    "case-cwd-files-dot": contract_problem("case", {"case": {"cwd_files": {"x.dict": "."}, "expected": "e.txt"}, "shape": "program"}),
+    "case-cwd-files-program": contract_problem("case", {"case": {"cwd_files": {"x.dict": "toy"}, "expected": "e.txt"}, "program": "toy", "shape": "program"}),
+    "case-named-valgrind": contract_problem("case", {"case": {"expected": "e.txt", "name": "valgrind"}, "shape": "program"}),
+    # c_diff's reader harness, found by //tools:conventions by its name.
+    "diff-harness-ok": contract_problem("diff_harness", {"harness": "diff_toy.c", "num": "00"}),
+    "diff-harness-other-name": contract_problem("diff_harness", {"harness": "reader_toy.c", "num": "00"}),
+    "diff-harness-prefix-only": contract_problem("diff_harness", {"harness": "diff_.c", "num": "00"}),
+    # c_levels()' AUDIT OF A WHOLE PACKAGE, fed invented ones.
+    "audit-ok": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_output": ["output", "ex00"] + LEVELS},
+    }),
+    "audit-no-exercise-tag": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_diff": ["diff"] + LEVELS[1:]},
+    }),
+    "audit-no-layer": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_diff": ["ex00", "manual"]},
+    }),
+    "audit-not-an-exercise": contract_problem("audit", {
+        "exercises": [],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"check": ["selftest"] + LEVELS[3:]},
+    }),
+    "audit-ladder": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_output": ["output", "ex00", "lvl_basic"]},
+    }),
+    "audit-suffix-unknown": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_frobnicate": ["output", "ex00"] + LEVELS},
+    }),
+    "audit-suffix-other-layer": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_diff_asan": ["asan", "ex00"] + LEVELS[2:]},
+    }),
+    "audit-raise-unlisted": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_output": ["output", "ex00"] + LEVELS[1:]},
+    }),
+    "audit-raise-listed": contract_problem("audit", {
+        "exercises": ["ex00", "ex01", "ex03"],
+        "package": "tools/tests/macro_fixtures/levels",
+        # Every entry _RAISED holds for that package, each where it says,
+        # one of them run by a runner that says why (_LIB_RUNNERS).
+        "tests": {
+            "ex00_raised_output": {
+                "srcs": ["//tools:diff_output.sh"],
+                "tags": ["output", "ex00"] + LEVELS[1:],
+            },
+            "ex00_reading_output": ["output", "ex00"] + LEVELS[1:],
+            "ex01_staged_output": ["output", "ex01"] + LEVELS[1:],
+            "ex03_open_output": ["output", "ex03"] + LEVELS[2:],
+            "ex03_readings": ["diff", "ex03"] + LEVELS[2:],
+        },
+    }),
+    # ...but a raised test whose turn-in is missing runs tools/no_turnin.sh
+    # (_test()'s NOT TURNED IN), which says what is missing and no level: it
+    # is no runner that would explain a raise, and must not fail the package.
+    "audit-raise-not-turned-in": contract_problem("audit", {
+        "exercises": ["ex00", "ex01", "ex03"],
+        "package": "tools/tests/macro_fixtures/levels",
+        "tests": {
+            "ex00_raised_output": {
+                "srcs": ["//tools:no_turnin.sh"],
+                "tags": ["output", "ex00"] + LEVELS[1:],
+            },
+            "ex00_reading_output": ["output", "ex00"] + LEVELS[1:],
+            "ex01_staged_output": ["output", "ex01"] + LEVELS[1:],
+            "ex03_open_output": ["output", "ex03"] + LEVELS[2:],
+            "ex03_readings": ["diff", "ex03"] + LEVELS[2:],
+        },
+    }),
+    # A raised test that passes its runner --note, a second place to say why
+    # it sits above its layer: that is reference.md's row, which rl__raised
+    # prints (C 06 ex03's argv_check --note was the first).
+    "audit-raise-note": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "tools/tests/macro_fixtures/levels",
+        "tests": {"ex00_raised_output": {
+            "args": ["--note", "Why this sits at strict."],
+            "srcs": ["//tools:diff_output.sh"],
+            "tags": ["output", "ex00"] + LEVELS[1:],
+        }},
+    }),
+    # A raised test whose runner does not source tools/runner_lib.sh, whose
+    # red would then say nothing of why it sits above its layer (rl__raised).
+    "audit-raise-silent-runner": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "tools/tests/macro_fixtures/levels",
+        "tests": {"ex00_raised_output": {
+            "srcs": ["//tools:norminette_test.sh"],
+            "tags": ["output", "ex00"] + LEVELS[1:],
+        }},
+    }),
+    "audit-raise-stale": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "tools/tests/macro_fixtures/levels",
+        "tests": {"ex00_output": ["output", "ex00"] + LEVELS},
+    }),
+    "audit-manual-unlisted": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_output": ["output", "ex00", "manual"] + LEVELS},
+    }),
+    # A manual target _MANUAL lists, in the package of its own that row
+    # names, which no _RAISED row names: the audit also fails a _RAISED entry
+    # the package does not declare, so a real project's package (Rush 01's,
+    # once) tied this fixture to every raise added there.
+    "audit-manual-listed": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "tools/tests/macro_fixtures/manual",
+        "tests": {"ex00_bonus_diff": ["diff", "ex00", "manual"] + LEVELS[1:]},
+    }),
+    # A STRUCTURE FILE NO TEST READS: tests/layout/ is read by c_function
+    # alone, and a file another macro's exercise needed would be dropped.
+    "audit-layout-unread": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "layouts": ["tests/layout/toy.h"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_prototype": ["prototype", "ex00"] + LEVELS},
+    }),
+    "audit-layout-read": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "layouts": ["tests/layout/toy.h"],
+        "package": "c-piscine/c-piscine-toy",
+        "reads": {"ex00_prototype": ["tests/layout/toy.h"]},
+        "tests": {"ex00_prototype": ["prototype", "ex00"] + LEVELS},
+    }),
+    # The names the subject prints (tests/layout/tag/), read by the twin
+    # with --layout-tag; and a tag file nothing reads, which the audit finds
+    # one folder down.
+    "audit-layout-tag-read": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "layouts": ["tests/layout/tag/toy.h", "tests/layout/toy.h"],
+        "package": "c-piscine/c-piscine-toy",
+        "reads": {
+            "ex00_layout_prototype": ["tests/layout/tag/toy.h"],
+            "ex00_prototype": ["tests/layout/toy.h"],
+        },
+        "tests": {
+            "ex00_layout_prototype": ["prototype", "ex00"] + LEVELS[1:],
+            "ex00_prototype": ["prototype", "ex00"] + LEVELS,
+        },
+    }),
+    "audit-layout-tag-unread": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "layouts": ["tests/layout/tag/toy.h", "tests/layout/toy.h"],
+        "package": "c-piscine/c-piscine-toy",
+        "reads": {"ex00_prototype": ["tests/layout/toy.h"]},
+        "tests": {"ex00_prototype": ["prototype", "ex00"] + LEVELS},
+    }),
+    # THE TESTS THAT WAIT FOR AN OUTPUT: two gated on a program and the
+    # output it must print (--gate-bin, --gate-expected; ilp32's --expected),
+    # and the output test that runs that pair, which names their list
+    # (--waiting), or does not -- its red log then never says they show
+    # PASSED. A survive case waits for the output test its --gate-label
+    # names; a gate two output tests run says which one (waits =, a tag),
+    # and what it says is held to its gate; and a gate hands the program the
+    # input its output test does (BSQ's corpora gated on no map at all).
+    "audit-waiting-named": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": _WAIT_TOY,
+    }),
+    "audit-waiting-unnamed": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_diff": _WAIT_TOY["ex00_diff"],
+            "ex00_output": {
+                "args": ["--bin", "$(location :ex00_bin)", "--expected", "$(location tests/ex00/expected.txt)"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+        },
+    }),
+    "audit-waiting-list-misnamed": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_diff": _WAIT_TOY["ex00_diff"],
+            "ex00_output": {
+                "args": _WAIT_OUT_ARGS[:4] + ["--waiting", "$(location :waiting_ex01_output)"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+        },
+    }),
+    "audit-waiting-survive-named": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_output": _WAIT_TOY["ex00_output"],
+            "ex00_none_output": _WAIT_SURVIVE,
+        },
+    }),
+    # Red before: a survive case's gate names its output test by label, and
+    # the lists were keyed by --gate-bin, which it has none of.
+    "audit-waiting-survive-unnamed": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_output": {
+                "args": _WAIT_OUT_ARGS[:4],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+            "ex00_none_output": _WAIT_SURVIVE,
+        },
+    }),
+    "audit-waiting-two-run-it": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_diff": _WAIT_TOY["ex00_diff"],
+            "ex00_a_output": _WAIT_OUT["ex00_a_output"],
+            "ex00_b_output": _WAIT_OUT["ex00_b_output"],
+        },
+    }),
+    "audit-waiting-said": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_diff": {
+                "args": _WAIT_TOY["ex00_diff"]["args"],
+                "tags": ["diff", "ex00", "waits=ex00_b_output"] + LEVELS[1:],
+            },
+            "ex00_a_output": _WAIT_OUT["ex00_a_output"],
+            "ex00_b_output": _WAIT_OUT["ex00_b_output"],
+        },
+    }),
+    "audit-waiting-said-wrong": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_diff": {
+                "args": _WAIT_TOY["ex00_diff"]["args"],
+                "tags": ["diff", "ex00", "waits=ex00_other_output"] + LEVELS[1:],
+            },
+            "ex00_output": _WAIT_TOY["ex00_output"],
+            "ex00_other_output": {
+                "args": ["--bin", "$(location :ex00_bin)", "--expected", "$(location tests/ex00/other.txt)",
+                         "--waiting", "$(location :waiting_ex00_other_output)"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+        },
+    }),
+    # A wait stays inside its own exercise (V104): ex01's test waiting on
+    # ex00's output would be listed under ex00's red, and a student reading
+    # ex01's never sees why it stood down. Found by its gate, said with
+    # `waits`, and a survive case's --gate-label: red before, all three OK.
+    "audit-waiting-other-exercise": contract_problem("audit", {
+        "exercises": ["ex00", "ex01"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_output": _WAIT_TOY["ex00_output"],
+            "ex01_diff": {
+                "args": _WAIT_TOY["ex00_diff"]["args"],
+                "tags": ["diff", "ex01"] + LEVELS[1:],
+            },
+        },
+    }),
+    "audit-waiting-other-exercise-said": contract_problem("audit", {
+        "exercises": ["ex00", "ex01"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_output": _WAIT_TOY["ex00_output"],
+            "ex01_diff": {
+                "args": _WAIT_TOY["ex00_diff"]["args"],
+                "tags": ["diff", "ex01", "waits=ex00_output"] + LEVELS[1:],
+            },
+        },
+    }),
+    "audit-waiting-other-exercise-survive": contract_problem("audit", {
+        "exercises": ["ex00", "ex01"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_output": _WAIT_TOY["ex00_output"],
+            "ex01_none_output": {
+                "args": _WAIT_SURVIVE["args"],
+                "tags": ["output", "ex01"] + LEVELS,
+            },
+        },
+    }),
+    # Red before: BSQ's corpora gated on the program run with no map.
+    "audit-waiting-gate-no-input": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_diff": _WAIT_TOY["ex00_diff"],
+            "ex00_output": {
+                "args": _WAIT_TOY["ex00_output"]["args"] + ["--", "$(location tests/ex00/toy.map)"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+        },
+    }),
+    "audit-waiting-gate-input": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_diff": {
+                "args": _WAIT_TOY["ex00_diff"]["args"] + ["--gate-arg", "$(location tests/ex00/toy.map)"],
+                "tags": ["diff", "ex00"] + LEVELS[1:],
+            },
+            "ex00_output": {
+                "args": _WAIT_TOY["ex00_output"]["args"] + ["--", "$(location tests/ex00/toy.map)"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+        },
+    }),
+    # WHAT _waiting WRITES: each output test's list, its tests with their
+    # level. Two cases sharing an expected file each list their own memory
+    # arm (by `waits`), the survive case its gate's label; a manual test is
+    # left out of a list that is not manual. Red before: one list per
+    # (program, file), holding both arms, and no survive case.
+    "waiting-lists": contract_problem("waiting", {"tests": {
+        "ex00_a_output": _WAIT_OUT["ex00_a_output"],
+        "ex00_b_output": _WAIT_OUT["ex00_b_output"],
+        "ex00_a_valgrind": {
+            "args": _WAIT_TOY["ex00_diff"]["args"],
+            "tags": ["valgrind", "ex00", "waits=ex00_a_output"] + LEVELS[1:],
+        },
+        "ex00_b_valgrind": {
+            "args": _WAIT_TOY["ex00_diff"]["args"],
+            "tags": ["valgrind", "ex00", "waits=ex00_b_output"] + LEVELS[1:],
+        },
+        "ex00_b_manual_valgrind": {
+            "args": _WAIT_TOY["ex00_diff"]["args"],
+            "tags": ["valgrind", "ex00", "manual", "waits=ex00_b_output"] + LEVELS[1:],
+        },
+        "ex00_none_output": {
+            "args": ["--bin", "$(location :ex00_bin)", "--survive", "--gate-expected",
+                     "$(location tests/ex00/expected.txt)", "--gate-label", "ex00_a_output"],
+            "tags": ["output", "ex00"] + LEVELS,
+        },
+    }}),
+    # A HINT FILE NO TEST PRINTS: Reloaded ex24's and C 09 ex01's, both a
+    # Makefile alone, while c_make took no clue file. Handed to a runner
+    # by a test's args it is read, in this package's own path or by label;
+    # staged in a test's data alone, or by another file's name, it is not.
+    "audit-clues-unread": contract_problem("audit", {
+        "clues": ["tests/ex00/clues.tsv", "tests/ex00/clues_other.tsv"],
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_build": {
+            "args": ["--clues", "$(location tests/ex00/clues.tsv)", "--note", "tests/ex00/clues_other.tsv"],
+            "tags": ["output", "ex00"] + LEVELS,
+        }},
+    }),
+    "audit-clues-read": contract_problem("audit", {
+        "clues": ["tests/ex00/clues.tsv", "tests/ex00/clues_other.tsv"],
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_build": {
+                "args": ["--clues", "$(location tests/ex00/clues.tsv)"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+            "ex00_output": {
+                "args": ["--clues", "$(location //c-piscine/c-piscine-toy:tests/ex00/clues_other.tsv)"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+        },
+    }),
+    # ONE KEYED clues.tsv PER EXERCISE (ruling R7): where a test keys its
+    # hints to its case (--case), a hint file per case beside clues.tsv is
+    # refused, and so is a test that hands that clues.tsv to its runner with
+    # no case, which prints every row; an exercise whose tests key nothing
+    # by case (ex01, a function's table) keeps the files it has.
+    "audit-clues-per-case": contract_problem("audit", {
+        "clues": ["tests/ex00/clues.tsv", "tests/ex00/clues_args.tsv"],
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_a_output": {
+                "args": ["--clues", "$(location tests/ex00/clues.tsv)", "--case", "a", "--", "x"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+            "ex00_b_output": {
+                "args": ["--clues", "$(location tests/ex00/clues_args.tsv)", "--case", "b"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+        },
+    }),
+    "audit-clues-keyed-no-case": contract_problem("audit", {
+        "clues": ["tests/ex00/clues.tsv"],
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_a_output": {
+                "args": ["--clues", "$(location tests/ex00/clues.tsv)", "--case", "a"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+            "ex00_sweep": {
+                "args": ["--clues", "$(location //c-piscine/c-piscine-toy:tests/ex00/clues.tsv)"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+        },
+    }),
+    "audit-clues-keyed": contract_problem("audit", {
+        "clues": ["tests/ex00/clues.tsv", "tests/ex01/clues.tsv", "tests/ex01/clues_types.tsv"],
+        "exercises": ["ex00", "ex01"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_a_output": {
+                "args": ["--clues", "$(location tests/ex00/clues.tsv)", "--case", "a"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+            "ex00_sweep": {
+                "args": ["--clues", "$(location tests/ex00/clues.tsv)", "--case", "sweep"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+            "ex01_output": {
+                "args": ["--clues", "$(location tests/ex01/clues.tsv)"],
+                "tags": ["output", "ex01"] + LEVELS,
+            },
+            "ex01_types_output": {
+                "args": ["--clues", "$(location tests/ex01/clues_types.tsv)"],
+                "tags": ["output", "ex01"] + LEVELS,
+            },
+        },
+    }),
+    # The twin sits at strict by its suffix (_SUFFIX_LAYER), with no _RAISED
+    # entry, and never at basic.
+    "audit-layout-twin-strict": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_layout_prototype": ["prototype", "ex00"] + LEVELS[1:]},
+    }),
+    "audit-layout-twin-basic": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_layout_prototype": ["prototype", "ex00"] + LEVELS},
+    }),
+    "refused-program-content-only": " | ".join(_REFUSED_CONTENT_ONLY) or None,
+    "refused-program-stale-sentence": " | ".join(_REFUSED_STALE) or None,
+    "refused-program-model-nothing-to-answer": " | ".join(_REFUSED_MODEL) or None,
+    "refused-program-malloc-argument": " | ".join(_REFUSED_MALLOC) or None,
+    "refused-program-make-optional": " | ".join(_REFUSED_MAKE_OPTIONAL) or None,
+    "refused-program-make-unnamed": " | ".join(_REFUSED_MAKE_UNNAMED) or None,
+    "refused-program-makefile-unused": " | ".join(_REFUSED_NO_MAKEFILE) or None,
+    "refused-test-no-stderr-choice": " | ".join(_REFUSED_NO_CHOICE) or None,
+    "refused-test-split-stderr-reason": " | ".join(_REFUSED_SPLIT_REASON) or None,
+    # c_make's QUOTES: every check it is asked for quotes the sentence that
+    # requires it, under a key a check reads.
+    "make-ok": contract_problem("make", {
+        "graph": True,
+        "num": "08",
+        "quotes": {"cc": "T, p.1: \"cc\"", "objects": "o", "print": "p", "unnecessary": "u", "wildcards": "w"},
+        "recipe": "ordered",
+        "foreign_object": "srcs",
+        "not_checked": {"wildcards": "w"},
+    }),
+    "make-unknown-key": contract_problem("make", {"num": "08", "quotes": {"rules": "all, clean"}}),
+    "make-recipe-unquoted": contract_problem("make", {"num": "08", "quotes": {}, "recipe": "any"}),
+    "make-graph-unquoted": contract_problem("make", {"graph": True, "num": "08", "quotes": {"print": "p", "unnecessary": "u"}}),
+    "make-wildcards-unquoted": contract_problem("make", {"num": "08", "quotes": {"cc": "c"}, "wildcards": True}),
+    "make-relink-unquoted": contract_problem("make", {"num": "08", "quotes": {}, "relink": True}),
+    # The Norm's sentence is quoted like a subject's (NORM_NO_RELINK).
+    "make-relink-norm": contract_problem("make", {
+        "not_checked": {"recipe": "r", "wildcards": "w"},
+        "num": "08",
+        "quotes": {"relink": "The Toy Norm: \"never relink\""},
+        "relink": True,
+        "relink_source": "norm",
+    }),
+    "make-relink-norm-unquoted": contract_problem("make", {
+        "not_checked": {"recipe": "r", "wildcards": "w"},
+        "num": "08",
+        "quotes": {},
+        "relink": True,
+        "relink_source": "norm",
+    }),
+    "make-relink-source-unknown": contract_problem("make", {"num": "08", "quotes": {}, "relink": True, "relink_source": "peers"}),
+    "make-relink-source-alone": contract_problem("make", {"num": "08", "quotes": {}, "relink_source": "norm"}),
+    # c_function's allocfail and c_program's memory_rule: a check with its
+    # sentence, never one without, and never a sentence with no check.
+    "function-malloc-ok": contract_problem("function_malloc", {"malloc": True, "num": "25"}),
+    "function-malloc-off": contract_problem("function_malloc", {"malloc": False, "num": "25"}),
+    "function-malloc-free-off": contract_problem("function_malloc", {"malloc": False, "num": "26"}),
+    "function-malloc-no-line": contract_problem("function_malloc", {"malloc": False, "num": "00"}),
+    "function-malloc-helper": contract_problem("function_malloc", {"malloc": True, "num": "15"}),
+    "allocfail-ok": contract_problem("allocfail", {"allocfail": "af.c", "allocfail_rule": "T, p.1: \"NULL\"", "malloc": True, "num": "08"}),
+    "allocfail-unquoted": contract_problem("allocfail", {"allocfail": "af.c", "allocfail_rule": None, "malloc": True, "num": "08"}),
+    "allocfail-no-malloc": contract_problem("allocfail", {"allocfail": "af.c", "allocfail_rule": "c", "malloc": False, "num": "08"}),
+    "allocfail-sentence-alone": contract_problem("allocfail", {"allocfail": None, "allocfail_rule": "c", "malloc": True, "num": "08"}),
+    "allocfail-two-lines": contract_problem("allocfail", {"allocfail": "af.c", "allocfail_rule": "a\nb", "malloc": True, "num": "08"}),
+    "memory-rule-ok": contract_problem("memory_rule", {"cases": [{"name": "run"}], "malloc": True, "memory_rule": "T, p.1: \"free\"", "num": "08"}),
+    "memory-rule-no-malloc": contract_problem("memory_rule", {"cases": [{"name": "run"}], "malloc": False, "memory_rule": "m", "num": "08"}),
+    "memory-rule-no-cases": contract_problem("memory_rule", {"cases": None, "malloc": True, "memory_rule": "m", "num": "08"}),
+    "memory-rule-two-lines": contract_problem("memory_rule", {"cases": [{"name": "run"}], "malloc": True, "memory_rule": "a\nb", "num": "08"}),
+    "make-tab-in-sentence": contract_problem("make", {"num": "08", "quotes": {"cc": "a\tb"}}),
+    "make-strict-without-recipe": contract_problem("make", {"num": "08", "quotes": {}, "recipe_strict": True}),
+    "make-script-wildcards": contract_problem("make", {"num": "08", "quotes": {"wildcards": "w"}, "script": "x.sh", "wildcards": True}),
+    "make-foreign-outside": contract_problem("make", {"foreign_object": "../srcs", "num": "08", "quotes": {"wildcards": "w"}}),
+    # The checks that are off unless asked for are decided at the call site:
+    # on, or off with a reason. A creator script decides only its recipe.
+    "make-recipe-undecided": contract_problem("make", {"num": "08", "quotes": {"wildcards": "w"}, "wildcards": True}),
+    "make-wildcards-undecided": contract_problem("make", {"num": "08", "quotes": {"cc": "c"}, "recipe": "any"}),
+    "make-script-decides-recipe": contract_problem("make", {"num": "08", "quotes": {"cc": "c"}, "recipe": "any", "script": "x.sh"}),
+    "make-not-checked-and-on": contract_problem("make", {
+        "not_checked": {"wildcards": "why"},
+        "num": "08",
+        "quotes": {"cc": "c", "wildcards": "w"},
+        "recipe": "any",
+        "wildcards": True,
+    }),
+    "make-not-checked-unknown": contract_problem("make", {"not_checked": {"graph": "g"}, "num": "08", "quotes": {}}),
+    "make-not-checked-no-reason": contract_problem("make", {"not_checked": {"recipe": " ", "wildcards": "w"}, "num": "08", "quotes": {}}),
+    # c_make builds from a file the contract REQUIRES (finding 124): its
+    # Makefile, or its creator script; never one it only allows, one the
+    # grader brings, or one it does not name.
+    "make-anchor-ok": contract_problem("make_anchor", {"anchor": "Makefile", "num": "08"}),
+    "make-anchor-script-ok": contract_problem("make_anchor", {"anchor": "toy.sh", "num": "09"}),
+    "make-anchor-unnamed": contract_problem("make_anchor", {"anchor": "Makefile", "num": "12"}),
+    "make-anchor-optional": contract_problem("make_anchor", {"anchor": "Makefile", "num": "22"}),
+    "make-anchor-provided": contract_problem("make_anchor", {"anchor": "srcs/toy.c", "num": "14"}),
+    "make-anchor-program-ok": contract_problem("make_anchor", {"anchor": "Makefile", "macro": "c_program", "num": "19"}),
+    "make-anchor-program-provided": contract_problem("make_anchor", {"anchor": "srcs/toy.c", "macro": "c_program", "num": "14"}),
+    "audit-makefile-without-build": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "makefiles": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_output": ["output", "ex00"] + LEVELS},
+    }),
+    "audit-makefile-with-build": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "makefiles": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_build": ["output", "ex00"] + LEVELS,
+            "ex00_output": ["output", "ex00"] + LEVELS,
+        },
+    }),
+    # c_libft's `make`: every argument c_make takes but its own four.
+    "libft-make-ok": contract_problem("libft_make", {"make": {"quotes": {"wildcards": "w"}, "rules": [], "wildcards": True}}),
+    "libft-make-own": contract_problem("libft_make", {"make": {"script": "x.sh"}}),
+    "libft-make-unknown": contract_problem("libft_make", {"make": {"recipes": "any"}}),
+    # A TEST HANDING A STUDENT'S PROGRAM to a runner that cannot read a
+    # stand-in (_test()'s check), in every spelling of a label of this
+    # package -- by name, so a binary declared further down the file, or not
+    # at all, is caught like one declared above -- and neither another
+    # package's program nor another repository's file that ends in "bin".
+    "standin-runner-colon": contract_problem("standin_runner", {
+        "data": [":ex09_bin"],
+        "name": "ex09_output",
+        "runner": "//tools:toy_runner.sh",
+    }),
+    "standin-runner-bare": contract_problem("standin_runner", {
+        "data": ["ex09_bin_asan"],
+        "name": "ex09_output",
+        "runner": "//tools:toy_runner.sh",
+    }),
+    "standin-runner-full-label": contract_problem("standin_runner", {
+        "data": ["//tools/tests/macro_fixtures:ex09_memprobe"],
+        "name": "ex09_output",
+        "runner": "//tools:toy_runner.sh",
+    }),
+    "standin-runner-main-repo": contract_problem("standin_runner", {
+        "data": ["@//tools/tests/macro_fixtures:ex09_bin"],
+        "name": "ex09_output",
+        "runner": "//tools:toy_runner.sh",
+    }),
+    "standin-runner-ok": contract_problem("standin_runner", {
+        "data": [":ex09_bin"],
+        "name": "ex09_output",
+        "runner": "//tools:diff_output.sh",
+    }),
+    "standin-runner-not-ours": contract_problem("standin_runner", {
+        "data": [
+            "//c-piscine/c-piscine-toy:ex00_bin",
+            "@valgrind_ubuntu//:usr/bin/valgrind.bin",
+            "tests/ex09/bin",
+        ],
+        "name": "ex09_output",
+        "runner": "//tools:toy_runner.sh",
+    }),
+    # A bare entry is a target or a FILE of the package, and a data file at
+    # the package's root whose name ends in "bin" is not a program: a
+    # student_binary's name holds a "_" and no ".".
+    "standin-runner-bare-file": contract_problem("standin_runner", {
+        "data": [
+            "expected.bin",
+            "cabin",
+            ":dump.bin",
+        ],
+        "name": "ex09_output",
+        "runner": "//tools:toy_runner.sh",
+    }),
+    "audit-empty-manual-tag": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_output": ["output", "ex00", "no_manual_test_in_this_module"] + LEVELS},
+    }),
+    "audit-two-layers": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_output": ["output", "norm", "ex00"] + LEVELS},
+    }),
+    "audit-below-its-suffix": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_exit": ["output", "ex00"] + LEVELS},
+    }),
+    "audit-raise-other-level": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "tools/tests/macro_fixtures/levels",
+        "tests": {"ex00_raised_output": ["output", "ex00"] + LEVELS[2:]},
+    }),
+    "audit-raise-not-raised": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "tools/tests/macro_fixtures/levels",
+        "tests": {"ex00_raised_output": ["output", "ex00"] + LEVELS},
+    }),
+    "audit-manual-in-fixtures": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "tools/tests/macro_fixtures",
+        "tests": {"ex00_output": ["output", "ex00", "manual"] + LEVELS},
+    }),
+    "audit-exercise-without-test": contract_problem("audit", {
+        "exercises": ["ex00", "ex01"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_output": ["output", "ex00"] + LEVELS},
+    }),
+    # An output fixture over a student's function names the test of its
+    # signature, or says why there is none (finding 142).
+    "audit-fixture-prototype-declared": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "fixtures": {"ex00_bin": "ex00_prototype", "ex00_other_bin": "none"},
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_output": ["output", "ex00"] + LEVELS,
+            "ex00_prototype": ["prototype", "ex00"] + LEVELS,
+        },
+    }),
+    "audit-fixture-prototype-missing": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "fixtures": {"ex00_bin": "ex00_prototype"},
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_output": ["output", "ex00"] + LEVELS},
+    }),
+    # A harness with no tag at all: a student_binary declared some way other
+    # than _student_bin, which the audit reads from the rule itself.
+    "audit-harness-untagged": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "fixtures": {"ex00_diffbin": None},
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_output": ["output", "ex00"] + LEVELS,
+            "ex00_prototype": ["prototype", "ex00"] + LEVELS,
+        },
+    }),
+    # THE SAME AUDIT FED RULES, as existing_rules() gives them, so what it
+    # READS from a rule -- a harness's tag, an oracle fixture test's
+    # arguments, a case's files -- is proven along with the rule. A case
+    # reading a file in a directory a test holds to //oracle is matched
+    # against that test's --owns patterns as the shell globs them: '*' does
+    # not cross a '/' (audit-rules-oracle-subdir), and a file outside the
+    # directory is not the test's business (the ex01 one below).
+    "audit-rules-oracle-owned": contract_problem("audit_rules", {
+        "exercises": ["ex00", "ex01"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": {
+            "ex00_oracle_fixtures": _ORACLE_OWNER,
+            "ex00_run_output": {
+                "kind": "sh_test",
+                "tags": ["output", "ex00", "case_reads=tests/ex00/a.txt,tests/ex00/fixtures/m.map"] + LEVELS,
+            },
+            "ex01_output": {
+                "kind": "sh_test",
+                "tags": ["output", "ex01", "case_reads=tests/ex01/hand.out"] + LEVELS,
+            },
+        },
+    }),
+    "audit-rules-oracle-unowned": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": {
+            "ex00_oracle_fixtures": _ORACLE_OWNER,
+            "ex00_run_output": {
+                "kind": "sh_test",
+                "tags": ["output", "ex00", "case_reads=tests/ex00/a.txt,tests/ex00/fixtures/m.in"] + LEVELS,
+            },
+        },
+    }),
+    "audit-rules-oracle-subdir": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": {
+            "ex00_oracle_fixtures": _ORACLE_OWNER,
+            "ex00_run_output": {
+                "kind": "sh_test",
+                "tags": ["output", "ex00", "case_reads=tests/ex00/fixtures/b.txt"] + LEVELS,
+            },
+        },
+    }),
+    "audit-rules-oracle-unreadable": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": {
+            "ex00_oracle_fixtures": {
+                "args": ["--fn", "toy_fixtures", "--in-dir-of", "tests/ex00/a.txt", "--owns", "*.txt"],
+                "kind": "sh_test",
+                "srcs": ["//tools:oracle_fixtures.sh"],
+                "tags": ["oracle", "ex00"] + LEVELS[3:],
+            },
+        },
+    }),
+    "audit-rules-harness-untagged": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": {
+            "ex00_diffbin": {"harness": ["tests/ex00/diff_toy.c"], "kind": "student_binary", "tags": []},
+            "ex00_output": {"kind": "sh_test", "tags": ["output", "ex00"] + LEVELS},
+        },
+    }),
+    # NO MEMCHECK LAYER RUNS A PROGRAM LINKING //tools:diffio, whose malloc
+    # fills every block (tools/dirty_malloc.c): memcheck reads a filled byte
+    # as written, so an uninitialised read would go unseen. Read from the
+    # binary's deps as existing_rules() gives them; the exercise's own _bin
+    # passes. A gate's program (--gate-bin) runs plain and is not read: Rush
+    # 00's valgrind arms gate on their diffio-linked output fixture and run
+    # memcheck on a _vgbin, so that package loads only while the rule reads
+    # --bin alone.
+    "audit-rules-memcheck-diffio": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": {
+            "ex00_diffbin": {"deps": [":toy", "//tools:diffio"], "harness": ["tests/ex00/diff_toy.c"], "kind": "student_binary", "tags": ["prototype_test=none"]},
+            "ex00_output": {"kind": "sh_test", "tags": ["output", "ex00"] + LEVELS},
+            "ex00_valgrind": {"args": ["--bin", "$(location :ex00_diffbin)", "--label", "ex00"], "kind": "sh_test", "srcs": ["//tools:valgrind_test.sh"], "tags": ["valgrind", "ex00"] + LEVELS[1:]},
+        },
+    }),
+    "audit-rules-memcheck-plain": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": {
+            "ex00_bin": {"deps": [":toy"], "harness": ["tests/ex00/test_toy.c"], "kind": "student_binary", "tags": ["prototype_test=none"]},
+            "ex00_diffbin": {"deps": [":toy", "//tools:diffio"], "harness": ["tests/ex00/diff_toy.c"], "kind": "student_binary", "tags": ["prototype_test=none"]},
+            "ex00_output": {"kind": "sh_test", "tags": ["output", "ex00"] + LEVELS},
+            "ex00_valgrind": {"args": ["--bin", "$(location :ex00_bin)", "--label", "ex00"], "kind": "sh_test", "srcs": ["//tools:valgrind_test.sh"], "tags": ["valgrind", "ex00"] + LEVELS[1:]},
+        },
+    }),
+    # _student_bin's `prototype`: required with a harness, refused without.
+    "harness-prototype-none-with-reason": contract_problem("harness_prototype", {
+        "harness": ["tests/ex00/test_toy.c"],
+        "name": "ex00_bin",
+        "prototype": "none: the subject fixes no prototype",
+    }),
+    "harness-prototype-none-without-reason": contract_problem("harness_prototype", {
+        "harness": ["tests/ex00/test_toy.c"],
+        "name": "ex00_bin",
+        "prototype": "none: ",
+    }),
+    "harness-prototype-not-a-test": contract_problem("harness_prototype", {
+        "harness": ["tests/ex00/test_toy.c"],
+        "name": "ex00_bin",
+        "prototype": "ex00_output",
+    }),
+    "harness-prototype-missing": contract_problem("harness_prototype", {
+        "harness": ["tests/ex00/diff_toy.c"],
+        "name": "ex00_diffbin",
+    }),
+    "harness-prototype-own-program": contract_problem("harness_prototype", {
+        "name": "ex06_bin",
+    }),
+    "harness-prototype-without-harness": contract_problem("harness_prototype", {
+        "name": "ex06_bin",
+        "prototype": "ex06_prototype",
+    }),
+    # A test's own `env` may say anything but who grades it: that is the
+    # contract's, handed to every test by _test() (" by:" in layers.expected).
+    "test-env-grader-by-hand": contract_problem("test_env", {
+        "env": {"RL_GRADER": "moulinette"},
+        "name": "ex00_output",
+    }),
+    # ...nor why it sits above its layer: that is _RAISED's (" raised:").
+    "test-env-raised-by-hand": contract_problem("test_env", {
+        "env": {"RL_RAISED": "strict"},
+        "name": "ex00_output",
+    }),
+    "test-env-other": contract_problem("test_env", {
+        "env": {"SELFTEST_SH": "bash"},
+        "name": "selftest",
+    }),
+    # A CORPUS REPLAYED ON THE PLAIN BUILD ONLY (finding 113): a corpus
+    # runner's replay needs its ASan twin, and its memcheck twin where the
+    # contract allows malloc -- the two corpus_memory() emits.
+    "audit-corpus-ok": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "malloc": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_sweep": _CORPUS_SWEEP,
+            "ex00_sweep_diff_asan": _CORPUS_ASAN,
+            "ex00_sweep_valgrind": _CORPUS_MEMCHECK,
+        },
+    }),
+    # A CORPUS UNDER MEMCHECK QUOTES THE RULE ITS EXERCISE'S ARMS QUOTE
+    # (V82): the fixed case's valgrind arm passes the subject's sentence,
+    # and a sample of the corpus that passes none would call this harness's
+    # rule not the subject's.
+    "audit-corpus-memory-rule-missing": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "malloc": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_run_valgrind": _RULE_ARM,
+            "ex00_sweep": _CORPUS_SWEEP,
+            "ex00_sweep_diff_asan": _CORPUS_ASAN,
+            "ex00_sweep_valgrind": _CORPUS_MEMCHECK,
+        },
+    }),
+    "audit-corpus-memory-rule-quoted": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "malloc": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_run_valgrind": _RULE_ARM,
+            "ex00_sweep": _CORPUS_SWEEP,
+            "ex00_sweep_diff_asan": _CORPUS_ASAN,
+            "ex00_sweep_valgrind": dict(_CORPUS_MEMCHECK, args = _CORPUS_MEMCHECK["args"] + _RULE),
+        },
+    }),
+    "audit-corpus-no-malloc": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_sweep": _CORPUS_SWEEP, "ex00_sweep_diff_asan": _CORPUS_ASAN},
+    }),
+    "audit-corpus-no-asan": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_sweep": _CORPUS_SWEEP},
+    }),
+    "audit-corpus-no-memcheck": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "malloc": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {"ex00_sweep": _CORPUS_SWEEP, "ex00_sweep_diff_asan": _CORPUS_ASAN},
+    }),
+    # AN ARGUMENT CORPUS UNDER ASan RUNS THE GUARDED BUILD (finding 071):
+    # where c_argv_table built one, :exNN_argvguard_bin_asan, the twin of an
+    # argv_check.sh replay runs it and says so (--guarded-argv); on the plain
+    # ASan build a read past an argument's end is not seen.
+    "audit-argv-guarded": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "fixtures": {"ex00_bin_asan": "none", "ex00_argvguard_bin_asan": "none"},
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_argv_diff": dict(_ARGV_PLAIN),
+            "ex00_argv_diff_asan": dict(_ARGV_PLAIN, args = ["--bin", "$(location :ex00_argvguard_bin_asan)", "--fn", "toy_args", "--sanitized", "--guarded-argv"], tags = ["diff_asan", "ex00"] + LEVELS[2:]),
+        },
+    }),
+    "audit-argv-unguarded": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "fixtures": {"ex00_bin_asan": "none", "ex00_argvguard_bin_asan": "none"},
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_argv_diff": dict(_ARGV_PLAIN),
+            "ex00_argv_diff_asan": dict(_ARGV_PLAIN, args = ["--bin", "$(location :ex00_bin_asan)", "--fn", "toy_args", "--sanitized"], tags = ["diff_asan", "ex00"] + LEVELS[2:]),
+        },
+    }),
+    "audit-corpus-asan-on-plain": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_sweep": _CORPUS_SWEEP,
+            "ex00_sweep_diff_asan": dict(_CORPUS_ASAN, args = ["--bin", "$(location :ex00_bin)", "--sanitized"]),
+        },
+    }),
+    # EACH CORPUS, NOT EACH RUNNER: two plain replays through one runner that
+    # differ in their transport, and twins of only one, are red -- one twin
+    # used to stand in for every corpus its runner replayed (BSQ's stdin maps).
+    "audit-corpus-two-transports": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_bsq_diff": dict(_CORPUS_PLAIN, args = _CORPUS_PLAIN["args"][:2] + ["--fn", "maps"] + _CORPUS_PLAIN["args"][2:]),
+            "ex00_bsq_stdin": dict(_CORPUS_PLAIN, args = _CORPUS_PLAIN["args"][:2] + ["--fn", "maps", "--mode", "stdin"] + _CORPUS_PLAIN["args"][2:]),
+            "ex00_bsq_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"][:2] + ["--fn", "maps"] + _CORPUS_ASAN["args"][2:]),
+        },
+    }),
+    # ...and green with a twin of each.
+    "audit-corpus-each-twinned": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_bsq_diff": dict(_CORPUS_PLAIN, args = _CORPUS_PLAIN["args"][:2] + ["--fn", "maps"] + _CORPUS_PLAIN["args"][2:]),
+            "ex00_bsq_stdin": dict(_CORPUS_PLAIN, args = _CORPUS_PLAIN["args"][:2] + ["--fn", "maps", "--mode", "stdin"] + _CORPUS_PLAIN["args"][2:]),
+            "ex00_bsq_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"][:2] + ["--fn", "maps"] + _CORPUS_ASAN["args"][2:]),
+            "ex00_bsq_stdin_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"][:2] + ["--fn", "maps", "--mode", "stdin"] + _CORPUS_ASAN["args"][2:]),
+        },
+    }),
+    # The options that judge or show a case, gate the replay or pick the
+    # program (tools/defs.bzl, _CORPUS_RUN_OPTS) choose no corpus: a twin
+    # without them replays the same one.
+    "audit-corpus-judging-options": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_argv_diff": dict(_CORPUS_PLAIN, args = _CORPUS_PLAIN["args"][:2] + [
+                "--fn",
+                "params",
+                "--expect-reordering",
+                "--show",
+                "3",
+                "--timeout",
+                "9",
+                "--gate-bin",
+                "$(location :ex00_bin)",
+            ] + _CORPUS_PLAIN["args"][2:]),
+            "ex00_argv_sweep": dict(_CORPUS_SWEEP, args = _CORPUS_PLAIN["args"][:2] + ["--fn", "params", "--exit-only"] + _CORPUS_PLAIN["args"][2:]),
+            "ex00_argv_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"][:2] + ["--fn", "params"] + _CORPUS_ASAN["args"][2:]),
+            # What the gate above waits for, which every package has.
+            "ex00_output": _WAIT_OUT["ex00_output"],
+        },
+    }),
+    # A twin that replays LESS on purpose names what it stands in for, and
+    # corpus_memory() asks why: its `covers` reaches the audit as a tag.
+    "audit-corpus-covers": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_sweep": dict(_CORPUS_SWEEP, args = _CORPUS_PLAIN["args"][:2] + ["--oracle-fn", "a", "--oracle-fn", "b"] + _CORPUS_PLAIN["args"][2:]),
+            "ex00_sweep_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"][:2] + ["--oracle-fn", "a"] + _CORPUS_ASAN["args"][2:], tags = _CORPUS_ASAN["tags"] + ["corpus_covers=ex00_sweep"]),
+        },
+    }),
+    "audit-corpus-covers-nothing": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_sweep": _CORPUS_SWEEP,
+            "ex00_sweep_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"][:2] + [] + _CORPUS_ASAN["args"][2:], tags = _CORPUS_ASAN["tags"] + ["corpus_covers=ex00_swept"]),
+        },
+    }),
+    "audit-corpus-covers-twinned": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_sweep": _CORPUS_SWEEP,
+            "ex00_sweep_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"][:2] + [] + _CORPUS_ASAN["args"][2:], tags = _CORPUS_ASAN["tags"] + ["corpus_covers=ex00_sweep"]),
+        },
+    }),
+    # A memcheck twin left out says why (corpus_memory()'s no_valgrind, a tag
+    # of its ASan twin), and only for its own corpus.
+    "audit-corpus-no-valgrind": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "malloc": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_big_sweep": dict(_CORPUS_SWEEP, args = _CORPUS_PLAIN["args"][:2] + ["--fn", "big"] + _CORPUS_PLAIN["args"][2:]),
+            "ex00_big_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"][:2] + ["--fn", "big"] + _CORPUS_ASAN["args"][2:], tags = _CORPUS_ASAN["tags"] + ["corpus_no_valgrind"]),
+            "ex00_bsq_diff": dict(_CORPUS_PLAIN, args = _CORPUS_PLAIN["args"][:2] + ["--fn", "maps"] + _CORPUS_PLAIN["args"][2:]),
+            "ex00_bsq_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"][:2] + ["--fn", "maps"] + _CORPUS_ASAN["args"][2:]),
+        },
+    }),
+    # A CORPUS GATE IS ONE OF THE PACKAGE'S OWN OUTPUT TESTS (_gate_problems).
+    # BSQ's gate ran the program with no argument while the example's output
+    # test hands it the map, so every corpus SKIPped on every correct program.
+    "audit-gate-no-argument": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_example_output": _GATE_EXAMPLE,
+            "ex00_sweep": dict(_CORPUS_SWEEP, args = _CORPUS_PLAIN["args"] + _GATE),
+            "ex00_sweep_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"] + _GATE),
+        },
+    }),
+    # ...green with the example's own argument,
+    "audit-gate-case-run": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_example_output": _GATE_EXAMPLE,
+            "ex00_sweep": dict(_CORPUS_SWEEP, args = _CORPUS_PLAIN["args"] + _GATE + ["--gate-arg", "$(location tests/ex00/example.map)"]),
+            "ex00_sweep_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"] + _GATE + ["--gate-arg", "$(location tests/ex00/example.map)"]),
+        },
+    }),
+    # A GATE THAT REPLAYS ITS CASE IS THAT CASE'S OUTPUT TEST
+    # (_case_gate_problems). Rush 02's allocfail sweep forwarded standard
+    # input alone, and its case runs the program beside numbers.dict: the
+    # gate ran it from a folder with no dictionary, red on every correct
+    # program, so the sweep SKIPped. Red without the run folder,
+    "audit-case-gate-no-folder": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_beside_output": _CASE_OUTPUT,
+            "ex00_program_allocfail": dict(_CASE_SWEEP, args = _CASE_SWEEP["args"] + ["--", "42"]),
+        },
+    }),
+    # ...green with it, which the runner hands its gate,
+    "audit-case-gate-folder": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_beside_output": _CASE_OUTPUT,
+            "ex00_program_allocfail": dict(_CASE_SWEEP, args = _CASE_SWEEP["args"] + _CASE_FOLDER + ["--", "42"]),
+        },
+    }),
+    # ...and red where the gate is fed no standard input and the case is
+    # (the valgrind arm's old shape: --stdin for its run, no --gate-stdin).
+    "audit-case-gate-stdin": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_beside_output": dict(_CASE_OUTPUT, args = _CASE_OUTPUT["args"][:8] + ["--stdin", "$(location tests/ex00/in.txt)", "--", "42"]),
+            "ex00_beside_valgrind": {
+                "args": ["--bin", "$(location :ex00_bin)"] + _CASE_SWEEP["args"][2:] + ["--stdin", "$(location tests/ex00/in.txt)", "--", "42"],
+                "srcs": ["//tools:valgrind_test.sh"],
+                "tags": ["valgrind", "ex00"] + LEVELS[1:],
+            },
+        },
+    }),
+    # ...and red where the only test that matches its file feeds the map on
+    # standard input, which a gate never does.
+    "audit-gate-stdin-case": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_example_output": dict(_GATE_EXAMPLE, args = _GATE_EXAMPLE["args"][:4] + ["--waiting", "$(location :waiting_ex00_example_output)", "--stdin", "$(location tests/ex00/example.map)", "--"]),
+            "ex00_sweep": dict(_CORPUS_SWEEP, args = _CORPUS_PLAIN["args"] + _GATE),
+            "ex00_sweep_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"] + _GATE),
+        },
+    }),
+}
+
+names_file(
+    name = "contract_problems",
+    names = ["%s: %s" % (k, _PROBLEMS[k] or "OK") for k in sorted(_PROBLEMS)],
+)
+
+exports_files(["contract_problems.expected"])
+
+# EACH EXERCISE'S TURN-IN FOLDER, as the macros compute it (turnin_dir): one
+# line per exercise, "exNN FOLDER". tools/first_red.sh runs outside Bazel, on
+# a log, and reads the same subject() as it is written in this file;
+# //tools/tests:macro_fixtures_test holds its reading to these lines, for the
+# entries written on one line and the one written over several (ex14).
+names_file(
+    name = "turnin_dirs",
+    names = ["ex%s %s" % (n, turnin_dir(n)) for n in [
+        "00",
+        "01",
+        "02",
+        "03",
+        "04",
+        "05",
+        "06",
+        "07",
+        "08",
+        "09",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+    ]],
+)
+
+# WHAT THE MACROS EMITTED, as data: one line per test, "name runner", with
+# " gated" after a NOT TURNED IN test that SKIPs unless NO_SKIP=1, " staged"
+# after a compile layer handed a header in a subfolder of the turn-in to
+# stage and keep OFF its include path (--staged-hdr: the grader's path has no
+# such folder on it), " make-includes" after one that compiles with the
+# -I its Makefile passes (--inc-file), " built" after a files layer that
+# reads which .c files the Makefile compiles (--built), " grader-lib" after
+# one handed a library the grader links (--lib32, --lib: the contract's
+# `linked`),
+# " provided" after one told what the grader brings (--provided: a function,
+# to the forbidden and symbols layers, from `linked` or `provided`; a file,
+# to the files layer), " layout" after one handed the subject's structure
+# (--layout, tests/layout/<h>), " layout-tag" after one handed its names
+# (--layout-tag, tests/layout/tag/<h>), " strict" after an output or
+# prototype test at strict and not basic (a c_function reading, a
+# structure's exNN_layout_prototype twin), and last " by:" and the RL_GRADER
+# its environment holds -- the contract's `grader`, which tools/defs.bzl's
+# _test() hands every test and every runner words its costs from ("at the
+# Moulinette", "at the defense"). A test without it would say "wherever this
+# project is graded" while staying green, so the listing is where its absence
+# goes red: this toy is graded by the Moulinette, ./root by both and ./levels
+# at a defense. After it, on a named case's output test, " reads:" and the
+# files its case_reads tag lists, which c_levels()' audit holds to a test that
+# keeps a directory's files to //oracle: a tag that stopped being written
+# would leave that audit nothing to check, and is red here instead. Read by
+# //tools/tests:macro_fixtures_test against layers.expected beside this file, so a
+# layer that stops being "not turned in" where nothing was turned in -- or
+# starts being one where the files are there -- is a red test, not something
+# a person has to notice in a status list. Built last, so every test above is
+# in existing_rules().
+names_file(
+    name = "layers",
+    names = sorted([
+        "%s %s%s%s%s%s%s%s%s%s%s%s by:%s%s" % (
+            r["name"],
+            r["srcs"][0].split(":")[-1],
+            # The programs a files layer fails a file named after (c_files'
+            # --program: c_program's name, c_make's artifact).
+            "".join([" program:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--program"]),
+            " gated" if "--gated" in r["args"] else "",
+            " staged" if "--staged-hdr" in r["args"] else "",
+            " make-includes" if "--inc-file" in r["args"] else "",
+            " built" if "--built" in r["args"] else "",
+            " grader-lib" if "--lib32" in r["args"] or "--lib" in r["args"] else "",
+            " provided" if "--provided" in r["args"] else "",
+            " layout" if "--layout" in r["args"] else "",
+            " layout-tag" if "--layout-tag" in r["args"] else "",
+            " strict" if (r["srcs"][0].endswith(("diff_output.sh", "prototype_check.sh")) and
+                          "lvl_strict" in r["tags"] and "lvl_basic" not in r["tags"]) else "",
+            (r["env"] or {}).get("RL_GRADER", "none"),
+            "".join([" reads:" + t[len("case_reads="):] for t in (r["tags"] or []) if t.startswith("case_reads=")]),
+        )
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+    ]),
+)
+
+exports_files(["layers.expected"])
+
+# EVERY PROGRAM BUILT FROM A STUDENT'S FILES, and what it says about the
+# signatures it calls: one line per student_binary, "name" and then
+# "prototype_test=<test>" (or "=none") from its tag where it links a harness,
+# "UNTAGGED" where it links one and has no tag, and "own program" where it
+# links none. _student_bin writes the tag and c_levels()' audit reads it, and
+# the audit's own arms above are fed dicts by hand; this is where a tag that
+# stopped being written -- on an output fixture, a memory probe or any other
+# harness -- goes red. Read by //tools/tests:macro_fixtures_test against
+# harnesses.expected. Built last, with :layers.
+#
+# A guarded-argv build (c_argv_table) adds " builds as exNN_bin_asan" where
+# it compiles what that program compiles -- its sources, headers, Makefile
+# and the tree staged beside it -- and " BUILDS OTHER FILES" where it does
+# not: it read the Makefile's tree from a glob of its own once, which could
+# come to differ from the graded program's (review of W5-H).
+names_file(
+    name = "harnesses",
+    names = sorted([
+        "%s %s%s" % (
+            r["name"],
+            ([t for t in (r["tags"] or []) if t.startswith("prototype_test=")] or ["UNTAGGED"])[0] if r["harness"] else "own program",
+            "" if not r["name"].endswith("_argvguard_bin_asan") else (
+                " builds as " + r["name"].replace("_argvguard", "") if all([
+                    (existing_rules().get(r["name"].replace("_argvguard", "")) or {}).get(a) == r.get(a)
+                    for a in ["srcs", "hdrs", "makefile", "make_data", "missing_makefile"]
+                ]) else " BUILDS OTHER FILES"
+            ),
+        )
+        for r in existing_rules().values()
+        if r["kind"] == "student_binary"
+    ]),
+)
+
+exports_files(["harnesses.expected"])
+
+# WHO READS A FILE THE CONTRACT DOES NOT NAME: one line per rule of this
+# package, and per attribute of it, that mentions ex04's stray main.c or
+# toy_extra.c -- a source, a header, a data file, an argument. None may: every
+# layer compiles the contract's file set (tools/defs.bzl's _turnin_files),
+# and ex04_files reports the two by name from a list of NAMES, which carries
+# no label (names_file). Before, the norm, compile, forbidden, prototype,
+# symbols, ilp32 and memory-probe layers all globbed the folder. Checked by
+# //tools/tests:macro_fixtures_test (--lines, none). Built last, with :layers.
+# The two files by their path, built from the contract's folder: a literal
+# turn-in path in this file is //tools:conventions' to refuse, and
+# turnin_file() refuses these two by design -- the contract does not let
+# ex04 hold them.
+_EX04_STRAYS = [turnin_dir("04") + "/" + n for n in ["main.c", "toy_extra.c"]]
+
+names_file(
+    name = "stray_reads",
+    names = sorted([
+        "%s %s" % (r["name"], a)
+        for r in existing_rules().values()
+        for a in sorted(r.keys())
+        if a not in ["name", "generator_name", "generator_function", "generator_location"] and
+           [f for f in _EX04_STRAYS if f in str(r[a])]
+    ]),
+)
+
+# EVERY BUILD OF A MAKEFILE FOR ITS .c LIST ALONE, by name: only where no
+# program's build writes the list (ex20), never beside one that does (ex19).
+# Checked by //tools/tests:macro_fixtures_test (--lines).
+names_file(
+    name = "make_bins",
+    names = sorted([n for n in existing_rules() if n.endswith("_make_bin")]),
+)
+
+# WHERE shell_exercise's tags and run_tags LAND, on the toy ex09: one line per
+# test, "name tag...", the fixture's own manual left out. Read by
+# //tools/tests:macro_fixtures_test.
+names_file(
+    name = "shell_tags",
+    names = sorted([
+        " ".join([r["name"]] + sorted([t for t in r["tags"] if t in ["env", "external", "no-sandbox"]]))
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test" and r["name"].startswith("ex09_")
+    ]),
+)
+
+# WHERE shell_exercise's redirect LANDS, on the toy ex23: one line per test,
+# "name" and then the --redirect and --redirect-lib arguments it was given,
+# if any. Read by //tools/tests:macro_fixtures_test.
+names_file(
+    name = "redirect_args",
+    names = sorted([
+        " ".join([r["name"]] + [
+            w
+            for i, a in enumerate(r["args"])
+            if a in ("--redirect", "--redirect-lib") and i + 1 < len(r["args"])
+            for w in (a, r["args"][i + 1])
+        ])
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test" and r["name"].startswith("ex23_")
+    ]),
+)
+
+# HOW EACH GUARDED-ARGV PROGRAM IS BUILT: one line per one, "name" and
+# "makefile", "missing-makefile" or "srcs", with "+srcs" after a Makefile
+# when the sources a stub Makefile leaves to be built are there too
+# (makefile = "once_written"). Read by //tools/tests:macro_fixtures_test.
+names_file(
+    name = "argvguard_builds",
+    names = sorted([
+        "%s %s%s" % (
+            r["name"],
+            "makefile" if r.get("makefile") else ("missing-makefile" if r.get("missing_makefile") else "srcs"),
+            "+srcs" if (r.get("makefile") or r.get("missing_makefile")) and r.get("srcs") else "",
+        )
+        for r in existing_rules().values()
+        if r["name"].endswith("_argvguard_bin_asan")
+    ]),
+)
+
+# This file, for //tools/tests:conventions: a package with a turn-in, so its
+# BUILD file is held to the same rules as a module's.
+filegroup(
+    name = "conventions_srcs",
+    srcs = ["BUILD.bazel"] + glob([
+        "grader/*.rs",
+        # The toys' C, for the checks that read every C file of the harness:
+        # a function a contract turns in, or the grader brings, is never
+        # written outside the zone.
+        "tests/**/*.c",
+        "tests/**/*.h",
+    ]),
+)

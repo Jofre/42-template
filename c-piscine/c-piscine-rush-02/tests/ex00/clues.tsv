@@ -1,0 +1,40 @@
+# clues.tsv for rush-02 — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><case name>...; a row fires on the cases it names, a row naming
+# "valgrind" on their memory arms (valgrind_test.sh), a row naming nothing on every failure.
+# Each case is a test of its own, so its rows are keyed to its c_program case name in
+# BUILD.bazel; the rows keyed to nothing come last, since three rows show at a time.
+#
+# The rule these must respect (AGENTS.md §0): a clue points at what the SUBJECT says, or asks
+# a question the student answers by reading their own output. It never describes an algorithm,
+# never names a data structure, and never quotes an expected string. Where the subject leaves
+# a case open, a basic case's row says which answers it accepts and which sentence is open,
+# and never names a reading; only a strict case's own row states the one it tests, as this
+# harness's reading, never the subject's (AGENTS.md §2), so the two never share a row.
+Is everything your program allocates freed before it exits, on the error paths too? The output cannot tell you, and the evaluation checks it: what does valgrind say?	valgrind
+With one argument, which file is the dictionary? The subject's own example greps numbers.dict in the folder it runs ./rush-02 from: which path does your program open, and from which folder is that path read?	one_arg_42	one_arg_zero	one_arg_error	one_arg_hundred_thousand	one_arg_custom
+How many arguments is this run given? The subject defines exactly two shapes, one argument and two: which one is this, and which of them names a dictionary?	dict_arg_42	dict_arg_zero	dict_arg_hundred_thousand
+The subject defines one argument and two, and asks you to handle errors coherently: print an error message, or return control to the user. What does your program do with this many? This case passes whatever it prints, as long as it ends by itself: did it crash, or wait for input?	args_none	args_three
+The subject says the number must be a valid and positive integer: which inputs does that rule out? Take one of them: what does your program do with each of its characters, not just the first?	dict_arg_error	one_arg_error	number_empty	number_negative	number_letter
+An empty argument is still an argument: what does argc count in this run, and what does your program find in the string it was given?	number_empty
+Is 0042 a valid and positive integer? The subject does not say, so this case accepts either the number's words or the error message the subject names for an invalid number: which did your program print, and was it one of the two, byte for byte?	lead_zero_42	lead_zero_00
+The subject says the values inside the dictionary must be used to print the result. Which dictionary did this case give your program, and does every word it printed come from that file?	dict_arg_custom	one_arg_custom	replaced_42	replaced_zero	replaced_hundred_thousand
+The subject says to trim the spaces before and after the values. In a dictionary line with spaces on both sides of the colon, which characters does your program keep? And the spaces inside a value, between two of its words: what does the subject's own example do with them?	dict_arg_custom	one_arg_custom	dict_spaced
+A value is any printable characters, and a colon is one. On this line, which colon separates the key from its value, and what does your program do with the ones inside the value?	dict_colon
+The dictionary grammar is [a number][0 to n spaces]:[0 to n spaces][any printable characters]. Both spans are "0 to n", so zero spaces and several spaces are equally legal. Which of the two does your parser assume?	dict_quirks	dict_spaced
+There can be empty lines in the dictionary, and the entries can be stored in any order. Neither is an error. What does your parser do the first time it meets one?	dict_quirks
+The dictionary can contain more entries than the reference one, and the initial keys cannot be removed. So a key you did not expect is not a failure, but a key you needed and did not find is. Which is happening here?	dict_quirks	dict_decoys
+Some keys of this dictionary start with the same digit as a key this number needs, and are as long. When your program looks a key up, what makes the entry it finds the one it asked for?	dict_decoys
+This dictionary is longer than 64 KiB, the entries 42 needs are near its end, and one of them is cut in two by byte 4096. What does your program do with a file longer than one read() returns, and with a line that one read() ends in the middle of?	dict_big
+Which two situations does the subject answer with the dictionary error? When your program prints it, which one is it in: did the file fail to parse, or did it parse and lack an entry this number needs?	dict_nocolon	dict_badkey	dict_cannot_express	dict_tab	dict_crlf_strict	dict_cannot_express_mid
+Which key does this number need that this dictionary lacks? By the time your program finds out, what has it already printed, and what does the subject say the whole output must be then?	dict_cannot_express_mid
+This run names a dictionary that does not exist. What does open return when the file is not there (man 2 open), and does your program look at that before it reads?	dict_missing	dict_missing_strict
+The subject's general rule lets a program print an error message or simply return control when something goes wrong. This harness's reading, at strict, of the sentence about a dictionary that does not allow the conversion: a dictionary that cannot be opened allows none. Which message does that sentence name, and on which stream does the subject show it?	dict_missing_strict
+A value is [any printable characters]: which bytes does cat -A show on this dictionary's lines, and is each of them printable? What does the subject ask for when a line breaks the grammar?	dict_tab	dict_crlf	dict_crlf_strict
+Is a carriage return one of the spaces the subject says to trim? It never says, so this case accepts either the dictionary error or the words. Which did your program print, and which sentence of the subject did it follow?	dict_crlf
+Is a carriage return one of the spaces the subject says to trim? It never says, and this harness's reading, at strict, never the subject's, is that a carriage return is a byte that is not printable. Which did your program print, and which sentence of the subject did it follow?	dict_crlf_strict
+Open the dictionary: which keys does it hold between ten and twenty? Which keys did your program use to print this number?	teen
+Which keys of the dictionary does this number need? Compare that list with the words your program printed: which of them does the number not need, and why did your program print them?	round_million	beyond_uint	largest_scale
+The subject says your program should handle numbers beyond the range of unsigned int, and the dictionary runs past a decillion. Which C type holds the number in yours, what is the largest value that type can hold, and what happens when the input does not fit?	beyond_uint	largest_scale	past_dictionary	past_dictionary_strict
+This number is past what the largest scale of the dictionary can reach, and it is still a valid and positive integer. Which sentence of the subject applies? It does not settle it, so this case only asks that your program end by itself. What did yours print, and did it end?	past_dictionary
+This number is past what the largest scale of the dictionary can reach, and it is still a valid and positive integer. Which sentence of the subject applies? It does not settle it, and this harness's reading, at strict, never the subject's, is that this dictionary does not allow the conversion. What did yours print, and did it end?	past_dictionary_strict
+The subject's own transcript pipes the output through cat -e: what does it show at the very end of each line? Does yours show the same when you pipe it the same way?

@@ -1,0 +1,166 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//tools:defs.bzl", "c_levels", "exercise", "shell_exercise", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(page = 7, dir = "ex00/", files = ["z"], allowed = []),
+        "01": exercise(page = 8, dir = "ex01/", files = ["testShell00.tar"], allowed = []),
+        "02": exercise(page = 9, dir = "ex02/", files = ["exo2.tar"], allowed = []),
+        "03": exercise(page = 11, dir = "ex03/", files = ["id_ed25519_pub"], allowed = []),
+        "04": exercise(page = 12, dir = "ex04/", files = ["midLS"], allowed = []),
+        "05": exercise(page = 13, dir = "ex05/", files = ["git_commit.sh"], allowed = []),
+        "06": exercise(page = 15, dir = "ex06/", files = ["git_ignore.sh"], allowed = []),
+        "07": exercise(page = 16, dir = "ex07/", files = ["b"], allowed = []),
+        "08": exercise(page = 17, dir = "ex08/", files = ["clean"], allowed = []),
+        "09": exercise(page = 18, dir = "ex09/", files = ["ft_magic"], allowed = []),
+    },
+)
+
+# Rebuild this module's deliverable/ from the generators:
+#   bazel run //c-piscine/c-piscine-shell-00:generate
+sh_binary(
+    name = "generate",
+    srcs = ["//tools:generate.sh"],
+    args = [package_name()],
+)
+
+shell_exercise(num = "00", mode = "diff")
+shell_exercise(num = "01", mode = "check", stable = False)
+# readings: what the subject's own `tar -cf exo2.tar *` fixes about the
+# archive is open: check.sh grades the tree the archive extracts to, and
+# ex02_literal, at strict, takes one reading, which literal.sh states.
+shell_exercise(
+    num = "02",
+    mode = "check",
+    readings = {"literal": "literal.sh"},
+    stable = False,
+)
+# stable = False: the exercise is making the key pair, so a generator that
+# makes a fresh one on every run is the intended answer, and two runs write two
+# different keys. The check reads what any correct key shows (a public ed25519
+# key of 256 bits, one line, no private half), never which key it is: no local
+# test can see the key registered on the intranet (the owner's decision,
+# 2026-10-04, reversing WP-56's stable = True). The call says so rather than
+# defaulting it, so the next exercise is decided (see stable in shell_exercise,
+# //tools:defs.bzl).
+shell_exercise(num = "03", mode = "check", stable = False)
+# script: the turn-ins that are scripts, and how the subject has each run --
+# "bash" where its example runs `bash name` (ex05, ex06), "sh" for the rest,
+# by the general rule that shell exercises run with /bin/sh. Their lint is
+# exNN_posix (strict, where /bin/sh runs it) and exNN_lint (robust); see
+# shell_exercise in //tools:defs.bzl.
+# readings: "sorted by modification date" names no direction, so check.sh
+# accepts the listing either way round; ex04_newest_first, at strict, takes
+# one reading, which newest_first.sh states. Shell 00 ex06's order is read
+# the same way: any at basic, one at strict.
+shell_exercise(
+    num = "04",
+    mode = "check",
+    readings = {"newest_first": "newest_first.sh"},
+    script = "sh",
+    stable = False,
+)
+shell_exercise(num = "05", mode = "check", script = "bash", stable = False)
+# readings: whether the subject's example lists an ignored directory file by
+# file or as one line, and in what order, is open: check.sh accepts either
+# form and any order, and ex06_literal, at strict, takes one reading, which
+# literal.sh states.
+shell_exercise(
+    num = "06",
+    mode = "check",
+    readings = {"literal": "literal.sh"},
+    script = "bash",
+    stable = False,
+)
+# glob, not a bare label, and that is the difference between a template that
+# builds and one that does not. resources.tar.gz is 42's, so it is stripped from
+# the shareable branch -- and a `fixtures = ["resources.tar.gz"]` naming a file
+# that is not there is a Bazel ANALYSIS error, which takes the whole package
+# down rather than failing one test. With the glob it simply stages nothing, and
+# the check SKIPS with an explanation (see tests/ex07/check.sh).
+shell_exercise(
+    num = "07",
+    mode = "check",
+    # buildifier: disable=constant-glob
+    # The constant pattern is the POINT, and the comment above says why: a bare
+    # label naming a file the template branch does not ship is a Bazel ANALYSIS
+    # error, which takes the whole package down instead of failing one test.
+    # glob() with allow_empty turns that into "stage nothing, and SKIP".
+    fixtures = glob(["resources.tar.gz"], allow_empty = True),
+    # The expected b comes from //oracle (shell00_diff_apply), which replays
+    # sw.diff onto a in Rust. b is built from 42's own a, so it cannot be
+    # written down here, and building it in the check with the exercise's own
+    # command would put the answer in a file the template ships.
+    oracle = True,
+    stable = False,
+)
+# readings, both at strict: one of "no ';'" (ex08_literal) and one of "all
+# files" (ex08_regular), which literal.sh and regular.sh state. check.sh
+# reads the first as every reading does, no ';' joining two commands, and
+# holds no directory named like a backup. Shell 01 ex02's regular.sh reads
+# its "files" the same way.
+shell_exercise(
+    num = "08",
+    mode = "check",
+    readings = {
+        "literal": "literal.sh",
+        "regular": "regular.sh",
+    },
+    script = "sh",
+    stable = False,
+)
+shell_exercise(num = "09", mode = "check", stable = False)
+
+# The check scripts of ex02, ex04, ex06 and ex08 also run in
+# //tools/tests:selftest, on toy turn-ins that answer none of the exercises: an
+# archive holding one member, a midLS, git_ignore.sh or clean of one printf.
+# What those arms pin is each reading as its script states it, and what
+# each fixture tells apart, so a check that drifts from it goes red there, not
+# only on a turn-in.
+#
+# Piscine Reloaded repeats ex00, ex02 and ex08 as its ex01, ex00 and ex02, and
+# reads these exercises' tests rather than copies of them (twin_of in its
+# BUILD file), so a change to tests/ex00, ex02 or ex08 here changes that
+# project's too. shell_exercise exports every exercise's test files for that.
+
+# FOUR layers per exercise — exNN_norm, exNN_lint, exNN_output and exNN_files —
+# plus exNN_posix at strict for a script /bin/sh runs, and exNN_<reading> at
+# strict where `readings` is set (ex02, ex06 and ex08 above; see shell_exercise
+# in //tools:defs.bzl). That is the whole list on purpose, not a thin spot to
+# be filled in later. The ten rigour layers the C modules carry
+# have nothing to attach to in a shell module — the same holds for
+# c-piscine-shell-01, which declares its exercises the same way:
+#
+#   diff / diff_asan  there is no C function to fuzz and no //oracle counterpart
+#                     for a shell pipeline. //oracle holds the C modules' and
+#                     the rushes' references, plus the few a shell check
+#                     cannot build from a fixture -- each reached from inside
+#                     that exercise's check.sh through `oracle = True`, never
+#                     as a layer of its own.
+#   perf / cycles     both need that same reader harness and that same oracle
+#                     corpus — perf is emitted by c_diff itself, cycles is its
+#                     own macro over c_diff's binary — so neither has anything
+#                     to attach to once diff is out.
+#   valgrind          there is no student-written binary to run under it;
+#                     valgrinding /bin/sh would report on the shell.
+#   asan              nothing here writes into a buffer a caller owns, so an
+#                     exactly-sized probe has no bound to choose.
+#   ilp32             there is no long and no pointer whose width can change.
+#   symbols           a script has no linker symbol table, so nothing it defines
+#                     can collide with the evaluator's own main().
+#   prototype         there is no signature to conform to.
+#   forbidden         the layer is nm over a compiled object, and there is no
+#                     object. What a shell subject restricts is which COMMANDS
+#                     you may use; checking that would be a different layer
+#                     entirely, reading generators/exNN.sh rather than nm.
+#
+# So the whole coverage lever in these modules is the case list inside
+# tests/exNN/check.sh (plus the expected fixture for an exercise in "diff" mode).
+# A weak shell exercise here is never a missing layer — it is a check that drives
+# the deliverable with the one input at which a right and a wrong answer agree.
+# That file is what to strengthen.
+
+c_levels()

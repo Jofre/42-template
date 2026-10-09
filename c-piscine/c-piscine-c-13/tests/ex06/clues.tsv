@@ -1,0 +1,6 @@
+# clues.tsv for btree_level_count — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+What is a level of a tree, and what is a branch? The subject asks for "the size of the largest branch": which of its words decide what an empty tree and a lone node report?	empty tree	single node
+In each tree the test builds, which branch is the largest? Counted by hand the way you counted the lone node, how far is it from what yours returns, and is that gap the same in every tree?	left chain of four	right chain of four	long left side, one node on the right	long right side, one node on the left
+The two edges of a tree -- always left, always right -- are two branches among many. In these trees, where does the largest branch run, and does your function ever look at the paths that turn?	deepest on an inner path, left then right	deepest on an inner path, right then left

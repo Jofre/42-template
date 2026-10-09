@@ -1,0 +1,156 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_function", "c_levels", "c_mem_check", "exercise", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(page = 7, dir = "ex00/", files = ["ft_strcmp.c"], allowed = []),
+        "01": exercise(page = 8, dir = "ex01/", files = ["ft_strncmp.c"], allowed = []),
+        "02": exercise(page = 9, dir = "ex02/", files = ["ft_strcat.c"], allowed = []),
+        "03": exercise(page = 10, dir = "ex03/", files = ["ft_strncat.c"], allowed = []),
+        "04": exercise(page = 11, dir = "ex04/", files = ["ft_strstr.c"], allowed = []),
+        "05": exercise(page = 12, dir = "ex05/", files = ["ft_strlcat.c"], allowed = []),
+    },
+)
+
+c_function(num = "00", fn = "ft_strcmp", test = "test_strcmp.c", labeled = True, clues = "clues.tsv")
+
+# Live differential fuzz against the Rust reference (//oracle): thousands of
+# seeded inputs, exact-value compare. Complements the curated test_strcmp.c
+# cases and catches magnitude/edge bugs those cannot enumerate.
+#
+# THE EXACT VALUE IS CHECKED HERE, AND ONLY HERE. The subject says "Reproduce
+# the behavior of the function strcmp (man strcmp)", and that page's RETURN
+# VALUE promises a sign while its NOTES describe glibc's byte difference. Which
+# of the two is graded is not settled, so it is read at strict: the curated
+# fixtures (ex00 and ex01 here, C 09's libft, Reloaded ex17) print the sign
+# only, and this layer -- level strict -- compares the int itself.
+c_diff(num = "00", fn = "ft_strcmp", harness = "diff_strcmp.c", oracle_fn = "c03_strcmp", diff_clues = "diff_clues.txt")
+
+c_function(num = "01", fn = "ft_strncmp", test = "test_strncmp.c", labeled = True, clues = "clues.tsv")
+
+# ft_strncmp / ft_strlcat carry an n/size SAFETY bound: they must never read past
+# it, even on non-NUL-terminated input. These run the function under ASan on such
+# input — a stray read past the bound is caught here (output diffing can't see it).
+c_mem_check(num = "01", fn = "ft_strncmp", probe = "mem_strncmp.c")
+
+c_diff(num = "01", fn = "ft_strncmp", harness = "diff_strncmp.c", oracle_fn = "c03_strncmp", diff_clues = "diff_clues.txt")
+
+c_function(num = "02", fn = "ft_strcat", test = "test_strcat.c", labeled = True, clues = "clues.tsv")
+
+# ft_strcat WRITES the concatenation into dest. This runs it under ASan with
+# dest as a heap buffer with room for exactly the joined string and its
+# terminator, so an off-by-one copy/terminate is a heap-buffer-overflow caught
+# here (output diffing can't see a stray write).
+c_mem_check(num = "02", fn = "ft_strcat", probe = "mem_strcat.c")
+
+c_diff(num = "02", fn = "ft_strcat", harness = "diff_strcat.c", oracle_fn = "c03_strcat", diff_clues = "diff_clues.txt")
+
+c_function(num = "03", fn = "ft_strncat", test = "test_strncat.c", labeled = True, clues = "clues.tsv")
+
+# ft_strncat carries an `nb` SAFETY bound on its read of src: per the contract
+# src need not be NUL-terminated when it holds nb+ bytes, so the byte at index nb
+# may not exist. This runs it under ASan on a non-NUL-terminated src of exactly
+# nb bytes — a stray read past the bound is caught here (output diffing can't
+# see it).
+c_mem_check(num = "03", fn = "ft_strncat", probe = "mem_strncat.c")
+
+c_diff(num = "03", fn = "ft_strncat", harness = "diff_strncat.c", oracle_fn = "c03_strncat", diff_clues = "diff_clues.txt")
+
+c_function(num = "04", fn = "ft_strstr", test = "test_strstr.c", labeled = True, clues = "clues.tsv")
+
+# perf_length: the length series grows one haystack, its needle at the very
+# end, and reports what doubling it does to one search -- the case-count
+# exponent cannot see that over short corpus strings. Reported, never gated.
+c_diff(
+    num = "04",
+    fn = "ft_strstr",
+    harness = "diff_strstr.c",
+    oracle_fn = "c03_strstr",
+    diff_clues = "diff_clues.txt",
+    # A linear search is too fast to time over a few thousand letters, so the
+    # series starts at 20000 and doubles from there.
+    perf_length = {"oracle_fn": "c03_strstr_len", "harness": "len_strstr.c", "base": 20000},
+)
+
+c_function(num = "05", fn = "ft_strlcat", test = "test_strlcat.c", labeled = True, clues = "clues.tsv", escaped_values = True)
+
+c_mem_check(num = "05", fn = "ft_strlcat", probe = "mem_strlcat.c")
+
+c_diff(num = "05", fn = "ft_strlcat", harness = "diff_strlcat.c", oracle_fn = "c03_strlcat", diff_clues = "diff_clues.txt")
+
+c_levels()
+
+c_cycles(
+    num = "00",
+    fn = "ft_strcmp",
+    oracle_fn = "c03_strcmp",
+    harness = "diff_strcmp.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # A number, not a reference implementation: it says where you stand without
+    # saying how to get there.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "01",
+    fn = "ft_strncmp",
+    oracle_fn = "c03_strncmp",
+    harness = "diff_strncmp.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # compare archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "02",
+    fn = "ft_strcat",
+    oracle_fn = "c03_strcat",
+    harness = "diff_strcat.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "03",
+    fn = "ft_strncat",
+    oracle_fn = "c03_strncat",
+    harness = "diff_strncat.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "04",
+    fn = "ft_strstr",
+    oracle_fn = "c03_strstr",
+    harness = "diff_strstr.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # compare archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "05",
+    fn = "ft_strlcat",
+    oracle_fn = "c03_strlcat",
+    harness = "diff_strlcat.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # copy archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 6,
+    syscall_budget = 0,
+)

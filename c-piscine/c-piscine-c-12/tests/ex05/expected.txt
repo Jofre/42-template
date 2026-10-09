@@ -1,0 +1,5 @@
+size 3: node 1	three
+size 3: node 2	two
+size 3: node 3	one
+size 1: node 1	one
+size 0: the list returned is empty	yes, NULL

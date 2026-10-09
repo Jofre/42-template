@@ -1,0 +1,2 @@
+# clues.tsv for ft_strupcase — hints only, never answers.
+Only lowercase letters change to uppercase; digits, spaces and symbols stay as they are. What is the relationship between a lowercase letter and its uppercase form, and which pointer should the function return?	"ABZabz" (only letters change)	"Hello World 123!" (digits/space kept)	"{|}~`@" (non-letters unchanged)	returns its argument

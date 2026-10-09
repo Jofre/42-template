@@ -1,0 +1,26 @@
+-- item at each path (L = left, R = right) --
+root set 5
+L set 3
+R set 8
+LL set 1
+LR set 4
+RL set 7
+RR set 9
+LLR set 2
+RLL set 6
+-- slots that must stay empty --
+LLL NULL
+LLRL NULL
+LLRR NULL
+LRL NULL
+LRR NULL
+RLLL NULL
+RLLR NULL
+RLR NULL
+RRL NULL
+RRR NULL
+-- dup root --
+root set 5
+left NULL
+right set 5
+right-right set 5

@@ -1,0 +1,3 @@
+# clues.tsv for ft_strcapitalize — hints only, never answers.
+A "word" begins right after any non-alphanumeric character (or at the very start of the string). The first letter of a word becomes uppercase; every other letter becomes lowercase. How can you tell you are at a word boundary by looking at the PREVIOUS character?	"a b c" (each word capitalized)	"hELLo wORLD" (rest lowercased)	subject transcript (es/fr)	returns its argument	subject transcript (en)
+Digits are alphanumeric too. So in "42abc", does the digit count as part of the word -- is 'a' a word start or not? And what about a digit sitting in the middle of a word?	"42abc xyz" (word starting with digit)	"ab42cd ef" (digit mid-word)

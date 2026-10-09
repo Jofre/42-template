@@ -1,0 +1,93 @@
+#!/bin/sh
+# tools/bazel — bazelisk runs THIS instead of Bazel, whenever you type `bazel`
+# anywhere in this checkout. It adds one thing: a per-user output root when no
+# rc file names one. Then it runs the real Bazel with your arguments untouched.
+#
+# WHY IT EXISTS (finding 001). Bazel keeps its state -- gigabytes -- under an
+# output root, and an rc file cannot say "per user": .bazelrc expands
+# %workspace% and nothing else, so no $USER, no $HOME. The root therefore lived
+# in two places: tools/setup.sh writes one into .bazelrc.local, which is
+# gitignored and belongs to ONE checkout, and .bazelrc carried a fallback for
+# every other checkout, /tmp/bazelcache -- one path for every user of the
+# machine. On a campus box the first student's directory then blocks the
+# second's (their build waits on its lock, or cannot write it at all), and a
+# second clone or a worktree of your own fell back to it without a word.
+#
+# A wrapper can read $USER. So the fallback is gone from .bazelrc, and this
+# supplies the same root setup.sh would have chosen (tools/drives.sh). Where
+# your state goes, then, in order:
+#
+#   1. --output_user_root on the command line   yours; passed through
+#   2. an rc file that sets it                  .bazelrc.local (setup.sh writes
+#                                               it), ~/.bazelrc, --bazelrc ...;
+#                                               passed through
+#   3. otherwise                                tools/drives.sh's default:
+#                                               /goinfre/$USER/bazel on campus,
+#                                               ~/.cache/42-piscine/bazel
+#                                               elsewhere (drives_default_root)
+#
+# `bazel info output_base` says which one applied: the root is the folder
+# above it. (Bazel has no `info output_user_root`.)
+#
+# HOW IT IS RUN. bazelisk looks for an executable tools/bazel in the workspace
+# and runs it with BAZEL_REAL set to the Bazel it downloaded. Measured on the
+# pinned v1.29.0: it also sets BAZELISK_SKIP_WRAPPER=true and puts this
+# directory first on PATH, and both reach every program `bazel run` starts. So
+# a plain `bazel` typed inside one (submit.sh's gate) finds this script again,
+# BAZEL_REAL still set; but a `bazelisk` typed inside one skips it, and gets
+# Bazel's own default, ~/.cache/bazel -- per-user too, just not on the large
+# drive. prime.sh, which prefers bazelisk, passes the root itself for that
+# reason (drives_bazel_root).
+#
+# It prints nothing and changes no argument: it only prepends one startup
+# option, so the output of `bazel info` and friends is Bazel's own. Prepended,
+# so a later --output_user_root on the command line would still win. The one
+# thing it says, on stderr, is that a C_PISCINE_SCRATCH you set cannot be used
+# (not absolute, or not writable): it then adds nothing, and without the line
+# Bazel's own default would replace the place you named without a word.
+#
+# conventions: no-require -- it runs on every bazel command, before anything
+# else, and its only tools are the shell builtins and what tools/drives.sh uses.
+set -u
+
+if [ -z "${BAZEL_REAL:-}" ]; then
+	echo "tools/bazel: BAZEL_REAL is not set, so there is no Bazel to run." >&2
+	echo "  This script is run BY bazelisk, which sets it: type \`bazel\`, not" >&2
+	echo "  tools/bazel. (sh tools/setup.sh installs bazelisk as \`bazel\`.)" >&2
+	exit 2
+fi
+
+# The workspace is this file's parent's parent. $0 is absolute when bazelisk
+# runs it; a relative one is resolved from here, before anything changes it.
+case "$0" in
+	*/*) _here=${0%/*} ;;
+	*) _here=. ;;
+esac
+_ws=$(cd "$_here/.." 2> /dev/null && pwd) || exec "$BAZEL_REAL" "$@"
+
+# An absent library (a checkout older than this script's own) means no default
+# to add: Bazel's own applies, and that is per-user too.
+[ -r "$_ws/tools/drives.sh" ] || exec "$BAZEL_REAL" "$@"
+# shellcheck source=drives.sh
+. "$_ws/tools/drives.sh"
+
+# 1. Named on the command line: startup options are the words before the
+#    command, and the first word that is not an option IS the command.
+for _a in "$@"; do
+	case "$_a" in
+		--output_user_root | --output_user_root=*) exec "$BAZEL_REAL" "$@" ;;
+		-*) ;;
+		*) break ;;
+	esac
+done
+
+# 2. Named by an rc file Bazel will read for this command.
+[ -z "$(drives_rc_root "$_ws" "$@")" ] || exec "$BAZEL_REAL" "$@"
+
+# 3. The default. None at all (nothing writable anywhere) leaves Bazel's own.
+if ! drives_default_root; then
+	[ -z "${C_PISCINE_SCRATCH:-}" ] ||
+		echo "tools/bazel: $DRIVES_ROOT_WHY; Bazel's own default root applies." >&2
+	exec "$BAZEL_REAL" "$@"
+fi
+exec "$BAZEL_REAL" --output_user_root="$DRIVES_ROOT" "$@"

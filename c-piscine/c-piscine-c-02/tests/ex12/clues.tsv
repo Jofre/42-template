@@ -1,0 +1,4 @@
+# clues.tsv for ft_print_memory — hints only, never answers.
+# (Unlabeled multiline test: every hint fires on any failure.)
+This is a hex dump with three aligned parts per line: the address, the bytes in hexadecimal (grouped), and the printable characters (non-printable shown as a dot). How many bytes per line, which parts must keep a fixed width so that the next part lines up, and what does the subject's cat -te transcript show at the end of a short final line?
+The first column is an address: of which byte of the line, and how many hex digits of it does the subject's example show? And which pointer does the subject say the function returns: for an empty dump too?

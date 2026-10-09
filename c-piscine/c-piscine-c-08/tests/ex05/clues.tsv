@@ -1,0 +1,4 @@
+# clues.tsv for ft_show_tab — hints only, never answers.
+# (The function prints the whole table itself: many lines per call, so this single
+#  member-less hint fires on any failure.)
+For each element, which fields does the subject have ft_show_tab display, and in which order? What marks the end of the array: a str that is a NULL pointer, or one that is an empty string? Does an element whose string is empty stop your loop early? The size is an int: how do you turn it into characters that write() can take?

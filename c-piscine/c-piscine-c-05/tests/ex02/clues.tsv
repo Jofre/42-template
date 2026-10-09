@@ -1,0 +1,7 @@
+# clues.tsv for ft_iterative_power — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+What value should you start accumulating from before any multiplication happens? Multiplying that starting value by the base, the right number of times, has to give the simple cases. Check what you return when you have multiplied zero times.	2 ^ 3	7 ^ 1	0 ^ 5	1 ^ 100	10 ^ 9	2 ^ 30
+Anything raised to the power zero — what is the agreed result, even when the base itself is zero? Does your loop body ever run in that situation?	5 ^ 0	0 ^ 0
+A negative exponent has no integer answer here; the subject fixes a single convention for that error. What does INT_MIN have in common with the other negative-exponent input?	2 ^ -3	5 ^ INT_MIN
+When the base is negative, what decides whether the product comes out positive or negative? Count how many times the negative factor is multiplied in.	-2 ^ 2	-2 ^ 3

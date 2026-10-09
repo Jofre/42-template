@@ -1,0 +1,15 @@
+numbers.dict is not in this repository, and this file is only its placeholder.
+
+42 issues numbers.dict with the c-piscine-rush-02 subject. It is 42's file, not this
+repository's to redistribute, so you download your own:
+
+    from:        the intranet, beside the Rush 02 subject
+    save it as:  c-piscine/c-piscine-rush-02/deliverable/ex00/numbers.dict
+
+It is turned in with the project: your program reads it from there.
+.gitignore keeps it out of your commits, because it is 42's, and
+//tools:submit pushes it anyway, because it pushes the turn-in folder
+as it is on disk. So every teammate, and every fresh clone, downloads
+their own copy.
+
+Delete this placeholder whenever you like; nothing reads it.

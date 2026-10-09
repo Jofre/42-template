@@ -1,0 +1,10 @@
+  The whole list is printed after the call, head first.
+    * an empty list           -> pushing onto nothing still has to produce a
+                                 list, and the caller has to see it
+    * the caller's head unchanged -> what a double pointer is for
+    * the list is one element long afterwards -> the old head is being dropped
+                                 rather than linked behind the new one
+    * the ORDER is reversed   -> front and back
+    * every case, even the simplest -> the ft_create_elem linked here is the
+                                 grader's, built on the subject's t_list:
+                                 does your ft_list.h lay it out the same way?

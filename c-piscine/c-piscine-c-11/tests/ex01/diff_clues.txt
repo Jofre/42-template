@@ -1,0 +1,7 @@
+  A new array is printed, so compare it against the input row.
+    * length 0                -> the allocation still has to happen, and the
+                                 loop still must not run
+    * one element short       -> the loop bound, or the size allocated
+    * the input array changed -> this one does not modify in place
+    * the values are right, the array is not new -> what the subject says is
+                                 returned

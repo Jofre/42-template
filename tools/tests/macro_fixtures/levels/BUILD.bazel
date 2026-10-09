@@ -1,0 +1,446 @@
+load("//tools:defs.bzl", "c_diff", "c_function", "c_issued", "c_levels", "c_program", "corpus_memory", "exercise", "hand_test", "shell_exercise", "stderr_ignored", "subject")
+load("//tools:names_file.bzl", "names_file")
+
+# Its programs are the data of //tools/tests:macro_fixtures_test.
+package(default_visibility = ["//tools/tests:__pkg__"])
+
+# A TOY PROJECT FOR c_levels(): how a module's exercises are found, how its
+# tests are audited as a whole, and the kinds of a program case. Invented
+# exercises, like the rest of ../ (see its BUILD file), every file under
+# deliverable/ and generators/ a stub.
+#
+# What //tools/tests:macro_fixtures_test checks here, on every run:
+#
+#   * the package loads: c_levels()' audit (a finalizer) passed on every test
+#     below, the one declared AFTER c_levels() included -- every test named
+#     exNN_<suffix of its layer>, tagged with its exercise, one layer and
+#     that layer's level ladder, and ex00_raised_output's raise listed in
+#     tools/defs.bzl's _RAISED. Each rule the audit holds a package to is fed
+#     a broken package in ../BUILD.bazel's :contract_problems;
+#   * an exercise is found wherever it shows up, each with its suite: ex00
+#     from tests/ex00/ and deliverable/ex00/, ex01 from the contract alone
+#     (no folder anywhere; its one test is hand-written), and the student's
+#     side -- deliverable/ex07/ and generators/ex05.sh, which the contract
+#     does not have -- each with a files test saying so (" stray"), red
+#     whatever the subject's `strict`;
+#   * what is in no exercise's folder -- deliverable/toy_loose.c at the
+#     root, deliverable/old/toy_old.c in a folder no exercise has -- is
+#     the module's deliverable_files (" outside"), which lists both, by path
+#     from deliverable/;
+#   * the case kinds of c_program reach the runner: " any-of" (--expected-alt)
+#     and " survive" (--survive), and a case's "level" its targets' tags;
+#     a quoted exit raised to strict reaches it as a reading (" reading":
+#     --exit-source reading) and gets no robust twin; two cases making one
+#     run share one twin; and `model` gives each case with one expected file
+#     (not alt, not survive) an exNN_<case>_model, at complete;
+#   * every test carries the contract's grader -- this toy is graded at a
+#     defense, as the rushes are -- the hand-written ones included
+#     (" by:defense");
+#   * so do the keys that shape the run, in every arm: " argv-file"
+#     (--argv-file) and " cwd" (--run-as, the run folder); every arm prints
+#     its run (" ran", --show-run), and every arm but asan, which reads no
+#     hints, keys them to its case (" case", --case) -- the valgrind arms
+#     too, which a contract with no allowed line (malloc allowed) emits,
+#     and the allocfail sweeps of both run-shaping cases, whose gates the
+#     audit holds to those cases' output tests (tools/defs.bzl,
+#     _case_gate_problems);
+#   * c_issued's test, for a file the contract names in `optional`;
+#   * reference = True's test, which runs every case with //oracle's
+#     reference program for the program's name;
+#   * a shell exercise's levels: ex02, a script turn-in (script = "sh") with
+#     a second reading and stable = True, gets exNN_posix and its reading at
+#     strict, exNN_lint at robust, and " stable" (--stable) on its output
+#     test alone, not on the reading's;
+#   * a c_function's `readings`: ex03_open_output, its own main's output test,
+#     raised to robust and listed in _RAISED like any raise, beside the
+#     exercise's own ex03_output at basic -- and ex03_open_bin and ex03_bin
+#     run, each printing the row only its own main prints, so a reading that
+#     linked the exercise's `test` instead is red there too;
+#   * a c_diff's `readings`: ex03_readings, over the reading's own //oracle
+#     arm and count (" fn:", " count:"), raised by its "level" to robust and
+#     listed in _RAISED, beside ex03_diff at strict over the exercise's arm;
+#     and its ASan twin ex03_readings_diff_asan, over the same arm, at the
+#     fewer of the reading's count and asan_count, unraised -- beside
+#     ex03_diff_asan at asan_count; the reading's legend (" clues") handed
+#     to ex03_readings alone, never to the twin, which judges memory above
+#     strict (the C 04 and C 07 twins printed a legend stating the reading);
+#   * a generated corpus is replayed under the memory checkers: the audit
+#     passes ex04's, ex06's and ex08's plain replays because corpus_memory()
+#     gave each its ASan twin (" sanitized"), and gave ex06 -- whose contract
+#     allows malloc, where ex04's names functions and not malloc -- its
+#     memcheck sample (" memcheck") too, read from the contract (finding 113);
+#     and ex08 one as well, whose subject prints no allowed-functions line at
+#     all, which forbids nothing (tools/defs.bzl, _memcheck_allowed). The
+#     twins make no stderr choice, the plain replays one each;
+#   * the Norm's header rules norminette skips, for every header the
+#     contract has an exercise turn in: ex09_norm_header reads ex09's
+#     toy_nine.h, at strict; ex10 names toy_ten.h and turns in nothing, so
+#     its test is a NOT TURNED IN one (gated, at the same level); ex11 only
+#     allows headers and has none, and gets no such test;
+#   * the method layer: c_function's `method` gives ex03 its ex03_method,
+#     and c_program's `fixed_array` ex00 its ex00_fixed_array, each at
+#     strict, its sentence written for the runner beside it;
+#   * the tests and suites emitted are the ones layers.expected lists.
+#
+# Measured by hand on 2026-10-02 (the "reading" case, the models, its grader
+# made "defense", the run-shaping cases, and the shell exercise, merged) with
+#
+#     bazel test $(bazel query 'tests(//tools/tests/macro_fixtures/levels:*)')
+#
+# (tagged manual, as every fixture test is): ex05_files and ex07_files red,
+# naming the exercises the subject has; deliverable_files red, naming
+# old/toy_old.c and toy_loose.c; ex02_output and ex02_regular red on
+# "toy.sh exists", since its generator is a stub that writes nothing, and
+# ex02_lint and ex02_posix skipping the script for that reason;
+# ex00_toy_dat_issued stopped (exit 2),
+# since tools/resources.tsv registers no toy.dat; ex00_reference_cases
+# stopped (exit 2), since //oracle has no reference program named toy -- both
+# there for the tests they emit, never for a verdict; every other test green
+# -- the valgrind arms on a program that allocates nothing, ex00_alt
+# matching the second of its two outputs, ex00_survive with no output to
+# compare, ex00_reading returning the status its sentence is read as naming,
+# ex00_staged run as ./toy from a folder holding toy.dict, ex00_argfile given
+# one empty argument, and each _model target: the model's empty answer, the
+# staged and argfile ones from the same run folder and argument file;
+# ex00_program_allocfail and ex00_argfile_program_allocfail (2026-10-03)
+# NOTHING TO REFUSE, the toy asking for no memory, each run as its case is
+# -- the first from that run folder, its RAN line says so -- and past its
+# gate, not SKIPping, on the toy's empty output; ex03's
+# eleven, measured on 2026-09-30 as ex02 and again after the merge as ex03,
+# green too, ex03_open_output running its own main -- but the three plain
+# corpus replays (ex04, ex06, ex08, from w4-corpora as ex01-ex03), red
+# because the toy prints nothing the reference does, while their memory
+# twins are green: the toy neither crashes nor leaks. And on 2026-10-03,
+# ex03's c_diff: ex03_diff and ex03_readings red, the toy returning 0 where
+# each borrowed arm's reference does not, and their ASan twins green over
+# 30 cases each, the fewer of each count and asan_count. A name //oracle
+# does not know is red the same way ("reference failed to generate
+# cases"): nothing that loads this package reads the names, so the fixture
+# first named two arms that did not exist and only this run showed it.
+# Re-measured after the w5-modules merge (2026-10-03): 90 tests, 14 red --
+# the ones above, and two this note had not named: ex10_files, naming
+# toy_ten.h, the header ex10 turns in nothing of (its ex10_norm_header a
+# gated NOT TURNED IN, green); and ex01_staged_output stopped (exit 2), since
+# it hands diff_output.sh nothing to compare -- there for the RL_RAISED it is
+# handed (layers.expected's " raised:"), never for a verdict.
+# The module's :manual suite lists all of them (every fixture test
+# is manual), which `bazel query 'tests(//tools/tests/macro_fixtures/levels:manual)'`
+# shows. Re-measure after changing a macro or a runner.
+subject(
+    grader = "defense",
+    group = False,
+    strict = True,
+    exercises = {
+        "00": exercise(page = 1, dir = "ex00/", files = ["toy.c"], optional = ["toy.dat"], allowed = None),
+        # Checked by a hand-written test only, with no file named.
+        "01": exercise(page = 1, dir = "ex01/", files = None, allowed = None),
+        # A toy shell exercise, a script turned in.
+        "02": exercise(page = 1, dir = "ex02/", files = ["toy.sh"], allowed = None),
+        # A toy C function whose subject leaves one case open.
+        "03": exercise(page = 1, dir = "ex03/", files = ["toy_two.c"], allowed = None),
+        # Three toys for corpus_memory(), each checked by hand-written tests
+        # only, with no file named. ex04's subject allows write alone: its
+        # corpus gets an ASan replay.
+        "04": exercise(page = 1, dir = "ex04/", files = None, allowed = ["write"]),
+        # The same, with a subject that allows malloc: its corpus gets a
+        # memcheck sample as well as an ASan replay.
+        "06": exercise(page = 1, dir = "ex06/", files = None, allowed = ["malloc", "free", "write"]),
+        # The same, with no allowed-functions line, which forbids nothing:
+        # a memcheck sample too.
+        "08": exercise(page = 1, dir = "ex08/", files = None, allowed = None),
+        # Three toys for the Norm's header rules (c_levels() emits
+        # exNN_norm_header): a header named and turned in, a header named and
+        # not turned in, and headers only allowed, none there.
+        "09": exercise(page = 1, dir = "ex09/", files = ["toy_nine.h"], allowed = None),
+        "10": exercise(page = 1, dir = "ex10/", files = ["toy_ten.h"], allowed = None),
+        "11": exercise(page = 1, dir = "ex11/", files = [], optional = ["*.h"], allowed = None),
+    },
+)
+
+c_program(
+    num = "00",
+    name = "toy",
+    # The method layer's fixed-size array, with a bound: ex00_fixed_array.
+    fixed_array = "the toy subject, p.1: \"Declare a fixed-size array of fewer than 64 bytes.\"",
+    fixed_array_bytes = 64,
+    # A real //oracle command, so the model targets are green when run by
+    # hand: tail -c 0 opens nothing and prints nothing, exit 0, whatever the
+    # operands -- every expected file here is empty, and "reading" names 0.
+    model = ["c10_run", "tail", "-c", "0"],
+    reference = True,
+    # Both run-shaping cases, swept with each malloc() refused in turn: the
+    # audit fails this package's load unless each sweep's gate runs its case
+    # as the case's output test does -- `staged` from its run folder, which
+    # Rush 02's sweep once left out (_case_gate_problems).
+    allocfail = [
+        "staged",
+        "argfile",
+    ],
+    allocfail_rule = "A toy rule, for the macro fixtures: errors are handled.",
+    cases = [
+        {
+            "name": "exact",
+            "expected": "empty.txt",
+        },
+        {
+            "name": "alt",
+            "any_of": [
+                "other.txt",
+                "empty.txt",
+            ],
+        },
+        {
+            "name": "survive",
+            "survive": True,
+        },
+        # Its own run (its argument), so its twin is its own: the same run as
+        # `exact` would share exact's (ONE TWIN PER RUN, below).
+        {
+            "name": "raised",
+            "args": ["raised"],
+            "expected": "empty.txt",
+            "level": 2,
+        },
+        # Two cases making ONE run, one per stream: how it ended is one fact,
+        # so one robust twin judges it, the first case's (tools/defs.bzl's
+        # _emit_cases, ONE TWIN PER RUN), and there is no onerun_stderr_exit.
+        {
+            "name": "onerun",
+            "args": ["onerun"],
+            "invalid_input": False,
+            "expected": "empty.txt",
+        },
+        {
+            "name": "onerun_stderr",
+            "args": ["onerun"],
+            "invalid_input": False,
+            "stream": "stderr",
+            "expected": "empty.txt",
+        },
+        # A status a sentence is READ as naming: compared in the output test,
+        # at strict, as a reading, with the sentence -- and no robust twin.
+        {
+            "name": "reading",
+            "expected": "empty.txt",
+            "exit": 0,
+            "exit_quote": "the toy does what its model does",
+            "level": 2,
+        },
+        {
+            "name": "staged",
+            "cwd_files": {"tests/ex00/toy.dict": "toy.dict"},
+            "args": ["toy.dict"],
+            "expected": "empty.txt",
+        },
+        {
+            "name": "argfile",
+            "argv_file": "tests/ex00/empty.argv",
+            "expected": "empty.txt",
+        },
+    ],
+)
+
+# A file 42 issues, named in the contract's `optional`; absent, as on a
+# fresh clone.
+c_issued(
+    num = "00",
+    file = "toy.dat",
+)
+
+# A toy shell exercise: a script turn-in, read twice, compared over two runs.
+shell_exercise(
+    num = "02",
+    mode = "check",
+    readings = {"regular": "regular.sh"},
+    script = "sh",
+    stable = True,
+)
+
+# A function whose toy subject leaves one case open: the cases every reading
+# agrees on in the exercise's own output test, the open one in a case of its
+# own, raised. Its output is read as a dump's would be (sanitize), and so is
+# its reading's: c_function hands the flag to every test that reads a run of
+# the function -- the layers list says " sanitize" where it landed.
+c_function(
+    num = "03",
+    fn = "toy_two",
+    test = "test_toy.c",
+    labeled = True,
+    sanitize = True,
+    # The method layer: ex03_method, whose gate reads the fixture as the
+    # output test does (--gate-sanitize, --gate-labeled).
+    method = "iterative",
+    method_rule = "the toy subject, p.1: \"Create an iterative function.\"",
+    readings = [
+        {
+            "name": "open",
+            "main": "test_toy_open.c",
+            "expected": "open.txt",
+            "labeled": True,
+            "level": 3,
+        },
+    ],
+)
+
+# A GENERATED CORPUS OF ITS OWN FOR THE READING, on ex03's toy function:
+# c_diff's `readings` emits ex03_readings, the same harness and gate over
+# another corpus, raised to robust by its "level" -- the form a convention
+# of this repo's own takes, listed in _RAISED like any raise -- and its ASan
+# twin ex03_readings_diff_asan, which replays the fewer of the reading's
+# `count` and `asan_count` cases and stays at robust, its layer's level. The
+# reading's own legend is ex03_readings', and the twin is handed none.
+# Two real //oracle arms of one line shape stand in for the toy's two
+# corpora, as ex04's and ex06's replays borrow theirs: a toy arm in the
+# reference crate would be code no exercise reads.
+c_diff(
+    num = "03",
+    fn = "toy_two",
+    harness = "diff_toy.c",
+    oracle_fn = "c05_iter_factorial",
+    count = 40,
+    asan_count = 30,
+    gate_labeled = True,
+    gate_sanitize = True,
+    perf = False,
+    readings = {
+        "count": 50,
+        "diff_clues": "diff_clues_readings.txt",
+        "level": 3,
+        "oracle_fn": "c05_rec_factorial",
+    },
+)
+
+hand_test(
+    name = "ex01_diff",
+    layer = "diff",
+    srcs = ["tests/pass.sh"],
+)
+
+# A raised test that stages docs/reference.md itself: it is handed its level
+# (RL_RAISED) all the same, which _test() once skipped for a test whose data
+# already listed the page, so its red said nothing of why it sits there.
+hand_test(
+    name = "ex01_staged_output",
+    layer = "output",
+    level = 2,
+    srcs = ["//tools:diff_output.sh"],
+    data = ["//:docs/reference.md"],
+)
+
+# A GENERATED CORPUS, on ex00's toy program, and its replays under the memory
+# checkers: without corpus_memory() below, the audit refuses this package. The
+# plain replays say what standard error is held to (_RUNNER_CHOICES); the twins
+# do not, a checker's mode being the answer.
+[hand_test(
+    name = "ex%s_%s_diff" % (num, what),
+    layer = "diff",
+    srcs = [runner],
+    args = [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        fn,
+    ] + stderr_ignored("the toy subject asks nothing of it"),
+    data = [
+        ":ex00_bin",
+        "//oracle:oracle",
+    ],
+) for num, what, runner, fn in [
+    ("04", "argv", "//tools:argv_check.sh", "c06_print_params"),
+    ("06", "file", "//tools:file_check.sh", "c10_cat"),
+    ("08", "argv", "//tools:argv_check.sh", "c06_rev_params"),
+]]
+
+[corpus_memory(
+    stem = "ex%s_%s" % (num, what),
+    runner = runner,
+    args = [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        fn,
+    ],
+    data = ["//oracle:oracle"],
+    bin = ":ex00_bin",
+    asan_bin = ":ex00_bin_asan",
+) for num, what, runner, fn in [
+    ("04", "argv", "//tools:argv_check.sh", "c06_print_params"),
+    ("06", "file", "//tools:file_check.sh", "c10_cat"),
+    ("08", "argv", "//tools:argv_check.sh", "c06_rev_params"),
+]]
+
+# Called before the last test on purpose: its audit runs once the whole file
+# has been read, so the test below is held to the same rules.
+c_levels()
+
+hand_test(
+    name = "ex00_twin",
+    layer = "selftest",
+    srcs = ["tests/pass.sh"],
+)
+
+# What c_levels() and the macros emitted, as data: one line per test --
+# "name runner", its level (the lowest lvl_ tag), " fn:" and " count:" (the
+# //oracle arm and the corpus size a generated corpus's replay is handed:
+# --oracle-fn, --count), " any-of", " survive",
+# " stray", " outside", " reading", " argv-file", " cwd", " ran", " case",
+# " clues" (a hint file it prints: --clues),
+# " stable", " sanitized" or " memcheck" (a corpus's sample: --sample),
+# " sanitize" (a dump's addresses read as --sanitize reads them, in the test
+# or its gate), and " gated" (it waits on another case: --gate-expected)
+# where its arguments say so, " raised:" and the level _RAISED gives it,
+# and " by:" and the RL_GRADER its
+# environment holds (../BUILD.bazel's :layers says why) -- and one per suite,
+# "name suite" and its tags. The :manual suite is not here: a finalizer declares it after
+# this list is made.
+names_file(
+    name = "layers",
+    names = sorted([
+        "%s %s @%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s by:%s" % (
+            r["name"],
+            r["srcs"][0].split(":")[-1],
+            [t for t in ["lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"] if t in r["tags"]][0][4:],
+            # The word after the flag (args is a tuple here: no .index).
+            "".join([" fn:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--oracle-fn"]),
+            "".join([" count:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--count"]),
+            " any-of" if "--expected-alt" in r["args"] else "",
+            " survive" if "--survive" in r["args"] else "",
+            " stray" if "--stray" in r["args"] else "",
+            " outside" if "--outside" in r["args"] else "",
+            # --exit-source reading, not any "reading": the case of that
+            # name is also handed over as --case reading.
+            " reading" if [i for i in range(len(r["args"]) - 1) if r["args"][i] == "--exit-source" and r["args"][i + 1] == "reading"] else "",
+            " argv-file" if "--argv-file" in r["args"] else "",
+            " cwd" if "--run-as" in r["args"] else "",
+            " ran" if "--show-run" in r["args"] else "",
+            " case" if "--case" in r["args"] else "",
+            # A hint file it prints (--clues): a clue file, or a diff legend.
+            " clues" if "--clues" in r["args"] else "",
+            " stable" if "--stable" in r["args"] else "",
+            " sanitized" if "--sanitized" in r["args"] else "",
+            # A dump's addresses, read as diff_output.sh --sanitize reads them
+            # (c_function's sanitize), in a test or in its gate.
+            " sanitize" if "--sanitize" in r["args"] or "--gate-sanitize" in r["args"] else "",
+            # A corpus's memcheck sample, not every valgrind arm: a fixed
+            # case's _valgrind arm passes --valgrind too.
+            " memcheck" if "--sample" in r["args"] else "",
+            # A survive case's output AND its run under the sanitizer wait on
+            # the exercise's first case; the sanitizer's did not.
+            " gated" if "--gate-expected" in r["args"] else "",
+            # The level _RAISED gives it, which _test() hands its runner to
+            # say why it sits there (runner_lib.sh's rl__raised).
+            (" raised:" + (r["env"] or {})["RL_RAISED"]) if "RL_RAISED" in (r["env"] or {}) else "",
+            (r["env"] or {}).get("RL_GRADER", "none"),
+        )
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+    ] + [
+        "%s suite %s" % (r["name"], " ".join(r["tags"]))
+        for r in existing_rules().values()
+        if r["kind"] == "test_suite"
+    ]),
+)
+
+exports_files(["layers.expected"])

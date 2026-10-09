@@ -1,0 +1,15 @@
+  One answer per array, always under the ascending comparator a - b.
+    * length 0 or 1           -> both are sorted, and neither reaches a
+                                 comparison
+    * arrays with EQUAL neighbours -> whether equal counts as sorted; the
+                                 comparator's sign is what decides, and the
+                                 subject describes what it means
+    * a descent the comparator calls out of order -> the corpus holds no
+                                 array in the reverse of f's order (whether
+                                 one counts as sorted is ex04_reverse_output's
+                                 question, at strict), so a descent here is
+                                 out of order under every reading: which pair
+                                 did your function not ask f about?
+    * only the last pair wrong -> the loop bound: how many pairs of neighbours
+                                 does an array of n elements have, and does
+                                 your loop reach every one of them?

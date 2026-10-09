@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$title$</title>
+<meta name="guide-source-sha256" content="$source-sha256$">
+<meta name="keywords" content="guide-source-sha256:$source-sha256$">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+body{margin:0;font-size:14px}
+:root {
+  --bg: #fbfaf6;
+  --ink: #20242a;
+  --muted: #5c6470;
+  --accent: #135f7d;
+  --accent-soft: #d9e9ef;
+  --code-bg: #f1efe9;
+  --code-ink: #2b2f36;
+  --border: #ddd8cc;
+  --card: #ffffff;
+  --mark: #8a5a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15181c;
+    --ink: #e3e1da;
+    --muted: #9aa2ad;
+    --accent: #5fb6d6;
+    --accent-soft: #143847;
+    --code-bg: #1d2127;
+    --code-ink: #d6d4cd;
+    --border: #343a43;
+    --card: #1a1e24;
+    --mark: #d9a94a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15181c;
+  --ink: #e3e1da;
+  --muted: #9aa2ad;
+  --accent: #5fb6d6;
+  --accent-soft: #143847;
+  --code-bg: #1d2127;
+  --code-ink: #d6d4cd;
+  --border: #343a43;
+  --card: #1a1e24;
+  --mark: #d9a94a;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  line-height: 1.62;
+  margin: 0;
+  padding-block: 0 4rem;
+  padding-inline: max(16px, calc(50vw - 39ch));
+}
+h1, h2, h3, h4, summary, th {
+  font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+}
+h1 {
+  font-size: 2rem;
+  line-height: 1.15;
+  text-wrap: balance;
+  margin: 2.2rem 0 0.8rem;
+}
+h1::before {
+  content: "42 · C PISCINE";
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  margin-bottom: 0.55rem;
+}
+h2 {
+  font-size: 1.45rem;
+  margin: 3rem 0 0.7rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 2px solid var(--accent);
+  text-wrap: balance;
+}
+h3 {
+  font-size: 1.17rem;
+  margin: 2.2rem 0 0.5rem;
+  text-wrap: balance;
+}
+h4 {
+  font-size: 0.98rem;
+  margin: 1.7rem 0 0.4rem;
+  letter-spacing: 0.01em;
+}
+p { margin: 0.7rem 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { color: var(--ink); }
+code {
+  font-family: "IBM Plex Mono", ui-monospace, "Courier New", monospace;
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.08em 0.3em;
+  border-radius: 3px;
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+  overflow-x: auto;
+  line-height: 1.45;
+}
+pre code { background: none; padding: 0; font-size: 0.82rem; }
+table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  border-collapse: collapse;
+  font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  font-size: 0.86rem;
+  margin: 1rem 0;
+  font-variant-numeric: tabular-nums;
+}
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+th { background: var(--code-bg); }
+blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 0.9rem 0;
+  padding: 0.1rem 0 0.1rem 0.9rem;
+  color: var(--muted);
+}
+hr { border: none; border-top: 1px solid var(--border); margin: 2.2rem 0; }
+ul, ol { padding-left: 1.4rem; }
+li { margin: 0.25rem 0; }
+details {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 5px;
+  background: var(--card);
+  padding: 0.45rem 0.85rem;
+  margin: 0.6rem 0 1rem;
+}
+details summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--accent);
+}
+details[open] summary { margin-bottom: 0.4rem; }
+details.toc {
+  border-left-width: 1px;
+  background: var(--card);
+  margin: 1.4rem 0 2rem;
+}
+details.toc nav { font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif; font-size: 0.92rem; }
+details.toc ul { list-style: none; padding-left: 1rem; margin: 0.3rem 0; }
+details.toc > nav > ul { padding-left: 0; }
+details.toc li { margin: 0.18rem 0; }
+#backtop {
+  position: fixed;
+  right: 14px;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  font-family: "IBM Plex Sans", Arial, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--bg);
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  opacity: 0.85;
+}
+#backtop:hover { text-decoration: none; opacity: 1; }
+@media (max-width: 480px) {
+  body { font-size: 16px; }
+  h1 { font-size: 1.6rem; }
+}
+</style>
+</head>
+<body>
+
+
+<details class="toc"><summary>Table of contents</summary>
+<nav id="TOC" role="doc-toc">
+$table-of-contents$
+</nav></details>
+$body$
+</body>
+</html>

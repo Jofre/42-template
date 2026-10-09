@@ -1,0 +1,8 @@
+  Both columns are printed after the call, so read them as a pair.
+    * both outputs equal one input     -> one value was overwritten before it
+                                          was saved
+    * both unchanged                   -> the function is working on copies, not
+                                          on what the caller passed
+    * only equal values diverge        -> a swap written as arithmetic, or an
+                                          xor, meeting the case where both
+                                          pointers could be the same

@@ -1,0 +1,8 @@
+find head	a
+find middle	c
+find tail	d
+not found	NULL
+empty list	NULL
+duplicate returns earliest	first
+5000-node list, the match its last node	the 5000th
+cmp called as (*cmp)(list_ptr->data, data_ref)	yes

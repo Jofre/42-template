@@ -1,0 +1,1 @@
+ex02_bin: error reading '.': Is a directory

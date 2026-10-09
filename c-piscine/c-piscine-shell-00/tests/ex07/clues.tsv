@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex07 (b)
+What does a diff file record: two whole files, or only the line-by-line edits that turn one into the other? Holding a and those edits, what could you rebuild, and which manual page does the subject point you to for it? What comes out if the edits are applied to the wrong base file?

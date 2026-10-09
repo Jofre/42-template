@@ -1,0 +1,3 @@
+find head: what is returned	the element
+find middle: what is returned	the element
+find tail: what is returned	the element

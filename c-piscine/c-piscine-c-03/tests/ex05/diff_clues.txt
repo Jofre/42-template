@@ -1,0 +1,14 @@
+  Destination, then the return. They fail independently. The buffer is
+  filled with ff bytes past the old terminator, so ff bytes at the end of the
+  result are a terminator that was never written.
+    * the return column alone            -> what the subject says is returned; it
+                                            is built from the length the source
+                                            WANTED, not from what was copied
+    * size smaller than the destination  -> the case where nothing can be
+                                            appended at all, which the return
+                                            still has to describe
+    * size 0 diverges                    -> whether anything may be written
+    * truncated results lose the terminator -> the guarantee this function makes
+    * off by one at the boundary         -> the byte reserved for the terminator
+    * only inputs holding a byte of 0x80 or more -> whether a comparison in
+                                          your loop sees that char as negative

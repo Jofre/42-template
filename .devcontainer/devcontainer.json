@@ -1,0 +1,48 @@
+{
+  "name": "42 Environment (Ubuntu 22.04)",
+  "dockerFile": "Dockerfile",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "editor.formatOnSave": false,
+        "editor.insertSpaces": false,
+        "editor.tabSize": 4,
+        "editor.detectIndentation": false,
+        "editor.formatOnType": false,
+        "editor.formatOnPaste": false,
+        "C_Cpp.intelliSenseEngine": "disabled",
+        "C_Cpp.formatting": "Disabled",
+        "bazelTestExplorer.testTypes": ["sh_test"],
+        "[c]": {
+          "editor.insertSpaces": false,
+          "editor.tabSize": 4,
+          "editor.detectIndentation": false,
+          "editor.formatOnSave": false,
+          "editor.formatOnType": false,
+          "editor.formatOnPaste": false
+        },
+        "[cpp]": {
+          "editor.insertSpaces": false,
+          "editor.tabSize": 4,
+          "editor.detectIndentation": false,
+          "editor.formatOnSave": false,
+          "editor.formatOnType": false,
+          "editor.formatOnPaste": false
+        }
+      },
+      "extensions": [
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.makefile-tools",
+        "kube.42header",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "BazelBuild.vscode-bazel",
+        "tragisch.bazel-testexplorer"
+      ]
+    }
+  },
+  "containerUser": "root",
+  "remoteUser": "student",
+  "runArgs": ["--hostname", "piscine"],
+  "postCreateCommand": "sh .devcontainer/postcreate.sh"
+}

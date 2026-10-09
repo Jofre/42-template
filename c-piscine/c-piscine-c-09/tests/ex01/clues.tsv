@@ -1,0 +1,6 @@
+# clues.tsv for ex01 (the Makefile) — pedagogic hints only. NEVER state the expected value or the fix.
+# The build test prints its own reasons; these are the questions behind them.
+Where does the subject say the sources and the header live, and where must libft.a end up? Your Makefile runs from the exercise directory: every path in it is relative to that.
+Which files may your Makefile compile? The subject names five and ends with "Watch out for wildcards!": what would a pattern matching every .c in srcs/ pick up in a directory you have never seen?
+What should a second `make`, right after the first, have left to do? And when a single source changes, how many objects does make have to rebuild, and how does it know which?
+What exactly does each of clean, fclean and re promise to leave behind? And what should the second of two runs in a row do?

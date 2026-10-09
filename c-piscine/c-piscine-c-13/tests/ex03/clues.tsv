@@ -1,0 +1,2 @@
+# clues.tsv for btree_apply_suffix
+What does the name "suffix" say about when a node's own item is visited, compared with the items in its subtrees? Under "-- balanced --" in the EXPECTED column, which node of that tree holds the item at the bottom? And an empty tree is a valid argument too: what may a call on one safely touch?

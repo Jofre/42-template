@@ -1,0 +1,214 @@
+ex00_asan asan_check.sh by:moulinette
+ex00_compile_clang compile_check.sh by:moulinette
+ex00_compile_gcc compile_check.sh by:moulinette
+ex00_files files_test.sh by:moulinette
+ex00_ilp32 ilp32_test.sh by:moulinette
+ex00_memcheck valgrind_test.sh by:moulinette
+ex00_norm norminette_test.sh by:moulinette
+ex00_norm_notice norminette_test.sh by:moulinette
+ex00_output diff_output.sh by:moulinette
+ex00_probe_memcheck valgrind_test.sh by:moulinette
+ex00_prototype prototype_check.sh by:moulinette
+ex00_symbols symbols_test.sh by:moulinette
+ex01_compile_clang compile_check.sh by:moulinette
+ex01_compile_gcc compile_check.sh by:moulinette
+ex01_files files_test.sh by:moulinette
+ex01_ilp32 ilp32_test.sh by:moulinette
+ex01_memcheck valgrind_test.sh by:moulinette
+ex01_norm norminette_test.sh by:moulinette
+ex01_norm_notice norminette_test.sh by:moulinette
+ex01_output diff_output.sh by:moulinette
+ex01_prototype prototype_check.sh by:moulinette
+ex01_symbols symbols_test.sh by:moulinette
+ex02_compile_clang compile_check.sh by:moulinette
+ex02_compile_gcc compile_check.sh by:moulinette
+ex02_files files_test.sh by:moulinette
+ex02_ilp32 ilp32_test.sh by:moulinette
+ex02_memcheck valgrind_test.sh by:moulinette
+ex02_norm norminette_test.sh by:moulinette
+ex02_norm_notice norminette_test.sh by:moulinette
+ex02_output diff_output.sh by:moulinette
+ex02_prototype prototype_check.sh by:moulinette
+ex02_symbols symbols_test.sh by:moulinette
+ex03_compile_clang no_turnin.sh by:moulinette
+ex03_compile_gcc no_turnin.sh by:moulinette
+ex03_files files_test.sh by:moulinette
+ex03_ilp32 no_turnin.sh gated by:moulinette
+ex03_memcheck valgrind_test.sh by:moulinette
+ex03_norm no_turnin.sh by:moulinette
+ex03_norm_notice no_turnin.sh gated by:moulinette
+ex03_output diff_output.sh by:moulinette
+ex03_prototype no_turnin.sh by:moulinette
+ex03_symbols no_turnin.sh by:moulinette
+ex04_asan asan_check.sh by:moulinette
+ex04_compile_clang compile_check.sh by:moulinette
+ex04_compile_gcc compile_check.sh by:moulinette
+ex04_files files_test.sh by:moulinette
+ex04_ilp32 ilp32_test.sh by:moulinette
+ex04_memcheck valgrind_test.sh by:moulinette
+ex04_norm norminette_test.sh by:moulinette
+ex04_norm_notice norminette_test.sh by:moulinette
+ex04_output diff_output.sh by:moulinette
+ex04_probe_memcheck valgrind_test.sh by:moulinette
+ex04_prototype prototype_check.sh by:moulinette
+ex04_symbols symbols_test.sh by:moulinette
+ex05_compile_clang compile_check.sh by:moulinette
+ex05_compile_gcc compile_check.sh by:moulinette
+ex05_files files_test.sh by:moulinette
+ex05_ilp32 ilp32_test.sh by:moulinette
+ex05_memcheck valgrind_test.sh by:moulinette
+ex05_norm norminette_test.sh by:moulinette
+ex05_norm_notice norminette_test.sh by:moulinette
+ex05_output diff_output.sh by:moulinette
+ex05_prototype prototype_check.sh by:moulinette
+ex05_symbols symbols_test.sh by:moulinette
+ex06_asan asan_run.sh by:moulinette
+ex06_compile_clang no_turnin.sh by:moulinette
+ex06_compile_gcc no_turnin.sh by:moulinette
+ex06_exit diff_output.sh by:moulinette
+ex06_norm no_turnin.sh by:moulinette
+ex06_norm_notice no_turnin.sh gated by:moulinette
+ex06_output diff_output.sh by:moulinette reads:tests/ex06/empty.txt,tests/ex06/fixtures/arg.txt,tests/ex06/stdin.txt
+ex06_program_allocfail allocfail_check.sh by:moulinette
+ex06_valgrind valgrind_test.sh by:moulinette
+ex07_compile_clang no_turnin.sh by:moulinette
+ex07_compile_gcc no_turnin.sh by:moulinette
+ex07_norm no_turnin.sh by:moulinette
+ex07_norm_notice no_turnin.sh gated by:moulinette
+ex07_output no_turnin.sh by:moulinette reads:tests/ex07/expected.txt
+ex08_build no_turnin.sh by:moulinette
+ex08_build_exit no_turnin.sh gated by:moulinette
+ex08_build_rules no_turnin.sh gated by:moulinette
+ex09_files no_turnin.sh by:moulinette
+ex09_lint no_turnin.sh gated by:moulinette
+ex09_norm no_turnin.sh by:moulinette
+ex09_output no_turnin.sh by:moulinette
+ex10_asan asan_run.sh by:moulinette
+ex10_compile_clang compile_check.sh make-includes by:moulinette
+ex10_compile_gcc compile_check.sh make-includes by:moulinette
+ex10_exit diff_output.sh by:moulinette
+ex10_norm norminette_test.sh by:moulinette
+ex10_norm_notice norminette_test.sh by:moulinette
+ex10_output diff_output.sh by:moulinette reads:tests/ex10/empty.txt
+ex10_valgrind valgrind_test.sh by:moulinette
+ex11_asan asan_run.sh by:moulinette
+ex11_compile_clang compile_check.sh by:moulinette
+ex11_compile_gcc compile_check.sh by:moulinette
+ex11_exit diff_output.sh by:moulinette
+ex11_norm norminette_test.sh by:moulinette
+ex11_norm_notice norminette_test.sh by:moulinette
+ex11_output diff_output.sh by:moulinette reads:tests/ex11/empty.txt
+ex11_program_allocfail allocfail_check.sh by:moulinette
+ex11_valgrind valgrind_test.sh by:moulinette
+ex12_asan asan_run.sh by:moulinette
+ex12_compile_clang compile_check.sh staged by:moulinette
+ex12_compile_gcc compile_check.sh staged by:moulinette
+ex12_exit diff_output.sh by:moulinette
+ex12_norm norminette_test.sh by:moulinette
+ex12_norm_notice norminette_test.sh by:moulinette
+ex12_output diff_output.sh by:moulinette reads:tests/ex12/empty.txt
+ex12_valgrind valgrind_test.sh by:moulinette
+ex13_asan asan_run.sh by:moulinette
+ex13_compile_clang compile_check.sh staged by:moulinette
+ex13_compile_gcc compile_check.sh staged by:moulinette
+ex13_exit diff_output.sh by:moulinette
+ex13_norm norminette_test.sh by:moulinette
+ex13_norm_notice norminette_test.sh by:moulinette
+ex13_output diff_output.sh by:moulinette reads:tests/ex13/empty.txt
+ex13_program_allocfail allocfail_check.sh by:moulinette
+ex13_valgrind valgrind_test.sh by:moulinette
+ex14_files files_test.sh provided by:moulinette
+ex15_compile_clang compile_check.sh by:moulinette
+ex15_compile_gcc compile_check.sh by:moulinette
+ex15_files files_test.sh by:moulinette
+ex15_forbidden forbidden_symbols.sh provided by:moulinette
+ex15_ilp32 ilp32_test.sh grader-lib by:moulinette
+ex15_memcheck valgrind_test.sh by:moulinette
+ex15_norm norminette_test.sh by:moulinette
+ex15_norm_notice norminette_test.sh by:moulinette
+ex15_output diff_output.sh by:moulinette
+ex15_prototype prototype_check.sh by:moulinette
+ex15_reading_output diff_output.sh strict by:moulinette
+ex15_symbols symbols_test.sh provided by:moulinette
+ex16_compile_clang compile_check.sh by:moulinette
+ex16_compile_gcc compile_check.sh by:moulinette
+ex16_ilp32 ilp32_test.sh grader-lib by:moulinette
+ex16_layout_prototype prototype_check.sh layout-tag strict by:moulinette
+ex16_memcheck valgrind_test.sh by:moulinette
+ex16_norm norminette_test.sh by:moulinette
+ex16_norm_notice norminette_test.sh by:moulinette
+ex16_output diff_output.sh by:moulinette
+ex16_prototype prototype_check.sh layout by:moulinette
+ex16_symbols symbols_test.sh provided by:moulinette
+ex17_compile_clang compile_check.sh by:moulinette
+ex17_compile_gcc compile_check.sh by:moulinette
+ex17_ilp32 ilp32_test.sh by:moulinette
+ex17_layout_prototype prototype_check.sh layout layout-tag strict by:moulinette
+ex17_memcheck valgrind_test.sh by:moulinette
+ex17_norm norminette_test.sh by:moulinette
+ex17_norm_notice norminette_test.sh by:moulinette
+ex17_output diff_output.sh by:moulinette
+ex17_prototype prototype_check.sh by:moulinette
+ex17_symbols symbols_test.sh by:moulinette
+ex19_asan asan_run.sh by:moulinette
+ex19_build make_test.sh by:moulinette
+ex19_build_exit make_test.sh by:moulinette
+ex19_build_rules make_test.sh by:moulinette
+ex19_compile_clang compile_check.sh make-includes by:moulinette
+ex19_compile_gcc compile_check.sh make-includes by:moulinette
+ex19_exit diff_output.sh by:moulinette
+ex19_files files_test.sh program:toy19 built by:moulinette
+ex19_norm norminette_test.sh by:moulinette
+ex19_norm_notice norminette_test.sh by:moulinette
+ex19_output diff_output.sh by:moulinette reads:tests/ex19/empty.txt
+ex19_valgrind valgrind_test.sh by:moulinette
+ex20_build make_test.sh by:moulinette
+ex20_build_exit make_test.sh by:moulinette
+ex20_build_rules make_test.sh by:moulinette
+ex20_files files_test.sh program:toy20 built by:moulinette
+ex21_extra_norm norminette_test.sh by:moulinette
+ex21_extra_norm_notice norminette_test.sh by:moulinette
+ex21_putchar_output diff_output.sh by:moulinette reads:tests/ex21/putchar.txt
+ex21_putchar_symbols symbols_test.sh by:moulinette
+ex21_shared_compile_clang compile_check.sh by:moulinette
+ex21_shared_compile_gcc compile_check.sh by:moulinette
+ex21_shared_norm norminette_test.sh by:moulinette
+ex21_shared_norm_notice norminette_test.sh by:moulinette
+ex23_files shell_test.sh by:moulinette
+ex23_lint shell_test.sh by:moulinette
+ex23_norm shell_test.sh by:moulinette
+ex23_output shell_test.sh by:moulinette
+ex23_posix shell_test.sh by:moulinette
+ex23_regular shell_test.sh by:moulinette
+ex24_argv_asan argv_table.sh by:moulinette
+ex24_asan argv_table.sh by:moulinette
+ex24_compile_clang compile_check.sh make-includes by:moulinette
+ex24_compile_gcc compile_check.sh make-includes by:moulinette
+ex24_exit argv_table.sh by:moulinette
+ex24_norm norminette_test.sh by:moulinette
+ex24_norm_notice norminette_test.sh by:moulinette
+ex24_output argv_table.sh by:moulinette
+ex27_asan asan_run.sh by:moulinette
+ex27_compile_clang compile_check.sh make-includes by:moulinette
+ex27_compile_gcc compile_check.sh make-includes by:moulinette
+ex27_exit diff_output.sh by:moulinette
+ex27_norm norminette_test.sh by:moulinette
+ex27_norm_notice norminette_test.sh by:moulinette
+ex27_output diff_output.sh by:moulinette reads:tests/ex27/empty.txt
+ex27_valgrind valgrind_test.sh by:moulinette
+ex28_asan asan_run.sh by:moulinette
+ex28_compile_clang compile_check.sh staged make-includes by:moulinette
+ex28_compile_gcc compile_check.sh staged make-includes by:moulinette
+ex28_exit diff_output.sh by:moulinette
+ex28_norm norminette_test.sh by:moulinette
+ex28_norm_notice norminette_test.sh by:moulinette
+ex28_output diff_output.sh by:moulinette reads:tests/ex28/empty.txt
+ex28_valgrind valgrind_test.sh by:moulinette
+ex29_argv_asan argv_table.sh by:moulinette
+ex29_asan argv_table.sh by:moulinette
+ex29_compile_clang compile_check.sh make-includes by:moulinette
+ex29_compile_gcc compile_check.sh make-includes by:moulinette
+ex29_exit argv_table.sh by:moulinette
+ex29_norm norminette_test.sh by:moulinette
+ex29_norm_notice norminette_test.sh by:moulinette
+ex29_output argv_table.sh by:moulinette

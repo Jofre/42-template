@@ -1,0 +1,11 @@
+0 even
+1 odd
+2 even
+-1 odd
+-2 even
+-3 odd
+7 odd
+42 even
+2147483647 odd
+-2147483648 even
+I have an odd number of arguments.

@@ -1,0 +1,103 @@
+load("//tools:defs.bzl", "c_files", "c_program", "exercise", "subject", "turnin_dir")
+load("//tools:names_file.bzl", "names_file")
+
+# Its programs are the data of //tools/tests:macro_fixtures_test.
+package(default_visibility = ["//tools/tests:__pkg__"])
+
+# A TOY PROJECT TURNED IN AT THE ROOT OF deliverable/, with its sources in
+# srcs/ and its header in includes/ -- the shape every Common Core subject
+# asks for, and BSQ's: no "Turn-in directory" line, so no exNN/ folder, and
+# a Makefile that says where the files are (findings 172, 177). An invented
+# exercise, like the rest of ../ (see its BUILD file); its own package,
+# because a root turn-in is the whole repository and so a project's only
+# exercise.
+#
+# What //tools/tests:macro_fixtures_test checks here, on every run:
+#
+#   * the package loads with a turn-in directory of deliverable/ itself;
+#   * ex00_bin is a REAL program. The Makefile's recipe names srcs/main.c,
+#     and main.c includes toy_root.h, which only `-I includes` finds: so
+#     the build staged the subfolders (the whole turn-in tree), took the
+#     source from `make -Bn`, and took the include directory from it too.
+#     Without any one of the three it is a stand-in;
+#   * the same -I list reaches the compile layers (ex00_bin_includes.txt,
+#     their --inc-file): they find toy_root.h the way the Makefile does, and
+#     only that way -- a header in a subfolder is never on their path by
+#     itself (" staged make-includes" in layers.expected);
+#   * the files layer lists the tree, each file by its path from the root
+#     (srcs/main.c, includes/toy_root.h), never by a basename;
+#   * every test carries the contract's grader, "both" as BSQ's and a
+#     Common Core project's are (" by:both" in layers.expected);
+#   * the tests emitted are the ones layers.expected lists.
+#
+# Measured by hand on 2026-09-30 (its grader made "both") with
+#
+#     bazel test $(bazel query 'tests(//tools/tests/macro_fixtures/root:*)')
+#
+# (tagged manual, as every fixture test is): ex00_files and ex00_output
+# green, ex00_norm and ex00_norm_notice green, both compiles green, ex00_asan
+# green. Re-measure after changing a macro or a runner.
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(
+            page = 1,
+            dir = None,
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = None,
+        ),
+    },
+)
+
+# Its contract names no allowed functions, so the program may allocate and
+# its case would get a valgrind arm (c_program reads that from the contract).
+# The case turns it off: this output test is the toys' one that nothing waits
+# for, which holds subject()'s finalizer to writing an empty list for it
+# (:waiting_ex00_output, "-" in //tools/tests:macro_fixtures_test's --lines).
+c_program(
+    num = "00",
+    name = "toy_root",
+    makefile = True,
+    cases = [{
+        "name": "run",
+        "expected": "empty.txt",
+        "valgrind": False,
+    }],
+)
+
+c_files(num = "00")
+
+# What the macros emitted, as data: see ../BUILD.bazel's :layers.
+names_file(
+    name = "layers",
+    names = sorted([
+        "%s %s%s%s%s by:%s" % (
+            r["name"],
+            r["srcs"][0].split(":")[-1],
+            " gated" if "--gated" in r["args"] else "",
+            " staged" if "--staged-hdr" in r["args"] else "",
+            " make-includes" if "--inc-file" in r["args"] else "",
+            (r["env"] or {}).get("RL_GRADER", "none"),
+        )
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+    ]),
+)
+
+exports_files(["layers.expected"])
+
+# This file, for //tools/tests:conventions: a package with a turn-in, so its
+# BUILD file is held to the same rules as a module's.
+filegroup(
+    name = "conventions_srcs",
+    srcs = ["BUILD.bazel"],
+)
+
+# Its turn-in folder as the macros compute it, for first_red's reading of the
+# contract above (see ../BUILD.bazel's :turnin_dirs).
+names_file(
+    name = "turnin_dirs",
+    names = ["ex00 " + turnin_dir("00")],
+)

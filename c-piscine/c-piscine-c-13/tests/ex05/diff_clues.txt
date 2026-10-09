@@ -1,0 +1,9 @@
+# conventions: no byte family -- the items' bytes are read only by the harness's cmp_str, which btree_search_item is handed and calls
+  The found item is printed, or nothing.
+    * an empty tree           -> the subject says what to return
+    * an item at the root     -> is the root's own item ever compared? The
+                                 subject names the order the tree is walked in
+    * items that are absent   -> the walk has to end, and end with the stated
+                                 answer
+    * NULL wherever the reference found one -> what each call hands cmpf: is
+                                 the reference you were given one of the two?

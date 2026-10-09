@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_reverse
+Reversing a list: do the nodes move in memory, or do the links between them change direction? If you overwrite a node's next pointer, what have you lost unless you kept it somewhere? And where must *begin_list point once the old first node is the tail?

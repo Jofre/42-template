@@ -1,0 +1,2 @@
+# clues.tsv for btree_apply_infix
+What does the name "infix" say about when a node's own item is visited, compared with the items in its subtrees? Under "-- balanced --", the EXPECTED column comes out in an order you have seen before: which one, and why would this traversal give it on that tree? And an empty tree is a valid argument too: what may a call on one safely touch?

@@ -1,0 +1,10 @@
+# clues.tsv for ft_strlcat — hints only, never answers.
+# The contract is the manual page: man 3bsd strlcpy, one page for strlcpy and
+# strlcat. glibc 2.35 has neither function, so the page ships only in libbsd-dev
+# (the dev container carries it; docs/environment.md, what you run by hand). With
+# no page installed: https://man.openbsd.org/strlcpy.3
+strlcat's return value is the length it TRIED to build, not how much actually fit. Which two lengths add together to make it, and does that sum depend on size at all? man 3bsd strlcat says (no page installed? man.openbsd.org/strlcpy.3).	fits fully (size 50)	empty src (size 50)	into empty dest (size 10)	X-filled buffer, truncated (size 5)	X-filled buffer, fits (size 20)
+When size is too small, you copy only what fits and must still place a terminator inside the buffer. How many bytes can you actually write before the terminator has to go down?	truncated (size 10)	size 1	X-filled buffer, truncated (size 5)
+In the X-filled rows every byte past "Hi" starts as 'X', so nothing after the text is 0 unless your code writes it -- unlike the other rows' buffers, where the byte after the text was 0 before the call. Where must the terminator go after the bytes you append, whether all of src fit or not, and which statement of yours puts it there?	X-filled buffer, truncated (size 5)	X-filled buffer, fits (size 20)
+What if size is less than or equal to dest's current length? There is no room to append anything -- yet the return value is still defined. Re-read what "the total length it tried to create" means when dest itself does not fit within size.	size 0	size == dest length (6)	size < dest length (3)
+This row's src holds bytes above 0x7f. When your code reads a byte of src to decide whether it has reached the end, which values can that byte take as a char, and which one of them is the terminator?	bytes above 0x7f in src (size 50)

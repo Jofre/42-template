@@ -1,0 +1,8 @@
+ex00_asan asan_run.sh by:both
+ex00_compile_clang compile_check.sh staged make-includes by:both
+ex00_compile_gcc compile_check.sh staged make-includes by:both
+ex00_exit diff_output.sh by:both
+ex00_files files_test.sh by:both
+ex00_norm norminette_test.sh by:both
+ex00_norm_notice norminette_test.sh by:both
+ex00_output diff_output.sh by:both

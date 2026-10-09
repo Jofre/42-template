@@ -1,0 +1,6 @@
+# clues.tsv for ft_list_last — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+You are asked for the very last node of a chain. Each node points to the next, and one special node points nowhere. Which condition on a node's next pointer tells you that you have arrived at the end, and are you returning that node itself rather than walking one step past it?	single element	tail of three
+A chain may hand you nothing at all to begin with. Before you ever follow a next pointer or read a field, what do you owe the caller when there is no first node to stand on?	empty list
+With three nodes, which one does your code actually hand back? Trace it by hand: at each step, what does your loop look at to decide whether to take another step, and is that the same thing that makes a node the last one?	tail of three

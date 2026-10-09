@@ -1,0 +1,19 @@
+# clues.tsv for ft_display_file — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><case name>...: each row keyed to the c_program cases of BUILD.bazel
+# it is about. A row fires on those cases' tests and on their memory arms; a row keyed
+# "valgrind" fires on every case's memory arm. Each case is a test of its own, and an
+# untouched stub fails every one, so any row here can fire at the first red: ask about a
+# concept, and never list the program's steps.
+#
+# Displaying a file (show, blob).
+The subject forbids malloc and asks for a fixed-size array. How big is yours, and what should happen when the file is bigger than that array? What does read return when it fills the array, when it hands you the last few bytes, and once there is nothing left to read (man 2 read)?	show	blob
+Is every byte you read passed on exactly as it came, including a 0 byte or a byte that is not text? write needs to be told how many bytes to send: where does that number come from, and is it always the size of your array?	show	blob
+When the content has been displayed, is anything you opened still open?	show	blob
+#
+# The argument and error cases (noarg, toomany, cannot).
+The subject names three situations that each have their own message: no file name, more than one, and a file that cannot be read. How many entries does argv hold in each of them, counting argv[0]? And how does open tell you it failed (man 2 open)?	noarg	toomany	cannot
+The subject sends each error message to the output reserved for errors. Of the three standard streams every program starts with (man 3 stdin), which one is that, and which file descriptor number does write need for it? Does each message end with the newline the subject asks for?	noarg	toomany	cannot
+#
+# An empty file, each stream compared (empty, empty_stderr).
+An empty file opens and reads without any error. What does read return on the very first call for it (man 2 read), and is that the value it returns when something went wrong?	empty	empty_stderr
+Of the three messages the subject lists, which one is about a file that holds nothing? What should reach each of the two output streams when the file is valid and empty?	empty	empty_stderr

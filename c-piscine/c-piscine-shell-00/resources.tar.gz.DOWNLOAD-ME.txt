@@ -1,0 +1,13 @@
+resources.tar.gz is not in this repository, and this file is only its placeholder.
+
+42 issues resources.tar.gz with the c-piscine-shell-00 subject. It is 42's file, not this
+repository's to redistribute, so you download your own:
+
+    from:        the intranet, beside the Shell 00 subject
+    save it as:  c-piscine/c-piscine-shell-00/resources.tar.gz
+
+The tests read it from exactly that path; it is never turned in.
+Until it is there, the checks that need it SKIP and say so, and
+everything else runs.
+
+Delete this placeholder whenever you like; nothing reads it.

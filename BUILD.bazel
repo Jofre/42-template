@@ -1,0 +1,75 @@
+# Shared test/build tooling lives in //tools (see //tools:defs.bzl).
+# This module's exercises are under c-piscine/c-piscine-c-*/BUILD.bazel.
+
+# The files //tools:conventions reads that belong to no module and no package of
+# their own: the devcontainer's setup script, the root BUILD file itself, the
+# top-level docs and rc files, the CHANGELOG a publish adds a line to, what
+# .github holds, and the Markdown in a course folder that is not a package
+# (cursus/README.md, the exam guide). Everything else it scans arrives through a module's
+# :conventions_srcs (emitted by c_levels) or through //tools, //tools/tests and
+# //oracle. A glob stops at a package, so a project folder with a BUILD file of
+# its own is its c_levels' to declare, not this one's.
+filegroup(
+    name = "conventions_srcs",
+    srcs = [
+        "BUILD.bazel",
+        "MODULE.bazel",
+        ".bazelrc",
+        ".gitignore",
+        # Read by the check that a CR a fixture needs survives a commit.
+        ".gitattributes",
+        ".bazelrc.local.example",
+        # README.md links to it, and the rule that a page's links resolve
+        # sees, under `bazel test`, only the files declared here and in the
+        # other conventions_srcs.
+        "LICENSE",
+    ] + glob(
+        [
+            # The top-level Markdown: README.md, AGENTS.md, the CHANGELOG.md
+            # a publish adds a line to, and, where the checkout has them, the
+            # maintainer's TODO.md (whose TO VERIFY leads conventions holds to
+            # a number each) and HISTORY.md, which the template ships without.
+            "*.md",
+            ".devcontainer/*.sh",
+            "docs/*.md",
+        ],
+        allow_empty = False,
+    ) + glob(
+        [
+            "c-piscine/**/*.md",
+            "c-piscine-reloaded/**/*.md",
+            "cursus/**/*.md",
+        ],
+        exclude = [
+            "**/deliverable/**",
+            "**/generators/**",
+        ],
+        allow_empty = True,
+    ) + glob(
+        # GitHub's issue forms, pull request template and pages, which ship
+        # with the template: its Markdown is read as every page is, and
+        # every file by the rules that read them all (a private name, a CR).
+        [".github/**"],
+        allow_empty = True,
+    ) + glob(
+        # Every other rc file, which conventions checks for a shared path the
+        # way it checks the two above. Never .bazelrc.local: it is per checkout,
+        # gitignored, and holds the absolute paths setup.sh chose on purpose.
+        [
+            ".bazelrc.*",
+            "*.bazelrc",
+        ],
+        allow_empty = True,
+        exclude = [
+            ".bazelrc.local",
+            ".bazelrc.local.example",
+        ],
+    ),
+    visibility = ["//tools/tests:__pkg__"],
+)
+
+# The page whose table says why a test sits above its layer's level ("Targets
+# raised above their layer"), staged beside every test tools/defs.bzl's
+# _RAISED lists, whose runner prints that row under a red
+# (tools/runner_lib.sh, rl__raised).
+exports_files(["docs/reference.md"])

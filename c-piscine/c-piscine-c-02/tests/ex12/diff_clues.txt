@@ -1,0 +1,25 @@
+  Each record is one block: the bytes, the size, the whole render with row
+  breaks written as \n, then 1 or 0 for "returned addr". An address that is
+  not the row's real one is left as you printed it. Read the FIRST divergent
+  row, not the last.
+
+    * size 0 diverges          -> the subject says nothing is displayed, and a
+                                  loop that cannot run zero times displays a row
+    * only the LAST row        -> the short row: what fills the hex column where
+                                  there is no byte left, and how wide that
+                                  column has to stay
+    * every row, in the address -> the address is the first byte of THAT row,
+                                  not of the block
+    * the address, on every block -> how wide a pointer is here, and whether
+                                  every digit of it reaches the column
+    * only the last column      -> what the function hands back, and whether
+                                  that holds when there is nothing to display
+    * the third column only     -> which bytes count as printable; the two ends
+                                  of that range are the whole question, and 0x7f
+                                  is at one of them
+    * the hex column only       -> the grouping: how many bytes per group, and
+                                  where the separating spaces go
+    * one space missing everywhere -> the single space between the hex column
+                                  and the printable one, which is separate from
+                                  the padding inside the hex column
+    * sizes larger than 16 only -> the row loop, not the byte loop

@@ -1,0 +1,139 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_function", "c_levels", "exercise", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(page = 8, dir = "ex00/", files = ["ft_strlen.c"], allowed = []),
+        "01": exercise(page = 9, dir = "ex01/", files = ["ft_putstr.c"], allowed = ["write"]),
+        "02": exercise(page = 10, dir = "ex02/", files = ["ft_putnbr.c"], allowed = ["write"]),
+        "03": exercise(page = 11, dir = "ex03/", files = ["ft_atoi.c"], allowed = []),
+        "04": exercise(page = 12, dir = "ex04/", files = ["ft_putnbr_base.c"], allowed = ["write"]),
+        "05": exercise(page = 14, dir = "ex05/", files = ["ft_atoi_base.c"], allowed = []),
+    },
+)
+
+c_function(num = "00", fn = "ft_strlen", test = "test_strlen.c", labeled = True, clues = "clues.tsv")
+
+c_function(num = "01", fn = "ft_putstr", test = "test_putstr.c", clues = "clues.tsv")
+
+# ex00 and ex01 carry NO differential arm (REPEATED-CONTRACT): both are exact
+# repeats of an exercise one module earlier -- ft_strlen is c-01 ex06 and
+# ft_putstr is c-01 ex05, same prototype, same contract -- and those carry a
+# live c_diff (c01_strlen, c01_putstr) whose corpora pin 0x7f, 0x80 and 0xff.
+#
+# But each module is its own repository, graded on its own files, so what
+# c-01's corpus proves is not coverage HERE (docs/design.md, "Each project is
+# also graded alone"; finding 061). The bug these two hide is the signed-char
+# one -- a scan that treats a byte comparing as negative as the end of the
+# string, and so stops dead at the first byte >= 0x80, which is negative once a
+# plain `char` is signed (stated as a property, not as code: hints, never
+# answers). So both fixtures end with a UTF-8 word and a lone 0xff, which every
+# reading agrees on -- strlen counts the byte, putstr writes it -- and both
+# exercises are red on that bug at basic, here.
+
+c_function(num = "02", fn = "ft_putnbr", test = "test_putnbr.c", labeled = True, clues = "clues.tsv")
+
+# Live differential fuzz against the Rust reference (//oracle): 400k seeded ints,
+# exact-value compare. The harness sets stdout unbuffered so the student's
+# write() bytes stay interleaved with the harness's printf labels.
+c_diff(
+    num = "02",
+    fn = "ft_putnbr",
+    harness = "diff_putnbr.c",
+    oracle_fn = "c04_putnbr",
+    # Lower count: this function write()s one CHARACTER at a time, which is what
+    # the subject asks for, so its replay is syscall-bound and dominates the
+    # layer's wall time (measured 52s of a 60s budget at 400k under full-suite
+    # contention). Each generator emits its pinned contract corners FIRST and
+    # only the seeded random tail shrinks, so no boundary case is lost.
+    # 200000, not 100000: as many as the ASan twin replays, so each case it
+    # checks for memory is value-checked here too (V34, the owner's choice,
+    # 2026-10-04); c_diff refuses a twin larger than its plain replay.
+    count = 200000,
+    diff_clues = "diff_clues.txt",
+)
+
+c_function(num = "03", fn = "ft_atoi", test = "test_atoi.c", labeled = True, clues = "clues.tsv")
+
+# NOT libc semantics: this subject's ft_atoi consumes an ARBITRARY RUN of signs
+# ("a '-' sign will invert the result depending on whether the number of '-'
+# signs is odd or even", with the worked example " ---+--+1234ab567" -> -1234),
+# so libc's atoi — which stops after one sign — is not a valid cross-check. The
+# reference is pinned by that example, by tests/ex03/expected.txt, and by the
+# atoi/putnbr round-trip. Magnitudes stay <= INT_MAX so no overflow-UB can cause
+# a false divergence.
+c_diff(num = "03", fn = "ft_atoi", harness = "diff_atoi.c", oracle_fn = "c04_atoi", diff_clues = "diff_clues.txt")
+
+c_function(num = "04", fn = "ft_putnbr_base", test = "test_putnbr_base.c", labeled = True, clues = "clues.tsv")
+
+# A READING, at strict (ex04 and ex05 alike): C 04's lists of invalid bases
+# (p.12, p.14) are headed "Examples of invalid arguments", so whether a base
+# may hold a byte above 0x7f, or a control byte, is a case the subject leaves
+# open. Basic tests none of them, and exNN_diff holds only the cases every
+# reading agrees on -- such bytes among them where they decide nothing, in a
+# base invalid by a rule the lists state or in the string ft_atoi_base reads.
+# The cases the readings part on are exNN_readings', at strict, with its ASan
+# twin (finding 061). The reading it tests is stated in that target's own
+# legend alone (tests/exNN/diff_clues_readings.txt; V42).
+c_diff(
+    num = "04",
+    fn = "ft_putnbr_base",
+    harness = "diff_putnbr_base.c",
+    oracle_fn = "c04_putnbr_base",
+    # Lower count: this function write()s one CHARACTER at a time, which is what
+    # the subject asks for, so its replay is syscall-bound and dominates the
+    # layer's wall time (measured 52s of a 60s budget at 400k under full-suite
+    # contention). Each generator emits its pinned contract corners FIRST and
+    # only the seeded random tail shrinks, so no boundary case is lost.
+    # 200000, not 100000: as many as the ASan twin replays, so each case it
+    # checks for memory is value-checked here too (V34, the owner's choice,
+    # 2026-10-04); c_diff refuses a twin larger than its plain replay.
+    count = 200000,
+    diff_clues = "diff_clues.txt",
+    readings = {"oracle_fn": "c04_putnbr_base_readings", "diff_clues": "diff_clues_readings.txt"},
+)
+
+c_function(num = "05", fn = "ft_atoi_base", test = "test_atoi_base.c", labeled = True, clues = "clues.tsv")
+
+c_diff(
+    num = "05",
+    fn = "ft_atoi_base",
+    harness = "diff_atoi_base.c",
+    oracle_fn = "c04_atoi_base",
+    diff_clues = "diff_clues.txt",
+    readings = {"oracle_fn": "c04_atoi_base_readings", "diff_clues": "diff_clues_readings.txt"},
+)
+
+
+# No valgrind arm anywhere in this module: no exercise here is allowed malloc, so
+# nothing can leak — see the `allowed` rule written out in
+# c-piscine/c-piscine-c-00/BUILD.bazel.
+
+c_levels()
+
+c_cycles(
+    num = "02",
+    fn = "ft_putnbr",
+    oracle_fn = "c04_putnbr",
+    harness = "diff_putnbr.c",
+    unit_expr = "length($2)",
+    unit_name = "digit",
+    # A number, not a reference implementation: it says where you stand without
+    # saying how to get there.
+    budget = 40,
+    syscall_budget = 1.0,
+)
+
+c_cycles(
+    num = "04",
+    fn = "ft_putnbr_base",
+    oracle_fn = "c04_putnbr_base",
+    harness = "diff_putnbr_base.c",
+    unit_expr = "length($2)",
+    unit_name = "digit",
+    # emit_nbr archetype; budget measured from the implemented c-00..c-04 exercises.
+    budget = 40,
+    syscall_budget = 1.0,
+)

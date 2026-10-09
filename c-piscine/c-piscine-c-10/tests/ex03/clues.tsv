@@ -1,0 +1,24 @@
+# clues.tsv for ft_hexdump — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><case name>...: each row keyed to the c_program cases of BUILD.bazel
+# it is about. A row fires on those cases' tests and on their memory arms; a row keyed
+# "valgrind" fires on every case's memory arm. Each case is a test of its own, and an
+# untouched stub fails every one, so any row here can fire at the first red: ask about a
+# concept, and never list the program's steps.
+#
+# One file's dump, in each layout (dump, dedup, empty, canon, canon_dedup, high, canon_high,
+# full, canon_full, dupend, canon_dupend).
+Match the canonical hexdump layout byte-for-byte: the offset column, the hex bytes in their fixed grouping, and the printable-characters column. How many bytes per line, what padding keeps the columns aligned on a short final line, and how are runs of identical lines collapsed?	dump	dedup	empty	canon	canon_dedup	high	canon_high	full	canon_full	dupend	canon_dupend
+Does ft_hexdump have to read standard input? The subject says "without redirection": which sentence would you point to, whichever way you read it? No case here gives it any, and none forbids it.	dump	dedup	empty	canon	canon_dedup	high	canon_high	full	canon_full	dupend	canon_dupend
+#
+# The several-file cases (multi, canon_multi, stream, canon_stream).
+Given two small files, does the system's hexdump start its offsets again for the second one, or count on? On files whose sizes are not multiples of 16, where does the line holding the end of the first file stop?	multi	canon_multi	stream	canon_stream
+A run of identical lines collapses into one "*": can that run begin in one file and end in the next, and what offset does the line after it show?	multi	canon_multi	stream	canon_stream
+#
+# The case errcont: a name that will not open, before one that does.
+When one name cannot be opened, does the system's hexdump still dump the others? Does anything about the missing one reach standard output, or does it belong on the other stream?	errcont
+#
+# The strict cases (errmsg, errstatus, allfail), which read "performs the same function as the
+# system's hexdump" as hexdump's own messages and exit status.
+This harness's reading, at strict, of "the same function as the system's hexdump": hexdump's own behaviour on an error, its messages on standard error and its exit status. What does the system's hexdump print on each stream for the same arguments, and what does echo $? show right after it?	errmsg	errstatus	allfail
+hexdump prints a message for each name it cannot open, and one more when not one of them opened: how does your program know, once the names run out, whether any of them opened?	errmsg	errstatus	allfail
+What text does strerror give for the errno a failed open leaves (man 3 strerror), and which name starts each of the tool's messages?	errmsg	errstatus	allfail

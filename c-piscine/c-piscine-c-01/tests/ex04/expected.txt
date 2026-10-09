@@ -1,0 +1,9 @@
+13 / 5	div: 2, mod: 3
+7 / 1	div: 7, mod: 0
+0 / 5	div: 0, mod: 0
+-13 / 5 (neg dividend)	div: -2, mod: -3
+13 / -5 (neg divisor)	div: -2, mod: 3
+-13 / -5 (both neg)	div: 2, mod: -3
+-7 / 2	div: -3, mod: -1
+INT_MIN / 2	div: -1073741824, mod: 0
+INT_MAX / 7	div: 306783378, mod: 1

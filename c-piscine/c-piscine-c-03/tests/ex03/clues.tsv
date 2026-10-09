@@ -1,0 +1,3 @@
+# clues.tsv for ft_strncat — hints only, never answers.
+strncat appends at most nb bytes of src, then always adds a terminator. What should happen when nb is 0, and when nb is larger than src's length? Does your result always end properly?	"Hello " + "World!" (nb=0)	"abc" + "" (nb=5, empty src)	"Hello " + "World!" (nb=3, truncated)	"Hello " + "World!" (nb=100, all fits)
+This buffer is 'X'-filled past the terminator. After appending nb bytes, is the new terminator placed correctly so no leftover bytes appear?	append nb=3 past old '\0' (X-filled)

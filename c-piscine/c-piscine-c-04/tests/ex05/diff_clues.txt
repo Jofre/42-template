@@ -1,0 +1,23 @@
+  Two inputs: the text and the base string.
+    * the base column                   -> what makes a base invalid here; note
+                                           that this side, unlike printing, has
+                                           whitespace to worry about too
+    * whitespace and signs              -> the same rules as ft_atoi, and the
+                                           subject says so explicitly
+    * a digit that is not in the base    -> where the number ends
+    * bases whose digits repeat          -> a base with a duplicate cannot be
+                                           read back unambiguously
+    * only long inputs                  -> every value here fits an int:
+                                           does anything your loop computes
+                                           on the way to it not fit? (What C
+                                           promises about each type's width:
+                                           docs/testing.md, under ilp32.)
+    * only bases holding a byte above 0x7f, or a control byte -> the answer
+                                           here is 0 whatever such a byte is:
+                                           the base breaks a rule the
+                                           subject's list states, or nothing
+                                           in the text is read with it. What
+                                           does your base check do with a char
+                                           whose value is negative? (Whether
+                                           such a byte may be a digit at all
+                                           is ex05_readings' question.)

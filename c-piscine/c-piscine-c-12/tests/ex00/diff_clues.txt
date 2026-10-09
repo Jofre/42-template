@@ -1,0 +1,6 @@
+  The new element is printed as its data plus its link.
+    * the link is not empty   -> what a lone element points at, and the subject
+                                 says what that is
+    * the data is copied      -> the subject says what the element stores; it is
+                                 the pointer it was given
+    * nothing is printed      -> the allocation, or its size

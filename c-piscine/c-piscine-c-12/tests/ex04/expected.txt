@@ -1,0 +1,6 @@
+four calls: node 1	a
+four calls: node 2	b
+four calls: node 3	c
+four calls: node 4	d
+one call on an empty list: head's data	solo
+one call on an empty list: next is NULL	yes

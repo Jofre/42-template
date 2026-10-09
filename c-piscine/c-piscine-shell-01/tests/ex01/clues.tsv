@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex01 (print_groups.sh)
+Does the subject's example show group names or group numbers, and whose groups: the user running the script, or the one named in FT_USER? What sits between two names? Look where the subject's prompt reappears after the list: what does that say about how the line ends, and does the tool you use add something there?

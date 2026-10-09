@@ -1,0 +1,2 @@
+# clues.tsv for ft_print_params
+argv[0] is the program's own name, so the real parameters begin at index 1. Where does your loop start and stop, and are you printing each parameter followed by a newline?

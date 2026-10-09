@@ -1,0 +1,5 @@
+# clues.tsv for ft_list_size — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+You are asked only how many nodes the chain holds. If you counted them by hand, what would you have to keep track of as you went, and what tells you there is nothing left to count? Trace your code on the shortest chains here, one node and then two: is every node counted exactly once, the last one included?	single node	two nodes	three nodes	five nodes
+What does your walk do before it ever takes a step — is it allowed to begin at all when you are handed nothing instead of a first node? Think about what tally a chain of no nodes should leave you with.	empty NULL list

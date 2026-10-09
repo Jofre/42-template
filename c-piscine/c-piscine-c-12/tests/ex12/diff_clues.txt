@@ -1,0 +1,11 @@
+  The list is printed after the call, then how many times free_fct was called.
+    * a match at the HEAD     -> the case that changes the caller's own pointer
+    * consecutive matches     -> after removing one, the next element to test is
+                                 not the next one you advanced to
+    * every element matching  -> the list becomes empty, and the caller has to
+                                 see that
+    * the empty list          -> nothing to do and nothing to dereference
+    * the last column differs -> what the subject says to free, with what, and
+                                 for which elements
+    * nothing is ever removed -> the order the subject writes cmp's arguments
+                                 in: this harness's cmp matches only that one

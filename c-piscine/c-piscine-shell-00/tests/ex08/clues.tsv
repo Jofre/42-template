@@ -1,0 +1,3 @@
+# clues.tsv for c-piscine-shell-00 ex08 (clean) — and Piscine Reloaded ex02, which reads this file (twin_of)
+The subject allows one command only, and names ';' and '&&' among what it rules out. Can the tool it points you to (man find) match names by pattern, show what it found and delete it, all inside that one command? Which names match, and does the search reach into subdirectories?
+A name that only starts with #, one that only ends with it, one with ~ inside it rather than at its end: does your pattern tell each of them from a backup's name?

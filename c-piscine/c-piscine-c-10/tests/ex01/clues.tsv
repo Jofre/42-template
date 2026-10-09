@@ -1,0 +1,19 @@
+# clues.tsv for ft_cat — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><case name>...: each row keyed to the c_program cases of BUILD.bazel
+# it is about. A row fires on those cases' tests and on their memory arms; a row keyed
+# "valgrind" fires on every case's memory arm. Each case is a test of its own, and an
+# untouched stub fails every one, so any row here can fire at the first red: ask about a
+# concept, and never list the program's steps.
+#
+# What every reading agrees on (one, two, blob, nonl, stdin, errcont, dircont).
+What changes from display_file when several files are named, or none? Is a 0 byte in a file data, or an end marker, and so what tells you how many bytes one read actually gave you (man 2 read)? On a file that will not open, where does the subject's error text come from, and do the remaining files still get their turn?	one	two	blob	nonl	stdin	errcont	dircont
+#
+# The strict cases (errmsg, errstatus, dirmsg), which read "performs the same function as the
+# system's cat" as cat's own messages and exit status.
+This harness's reading, at strict, of "the same function as the system's cat": cat's own behaviour on an error, its message on standard error and its exit status. What does the system's cat print on each stream for the same names, and what does echo $? show right after it?	errmsg	errstatus	dirmsg
+Each of cat's messages starts with a name: whose? Where does your program find the name it was started under, and what would basename make of it (man 3 basename)?	errmsg	errstatus	dirmsg
+Which errno value does open leave for a name that does not exist, and which does read leave for a directory? What text does strerror give each (man 3 strerror)?	errmsg	errstatus	dirmsg
+#
+# The strict case dash: a lone "-" between two file names.
+What does the system's cat do with an operand that is a lone "-" (man 1 cat)? This harness's reading, at strict, of "the same function as the system's cat": your program does the same, and "You don't need to handle options" does not cover it. Is "-" an option, or a file operand with a meaning of its own?	dash
+Which file descriptor is already open for reading when main starts, and where in the output do its bytes belong when "-" sits between two file names?	dash

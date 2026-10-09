@@ -1,0 +1,34 @@
+# Pinned Python tooling for the hermetic build.
+#
+# norminette's version decides which rules exist, so it is pinned exactly: an
+# unpinned copy means a build next month can reject code that passes today, or
+# accept code the campus box rejects. 3.3.58 is what the 2026-08-09 campus
+# audit found, and the same one .devcontainer/Dockerfile installs for running by
+# hand -- the Bazel norm layer uses THIS one and never the host's.
+#
+# It was 3.3.59 until that audit, taken from an earlier campus reading. The
+# direction of the correction is worth noting: campus was BEHIND what we pinned,
+# not ahead, so the norm layer had been slightly out of step with the grader in
+# whichever direction the two releases differ. Match the box; the box is what
+# grades you.
+#
+# When the campus box moves, run `bazel run //tools:env_audit` there, read the
+# norminette line out of the report, and change the version here -- and the two
+# hashes under it with it: they are that version's two files on PyPI, the wheel
+# and the source archive (https://pypi.org/project/norminette/<version>/#files
+# shows each one's SHA256). A hash that matches no file of the version is not a
+# failure but a WARNING ("Could not find a whl or an sdist with sha256=..."),
+# and that file is left out, so read the first run after a change. A new
+# version also changes what MODULE.bazel.lock records, which .bazelrc says how
+# to refresh (--lockfile_mode).
+#
+# Why the hashes are written down: without them rules_python takes every file
+# the index lists for the version, and says so each time Bazel starts -- a
+# "DEBUG: ... WARNING: requirement file has been generated without hashes"
+# banner, the first thing a student read on a fresh clone, and nothing they
+# could act on (finding 047). With them, the fetch is held to these two files
+# and prints nothing. Checked against PyPI's own listing for 3.3.58, and
+# against the wheel Bazel had already fetched.
+norminette==3.3.58 \
+    --hash=sha256:5e0c660692eaf929e82ceb800b74e91ce90d4889029698d3cd7feab1aa45fd78 \
+    --hash=sha256:bea25c4e04a6a06453ae1d4692e3803606e6c80f3ae20eb148816146c202e2f9

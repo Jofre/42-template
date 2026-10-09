@@ -1,0 +1,8 @@
+  The array is printed after the call.
+    * size 0 or 1             -> a loop that cannot run zero times
+    * only arrays with equal strings -> the comparison's meaning at zero
+    * the array is unchanged  -> the swap is moving copies, not the pointers in
+                                 the array
+    * the order is right but the strings are damaged -> pointers are being
+                                 copied, not their contents; nothing here needs
+                                 to touch the characters

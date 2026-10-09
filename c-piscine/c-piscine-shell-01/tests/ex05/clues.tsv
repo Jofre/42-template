@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex05 ("\?$*'MaRViN'*$?\") — and Piscine Reloaded ex05, which reads this file (twin_of)
+The name the subject gives is full of characters the shell treats specially. Which of them would the shell interpret rather than pass on as they are, and does each way of quoting (man bash, QUOTING) protect every one of them? And the content: how many bytes is "42" and nothing else, and does the way you write it add one?

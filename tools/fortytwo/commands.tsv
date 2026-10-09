@@ -1,0 +1,31 @@
+# THE 42 COMMANDS, and what each one runs. `42 help` is printed from this file,
+# and //tools:conventions holds it to tools/BUILD.bazel: every run target there
+# (sh_binary, py_binary) and every project's :generate is named in a row's RUNS,
+# and every label a row names exists. A new action is a Bazel target plus one
+# row here; a target nobody may run from 42 gets an `internal` row that says
+# why. Columns, tab-separated:
+#
+#   COMMAND    the word after `42`; `-` for a target that is no command
+#   USAGE      what follows the command word in `42 help`
+#   RUNS       the labels (or `bazel <command>`, `sh <script>`) it runs
+#   AUDIENCE   student (in `42 help`), maintainer (in `42 help --all`), internal
+#   TEXT       one line of help; for an internal row, the reason
+#
+# COMMAND	USAGE	RUNS	AUDIENCE	TEXT
+test	[project] [exNN] [layer] [--level L] [--fresh] [--all]	bazel test	student	Run the tests of where you are, at your level.
+watch	[project] [exNN] [layer] [--level L] [--tmux]	bazel test	student	Run them again every time you save a file.
+clues	[project] [exNN] [N|all]	bazel test	student	Run what failed again, with more hints.
+submit	[project...|--all] [--level L] [-n]	//tools:submit	student	Push the projects whose tests pass to Vogsphere.
+norm	[file...]	//tools:norminette	student	The pinned norminette; with no file, the norm tests of where you are.
+generate	[project]	//tools:generate //<project>:generate	student	Write a shell project's deliverables from its generators.
+header	FILE | --reset [where|--all] [-n]	//tools:gen_header //tools:reset_headers	student	Print a 42 header for FILE; --reset re-stamps the headers of your files.
+init	[--login L --email E]	//tools:init	student	Set your 42 login and email (headers, git identity).
+doctor	[--drift] [--report]	//tools:env_drift sh tools/env-audit.sh	student	Is this machine ready to run the tests?
+stop		bazel shutdown	student	Stop this checkout's Bazel server and free its memory.
+selftest	[--harness]	//tools/tests:fortytwo_test //tools/...	maintainer	The tests of 42 itself; --harness adds every test of //tools.
+conventions		//tools:conventions	maintainer	The harness's style gate.
+stubcheck	[where] [--file F]	//tools:stub_check	maintainer	Which turn-in files still hold only the stub.
+-		//tools:42	internal	42 itself, for a checkout where setup.sh has not run: bazel run //tools:42 -- test
+-		//tools:prime	internal	Not offered: on a campus machine it froze the session (the owner, 2026-10-09).
+-		//tools:answer_scan	internal	It reads a tree that holds answers; a maintainer runs it by its label.
+-		//tools:env_audit	internal	Reached as `42 doctor --report`, which runs tools/env-audit.sh itself: it has to work before Bazel does.

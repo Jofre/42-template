@@ -1,0 +1,137 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_function", "c_levels", "c_mem_check", "exercise", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(page = 8, dir = "ex00/", files = ["ft_ft.c"], allowed = []),
+        "01": exercise(page = 9, dir = "ex01/", files = ["ft_ultimate_ft.c"], allowed = []),
+        "02": exercise(page = 10, dir = "ex02/", files = ["ft_swap.c"], allowed = []),
+        "03": exercise(page = 11, dir = "ex03/", files = ["ft_div_mod.c"], allowed = []),
+        "04": exercise(page = 12, dir = "ex04/", files = ["ft_ultimate_div_mod.c"], allowed = []),
+        "05": exercise(page = 13, dir = "ex05/", files = ["ft_putstr.c"], allowed = ["write"]),
+        "06": exercise(page = 14, dir = "ex06/", files = ["ft_strlen.c"], allowed = []),
+        "07": exercise(page = 15, dir = "ex07/", files = ["ft_rev_int_tab.c"], allowed = []),
+        "08": exercise(page = 16, dir = "ex08/", files = ["ft_sort_int_tab.c"], allowed = []),
+    },
+)
+
+c_function(num = "00", fn = "ft_ft", test = "test_ft.c", labeled = True, clues = "clues.tsv")
+
+c_function(num = "01", fn = "ft_ultimate_ft", test = "test_ultimate_ft.c", labeled = True, clues = "clues.tsv")
+
+# ex00 and ex01 carry NO differential arm, and that is a decision rather than an
+# omission. Both write the CONSTANT 42 through a pointer -- `ft_ft(int *nbr)`
+# and `ft_ultimate_ft(int *********nbr)` -- so their input space is one value:
+# the pointer, which every case would have to make valid anyway. There is
+# nothing for a generator to vary, and a c_diff would replay one identical case
+# 400 000 times and prove nothing tests/exNN/expected.txt has not already
+# proved. This is the same reasoning c-piscine/c-piscine-c-00/BUILD.bazel records for its
+# five `void f(void)` exercises; the only difference is that these two take a
+# pointer rather than nothing, and a pointer is not an input space.
+#
+# What ex01 really tests is that nine levels of indirection are followed, which
+# is a compile-time property of the code and not a value a corpus could carry.
+
+c_function(num = "02", fn = "ft_swap", test = "test_swap.c", labeled = True, clues = "clues.tsv")
+
+# Live differential fuzz against the Rust reference (//oracle): 400k seeded
+# int pairs, exact-value compare on the swapped result.
+c_diff(num = "02", fn = "ft_swap", harness = "diff_swap.c", oracle_fn = "c01_swap", diff_clues = "diff_clues.txt")
+
+# The fixture's two ints start at a value no row expects, and print as
+# "untouched" while they hold it (finding 076's class); the diff harness runs
+# each case from two presets, since any int can be a quotient. //tools/tests's
+# selftest builds the fixture over a body that stores nothing and requires
+# every row to fail, so the two files are visible to it.
+exports_files(
+    ["tests/ex03/test_div_mod.c", "tests/ex03/expected.txt"],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
+c_function(num = "03", fn = "ft_div_mod", test = "test_div_mod.c", labeled = True, clues = "clues.tsv")
+
+c_diff(num = "03", fn = "ft_div_mod", harness = "diff_div_mod.c", oracle_fn = "c01_div_mod", diff_clues = "diff_clues.txt")
+
+c_function(num = "04", fn = "ft_ultimate_div_mod", test = "test_ultimate_div_mod.c", labeled = True, clues = "clues.tsv")
+
+c_diff(num = "04", fn = "ft_ultimate_div_mod", harness = "diff_ultimate_div_mod.c", oracle_fn = "c01_ultimate_div_mod", diff_clues = "diff_clues.txt")
+
+c_function(num = "05", fn = "ft_putstr", test = "test_putstr.c", clues = "clues.tsv")
+
+c_diff(
+    num = "05",
+    fn = "ft_putstr",
+    harness = "diff_putstr.c",
+    oracle_fn = "c01_putstr",
+    # Lower count: this function write()s one CHARACTER at a time, which is what
+    # the subject asks for, so its replay is syscall-bound and dominates the
+    # layer's wall time (measured 52s of a 60s budget at 400k under full-suite
+    # contention). Each generator emits its pinned contract corners FIRST and
+    # only the seeded random tail shrinks, so no boundary case is lost.
+    # 200000, not 100000: as many as the ASan twin replays, so each case it
+    # checks for memory is value-checked here too (V34, the owner's choice,
+    # 2026-10-04); c_diff refuses a twin larger than its plain replay.
+    count = 200000,    diff_clues = "diff_clues.txt",
+)
+
+c_function(num = "06", fn = "ft_strlen", test = "test_strlen.c", labeled = True, clues = "clues.tsv")
+
+c_diff(num = "06", fn = "ft_strlen", harness = "diff_strlen.c", oracle_fn = "c01_strlen", diff_clues = "diff_clues.txt")
+
+c_function(num = "07", fn = "ft_rev_int_tab", test = "test_rev_int_tab.c", labeled = True, clues = "clues.tsv")
+
+# ft_rev_int_tab / ft_sort_int_tab carry a `size` SAFETY bound: they reorder the
+# array in place and must never read or write index == size. These run the
+# function under ASan on exactly-sized heap buffers — a stray access past the
+# bound is caught here (output diffing can't see an out-of-bounds read).
+c_mem_check(num = "07", fn = "ft_rev_int_tab", probe = "mem_rev_int_tab.c")
+
+c_diff(num = "07", fn = "ft_rev_int_tab", harness = "diff_rev_int_tab.c", oracle_fn = "c01_rev_int_tab", diff_clues = "diff_clues.txt")
+
+c_function(num = "08", fn = "ft_sort_int_tab", test = "test_sort_int_tab.c", labeled = True, clues = "clues.tsv")
+
+c_mem_check(num = "08", fn = "ft_sort_int_tab", probe = "mem_sort_int_tab.c")
+
+# perf_length: the perf layer's case-count exponent cannot see how a sort grows
+# -- every array in the corpus is short, so a cubic sort is linear in how many
+# arrays it is handed (finding 044). The length series grows one array instead,
+# and reports what doubling it does to one call; it never gates, because for a
+# sort that exponent is the algorithm (the reason C 12 ex14 has no budget).
+c_diff(
+    num = "08",
+    fn = "ft_sort_int_tab",
+    harness = "diff_sort_int_tab.c",
+    oracle_fn = "c01_sort_int_tab",
+    diff_clues = "diff_clues.txt",
+    perf_length = {"oracle_fn": "c01_sort_int_tab_len", "harness": "len_sort_int_tab.c"},
+)
+
+c_levels()
+
+c_cycles(
+    num = "06",
+    fn = "ft_strlen",
+    oracle_fn = "c01_strlen",
+    harness = "diff_strlen.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # A number, not a reference implementation: it says where you stand without
+    # saying how to get there.
+    budget = 3.5,
+    syscall_budget = 0,
+)
+
+c_cycles(
+    num = "05",
+    fn = "ft_putstr",
+    oracle_fn = "c01_putstr",
+    harness = "diff_putstr.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    # A number, not a reference implementation: it says where you stand without
+    # saying how to get there.
+    budget = 4.5,
+    syscall_budget = 1.0,
+)

@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex03 (count_files.sh)
+Which two kinds of entry does the subject count, and what does it say about "." itself? If your command listed the entries it counts instead of counting them, would "." be among them? Would anything be there that is neither a regular file nor a directory, such as a symbolic link?

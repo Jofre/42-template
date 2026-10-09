@@ -1,0 +1,6 @@
+# conventions: no byte family -- the items reach only the harness's own functions, never the code under test
+  The order of the visits IS the answer.
+    * an empty tree           -> the recursion's base case
+    * the root's position     -> infix names when the node is visited relative
+                                 to its subtrees, and it is not first
+    * left and right swapped  -> the order the subtrees are taken in

@@ -1,0 +1,4 @@
+# clues.tsv for ft_rev_int_tab — hints only, never answers.
+Reversing in place means every element ends up somewhere it can reach by trading places with exactly one other element. Which element does the first one trade with? Once you know that, what tells you when to stop — and what goes wrong if you keep going past that point?	two {10,20}	even len {1..4}	odd len {1..5}
+Look at the tiny inputs: size 0 and size 1. How many swaps should happen there, and does your loop accidentally touch anything when there is nothing to reverse?	single {42}	size 0 (no-op)
+Nothing in the subject says how big the array is. Does anything in your function stop working when it is bigger than the arrays you tried it on?	5000 ints {0..4999}

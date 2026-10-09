@@ -1,0 +1,7 @@
+["banana","apple","cherry","Apple"]	Apple | apple | banana | cherry
+[] (no args)	
+["solo"]	solo
+["banana","Banana","banana","apple","ananas"]	Banana | ananas | apple | banana | banana
+["","z z","a"]	 | a | z z
+["banana","band","ban"]	ban | banana | band
+["",""]	 | 

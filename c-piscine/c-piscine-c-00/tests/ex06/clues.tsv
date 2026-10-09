@@ -1,0 +1,2 @@
+# clues.tsv for ft_print_comb2 — hints only, never answers.
+Each item is a pair of two-digit numbers where the second is strictly greater than the first. How do you keep the pair ordered to avoid duplicates, how do you pad to two digits, and where does the comma-space separator belong?

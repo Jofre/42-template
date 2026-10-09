@@ -1,0 +1,10 @@
+three nodes: node 1	3
+three nodes: node 2	2
+three nodes: node 3	1
+three nodes: *begin_list is the old last node	yes
+three nodes: its next is the old middle node	yes
+three nodes: the middle's next is the old first node	yes
+three nodes: the old first node's next is NULL	yes
+one node: *begin_list is still that node	yes
+one node: its next is still NULL	yes
+empty list: *begin_list is still NULL	yes

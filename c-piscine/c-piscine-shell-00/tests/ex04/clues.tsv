@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-00 ex04 (midLS)
+The subject asks for several things at once: which entries are left out, what separates two entries, what marks a directory, and how the list is ordered. Which of those can ls do by itself (man ls), and does your output keep every one of them at the same time, down to the end of the line?

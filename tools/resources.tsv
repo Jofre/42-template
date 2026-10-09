@@ -1,0 +1,59 @@
+# resources.tsv — the files 42 issues with a subject, other than the subject.
+#
+# WHY ONE REGISTRY. Each of these is 42's material, so the public template does
+# not carry it and every student downloads their own -- and each used to be
+# handled one file at a time: a strip rule here, an ignore rule there, a SKIP
+# message and a doc paragraph each naming its own idea of where the file goes.
+# They disagreed. shell-00's tarball was "in its folder" in one message (which
+# a student reads as deliverable/ex07, a folder generate rebuilds) and "next to
+# BUILD.bazel" in another; rush-02's dictionary was "wherever you like, the
+# path is an argument" in the docs while the subject's one-argument form reads
+# it from a fixed place in the turn-in (findings 016, 161). One row per file
+# now, and everything that names it reads or is checked against the row:
+#
+#   the template build      strips it (the strip glob, outside tests/, plus the
+#                           exact name anywhere), writes the ignore rule the
+#                           template's .gitignore carries, a placeholder text
+#                           file in the project folder, and a line on the
+#                           project's SUBJECT-PLACEHOLDER.pdf;
+#   tools/generate.sh       stages a harness file for the generators, refuses
+#                           to wipe one saved inside deliverable/exNN, and
+#                           names the path when one is missing;
+#   tools/conventions.sh    checks that every file in named-in exists and names
+#                           the path (the SKIP wording, the docs); that no text
+#                           sends a student to "its folder" for one; that each
+#                           consumer is a label in the row's project; and that
+#                           the project's BUILD files name the file outside a
+#                           comment, only in a glob with allow_empty = True or
+#                           in a list of file names -- never as a label, which
+#                           takes the package down on the template.
+#
+# A new project with a file of 42's adds a row here, and that is the whole job:
+# the strip, the ignore rule, the placeholder and the checks follow from it.
+#
+# Columns, tab-separated, `-` for none:
+#
+#   project    the project folder, from the repo root
+#   file       the name 42 gives it
+#   path       the ONE path the harness and the student's program read it from
+#   role       harness  the tests read it; it is never turned in
+#              turn-in  it is turned in with the project; //tools:submit pushes
+#                       it although the template's .gitignore keeps it out of
+#                       commits (it is 42's, so a copy must not republish it),
+#                       and the project's BUILD calls c_issued() for it, whose
+#                       test fails at basic, worded from this row, while it is
+#                       missing (tools/defs.bzl; //tools:conventions checks
+#                       the call is there)
+#   strip      git glob of the copies the template build removes, outside
+#              tests/ (a copy under tests/ with the exact name goes too); wider
+#              than the name where a copy may be renamed
+#   consumers  the targets that read it, comma-separated: each SKIPs, naming
+#              the path, while it is absent
+#   named-in   the files whose wording must name the path, comma-separated
+#   source     where a student gets it
+#
+# The placeholder goes in the project folder, never in deliverable/: that
+# folder is what //tools:submit pushes, and a placeholder there would be turned
+# in.
+c-piscine/c-piscine-shell-00	resources.tar.gz	c-piscine/c-piscine-shell-00/resources.tar.gz	harness	*resources.tar.gz	//c-piscine/c-piscine-shell-00:ex07_output	README.md,c-piscine/c-piscine-shell-00/tests/ex07/check.sh,docs/testing.md,tools/template_docs.patch	the intranet, beside the Shell 00 subject
+c-piscine/c-piscine-rush-02	numbers.dict	c-piscine/c-piscine-rush-02/deliverable/ex00/numbers.dict	turn-in	*.dict	-	README.md,docs/rushes.md,tools/template_docs.patch	the intranet, beside the Rush 02 subject

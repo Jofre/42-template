@@ -1,0 +1,2 @@
+# clues.tsv for ft_rev_params
+Same parameters as print_params (starting at index 1) but emitted in reverse. Which index do you start from, which way do you step, and does argv[0] belong in the output?

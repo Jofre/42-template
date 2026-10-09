@@ -1,0 +1,11 @@
+  ex09_readings: every string here has a letter right after a byte of 0x80
+  or more. The string is printed after the call, as hex: decode it to read
+  it as text.
+    * any of them             -> whether a byte of 0x80 or more is
+                                 alphanumeric by the subject's definition of a
+                                 word. It names no byte above 0x7f, and this
+                                 harness's reading, at strict, never the
+                                 subject's, is that such a byte is not
+                                 alphanumeric. Which bytes does your function
+                                 count as part of a word, and which sentence
+                                 do you read as deciding it?

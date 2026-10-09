@@ -1,0 +1,698 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//tools:defs.bzl", "NORM_NO_RELINK", "NORM_NO_WILDCARDS", "c_argv_table", "c_cycles", "c_diff", "c_function", "c_header", "c_levels", "c_make", "c_mem_check", "c_program", "c_twin", "corpus_memory", "exercise", "hand_test", "shell_exercise", "subject")
+
+# Piscine Reloaded: ONE project, ONE Vogsphere repository, ex00 ... ex27 at its
+# root. It is a best-of of the Piscine, and its tests are the Piscine's own.
+# The shell and file exercises (ex00-ex05) ask what a Piscine exercise asks,
+# so they READ that exercise's tests, named by twin_of on each call: one
+# copy, and a fix to it reaches both projects. The copies they replaced drifted
+# -- a fix reached one of two check scripts, the other kept the bug. The C
+# exercises' tests are still copied from the exercise each one repeats (named
+# beside every call), because they differ where the subject does: ft_putchar
+# in place of write, a header of the exercise's own.
+#
+# It mixes three kinds of exercise, each handled the way the Piscine already
+# handles it:
+#   ex00-ex05  shell and file turn-ins. The answer is generators/exNN.sh, and
+#              deliverable/exNN/ is generated from it and gitignored PER
+#              EXERCISE (.gitignore here) -- an archive's permissions and
+#              timestamps, and ex05's file name, cannot live in git.
+#   ex06-ex23, ex25-ex27  C, headers and programs, written in deliverable/exNN.
+#   ex24, ex27 a Makefile.
+#
+# ft_putchar. The subject: "If ft_putchar() is an authorized function, we will
+# compile your code with our ft_putchar.c." Six exercises authorise it (ex06,
+# 07, 08, 15, 18, 19). Their stubs declare it -- `void ft_putchar(char c);` --
+# and never define it, and every build of their code here links
+# tests/ft_putchar.c (the contract's `provided`), as the Moulinette links its own.
+# Layers that judge the student's file alone (norm, compile, forbidden,
+# prototype, symbols) never see it, so a call to ft_putchar is an authorised
+# undefined symbol there, and `write` is not authorised at all. An ft_putchar.c
+# turned in by mistake is an extra file, which the files layer fails.
+#
+# Layers the Piscine runs that are NOT here: c_reference_cost and c_cycles for
+# the ft_putchar exercises. Their budgets were measured on answers that call
+# write() directly, and a correct answer here pays for one ft_putchar call per
+# character; a budget it cannot meet would red correct work.
+
+# Rebuild the generated shell deliverables (ex00-ex05) from the generators:
+#   bazel run //c-piscine-reloaded/c-piscine-reloaded:generate
+sh_binary(
+    name = "generate",
+    srcs = ["//tools:generate.sh"],
+    args = [package_name()],
+)
+
+PUTCHAR = {"tests/ft_putchar.c": "ft_putchar.c"}
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+# "Your exercises will only be checked and graded by a program called
+# Moulinette", and "You cannot leave any additional file in your directory
+# than those specified in the subject": strict, the default.
+subject(
+    grader = "moulinette",
+    group = False,
+    exercises = {
+        "00": exercise(page = 9, dir = "ex00/", files = ["exo.tar"], allowed = []),
+        "01": exercise(page = 10, dir = "ex01/", files = ["z"], allowed = []),
+        "02": exercise(page = 11, dir = "ex02/", files = ["clean"], allowed = []),
+        "03": exercise(page = 12, dir = "ex03/", files = ["find_sh.sh"], allowed = []),
+        "04": exercise(page = 13, dir = "ex04/", files = ["MAC.sh"], allowed = []),
+        # files = None: the file's NAME is the exercise (Shell 01 ex05's), so
+        # writing it down here would hand it over; see shell_exercise.
+        "05": exercise(page = 14, dir = "ex05/", files = None, allowed = []),
+        "06": exercise(page = 15, dir = "ex06/", files = ["ft_print_alphabet.c"], allowed = ["ft_putchar"], provided = PUTCHAR),
+        "07": exercise(page = 16, dir = "ex07/", files = ["ft_print_numbers.c"], allowed = ["ft_putchar"], provided = PUTCHAR),
+        "08": exercise(page = 17, dir = "ex08/", files = ["ft_is_negative.c"], allowed = ["ft_putchar"], provided = PUTCHAR),
+        "09": exercise(page = 18, dir = "ex09/", files = ["ft_ft.c"], allowed = []),
+        "10": exercise(page = 19, dir = "ex10/", files = ["ft_swap.c"], allowed = []),
+        "11": exercise(page = 20, dir = "ex11/", files = ["ft_div_mod.c"], allowed = []),
+        "12": exercise(page = 21, dir = "ex12/", files = ["ft_iterative_factorial.c"], allowed = []),
+        "13": exercise(page = 22, dir = "ex13/", files = ["ft_recursive_factorial.c"], allowed = []),
+        "14": exercise(page = 23, dir = "ex14/", files = ["ft_sqrt.c"], allowed = []),
+        "15": exercise(page = 24, dir = "ex15/", files = ["ft_putstr.c"], allowed = ["ft_putchar"], provided = PUTCHAR),
+        "16": exercise(page = 25, dir = "ex16/", files = ["ft_strlen.c"], allowed = []),
+        "17": exercise(page = 26, dir = "ex17/", files = ["ft_strcmp.c"], allowed = []),
+        "18": exercise(page = 27, dir = "ex18/", files = ["ft_print_params.c"], allowed = ["ft_putchar"], provided = PUTCHAR),
+        "19": exercise(page = 28, dir = "ex19/", files = ["ft_sort_params.c"], allowed = ["ft_putchar"], provided = PUTCHAR),
+        "20": exercise(page = 29, dir = "ex20/", files = ["ft_strdup.c"], allowed = ["malloc"]),
+        "21": exercise(page = 30, dir = "ex21/", files = ["ft_range.c"], allowed = ["malloc"]),
+        "22": exercise(page = 31, dir = "ex22/", files = ["ft_abs.h"], allowed = []),
+        "23": exercise(page = 32, dir = "ex23/", files = ["ft_point.h"], allowed = []),
+        # ex24 -- the Makefile, and nothing else: "We'll only fetch your Makefile
+        # and test it with our files." The grader's files are tests/ex24/grader/:
+        # the five sources the subject names (PLACEHOLDERS that compile -- this
+        # exercise grades the Makefile, and a real body would be another
+        # exercise's answer), their header, and a decoy source a Makefile must
+        # never compile, because the Norm says every source is named explicitly
+        # ("no *.c").
+        "24": exercise(
+            page = 33,
+            dir = "ex24/",
+            files = ["Makefile"],
+            allowed = [],
+            provided = {
+                "tests/ex24/grader/includes/ft.h": "includes/ft.h",
+                "tests/ex24/grader/srcs/ft_not_listed.c": "srcs/ft_not_listed.c",
+                "tests/ex24/grader/srcs/ft_putchar.c": "srcs/ft_putchar.c",
+                "tests/ex24/grader/srcs/ft_putstr.c": "srcs/ft_putstr.c",
+                "tests/ex24/grader/srcs/ft_strcmp.c": "srcs/ft_strcmp.c",
+                "tests/ex24/grader/srcs/ft_strlen.c": "srcs/ft_strlen.c",
+                "tests/ex24/grader/srcs/ft_swap.c": "srcs/ft_swap.c",
+            },
+        ),
+        "25": exercise(page = 34, dir = "ex25/", files = ["ft_foreach.c"], allowed = []),
+        "26": exercise(page = 35, dir = "ex26/", files = ["ft_count_if.c"], allowed = []),
+        # ex27 fixes no source filenames ("Makefile, and files needed for your
+        # program"), so every .c and .h here is optional, in a subfolder too
+        # (the Makefile says where its sources lie), less a .c it never
+        # compiles. strict all the same: "You cannot leave any additional
+        # file in your directory" is this subject's general rule, and nothing
+        # here is reviewed by a person, so an extra file is a fail, not a
+        # warning -- the binary a hand-run of make leaves behind included,
+        # which //tools:submit would otherwise push. `make fclean` first.
+        "27": exercise(
+            page = 36,
+            dir = "ex27/",
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = ["close", "open", "read", "write"],
+        ),
+    },
+)
+
+# ---------------------------------------------------------------- shell / file
+# Each call below names the exercise it repeats in twin_of, and its tests are
+# read from there (see shell_exercise in //tools:defs.bzl). The rest of the
+# call is the twin's own call again -- mode, readings, oracle, stable, tags --
+# and only the deliverable's name and the subject's own words (wording) may
+# differ; //tools:conventions compares the two. tests/exNN/ here holds only a
+# README pointing at them, and exNN_twin fails on anything else put there.
+
+# ex00 = Shell 00 ex02. The archive is exo.tar here, not exo2.tar -- the one
+# difference, and the check reads the name from the contract's `files`. The subject's
+# sentence about the year is worded differently and says the same thing. Its
+# literal reading at strict, as there.
+shell_exercise(
+    num = "00",
+    mode = "check",
+    readings = {"literal": "literal.sh"},
+    stable = False,
+    twin_of = "//c-piscine/c-piscine-shell-00:ex02",
+)
+
+# ex01 = Shell 00 ex00
+shell_exercise(
+    num = "01",
+    mode = "diff",
+    twin_of = "//c-piscine/c-piscine-shell-00:ex00",
+)
+
+# ex02 = Shell 00 ex08, with its two readings at strict as there, of "no ';'"
+# and of "all files".
+shell_exercise(
+    num = "02",
+    mode = "check",
+    readings = {
+        "literal": "literal.sh",
+        "regular": "regular.sh",
+    },
+    script = "sh",
+    stable = False,
+    twin_of = "//c-piscine/c-piscine-shell-00:ex08",
+)
+
+# ex03 = Shell 01 ex02, with its reading at strict as there. This subject says
+# "all file names that end with ".sh"" where Shell 01's says "all files
+# ending with .sh". Whether a directory's name is one of those file names is
+# as open as whether a directory is one of those files, so the one reading
+# serves both. The words differ, so they are this call's own (wording), and
+# regular.sh quotes this subject's.
+shell_exercise(
+    num = "03",
+    mode = "check",
+    readings = {"regular": "regular.sh"},
+    script = "./name",
+    stable = False,
+    twin_of = "//c-piscine/c-piscine-shell-01:ex02",
+    wording = {"files": "all file names that end with \".sh\""},
+)
+
+# ex04 = Shell 01 ex04, called the way its twin is: checked at basic on every
+# machine, with a SKIP for what MAC.sh prints where the machine has nothing
+# to show (see Shell 01's BUILD file); the output layer and the literal
+# reading run outside the sandbox (run_tags), the files layer does not need to.
+#
+# oracle = True: whether each printed line is one of this machine's hardware
+# addresses is asked of //oracle (shell01_hwaddr), as in Shell 01 ex04 -- the
+# text pattern a check could use instead is a piece of a common answer. Its
+# reading of the loopback's all-zero address at strict, as there.
+shell_exercise(
+    num = "04",
+    mode = "check",
+    oracle = True,
+    readings = {"literal": "literal.sh"},
+    script = "sh",
+    stable = False,
+    tags = ["env"],
+    run_tags = ["no-sandbox"],
+    twin_of = "//c-piscine/c-piscine-shell-01:ex04",
+)
+
+# ex05 = Shell 01 ex05: no files layer, since the deliverable's NAME is the
+# answer (its contract entry has files = None).
+shell_exercise(
+    num = "05",
+    mode = "check",
+    stable = False,
+    twin_of = "//c-piscine/c-piscine-shell-01:ex05",
+)
+
+# ---------------------------------------------------------------- C
+# ex06 = C 00 ex01, with ft_putchar instead of write
+c_function(num = "06", fn = "ft_print_alphabet", test = "test_alphabet.c", clues = "clues.tsv")
+c_mem_check(num = "06", fn = "ft_print_alphabet", probe = "mem_print_alphabet.c")
+
+# ex07 = C 00 ex03, with ft_putchar instead of write
+c_function(num = "07", fn = "ft_print_numbers", test = "test_numbers.c", clues = "clues.tsv")
+c_mem_check(num = "07", fn = "ft_print_numbers", probe = "mem_print_numbers.c")
+
+# ex08 = C 00 ex04, with ft_putchar instead of write
+c_function(num = "08", fn = "ft_is_negative", test = "test_is_negative.c", labeled = True, clues = "clues.tsv")
+c_diff(num = "08", fn = "ft_is_negative", harness = "diff_is_negative.c", oracle_fn = "c00_is_negative", diff_clues = "diff_clues.txt")
+
+# ex09 = C 01 ex00
+c_function(num = "09", fn = "ft_ft", test = "test_ft.c", labeled = True, clues = "clues.tsv")
+# Its tests are C 01 ex00's, file for file, prototype.h's include guard too,
+# as ex10's, ex12-ex14's, ex16's, ex17's, ex20's, ex21's and ex25's are their
+# Piscine exercise's (ex11's, ex18's, ex19's, ex22's, ex23's and ex27's say so
+# beside their calls): declared, so //tools:conventions holds each pair
+# identical (c_twin in tools/defs.bzl), and a fix to one copy reaches the
+# other. A copy that once differed only in that guard's name was seen as no
+# copy at all.
+c_twin(num = "09", of = "//c-piscine/c-piscine-c-01:ex00")
+
+# ex10 = C 01 ex02
+c_function(num = "10", fn = "ft_swap", test = "test_swap.c", labeled = True, clues = "clues.tsv")
+c_diff(num = "10", fn = "ft_swap", harness = "diff_swap.c", oracle_fn = "c01_swap", diff_clues = "diff_clues.txt")
+c_twin(num = "10", of = "//c-piscine/c-piscine-c-01:ex02")
+
+# ex11 = C 01 ex03
+c_function(num = "11", fn = "ft_div_mod", test = "test_div_mod.c", labeled = True, clues = "clues.tsv")
+c_diff(num = "11", fn = "ft_div_mod", harness = "diff_div_mod.c", oracle_fn = "c01_div_mod", diff_clues = "diff_clues.txt")
+# Its tests are C 01 ex03's, file for file -- its prototype.h's include
+# guard too: declared, so //tools:conventions holds the two folders
+# identical (c_twin in tools/defs.bzl), and a fix to one fixture reaches
+# the other.
+c_twin(num = "11", of = "//c-piscine/c-piscine-c-01:ex03")
+
+# ex12 = C 05 ex00, its method included (exNN_method: see C 05's BUILD file).
+c_function(
+    num = "12",
+    fn = "ft_iterative_factorial",
+    test = "test_iterative_factorial.c",
+    labeled = True,
+    clues = "clues.tsv",
+    method = "iterative",
+    method_rule = "p.21: \"Create an iterated function that returns a number.\"",
+)
+c_diff(num = "12", fn = "ft_iterative_factorial", harness = "diff_iterative_factorial.c", oracle_fn = "c05_iter_factorial", diff_clues = "diff_clues.txt")
+c_twin(num = "12", of = "//c-piscine/c-piscine-c-05:ex00")
+
+# ex13 = C 05 ex01, its method included.
+c_function(
+    num = "13",
+    fn = "ft_recursive_factorial",
+    test = "test_recursive_factorial.c",
+    labeled = True,
+    clues = "clues.tsv",
+    method = "recursive",
+    method_rule = "p.22: \"Create a recursive function that returns the factorial of the number given as a parameter.\"",
+)
+c_diff(num = "13", fn = "ft_recursive_factorial", harness = "diff_recursive_factorial.c", oracle_fn = "c05_rec_factorial", diff_clues = "diff_clues.txt")
+c_twin(num = "13", of = "//c-piscine/c-piscine-c-05:ex01")
+
+# ex14 = C 05 ex05 ("less than two seconds", as in the Piscine)
+c_function(num = "14", fn = "ft_sqrt", test = "test_sqrt.c", labeled = True, clues = "clues.tsv")
+# `size = "medium"`, as C 05 ex05's and for its reason: a correct answer took
+# up to 53 s here while the whole suite ran beside it, more than a small test's
+# 60 s leaves once its runner keeps back the few seconds it reports in (see
+# c-piscine/c-piscine-c-05/BUILD.bazel).
+c_diff(num = "14", fn = "ft_sqrt", harness = "diff_sqrt.c", oracle_fn = "c05_sqrt", size = "medium", diff_clues = "diff_clues.txt")
+c_cycles(
+    num = "14",
+    fn = "ft_sqrt",
+    oracle_fn = "c05_sqrt_cycles",
+    harness = "diff_sqrt.c",
+    budget = 90,
+    syscall_budget = 0,
+)
+c_twin(num = "14", of = "//c-piscine/c-piscine-c-05:ex05")
+
+# ex15 = C 01 ex05, with ft_putchar instead of write
+c_function(num = "15", fn = "ft_putstr", test = "test_putstr.c", clues = "clues.tsv")
+c_diff(
+    num = "15",
+    fn = "ft_putstr",
+    harness = "diff_putstr.c",
+    oracle_fn = "c01_putstr",
+    # 200000, not 100000: as many as the ASan twin replays, so each case it
+    # checks for memory is value-checked here too (V34, the owner's choice,
+    # 2026-10-04); c_diff refuses a twin larger than its plain replay.
+    count = 200000,
+    diff_clues = "diff_clues.txt",
+    # diff_asan: 20s with two suites on the machine, a third of "small"'s 60
+    # (finding 066).
+    size = "medium",
+)
+
+# ex16 = C 01 ex06
+c_function(num = "16", fn = "ft_strlen", test = "test_strlen.c", labeled = True, clues = "clues.tsv")
+c_diff(num = "16", fn = "ft_strlen", harness = "diff_strlen.c", oracle_fn = "c01_strlen", diff_clues = "diff_clues.txt")
+c_cycles(
+    num = "16",
+    fn = "ft_strlen",
+    oracle_fn = "c01_strlen",
+    harness = "diff_strlen.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    budget = 3.5,
+    syscall_budget = 0,
+)
+c_twin(num = "16", of = "//c-piscine/c-piscine-c-01:ex06")
+
+# ex17 = C 03 ex00: the output fixture compares the sign, ex17_diff the exact
+# int (see c-piscine/c-piscine-c-03/BUILD.bazel for why)
+c_function(num = "17", fn = "ft_strcmp", test = "test_strcmp.c", labeled = True, clues = "clues.tsv")
+c_diff(num = "17", fn = "ft_strcmp", harness = "diff_strcmp.c", oracle_fn = "c03_strcmp", diff_clues = "diff_clues.txt")
+c_cycles(
+    num = "17",
+    fn = "ft_strcmp",
+    oracle_fn = "c03_strcmp",
+    harness = "diff_strcmp.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    budget = 6,
+    syscall_budget = 0,
+)
+c_twin(num = "17", of = "//c-piscine/c-piscine-c-03:ex00")
+
+# ex18 = C 06 ex01, with ft_putchar instead of write. Like ex19, its subject
+# names no exit status: exNN_output only notes a plain non-zero return, and
+# exNN_exit, at robust, fails it (docs/reference.md, "Run contract").
+c_program(num = "18", name = "ft_print_params")
+c_argv_table(num = "18")
+
+# ex19 = C 06 ex03, with ft_putchar instead of write
+c_program(num = "19", name = "ft_sort_params")
+c_argv_table(num = "19")
+
+# Their tests are C 06's, file for file: declared, so //tools:conventions
+# holds each pair of folders identical (c_twin in tools/defs.bzl).
+c_twin(num = "18", of = "//c-piscine/c-piscine-c-06:ex01")
+c_twin(num = "19", of = "//c-piscine/c-piscine-c-06:ex03")
+
+# ex20 = C 07 ex00
+c_function(
+    num = "20",
+    fn = "ft_strdup",
+    test = "test_strdup.c",
+    malloc = True,
+    allocfail = "af_ft_strdup.c",
+    allocfail_rule = "man 3 strdup, where Piscine Reloaded, p.29 sends you (\"Reproduce the behavior of the function strdup (man strdup).\"): \"It returns NULL if insufficient memory was available\" (RETURN VALUE)",
+    labeled = True,
+    clues = "clues.tsv",
+)
+c_diff(num = "20", fn = "ft_strdup", harness = "diff_strdup.c", oracle_fn = "c07_strdup", diff_clues = "diff_clues.txt")
+c_mem_check(num = "20", fn = "ft_strdup", probe = "mem_strdup.c")
+c_cycles(
+    num = "20",
+    fn = "ft_strdup",
+    oracle_fn = "c07_strdup",
+    harness = "diff_strdup.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    budget = 6,
+    syscall_budget = 0,
+)
+c_twin(num = "20", of = "//c-piscine/c-piscine-c-07:ex00")
+
+# ex21 = C 07 ex01
+c_function(
+    num = "21",
+    fn = "ft_range",
+    test = "test_range.c",
+    malloc = True,
+    labeled = True,
+    clues = "clues.tsv",
+)
+c_diff(num = "21", fn = "ft_range", harness = "diff_range.c", oracle_fn = "c07_range", diff_clues = "diff_clues.txt")
+c_mem_check(num = "21", fn = "ft_range", probe = "mem_range.c")
+c_twin(num = "21", of = "//c-piscine/c-piscine-c-07:ex01")
+
+# ex22 = C 08 ex02. The subject authorises, this once, the macro the Norm bans:
+# "You are asked to do something that is normally banned by the Norm, that
+# will be the only time we autorize it." It names no norminette flag. The C 08
+# subject, which sets the same exercise, does -- "-R CheckDefine" -- and that
+# is the flag norminette has for this exemption, so the norm layer runs with
+# it here too. Without the flag, norminette refuses the function-like macro
+# the subject asks for.
+#
+# The first hint of clues.tsv used to ask which operators choose between two
+# values in one expression -- the conditional operator, which the pinned
+# norminette (3.3.58, the campus version, tools/requirements.txt) reports as
+# TERNARY_FBIDDEN inside a #define even with -R CheckDefine (finding 083,
+# checked 2026-09-30): the flag permits the macro, not the rest of the Norm
+# inside it. 3.3.59 and later exempt a define line, so re-read this if the
+# pin moves. The hint names no construction now; keep it that way.
+c_twin(num = "22", of = "//c-piscine/c-piscine-c-08:ex02")
+
+c_header(
+    num = "22",
+    main = "test_abs.c",
+    norm_flags = ["-R", "CheckDefine"],
+    probe = "probe_abs.c",
+    cases = [
+        {"name": "run", "args": [], "expected": "expected.txt", "labeled": True, "clues": "clues.tsv"},
+        # "replaces its argument with its absolute value" names no type, so an
+        # argument wider than int, or floating-point, is a case the subject
+        # leaves open: strict (finding 087), as in C 08 ex02. Each has its own main, so a
+        # header that cannot take one fails that case alone. Expected files by
+        # hand, from the definition of absolute value.
+        {
+            "name": "long_arg",
+            "main": "test_abs_long.c",
+            "args": [],
+            "expected": "long.txt",
+            "labeled": True,
+            "clues": "clues_types.tsv",
+            "level": 2,
+        },
+        {
+            "name": "double_arg",
+            "main": "test_abs_double.c",
+            "args": [],
+            "expected": "double.txt",
+            "labeled": True,
+            "clues": "clues_types.tsv",
+            "level": 2,
+        },
+    ],
+)
+
+# ex23 = C 08 ex03: the subject's own main, plus the level-4 int_fields case
+# (see c-piscine/c-piscine-c-08/BUILD.bazel for why it goes beyond the subject,
+# and why a convention this repo chose, not the subject's, sits at complete
+# rather than robust).
+c_twin(num = "23", of = "//c-piscine/c-piscine-c-08:ex03")
+
+c_header(
+    num = "23",
+    main = "test_point.c",
+    cases = [
+        {"name": "compile", "expected": "expected.txt", "args": [], "clues": "clues.tsv"},
+        {
+            "name": "int_fields",
+            "main": "test_point_int.c",
+            "expected": "expected_int.txt",
+            "args": [],
+            "labeled": True,
+            "level": 4,
+            "clues": "clues_int.tsv",
+        },
+    ],
+)
+
+# ex24 — the Makefile, and nothing else, built against the grader's files
+# (its contract entry above says which, and where they go). relink: the Norm
+# -- a Makefile that relinks when it has nothing to do makes the project
+# non-functional.
+#
+# The subject defines fclean (in terms of clean) and re, not clean: what
+# clean does, and so what fclean and re remove besides the library, is this
+# repo's convention, at robust (ex24_build_rules). "Watch out for
+# wildcards!": the decoy in the grader's srcs/ above, and an object of the
+# grader's there that clean and fclean must leave (foreign_object), both at
+# basic. The line about cc says what the Moulinette does; whether it binds
+# the recipes is open, and ex24_build_recipe, strict, holds one reading.
+c_make(
+    num = "24",
+    artifact = "libft.a",
+    rules = ["all", "clean", "fclean", "re"],
+    symbols = ["ft_putchar", "ft_putstr", "ft_strcmp", "ft_strlen", "ft_swap"],
+    relink = True,
+    relink_source = "norm",
+    foreign_object = "srcs",
+    clues = "clues.tsv",
+    not_checked = {
+        "wildcards": "the subject says \"Watch out for wildcards!\" itself, and the grader's ft_not_listed.c and foreign_object judge it at basic",
+    },
+    recipe = "any",
+    recipe_strict = True,
+    quotes = {
+        "cc": "Piscine Reloaded, p.5: \"Moulinette compiles with these flags: -Wall -Wextra -Werror, and uses CC.\"",
+        "relink": NORM_NO_RELINK,
+        "wildcards": "Piscine Reloaded, p.33: \"We’ll only fetch your Makefile and test it with our files.\" \"Watch out for wildcards!\"",
+        "fclean": "Piscine Reloaded, p.33: \"fclean does the equivalent of a make clean and also erases the binary created during the make.\"",
+        "re": "Piscine Reloaded, p.33: \"re does the equivalent of a make fclean followed by a make.\"",
+    },
+)
+
+# ex25 = C 11 ex00
+c_function(num = "25", fn = "ft_foreach", test = "test_foreach.c", labeled = True, clues = "clues.tsv")
+c_diff(num = "25", fn = "ft_foreach", harness = "diff_foreach.c", oracle_fn = "c11_foreach", diff_clues = "diff_clues.txt")
+c_mem_check(num = "25", fn = "ft_foreach", probe = "mem_foreach.c")
+c_twin(num = "25", of = "//c-piscine/c-piscine-c-11:ex00")
+
+# ex26 — NOT C 11 ex03: no length, and the array ends at its first NULL. Its
+# tests are this project's own, and there is no differential layer, since the
+# Piscine's reference takes a length.
+#
+# And not C 11 ex03's rule either: it counts "the elements of the array that
+# return 1" (p.34), where C 11 ex03 counts those that do "not return 0". Where
+# f returns only 0 or 1 the two agree, and the basic table keeps to that. A
+# predicate that also returns 2 tells them apart, and whether a 2 counts is a
+# reading (D3): one is checked at strict, by ex26_returns_one_output, whose
+# own hint and row in docs/reference.md state it.
+c_function(
+    num = "26",
+    fn = "ft_count_if",
+    test = "test_count_if.c",
+    labeled = True,
+    clues = "clues.tsv",
+    readings = [{
+        "name": "returns_one",
+        "main": "test_count_if_returns_one.c",
+        "expected": "expected_returns_one.txt",
+        "labeled": True,
+        "clues": "clues_returns_one.tsv",
+        "level": 2,
+    }],
+)
+c_mem_check(num = "26", fn = "ft_count_if", probe = "mem_count_if.c")
+
+# ex27 = C 10 ex00: the program, its Makefile (all, clean, fclean -- no `re`,
+# the subject names three rules), and the byte-exact file differential. Its
+# tests and its cases are C 10 ex00's, held to them (c_twin).
+c_twin(num = "27", of = "//c-piscine/c-piscine-c-10:ex00")
+
+#
+# THE EXIT STATUS, by the Run contract (docs/reference.md): the subject names
+# none, so no case here compares one at basic. A case the subject answers
+# with an error message it names is marked "invalid_input", and its status is
+# judged at no level; every other case gets a robust twin, exNN_<case>_exit,
+# which fails a non-zero return.
+c_program(
+    num = "27",
+    name = "ft_display_file",
+    # What its Makefile builds once it compiles anything, and the folder's
+    # sources until then (C 10's BUILD file says why).
+    makefile = "once_written",
+    # The method layer, at strict, as C 10 ex00's (ex27_fixed_array).
+    fixed_array = "p.36: \"The malloc function is forbidden. You can only do this exercise by declaring a fixed-sized array.\"",
+    # Every expected file below is this command's answer for its case (C 10
+    # ex00's model), and ex27_<case>_model holds it there.
+    model = ["c10_run", "display_file"],
+    # One clues.tsv, each row keyed to the cases it is about (the file
+    # displayed, the arguments and errors, the empty file), so each reaches
+    # only those cases.
+    cases = [
+        {
+            "name": "show",
+            "args": ["$(location tests/ex27/fixtures/sample.txt)"],
+            "fixtures": ["tests/ex27/fixtures/sample.txt"],
+            "expected": "show.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "noarg",
+            "invalid_input": True,
+            "args": [],
+            "stream": "stderr",
+            "expected": "noarg.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "toomany",
+            "invalid_input": True,
+            "args": ["a", "b"],
+            "stream": "stderr",
+            "expected": "toomany.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "cannot",
+            "missing_file": "this_file_does_not_exist_42",
+            "invalid_input": True,
+            "args": ["this_file_does_not_exist_42"],
+            "stream": "stderr",
+            "expected": "cannot.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "blob",
+            "args": ["$(location tests/ex27/fixtures/blob.bin)"],
+            "fixtures": ["tests/ex27/fixtures/blob.bin"],
+            "expected": "blob.txt",
+            "clues": "clues.tsv",
+        },
+        # An EMPTY file is valid ("All files given as arguments will be
+        # valid") and can be read: nothing on either stream, as C 10 ex00's
+        # cases say (finding 110). A directory is outside this subject. One
+        # run, so one robust twin for its status, ex27_empty_exit.
+        {
+            "name": "empty",
+            "invalid_input": False,
+            "args": ["$(location tests/ex27/fixtures/empty.txt)"],
+            "fixtures": ["tests/ex27/fixtures/empty.txt"],
+            "expected": "empty.txt",
+            "clues": "clues.tsv",
+        },
+        {
+            "name": "empty_stderr",
+            "invalid_input": False,
+            "args": ["$(location tests/ex27/fixtures/empty.txt)"],
+            "fixtures": ["tests/ex27/fixtures/empty.txt"],
+            "stream": "stderr",
+            "expected": "empty.txt",
+            "clues": "clues.tsv",
+        },
+    ],
+)
+# relink, for the reason ex24 has it: the Norm covers this Makefile too. (C 10
+# ex00 leaves it off, since its subject does not ask; this project's Makefiles
+# are held to the Norm's rule the same way, so both of them are.) The subject
+# lists "all, clean, fclean" and defines none of them here: what clean and
+# fclean do is this repo's convention, at robust (ex27_build_rules). The cc
+# line is a reading (ex27_build_recipe, strict), and so is the Norm's "no
+# *.c, no *.o" for a Makefile of the student's own sources
+# (ex27_build_wildcards, strict).
+c_make(
+    num = "27",
+    artifact = "ft_display_file",
+    rules = [
+        "all",
+        "clean",
+        "fclean",
+    ],
+    symbols = ["main"],
+    relink = True,
+    relink_source = "norm",
+    recipe = "any",
+    recipe_strict = True,
+    wildcards = True,
+    quotes = {
+        "cc": "Piscine Reloaded, p.5: \"Moulinette compiles with these flags: -Wall -Wextra -Werror, and uses CC.\"",
+        "relink": NORM_NO_RELINK,
+        "wildcards": NORM_NO_WILDCARDS,
+    },
+)
+# The Piscine's read-loop differential for the same program (see
+# c-piscine/c-piscine-c-10/BUILD.bazel for what the corpus walks and why).
+hand_test(
+    name = "ex27_file_diff",
+    layer = "diff",
+    size = "medium",
+    srcs = ["//tools:file_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex27_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "c10_display_file",
+        "--count",
+        "60",
+        # Every generated file is readable, and the subject's three messages
+        # are all errors: nothing on stderr (C 10's BUILD file says more).
+        "--stderr-empty",
+    ],
+    data = [
+        ":ex27_bin",
+        "//oracle:oracle",
+        "//tools:file_check.sh",
+        "//tools:exit_status",
+        "//tools:runner_lib.sh",
+    ],
+)
+
+# The same corpus on the ASan build (ex27_file_diff_asan, robust), judging
+# memory and how each run ended, never the bytes: the files past one buffer
+# are in the corpus, and no fixed case's memory arm reads one (finding 113;
+# c_levels()' audit is what found this corpus without it). No memcheck arm:
+# the subject allows no malloc, which corpus_memory() reads from the contract.
+corpus_memory(
+    stem = "ex27_file",
+    runner = "//tools:file_check.sh",
+    args = [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "c10_display_file",
+        "--count",
+        "60",
+    ],
+    data = ["//oracle:oracle"],
+)
+
+c_levels()

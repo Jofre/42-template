@@ -1,0 +1,8 @@
+"" (empty)	0
+"a" (one char)	1
+"Hello"	5
+"a b c" (spaces count)	5
+"1234567890"	10
+"  leading and trailing  "	24
+embedded tabs "x\ty\tz"	5
+long (40 chars)	40

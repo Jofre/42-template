@@ -1,0 +1,3 @@
+# clues_reverse.tsv for ft_is_sort's reading at strict (ex04_reverse_output) -- hints only, never answers.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+The subject says "sorted" and never says whether an array in the reverse of the order f describes counts. This target is this harness's reading of it, at strict: either direction counts, so every array here is sorted. Which direction does your function accept, and which sentence of the subject do you read as deciding it?	two elements against f	descending data ascending cmp	descending with ties ascending cmp	ascending data descending cmp

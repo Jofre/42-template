@@ -1,0 +1,3 @@
+# clues.tsv for ft_div_mod — hints only, never answers.
+The quotient and remainder must be written back through the pointers the caller gave you, not into local copies. Are both results actually visible outside the function?	13 / 5	7 / 1	0 / 5
+When a negative number is involved, what sign does C give the remainder, and which way does integer division round? Work one case out by hand and compare it to what you produce.	-13 / 5 (neg dividend)	13 / -5 (neg divisor)	-13 / -5 (both neg)	-7 / 2

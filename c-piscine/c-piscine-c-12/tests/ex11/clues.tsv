@@ -1,0 +1,8 @@
+# clues.tsv for ft_list_find — pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+You are given a comparison function cmp and a reference value; cmp is the only thing that decides whether a node counts as a match. Look closely at what number cmp hands back when two values are considered equal — is it the truthy-looking nonzero, or the quiet zero? Which one are you testing for as you walk the list?	find head	find middle	find tail
+When you reach the end without ever satisfying the match condition, what do you hand back to the caller? And does your walk even survive being given an empty list to begin with?	not found	empty list
+The reference value might equal more than one node's data. Once you have walked from the very front, which of the matching nodes should the caller receive — and what does that imply about when you stop walking?	duplicate returns earliest
+The subject prints the call to cmp: (*cmp)(list_ptr->data, data_ref). In yours, which argument comes first? Equality reads the same either way round, but would a comparison that orders its two arguments?	cmp called as (*cmp)(list_ptr->data, data_ref)
+Nothing in the subject says how long the list is. Does anything in your function stop working on a list far longer than the ones you tried?	5000-node list, the match its last node

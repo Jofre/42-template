@@ -1,0 +1,3 @@
+# clues_base_to_space.tsv for ft_convert_base's base_to_space case -- hints only, never answers.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+This case is this harness's reading, at strict, never the subject's: a base_to holding whitespace counts as valid, because C 04's list for writing a number names no whitespace, and C 07's "no whitespaces" is read as none added to the result. Which of C 04's two lists does your check hold base_to to, and does anything in your code treat a space differently from any other symbol?	space is the second symbol, negative	space is the last symbol	zero, and the first symbol is a space

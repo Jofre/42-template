@@ -1,0 +1,106 @@
+basic suite lvl_basic
+complete suite lvl_complete
+deliverable_files files_test.sh @basic outside by:defense
+ex00 suite ex00
+ex00_alt_asan asan_run.sh @robust ran by:defense
+ex00_alt_output diff_output.sh @basic any-of ran case by:defense
+ex00_alt_valgrind valgrind_test.sh @strict ran case gated by:defense
+ex00_argfile_asan asan_run.sh @robust argv-file ran by:defense
+ex00_argfile_exit diff_output.sh @robust argv-file ran case by:defense
+ex00_argfile_model model_check.sh @complete argv-file by:defense
+ex00_argfile_output diff_output.sh @basic argv-file ran case by:defense
+ex00_argfile_program_allocfail allocfail_check.sh @robust argv-file ran gated by:defense
+ex00_argfile_valgrind valgrind_test.sh @strict argv-file ran case gated by:defense
+ex00_compile_clang compile_check.sh @basic by:defense
+ex00_compile_gcc compile_check.sh @basic by:defense
+ex00_exact_asan asan_run.sh @robust ran by:defense
+ex00_exact_exit diff_output.sh @robust ran case by:defense
+ex00_exact_model model_check.sh @complete by:defense
+ex00_exact_output diff_output.sh @basic ran case by:defense
+ex00_exact_valgrind valgrind_test.sh @strict ran case gated by:defense
+ex00_files files_test.sh @basic by:defense
+ex00_fixed_array method_check.sh @strict by:defense
+ex00_norm norminette_test.sh @basic by:defense
+ex00_norm_notice norminette_test.sh @strict by:defense
+ex00_onerun_asan asan_run.sh @robust ran by:defense
+ex00_onerun_exit diff_output.sh @robust ran case by:defense
+ex00_onerun_model model_check.sh @complete by:defense
+ex00_onerun_output diff_output.sh @basic ran case by:defense
+ex00_onerun_stderr_asan asan_run.sh @robust ran by:defense
+ex00_onerun_stderr_model model_check.sh @complete by:defense
+ex00_onerun_stderr_output diff_output.sh @basic ran case by:defense
+ex00_onerun_stderr_valgrind valgrind_test.sh @strict ran case gated by:defense
+ex00_onerun_valgrind valgrind_test.sh @strict ran case gated by:defense
+ex00_program_allocfail allocfail_check.sh @robust cwd ran gated by:defense
+ex00_raised_asan asan_run.sh @robust ran by:defense
+ex00_raised_exit diff_output.sh @robust ran case by:defense
+ex00_raised_model model_check.sh @complete by:defense
+ex00_raised_output diff_output.sh @strict ran case raised:strict by:defense
+ex00_raised_valgrind valgrind_test.sh @strict ran case gated by:defense
+ex00_reading_asan asan_run.sh @robust ran by:defense
+ex00_reading_model model_check.sh @complete by:defense
+ex00_reading_output diff_output.sh @strict reading ran case raised:strict by:defense
+ex00_reading_valgrind valgrind_test.sh @strict ran case gated by:defense
+ex00_reference_cases reference_cases.sh @complete any-of survive argv-file cwd by:defense
+ex00_staged_asan asan_run.sh @robust cwd ran by:defense
+ex00_staged_exit diff_output.sh @robust cwd ran case by:defense
+ex00_staged_model model_check.sh @complete cwd by:defense
+ex00_staged_output diff_output.sh @basic cwd ran case by:defense
+ex00_staged_valgrind valgrind_test.sh @strict cwd ran case gated by:defense
+ex00_survive_asan asan_run.sh @robust ran gated by:defense
+ex00_survive_output diff_output.sh @basic survive ran case gated by:defense
+ex00_survive_valgrind valgrind_test.sh @strict ran case by:defense
+ex00_toy_dat_issued issued_test.sh @basic by:defense
+ex00_twin tests/pass.sh @complete by:defense
+ex01 suite ex01
+ex01_diff tests/pass.sh @strict by:defense
+ex01_staged_output diff_output.sh @strict raised:strict by:defense
+ex02 suite ex02
+ex02_files shell_test.sh @basic by:defense
+ex02_lint shell_test.sh @robust by:defense
+ex02_norm shell_test.sh @basic by:defense
+ex02_output shell_test.sh @basic stable by:defense
+ex02_posix shell_test.sh @strict by:defense
+ex02_regular shell_test.sh @strict by:defense
+ex03 suite ex03
+ex03_compile_clang compile_check.sh @basic by:defense
+ex03_compile_gcc compile_check.sh @basic by:defense
+ex03_diff rust_diff.sh @strict fn:c05_iter_factorial count:40 sanitize gated by:defense
+ex03_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 sanitize gated by:defense
+ex03_files files_test.sh @basic by:defense
+ex03_ilp32 ilp32_test.sh @complete sanitize by:defense
+ex03_memcheck valgrind_test.sh @strict sanitize gated by:defense
+ex03_method method_check.sh @strict sanitize gated by:defense
+ex03_norm norminette_test.sh @basic by:defense
+ex03_norm_notice norminette_test.sh @strict by:defense
+ex03_open_output diff_output.sh @robust sanitize raised:robust by:defense
+ex03_output diff_output.sh @basic sanitize by:defense
+ex03_prototype prototype_check.sh @basic by:defense
+ex03_readings rust_diff.sh @robust fn:c05_rec_factorial count:50 clues sanitize gated raised:robust by:defense
+ex03_readings_diff_asan rust_diff.sh @robust fn:c05_rec_factorial count:30 sanitize gated by:defense
+ex03_symbols symbols_test.sh @strict by:defense
+ex04 suite ex04
+ex04_argv_diff argv_check.sh @strict by:defense
+ex04_argv_diff_asan argv_check.sh @robust sanitized by:defense
+ex05 suite ex05
+ex05_files files_test.sh @basic stray by:defense
+ex06 suite ex06
+ex06_file_diff file_check.sh @strict by:defense
+ex06_file_diff_asan file_check.sh @robust sanitized by:defense
+ex06_file_valgrind file_check.sh @strict memcheck by:defense
+ex07 suite ex07
+ex07_files files_test.sh @basic stray by:defense
+ex08 suite ex08
+ex08_argv_diff argv_check.sh @strict by:defense
+ex08_argv_diff_asan argv_check.sh @robust sanitized by:defense
+ex08_argv_valgrind argv_check.sh @strict memcheck by:defense
+ex09 suite ex09
+ex09_files files_test.sh @basic by:defense
+ex09_norm_header header_norm.sh @strict by:defense
+ex10 suite ex10
+ex10_files files_test.sh @basic by:defense
+ex10_norm_header no_turnin.sh @strict by:defense
+ex11 suite ex11
+ex11_files files_test.sh @basic by:defense
+robust suite lvl_robust
+strict suite lvl_strict

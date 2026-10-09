@@ -1,0 +1,2 @@
+# clues.tsv for ft_list_merge
+To hook list2 onto the end of list1 you need list1's last node, but what last node exists when *begin_list1 is NULL? Reconsider that empty-list1 case separately, and note nothing here needs to be allocated.

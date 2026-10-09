@@ -1,0 +1,232 @@
+load("//tools:defs.bzl", "c_argv_table", "c_levels", "c_program", "corpus_memory", "exercise", "hand_test", "stderr_ignored", "subject")
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(page = 7, dir = "ex00/", files = ["ft_print_program_name.c"], allowed = ["write"]),
+        "01": exercise(page = 8, dir = "ex01/", files = ["ft_print_params.c"], allowed = ["write"]),
+        "02": exercise(page = 9, dir = "ex02/", files = ["ft_rev_params.c"], allowed = ["write"]),
+        "03": exercise(page = 10, dir = "ex03/", files = ["ft_sort_params.c"], allowed = ["write"]),
+    },
+)
+
+c_program(
+    num = "00",
+    name = "ft_print_program_name",
+    progname = True,
+)
+
+# ex01-03 are argv programs. Instead of one opaque sh_test per invocation, a
+# single argv_table test runs the program against every scenario in
+# tests/exNN/scenarios.tsv and shows them as one labelled "invocation -> output"
+# PASS/FAIL table (each run's stdout lines joined with " | "). c_program with no
+# `cases` still builds the binary plus the norm/compile/forbidden layers.
+#
+# THE EXIT STATUS. This subject names none for any of its four programs, so a
+# plain non-zero return from main is only noted -- by ex00_progname,
+# exNN_output and exNN_argv_diff alike -- and fails at robust, in
+# ex00_progname_exit and exNN_exit, which the two macros emit. A crash fails
+# everywhere. The rule is written once, in docs/reference.md ("Run contract").
+
+c_program(num = "01", name = "ft_print_params")
+
+c_argv_table(num = "01")
+
+c_program(num = "02", name = "ft_rev_params")
+
+c_argv_table(num = "02")
+
+c_program(num = "03", name = "ft_sort_params")
+
+c_argv_table(num = "03")
+
+# THE EMPTY-ARGUMENT ROWS. The bug this module is really about is printing the
+# newline BETWEEN parameters instead of AFTER each one, which leaves the output
+# without its final newline. argv_table.sh joins a run's stdout lines with
+# " | ", and a join drops line terminators, so for a long time only a row whose
+# LAST printed line was empty could see that bug -- ["a","b",""] in ex01,
+# ["","a b c","end"] and ["","x","y"] in ex02, ["",""] in ex03 -- and those
+# rows were load-bearing. The runner now appends " [no final newline]" to any
+# run that does not end in one (a correct run always does), so every row sees
+# the bug:
+#
+#     printf 'x\ny\nz\n' ->  "x | y | z"                     correct
+#     printf 'x\ny\nz'   ->  "x | y | z [no final newline]"  separator bug
+#
+# Keep the empty-argument rows anyway: an empty string is still a parameter the
+# program must print, as an empty line.
+
+# No valgrind arm on any exercise here: these programs are allowed write() and
+# nothing else, so none of them can allocate — see the `allowed` rule written out
+# in c-piscine/c-piscine-c-00/BUILD.bazel.
+
+# ---------------------------------------------------------------------------
+# THE DIFFERENTIAL LAYER, against //oracle's c06 reference.
+#
+# WHAT IT ADDS OVER THE TABLE ABOVE, which is the only question worth asking of
+# a second layer on the same exercise:
+#
+#   * The table's rows are arguments a person typed. The corpus generates the
+#     ones nobody types: an argument that is a single newline, one that ends in
+#     one, a pair differing only past the shorter one's end, five arguments
+#     drawn from a four-letter alphabet so that ties and near-ties are common.
+#   * It compares with `cmp`, on the exact bytes, so every difference counts --
+#     not only the missing final newline the table now marks (see above), but
+#     a stray byte of any kind -- and it names the kind it found.
+#   * ex03's real content is the ORDER, and the table has no argument with a
+#     byte above 0x7f in it: the one place where a comparison of signed and
+#     one of unsigned `char` part ways. Which way they go is not the
+#     subject's to say ("sorted in ASCII order", and ASCII ends at 0x7f), so
+#     ex03 has two corpora (below): ex03_argv_diff's, every case of which
+#     the two order alike, at strict; and ex03_high_bytes_argv_diff's, every
+#     case of which they order otherwise, at robust.
+#
+# `--expect-reordering` on ex02 and ex03: the runner refuses to report OK on a
+# corpus in which no case's expected output differs from its arguments in the
+# order given, because such a corpus is passed by a program that reverses and
+# sorts nothing at all.
+#
+# hand_test(), so each gets what every macro-emitted test gets from _test():
+# its exercise's tag, which puts it in :exNN (the old lvl_tags() gave none,
+# and these were missing from their suite: finding 070), and the level ladder
+# of its layer, read from _LAYER_LEVEL rather than written here.
+#
+# Why ex03_high_bytes_argv_diff sits where it does is said under its FAIL by
+# every raised test's runner, from docs/reference.md's row for it
+# (tools/defs.bzl's _RAISED, tools/runner_lib.sh's rl__raised); it names the
+# open question, never which way the reference answers it.
+
+# THE ARGUMENT CORPORA, one table, read by the plain replays, the exit
+# replays and the memory twins below (C 10's C10_FILE_CORPORA is the same):
+# c_levels()' audit holds each plain replay to twins of exactly its corpus,
+# and a generator or count written three times is three places to drift.
+# A row is (stem, exercise, generator, count, what the plain replay judges
+# beyond its corpus, the plain replay's level): the options that choose no
+# corpus (tools/defs.bzl's _CORPUS_RUN_OPTS), and None for the diff layer's.
+#
+# ex03's two corpora split on the readings of "sorted in ASCII order", and a
+# self-check in the reference holds each to its side. ex03_argv_diff's holds
+# only the cases a comparison of signed and one of unsigned char order alike
+# -- bytes above 0x7f among them, wherever they decide nothing -- so every
+# reading agrees on it and it sits at strict, the diff layer's level.
+# ex03_high_bytes_argv_diff's holds only the cases they
+# order otherwise (but the one with no argument, which argv_check.sh asks of
+# every corpus, and which each corpus holds once), each decided by a byte
+# above 0x7f: the order the reference gives them is not a reading of the
+# sentence but a convention this repo chose, and the Run contract puts a
+# convention of this repo's own at robust (docs/reference.md, "Targets
+# raised above their layer", and tools/defs.bzl's _RAISED). Until they were split, the one corpus held both, so the cases
+# every reading agrees on sat at robust with the rest, and nothing at strict
+# compared ex03's order with a reference at all.
+C06_ARGV_CORPORA = [
+    ("ex01_argv", "01", "c06_print_params", "200", [], None),
+    ("ex02_argv", "02", "c06_rev_params", "200", ["--expect-reordering"], None),
+    ("ex03_argv", "03", "c06_sort_params", "200", ["--expect-reordering"], None),
+    ("ex03_high_bytes_argv", "03", "c06_sort_params_high", "200", ["--expect-reordering"], 3),
+]
+
+[
+    hand_test(
+        name = stem + "_diff",
+        layer = "diff",
+        level = level,
+        # 17.8s with two suites on the machine, near a third of "small"'s 60
+        # (finding 066).
+        size = "medium",
+        srcs = ["//tools:argv_check.sh"],
+        args = [
+            "--bin",
+            "$(location :ex%s_bin)" % num,
+            "--oracle",
+            "$(location //oracle:oracle)",
+            "--fn",
+            fn,
+            "--count",
+            count,
+        ] + judging +
+        # A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the
+        # Run contract's: ignored, unless the subject requires something of it.
+        stderr_ignored("C 06's subjects ask nothing of standard error"),
+        data = [
+            ":ex%s_bin" % num,
+            "//oracle:oracle",
+            "//tools:argv_check.sh",
+            "//tools:exit_status",
+            "//tools:runner_lib.sh",
+        ],
+    )
+    for stem, num, fn, count, judging, level in C06_ARGV_CORPORA
+]
+
+# THE EXIT STATUS OVER THE SAME CORPUS, at robust (docs/reference.md, "Run
+# contract": the subject names no exit status). exNN_argv_diff above only NOTES
+# a plain non-zero return, and c_argv_table's exNN_exit fails one only on the
+# table's hand-written rows -- so a return that only a GENERATED argument
+# provokes, a byte above 0x7f say, was noted at strict and failed nowhere.
+# These replay each corpus with --exit-only and judge nothing else. Both of
+# ex03's sit at 3 like the others: how a run ends has nothing to do with how
+# "ASCII order" is read.
+[
+    hand_test(
+        name = stem + "_diff_exit",
+        layer = "diff",
+        level = 3,
+        # The same corpus as its plain replay, and its size (finding 066).
+        size = "medium",
+        srcs = ["//tools:argv_check.sh"],
+        args = [
+            "--bin",
+            "$(location :ex%s_bin)" % num,
+            "--oracle",
+            "$(location //oracle:oracle)",
+            "--fn",
+            fn,
+            "--count",
+            count,
+            "--exit-only",
+        ] + stderr_ignored("this replay judges only how each run ended"),
+        data = [
+            ":ex%s_bin" % num,
+            "//oracle:oracle",
+            "//tools:argv_check.sh",
+            "//tools:exit_status",
+            "//tools:runner_lib.sh",
+        ],
+    )
+    for stem, num, fn, count, _judging, _level in C06_ARGV_CORPORA
+]
+
+# THE CORPUS UNDER ASan/UBSan (finding 113): each argument corpus replayed on
+# the ASan build, judging memory and how each run ended, never the bytes --
+# an argument past a buffer the program sized for the usual case prints the
+# right bytes on the plain build. On the GUARDED build c_argv_table makes
+# (exNN_argvguard_bin_asan): argv and each argument in a heap block of exactly
+# its size, so a comparison that reads past an argument's terminator is a
+# report. On the plain ASan build it was not, and the twins passed such a
+# comparison saying nothing of it (finding 071, the mutation run of
+# 2026-10-03). No memcheck arm: the subject allows no malloc, so there is no
+# leak for it to find. Measured on correct programs (2026-10-02): 1.4-2.8 s
+# each alone, and 20-23 s with two suites on the machine, a third of
+# "small"'s 60 s: "medium" (finding 066).
+[
+    corpus_memory(
+        stem = stem,
+        runner = "//tools:argv_check.sh",
+        asan_bin = ":ex%s_argvguard_bin_asan" % num,
+        args = [
+            "--oracle",
+            "$(location //oracle:oracle)",
+            "--fn",
+            fn,
+            "--count",
+            count,
+        ],
+        data = ["//oracle:oracle"],
+        size = "medium",
+    )
+    for stem, num, fn, count, _judging, _level in C06_ARGV_CORPORA
+]
+
+c_levels()

@@ -1,0 +1,13 @@
+  The destination is printed after the call, plus the return. Its buffer is
+  filled with ff bytes past the old terminator, so ff bytes at the end of the
+  result are a terminator that was never written.
+    * the join point is wrong            -> where the appending starts; it is
+                                            not the start of the destination
+    * one byte of the destination is lost -> the terminator of the FIRST string
+                                            is the position to write at
+    * an empty source diverges           -> a loop that cannot run zero times
+    * the result is unterminated         -> the second terminator, the one you
+                                            write yourself
+    * the return column alone            -> what the subject says is returned
+    * only inputs holding a byte of 0x80 or more -> whether a comparison in
+                                          your loop sees that char as negative

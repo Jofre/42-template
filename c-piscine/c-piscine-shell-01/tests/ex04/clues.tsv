@@ -1,0 +1,2 @@
+# clues.tsv for c-piscine-shell-01 ex04 (MAC.sh) — and Piscine Reloaded ex04, which reads this file (twin_of)
+What does a MAC address look like, and where in the output of ifconfig (man ifconfig) does it appear, among the other addresses and counters? Does each line you print hold one address and nothing else, and does the last one end with a line break, as the subject asks?

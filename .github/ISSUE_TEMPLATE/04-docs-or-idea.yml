@@ -1,0 +1,21 @@
+name: Docs fix or idea
+description: Something in the docs is wrong or unclear, or an idea for the harness.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An idea is welcome; an exercise's answer is not, in any form, and that includes the method for a named exercise.
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The page, section or tool this is about.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What, and why
+    validations:
+      required: true
