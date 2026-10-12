@@ -49,9 +49,9 @@ bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3", dev_dependency = Tr
 # 2026-08-10 and had been wrong since the 2026-08-09 campus audit re-pinned it
 # DOWN to 3.3.58. Worth naming, because a stale comment about a pin is the one
 # kind that reads as a second, disagreeing source of truth. `bazel run
-# //tools:env_drift` reports the host's copy separately from the fetched one and
-# currently shows exactly that gap: this container carries 3.3.59, the layer
-# runs 3.3.58.
+# //tools:env_drift` reports the host's copy separately from the fetched one, so
+# a container built before that re-pin shows the gap (3.3.59 on the host, 3.3.58
+# in the layer) until it is rebuilt.
 bazel_dep(name = "rules_python", version = "2.2.0")
 
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
@@ -284,9 +284,9 @@ deb_archive(
 # shell_test.sh -- but both put `diff -u` output in front of a student, and the
 # unified-diff format is not identical between GNU and BSD diff. 170 KB.
 #
-# (TODO 14's surface table claimed twelve runners used diff. That count came
-# from grepping for the WORD, which appears in prose, in target names and in the
-# name of the diff LAYER -- which does its own comparison and never shells out.)
+# (An earlier survey claimed twelve runners used diff. That count came from
+# grepping for the WORD, which appears in prose, in target names and in the name
+# of the diff LAYER -- which does its own comparison and never shells out.)
 deb_archive(
     name = "diffutils_ubuntu",
     build_file_content = """exports_files(
@@ -521,8 +521,9 @@ filegroup(
     srcs = glob(
         # Everything valgrind reaches for after it starts: the per-tool
         # binaries, the preload shims and the XML. Passed to the runners so
-        # they can set VALGRIND_LIB to this directory -- see tools/deb.bzl on
-        # why the packaged layout is kept rather than flattened.
+        # they can set VALGRIND_LIB to this directory -- valgrind finds its tool
+        # binaries through it as one directory, so the tree stays as the
+        # package lays it out (see WHY A .deb above).
         ["usr/libexec/valgrind/**"],
         allow_empty = False,
     ),

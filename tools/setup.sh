@@ -81,7 +81,7 @@ require() {
 		exit 2
 	done
 }
-require awk basename cat chmod cut dirname grep id ln mkdir mktemp mv rm sed tail tr
+require awk basename cat chmod cut dirname grep id ln mkdir mktemp mv rm sed sort tail tr
 # conventions: optional python3 -- last resort in both fallback chains below
 # (download: wget, curl, then python3; digest: sha256sum, shasum, then python3).
 # conventions: optional sha256sum -- first choice of the digest chain; shasum
@@ -130,7 +130,7 @@ printf 'setup: preparing this machine for %s\n\n' "$WS"
 # died if it was not writable, a plausible state off campus (a stale mount, a
 # root-owned leftover), leaving someone stuck with no route forward.
 [ -r "$WS/tools/drives.sh" ] || die "tools/drives.sh is missing from $WS -- is this checkout complete?"
-# shellcheck source=drives.sh
+# shellcheck source=tools/drives.sh
 . "$WS/tools/drives.sh"
 
 SCRATCH=""
@@ -192,13 +192,14 @@ else
 	ROOT="$SCRATCH/bazel"
 	# THE WRAPPER'S ONE EXCEPTION, kept here too. A checkout no rc file gives a
 	# root runs on the one tools/bazel supplies, and off campus that is the old
-	# /tmp/bazelcache when it is already yours (drives_default_root), so that
-	# nobody's state moved. Recording $SCRATCH/bazel would move it after all: a
-	# 2 GB download again, and a server left running on the old root. So no
-	# root is recorded, the wrapper goes on keeping that one, and once it is
-	# gone (a reboot clears /tmp) the wrapper moves to $SCRATCH/bazel by itself.
-	# The scratch still takes the disk cache and the rest.
-	if [ -z "$PREV_ROOT" ] && [ -z "$(drives_rc_root "$WS")" ] && drives_legacy_kept; then
+	# /tmp/bazelcache when it is yours and already holds this checkout's state
+	# (drives_default_root), so that nobody's state moved. Recording
+	# $SCRATCH/bazel would move it after all: a 2 GB download again, and a
+	# server left running on the old root. So no root is recorded, the wrapper
+	# goes on keeping that one, and once it is gone (a reboot clears /tmp) the
+	# wrapper moves to $SCRATCH/bazel by itself. The scratch still takes the
+	# disk cache and the rest.
+	if [ -z "$PREV_ROOT" ] && [ -z "$(drives_rc_root "$WS")" ] && drives_legacy_kept "$WS"; then
 		KEEP_LEGACY=1
 		ROOT=$DRIVES_LEGACY
 		WHERE="$WHERE; Bazel's own state stays in $ROOT, where it already is"
@@ -210,9 +211,10 @@ say "scratch:  $SCRATCH  -- $WHERE"
 # a failure -- the build may well be smaller than the full suite, and it is not
 # this script's place to refuse.
 #
-# RAM-BACKED. Many Linux desktops mount /tmp as tmpfs sized at half of RAM. An
-# 8.9 GB build tree there is 8.9 GB of memory, and the machine starts swapping
-# or the OOM killer arrives -- neither of which reads as "the cache is in RAM".
+# RAM-BACKED. Many Linux desktops mount /tmp as tmpfs sized at half of RAM. A
+# full build tree there (DRIVES_FULL_GB, tools/drives.sh) is that much memory,
+# and the machine starts swapping or the OOM killer arrives -- neither of which
+# reads as "the cache is in RAM".
 # Campus /tmp and the devcontainer's are disk-backed, so this only ever fires
 # off campus, which is exactly the case nobody was testing.
 SCRATCH_FS=$(df -P -T "$SCRATCH" 2> /dev/null | awk 'NR == 2 { print $2 }')
@@ -220,7 +222,7 @@ case "$SCRATCH_FS" in
 	tmpfs | ramfs)
 		say ""
 		say "WARNING: $SCRATCH is on $SCRATCH_FS, which lives in RAM."
-		say "         A full run of this repo is ~8.9 GB and would be held in memory."
+		say "         A full run of this repo is ~$DRIVES_FULL_GB GB and would be held in memory."
 		say "         Point somewhere on disk instead:"
 		say "             C_PISCINE_SCRATCH=\$HOME/.cache/42-piscine sh tools/setup.sh"
 		say ""
@@ -229,15 +231,17 @@ esac
 
 # NOT ENOUGH ROOM. The failure without this is a disk error partway through a
 # build, which names the wrong cause; see the inode note in the header for the
-# other half of that lesson.
+# other half of that lesson. The threshold is twice a full run: the figure is
+# measured at a run's end, not its peak, and prime.sh's own output base sits
+# beside yours until it has finished.
 SCRATCH_FREE_KB=$(df -P -k "$SCRATCH" 2> /dev/null | awk 'NR == 2 { print $4 }')
 case "$SCRATCH_FREE_KB" in
 	'' | *[!0-9]*) ;;
 	*)
-		if [ "$SCRATCH_FREE_KB" -lt 10485760 ]; then
+		if [ "$SCRATCH_FREE_KB" -lt $((DRIVES_FULL_GB * 2 * 1048576)) ]; then
 			say ""
 			say "WARNING: only $((SCRATCH_FREE_KB / 1024 / 1024)) GB free at $SCRATCH."
-			say "         A full run of this repo is ~8.9 GB. Testing one module at a"
+			say "         A full run of this repo is ~$DRIVES_FULL_GB GB. Testing one module at a"
 			say "         time needs far less, so this is a warning and not a refusal;"
 			say "         set C_PISCINE_SCRATCH to somewhere roomier if it bites."
 			say ""
@@ -342,7 +346,7 @@ fi
 # in scratch that a 42 $HOME caps at 5 GB. 4 GB holds this repo's outputs with
 # room to spare, and Bazel collects it in the background once it is idle.
 add_local_line() {  # add_local_line <grep-key> <line> <what>
-	grep -q "$1" .bazelrc.local 2>/dev/null && return 0
+	grep -q -e "$1" .bazelrc.local 2>/dev/null && return 0
 	printf '\n# added by tools/setup.sh\n%s\n' "$2" >> .bazelrc.local
 	say ".bazelrc.local: appended $3"
 }
@@ -364,6 +368,13 @@ replace_local_line() {  # replace_local_line <sed-pattern> <line> <what>
 }
 ROOT_PAT='^[[:blank:]]*startup[[:blank:]].*--output_user_root'
 DISK_PAT='^[[:blank:]]*build[[:blank:]].*--disk_cache[=[:blank:]]'
+# A line is added when no line that is not a comment names its flag, the
+# whole flag up to the = or blank after it, as .devcontainer/postcreate.sh
+# looks for them. The bare word disk_cache is inside
+# --experimental_disk_cache_gc_max_size too, so a file holding only the cap
+# never got a disk cache.
+DISK_KEY='^[^#]*--disk_cache[=[:blank:]]'
+GC_KEY='^[^#]*--experimental_disk_cache_gc_max_size[=[:blank:]]'
 
 if [ -f .bazelrc.local ]; then
 	if [ "$REPLACE" = 1 ]; then
@@ -382,9 +393,9 @@ if [ -f .bazelrc.local ]; then
 		add_local_line "$ROOT_PAT" \
 			"startup --output_user_root=$ROOT" "output_user_root"
 	fi
-	add_local_line 'disk_cache' \
+	add_local_line "$DISK_KEY" \
 		"build --disk_cache=$SCRATCH/bazel-disk" "the shared disk cache"
-	add_local_line 'disk_cache_gc_max_size' \
+	add_local_line "$GC_KEY" \
 		"build --experimental_disk_cache_gc_max_size=4G" "a 4G cap on that cache"
 else
 	if [ "$KEEP_LEGACY" = 1 ]; then
@@ -400,8 +411,8 @@ else
 # has its own), gitignored, yours to edit.
 #
 # One flag, three directories: the output base, the install base and the
-# repository cache all live under it. A full run of this repo is 8.9 GB, and a
-# 42 \$HOME is usually capped at 5 GB.
+# repository cache all live under it. A full run of this repo is several GB
+# (tools/drives.sh says how many), and a 42 \$HOME is usually capped at 5 GB.
 $ROOT_LINES
 
 # How the background prime's work reaches this build.
@@ -582,10 +593,12 @@ export PATH BAZELISK_HOME
 #     execvp(/home/<user>/.linuxbrew/bin/ar): No such file or directory
 #     Linking c-piscine/c-piscine-c-12/libft_list_size_asan.a failed
 #
-# `cc_binary` uses Bazel's AUTO-DETECTED toolchain -- deferred deliberately;
-# making it hermetic is a rules_cc job. Detection runs ONCE per output base and
-# writes ABSOLUTE paths into local_config_cc's BUILD as
-# `tool_paths = {"ar": "...", ...}`. It does not re-run because PATH changed.
+# The toolchain rules_cc AUTO-DETECTS (local_config_cc) is no longer the default,
+# since cc_binary uses the pinned //tools/cc_toolchain. It is still reached by
+# --config=gcc, and it is still cached in output bases from before the pin.
+# Detection runs ONCE per output base and writes ABSOLUTE paths into
+# local_config_cc's BUILD as `tool_paths = {"ar": "...", ...}`. It does not
+# re-run because PATH changed.
 #
 # So: Homebrew on PATH when it ran records ~/.linuxbrew/bin/ar. Uninstall
 # Homebrew -- which this repo RECOMMENDS, because that brew shadows the pinned

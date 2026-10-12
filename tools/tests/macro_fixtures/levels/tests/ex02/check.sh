@@ -2,7 +2,7 @@
 # The toy shell exercise's check (see ../../BUILD.bazel): what a check for a
 # script turn-in with stable = True holds -- the parse check the call's
 # script = "sh" relies on, and the comparison of the generator's two runs.
-# shellcheck source=../../../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-toy.sh}

@@ -26,7 +26,7 @@
 # does not say, and man find, which it points to, calls a directory a file.
 # regular.sh reads "files" as regular files, at strict (the exercise's
 # exNN_regular target), with directories of its own.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 C=${1:-clean}

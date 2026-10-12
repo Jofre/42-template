@@ -14,7 +14,7 @@
 # check squashed all whitespace with `tr -d '[:space:]'` and was blind to every
 # one of those. We now capture the RAW bytes and assert the exact terminator +
 # single-line integer format.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-count_files.sh}

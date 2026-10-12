@@ -51,7 +51,7 @@
 #                   [--inc FILE]... --cc PATH [--cc-lib FILE]...
 #                   --ld PATH --ld-lib FILE...
 #                   [--gate-differ P --gate-bin P --gate-expected P
-#                    [--gate-sanitize] [--gate-labeled]]
+#                    [--gate-sanitize] [--gate-labeled] [--gate-label NAME]]
 #   method_check.sh --fixed-array [--max-bytes N] --rule FILE
 #                   --src FILE... [--inc FILE]... [--inc-file FILE]
 #                   --cc PATH [--cc-under FILE]
@@ -74,6 +74,10 @@
 #                   --labeled), as the memory layers' gates take them: a
 #                   fixture read the other way is red on a right answer, and
 #                   the layer would stand down for good
+#   --gate-label NAME  the output test the gate is, by name, for the SKIP line
+#                   (runner_lib.sh's RL_GATE_NAME). Any --gate-* without
+#                   all of --gate-differ, --gate-bin and --gate-expected is
+#                   a wiring mistake, refused (rl_gate_whole)
 set -u
 
 # The external commands this runner takes from PATH. See diff_output.sh for why
@@ -167,9 +171,13 @@ while [ $# -gt 0 ]; do
 		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add RL_GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add RL_GATE_PASS --labeled; shift ;;
+		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
 		*) echo "method_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole method_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$RL_GATE_PASS$RL_GATE_NAME"
 
 case "$MODE" in
 	expect | fixed) ;;
@@ -440,6 +448,7 @@ case "$WHAT" in
 		fi
 		echo "method_check: FAIL — the instrumented run $RL_WHY"
 		echo "  before it could say whether a function of the turned-in file was entered"
+		# conventions: the call site's --rule -- the sentence the call site quotes
 		echo "  again while it ran, so the method the subject asks for was not seen"
 		echo "  either way. The output layer runs the same test program without the"
 		echo "  recorder: read it first."

@@ -4,10 +4,12 @@
 # to tools/fortytwo/main.py; every command is described in
 # tools/fortytwo/commands.tsv, which `42 help` prints.
 #
-# Usage:
-#   sh tools/42.sh [command] [args]      # from anywhere inside a checkout
-#   bazel run //tools:42 -- [command]    # the same, before setup.sh has run
-#   42 [command] [args]                  # once setup.sh has installed the shim
+# Usage: from anywhere inside a checkout,
+#   sh tools/42.sh [command] [args]
+# The same, before setup.sh has run:
+#   bazel run //tools:42 -- [command]
+# And once setup.sh has installed the shim:
+#   42 [command] [args]
 #
 # Exit status: the command's own -- for a test run, Bazel's (0 all passed,
 # 3 a test failed, 1 something did not build, 4 nothing to run, 8 stopped).

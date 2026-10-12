@@ -47,7 +47,7 @@
 # (the subject's own). A range anchored at line 1 is the one place where
 # several readings of the two bounds agree, and 1..3 alone once let a program
 # that misread them score 7/7.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-r_dwssap.sh}

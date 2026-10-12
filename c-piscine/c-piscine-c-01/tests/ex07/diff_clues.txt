@@ -1,8 +1,15 @@
   The array is reprinted after the call, so compare it against its own input.
-    * odd lengths differ, even lengths agree -> the middle element, swapped with
-                                                itself or skipped
+    * odd lengths differ, even lengths agree -> an odd length has a middle
+                                                element and an even one has
+                                                none: where does your code
+                                                stop, and what happens there?
     * length 0 or 1 differ                   -> a loop that cannot run zero times
-    * the array comes back unchanged         -> the two indices cross before
-                                                anything moves, or move together
-    * only the ends are right                -> both indices stepping from the
-                                                same side
+    * the array comes back unchanged         -> either nothing moved, or every
+                                                element moved and then moved
+                                                back: which, and how far
+                                                through the array does your
+                                                code go?
+    * only the ends are right                -> the first and last elements
+                                                reached their places and the
+                                                rest did not: what decides
+                                                where each of the others goes?

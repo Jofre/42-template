@@ -10,7 +10,7 @@ typedef struct s_kv
 
 /* WHAT cmpf IS HANDED. The subject gives btree_search_item's prototype and
  * no line that calls cmpf, so the ORDER of its two arguments is not fixed:
- * either one passes, at every level (WP-46's decision, TODO.md section 23).
+ * either one passes, at every level (WP-46's decision).
  * What every reading agrees on is what the two ARE: the data_ref the search
  * was given, and the item of a node of the tree searched. cmp_kv counts each
  * call that hands it anything else -- a node itself, data_ref twice, a

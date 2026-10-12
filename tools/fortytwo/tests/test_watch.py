@@ -22,11 +22,12 @@ class Out:
 
 
 class Files:
-    def __init__(self):
-        self.tmp = tempfile.TemporaryDirectory()
+    """Two files in root, a folder the test made and releases."""
+
+    def __init__(self, root):
         self.paths = []
         for name in ("a.c", "b.c"):
-            p = os.path.join(self.tmp.name, name)
+            p = os.path.join(root, name)
             with open(p, "w") as f:
                 f.write(name)
             self.paths.append(p)
@@ -90,12 +91,11 @@ class Run:
 
 class Loop(unittest.TestCase):
     def setUp(self):
-        self.f = Files()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.f = Files(tmp.name)
         self.out = Out()
         Run.log = []
-
-    def tearDown(self):
-        self.f.tmp.cleanup()
 
     def watch(self, keys, runs):
         it = iter(runs)

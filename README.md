@@ -65,9 +65,8 @@ this is all you need for now:
   folder. `ls` lists what is in the folder you are in, and `pwd` prints which
   folder that is.
 - **Type only what a block shows.** Here a block holds only what you type.
-  Many guides, and some pages of this repository, put a note after a command,
-  behind a `#`: leave the note out, because on campus the shell, zsh, hands it
-  to the command as more words.
+  Many guides put a note after a command, behind a `#`: leave the note out,
+  because on campus the shell, zsh, hands it to the command as more words.
 
 ### 0. Your own copy: private, never a fork
 
@@ -301,8 +300,8 @@ broken code.
   `42 test valgrind` only the memory one.
 - **More tests:** `42 test` runs your **level**, `basic` until you choose
   another: what fails an exercise (a *KO*, in 42's word) where the project is
-  graded. `42 test --level strict`
-  runs more; [docs/reference.md](docs/reference.md) says what each level adds.
+  graded. `42 test --level strict` runs more once, `42 config set level strict`
+  from then on; [docs/reference.md](docs/reference.md) says what each level adds.
 - **`42`** alone lists the commands you need, and `42 help test` explains one.
 
 **When several kinds of test go red at once, work them in this order:** get the
@@ -319,14 +318,15 @@ only start telling you something once there is an implementation to check.
 When a project is green, `42 submit`, typed in its folder, pushes it to
 Vogsphere, 42's git server. It runs every test of the project first, at your
 level, and pushes nothing if one fails, even in an exercise you have not
-started: [docs/submitting.md](docs/submitting.md) says how to push anyway.
-Before the first time, write down your Vogsphere URLs as
-[docs/submitting.md](docs/submitting.md) shows. `-n` shows what it would push,
-and pushes nothing:
+started: `42 submit --written-only` lets those through and still gates the
+rest ([docs/submitting.md](docs/submitting.md)). The first time, add the
+project's Vogsphere URL, from the intranet (below is a made-up one): it is
+saved, so the next `42 submit` needs none. `-n` shows what it would push, and
+pushes and saves nothing:
 
 ```sh
-42 submit -n
-42 submit
+42 submit -n git@git.example.com:you/c-00.git
+42 submit git@git.example.com:you/c-00.git
 ```
 
 **That is the whole loop.** Behind each `42` command that tests, builds or runs
@@ -388,7 +388,7 @@ there, keep your `ASSIGNED` line and take the rest from the template.
 | look up a layer, a flag, an environment variable, the layout | [docs/reference.md](docs/reference.md) |
 | work on BSQ, the final group project: how its tests are built, what its subject leaves open | [c-piscine/c-piscine-bsq/README.md](c-piscine/c-piscine-bsq/README.md) |
 | add a project, or a layer, to the harness | [docs/new-project.md](docs/new-project.md) |
-| learn the concepts the projects ask for, and the local tools to write and debug C with | [c-piscine/c-piscine-exam-prep/FINAL_EXAM_GUIDE.md](c-piscine/c-piscine-exam-prep/FINAL_EXAM_GUIDE.md), the study guide, also as a PDF and a standalone page beside it (rebuilt from the Markdown with `sh tools/exam_guide.sh`) |
+| learn the concepts the projects ask for, and the local tools to write and debug C with | [c-piscine/c-piscine-exam-prep/FINAL_EXAM_GUIDE.md](c-piscine/c-piscine-exam-prep/FINAL_EXAM_GUIDE.md), the study guide, also as a PDF and a standalone page beside it |
 | push a module to 42 | [docs/submitting.md](docs/submitting.md) |
 | start a weekend group project | [docs/rushes.md](docs/rushes.md) |
 | know why the harness is built as it is | [docs/design.md](docs/design.md) |
@@ -415,9 +415,9 @@ what it would change without changing it. Running it folder by folder gives
 natural, staggered timestamps rather than one project-wide instant. `-k` keeps
 each file's existing `Created` and moves only `Updated`.
 
-`tools/header_art.txt` holds the ASCII art the header draws — up to 9 rows of 33
-columns, and no `*/`. A missing, oversized or malformed file falls back to a
-built-in default, so a broken art file can never produce a broken header.
+If `tools/header_art.txt` exists, the header draws its ASCII art — up to 9 rows
+of 33 columns, and no `*/`. Without that file, or with an oversized or malformed
+one, it draws a built-in default, so a broken art file never breaks the header.
 
 `42 header` prints the C form for `.c` and `.h`, and for `Makefile`, `*.mk` and
 `*.sh` the same box in `#` comments, as the 42 editor plugins do; any other name

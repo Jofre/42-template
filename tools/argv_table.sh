@@ -2,7 +2,7 @@
 # argv_table.sh — run a program once per scenario and present a labeled
 # "invocation -> output" PASS/FAIL table (one row per invocation). Designed for
 # the small argv programs (c-06: print/rev/sort params) where each run's output
-# is short: the run's stdout lines are joined with SEP into a single value, so a
+# is short: the run's stdout lines are joined with " | " into a single value, so a
 # whole batch of invocations reads as one legible table. A run whose output does
 # not end in a newline gets " [no final newline]" after its value, since the
 # join would otherwise hide it.
@@ -21,7 +21,7 @@
 #
 # Usage:
 #   argv_table.sh --bin PATH --scenarios PATH --expected PATH \
-#       [--clues PATH] [--reporter PATH] [--sep STR] [--memory-only] [--exit-only]
+#       [--clues PATH] [--reporter PATH] [--memory-only] [--exit-only]
 #       [--guarded-argv] [--symbolizer PATH --symbolizer-lib PATH]
 #
 #   --memory-only  run every scenario and apply the survival guards, but do NOT
@@ -43,11 +43,20 @@
 #                  non-zero return fails as well as a crash, and the table is
 #                  not compared. For the robust exit-status target, exNN_exit.
 #
+#   argv_table.sh --emit --bin PATH --scenarios PATH
+#                  print the table itself, "<label><TAB><joined output>" per
+#                  scenario, from a trusted reference program: how a table.txt
+#                  is made. It refuses (exit 2) when a run crashed, hung,
+#                  flooded, printed too much for a cell, or returned a status
+#                  other than 0.
+#
 # THE EXIT STATUS, by the rule in docs/reference.md ("Run contract"). A run
 # killed by a signal fails in every mode: a crash is never a pass. A plain
 # non-zero RETURN fails only under --exit-only. The subjects these programs
 # come from name no exit status, so the table -- level basic -- does not fail a
 # student on one; it prints a note, and the robust target is where it fails.
+# --emit judges a reference, not a student, and refuses one: a reference that
+# returned a status other than 0 gave no answer for that row.
 #
 # Env: ARGV_TIMEOUT  seconds allowed per scenario run (default 5), capped by
 #                    what is left of the test's own limit
@@ -93,7 +102,6 @@ while [ $# -gt 0 ]; do
 		--expected) need "$1" "$#"; EXP="$2"; shift 2 ;;
 		--clues) need "$1" "$#"; CLUES="$2"; shift 2 ;;
 		--reporter) need "$1" "$#"; REPORTER="$2"; shift 2 ;;
-		--sep) need "$1" "$#"; SEP="$2"; shift 2 ;;
 		--emit) EMIT=1; shift ;;
 		--memory-only) MEMONLY=1; shift ;;
 		--exit-only) EXITONLY=1; shift ;;
@@ -135,7 +143,7 @@ else
 	standin_check argv_table "$BIN" fail "the program"
 fi
 
-# Runaway guard, same reasoning and same mechanism as tools/diff_output.sh:87-98.
+# Runaway guard, with the reasoning and the mechanism of tools/diff_output.sh's.
 # This runs code nobody has verified, so a loop whose exit condition is never
 # reached writes at page-cache speed into the test tmpdir for the whole Bazel
 # timeout. `ulimit -f` bounds it at the source — the kernel kills the writer with
@@ -294,7 +302,9 @@ while IFS= read -r line || [ -n "$line" ]; do
 	# before this check existed.)
 	_sanitized=0
 	if rl_sanitized "$ERR"; then
-		printf '   %s: the sanitizer reported an invalid access\n' "$label" >> "$DIED"
+		# What it reported, in words (rl_sanitizer_kind): every report read
+		# "an invalid access", a block freed twice among them.
+		printf '   %s: the sanitizer reported that it %s\n' "$label" "$(rl_sanitizer_about)" >> "$DIED"
 		SANITIZED=1
 		_sanitized=1
 	fi
@@ -375,12 +385,18 @@ if [ "$EMIT" -eq 1 ]; then
 	# a reference that prints 9900 bytes for one scenario, which exited 0 and put
 	# the placeholder on stdout. Note CELL_MAX is only 4096 here, since --emit
 	# runs without --expected to size it from.
-	if [ -s "$DIED" ] || [ "$TRUNCATED" -eq 1 ]; then
+	#
+	# NONZERO too: a reference that RETURNED a status other than 0 has no
+	# answer on that row, whatever it printed. It used to be kept as a row, so
+	# a reference that exited 3 with nothing on stdout wrote a table of empty
+	# rows, and --emit exited 0.
+	if [ -s "$DIED" ] || [ "$TRUNCATED" -eq 1 ] || [ -s "$NONZERO" ]; then
 		echo "argv_table.sh: the reference program did not run cleanly; refusing to" >&2
 		echo "               generate an expected table from it:" >&2
 		[ "$TRUNCATED" -eq 1 ] && \
 			echo "   at least one run printed more than $CELL_MAX bytes, too much to hold in a table cell" >&2
 		cat "$DIED" >&2
+		cat "$NONZERO" >&2
 		[ -s "$ERRLOG" ] && cat "$ERRLOG" >&2
 		exit 2
 	fi
@@ -393,8 +409,9 @@ fi
 # same scenarios against the instrumented binary: there, a wrong table is not
 # this layer's news — the plain output test already reports it, and a student
 # staring at two reds for one unwritten function learns nothing from the second.
-# What the instrumented run alone can say is that an access went out of bounds,
-# and ASan reports that by aborting, which the crash check below already sees.
+# What the instrumented run alone can say is that the sanitizer found something
+# (an access out of bounds, a block freed twice), and it reports that by
+# aborting, which the crash check below already sees.
 # So: same runs, same guards, no byte comparison.
 if [ "$MEMONLY" -eq 1 ] || [ "$EXITONLY" -eq 1 ]; then
 	rc=0
@@ -415,7 +432,9 @@ fi
 if [ -s "$DIED" ]; then
 	echo " --------------------------------------------------"
 	if [ "$SANITIZED" -eq 1 ]; then
-		echo " INVALID MEMORY ACCESS: the sanitizer stopped an invocation."
+		# Not "invalid memory access": a sanitizer also stops on what is no
+		# access at all (a block freed twice). Each line below says what.
+		echo " SANITIZER: an invocation was stopped at the sanitizer's first finding:"
 	elif [ "$SIGNALED" -eq 1 ]; then
 		echo " CRASH: an invocation was killed by a signal:"
 	else
@@ -440,16 +459,17 @@ if [ -s "$NONZERO" ]; then
 	if [ "$EXITONLY" -eq 1 ]; then
 		echo " EXIT STATUS: an invocation returned a non-zero status:"
 		cat "$NONZERO"
-		echo "        The subject names no exit status. This is the robust check,"
-		echo "        which applies the C convention: a program that did its job"
-		echo "        returns 0 from main."
+		echo "        No sentence this harness quotes from your subject names an exit"
+		echo "        status. This is the robust check, which applies the C"
+		echo "        convention: a program that did its job returns 0 from main."
 		rc=1
 	else
 		echo " note: an invocation returned a non-zero status:"
 		rl_excerpt "$NONZERO" 5 nonzero-returns.txt ""
-		echo "        The subject names no exit status, so this layer does not fail"
-		echo "        on it; the robust exit-status check does, because a program"
-		echo "        that did its job conventionally returns 0 from main."
+		echo "        No sentence this harness quotes from your subject names an exit"
+		echo "        status, so this layer does not fail on it; the robust"
+		echo "        exit-status check does, because a program that did its job"
+		echo "        conventionally returns 0 from main."
 	fi
 fi
 

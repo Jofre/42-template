@@ -68,7 +68,7 @@ _ws=$(cd "$_here/.." 2> /dev/null && pwd) || exec "$BAZEL_REAL" "$@"
 # An absent library (a checkout older than this script's own) means no default
 # to add: Bazel's own applies, and that is per-user too.
 [ -r "$_ws/tools/drives.sh" ] || exec "$BAZEL_REAL" "$@"
-# shellcheck source=drives.sh
+# shellcheck source=tools/drives.sh
 . "$_ws/tools/drives.sh"
 
 # 1. Named on the command line: startup options are the words before the
@@ -85,7 +85,7 @@ done
 [ -z "$(drives_rc_root "$_ws" "$@")" ] || exec "$BAZEL_REAL" "$@"
 
 # 3. The default. None at all (nothing writable anywhere) leaves Bazel's own.
-if ! drives_default_root; then
+if ! drives_default_root "$_ws"; then
 	[ -z "${C_PISCINE_SCRATCH:-}" ] ||
 		echo "tools/bazel: $DRIVES_ROOT_WHY; Bazel's own default root applies." >&2
 	exec "$BAZEL_REAL" "$@"

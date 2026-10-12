@@ -2,7 +2,13 @@
 # prime.sh — do all the slow, once-per-machine work now, instead of in the
 # middle of checking an exercise.
 #
-#     bazel run //tools:prime
+#     bazel run //tools:prime            on demand
+#     sh tools/prime.sh --background     what the shell profile setup.sh writes
+#                                        runs in every interactive shell: primes
+#                                        once per machine, never makes the
+#                                        student wait (see WHY THIS DOES NOT
+#                                        BLOCK YOU below; NO_C_PISCINE_PRIME=1
+#                                        turns it off)
 #
 # WHY THIS EXISTS. Nothing here is downloaded or built until something needs it,
 # so on a fresh machine the FIRST `bazel test` pays for the whole toolchain at
@@ -21,15 +27,10 @@
 # this exists.
 #
 # WHY NOT JUST `bazel test //...`. That would also RUN every test in the repo
-# (over 1 600 of them), which on
-# a fresh clone reports a screen of reds that are entirely expected -- every
-# unwritten exercise -- and takes far longer. Priming is about having the inputs
-# ready, not about learning anything. `bazel fetch` and `bazel build` are the
-# right primitives.
-
-#
-# --background: fire once per machine from a shell profile, without ever making
-# the student wait. See WHY THIS DOES NOT BLOCK YOU below.
+# (thousands of them), which on a fresh clone reports a screen of reds that are
+# entirely expected -- every unwritten exercise -- and takes far longer. Priming
+# is about having the inputs ready, not about learning anything. `bazel fetch`
+# and `bazel build` are the right primitives.
 
 set -eu
 
@@ -59,10 +60,11 @@ cd "$WS" || { echo "prime.sh: cannot enter '$WS'" >&2; exit 1; }
 # .bazelrc.local. This used to guess again from three UNPROBED ones, so the two
 # could disagree -- and they disagree exactly when setup.sh had a reason to move.
 # A box with a /goinfre that exists and is not writable, or a /tmp too small for
-# 8.9 GB, gets $HOME/.cache/42-piscine from setup.sh and /goinfre or /tmp from
-# here. Then this writes its own output base and disk cache -- gigabytes -- to a
-# directory setup.sh REJECTED, the sentinel lands somewhere the interactive
-# build never looks, and the priming it did warms a cache nothing reads.
+# a full run (DRIVES_FULL_GB, tools/drives.sh), gets $HOME/.cache/42-piscine
+# from setup.sh and /goinfre or /tmp from here. Then this writes its own output
+# base and disk cache -- gigabytes -- to a directory setup.sh REJECTED, the
+# sentinel lands somewhere the interactive build never looks, and the priming
+# it did warms a cache nothing reads.
 #
 # So: read what setup.sh recorded, and guess only when there is nothing to read.
 # The read must accept any output_user_root line, not just the one setup.sh
@@ -82,7 +84,7 @@ cd "$WS" || { echo "prime.sh: cannot enter '$WS'" >&2; exit 1; }
 # /tmp/$USER: a script wired into a login shell must never refuse.
 HAVE_DRIVES=0
 if [ -r "$WS/tools/drives.sh" ]; then
-	# shellcheck source=drives.sh
+	# shellcheck source=tools/drives.sh
 	. "$WS/tools/drives.sh"
 	HAVE_DRIVES=1
 fi
@@ -123,7 +125,7 @@ esac
 # startup command line: the server this `bazel run` left behind would be
 # restarted for it.
 ROOT_OPT=""
-if [ "$HAVE_DRIVES" = 1 ] && [ -z "$RC_ROOT" ] && drives_default_root; then
+if [ "$HAVE_DRIVES" = 1 ] && [ -z "$RC_ROOT" ] && drives_default_root "$WS"; then
 	ROOT_OPT="--output_user_root=$DRIVES_ROOT"
 fi
 
@@ -134,7 +136,7 @@ fi
 # checkout -- there is no trace, and the prime is the same.
 HAVE_TRACE=0
 if [ -r "$WS/tools/prime_trace.sh" ]; then
-	# shellcheck source=prime_trace.sh
+	# shellcheck source=tools/prime_trace.sh
 	. "$WS/tools/prime_trace.sh"
 	HAVE_TRACE=1
 fi
@@ -270,11 +272,11 @@ if [ "${1:-}" = "--background" ]; then
 	#    degrades the courtesy, not the result, so this must never refuse to run
 	#    over them -- the whole point of the script is to work unattended.
 	#
-	# 2. IT IGNORED THE REPO'S OWN CPU LIMIT. .bazelrc sets
-	#    `build --local_resources=cpu=HOST_CPUS-2`, and `bazel fetch` DOES NOT
-	#    INHERIT IT -- rc lines for `build` reach build/test/run/coverage, and
-	#    fetch is its own command. So the fetch half ran unthrottled. Both halves
-	#    now carry the budget explicitly.
+	# 2. IT DID NOT THROTTLE THE FETCH. The fetch half inherits .bazelrc's
+	#    `build --local_resources=cpu=HOST_CPUS-2` (see THE BUDGET above), but
+	#    repository rules are not build actions, so neither that nor --jobs
+	#    limits them. Only --loading_phase_threads does. Both halves now carry
+	#    the budget explicitly.
 	#
 	#    HOST_CPUS-2 is also the wrong shape here even where it does apply: it
 	#    reserves two cores of a machine this process does not own, and on a
@@ -293,7 +295,7 @@ if [ "${1:-}" = "--background" ]; then
 		# One place that knows how to invoke the prime server, so the budget and
 		# the nice/ionice prefix cannot be applied to one half and forgotten on
 		# the other -- which is exactly the bug this replaces, where `fetch` ran
-		# unthrottled because the rc limit only reaches `build`.
+		# unthrottled (THE BUDGET above says why).
 		#
 		# --max_idle_secs is a STARTUP option, so it goes before the command. It
 		# is the backstop for the explicit shutdown below: if this subshell is
@@ -324,13 +326,13 @@ if [ "${1:-}" = "--background" ]; then
 			# started is not an error to report from a login shell.
 			# shellcheck disable=SC2086
 			$NICE "$BZ" $ROOT_OPT --output_base="$SCRATCH/bazel-prime" shutdown >> "$log" 2>&1 || true
-			# AND THROW THE TREE AWAY. Measured on a warm devcontainer: an
-			# output base for this repo is 8.7-9.5 GB, while everything priming
-			# exists to produce lives OUTSIDE it -- the 2.1 GB repository cache
-			# is a sibling shared by every base, and the compiled actions went
-			# to the disk cache above. So this directory is 9 GB of scratch that
-			# has already handed over everything of value, on a machine whose
-			# $HOME a 42 campus caps at 5 GB.
+			# AND THROW THE TREE AWAY. An output base for this repo is most of
+			# a full run's footprint (DRIVES_FULL_GB, tools/drives.sh), while
+			# everything priming exists to produce lives OUTSIDE it -- the
+			# repository cache is a sibling shared by every base, and the
+			# compiled actions went to the disk cache above. So this directory
+			# is gigabytes of scratch that has already handed over everything
+			# of value, on a machine whose $HOME a 42 campus caps at 5 GB.
 			#
 			# After the shutdown, never before: removing an output base under a
 			# live server is how you get a Bazel that reports impossible errors
@@ -338,7 +340,7 @@ if [ "${1:-}" = "--background" ]; then
 			#
 			# ONLY ON SUCCESS, and niced like everything else here. Both were
 			# wrong in the first version: unconditional, it deleted the tree
-			# after a FAILED prime too, so the next attempt rebuilt 9 GB from
+			# after a FAILED prime too, so the next attempt rebuilt it all from
 			# nothing instead of resuming incrementally -- strictly worse than
 			# leaving it. And un-niced it unlinks two million directory entries
 			# (measured: 2,042,009) at normal I/O priority, which is precisely

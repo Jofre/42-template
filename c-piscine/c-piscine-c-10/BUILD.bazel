@@ -382,8 +382,8 @@ c_make(
 # replays ccarry, a file larger than the other cases. Each asks only that it
 # end by itself, within its time, with bounded output. The subject has no
 # "handle errors" sentence, so allocfail_rule states the reading this rests
-# on -- a reading, which is why it sits at robust, the repo's rigour (TODO.md
-# §23, WP-92). No text or status is asserted.
+# on -- a reading, which is why it sits at robust, the repo's rigour
+# (WP-92). No text or status is asserted.
 c_program(
     num = "02",
     name = "ft_tail",
@@ -456,17 +456,16 @@ c_program(
         },
         # The count that cannot be answered out of ONE chunk.
         #
-        # Why this case exists: `clarge` above is blind to the most natural way
-        # to get ft_tail wrong -- loop over read() but, on each iteration, throw
-        # away everything except the last N bytes of the chunk you just read.
-        # That is arithmetic, not luck. big.txt is 151552 bytes = 37 * 4096, so
+        # Why this case exists: `clarge` above cannot tell a program that keeps
+        # nothing from one read() to the next from a correct one. That is
+        # arithmetic, not luck. big.txt is 151552 bytes = 37 * 4096, so
         # 1024/2048/4096 divide it exactly and the final chunk is a full buffer;
         # the awkward sizes leave remainders (6552 at 29000, 20480 at 65536)
         # that are still far larger than 20. Either way the last 20 bytes of the
         # file lie WHOLLY INSIDE the final chunk, so the state-less program and
-        # the correct one print the same bytes. Verified: a model of exactly
-        # that bug is byte-identical to clarge.txt at BUF = 1024, 4096, 8192,
-        # 29000 and 65536.
+        # the correct one print the same bytes. Verified: a toy variant that
+        # keeps nothing between reads is byte-identical to clarge.txt at BUF =
+        # 1024, 4096, 8192, 29000 and 65536.
         #
         # 40000 is above every one of those final-chunk sizes, so the answer
         # provably spans a read boundary: no single chunk contains it, and
@@ -630,7 +629,7 @@ c_make(
 # allocfail: ex03_program_allocfail, at robust, replays dump with one of the
 # program's malloc() calls refused per run: the same kind of reading as ex02's
 # above, stated in allocfail_rule, the same three questions, the repo's rigour
-# (TODO.md §23, WP-92).
+# (WP-92).
 c_program(
     num = "03",
     name = "ft_hexdump",
@@ -702,12 +701,11 @@ c_program(
         # hexdump carrying either bug was measured 7/7 green on the cases above.
         #
         # full.bin is 32 bytes: the file ends exactly ON a line boundary, so
-        # after the last full line there is nothing left to print. That is the
-        # difference between "flush whatever is in the buffer" and "flush it
-        # only IF there is anything in it" -- get it wrong and you emit one
-        # extra, fully-padded line before the closing offset. empty.bin cannot
-        # stand in for this: 0 bytes prints nothing at all, which students
-        # short-circuit with an early return that never reaches the flush.
+        # after the last full line nothing is left to print but the closing
+        # offset. A program that prints one extra, fully-padded line there is
+        # red on this case and green on every case above. empty.bin cannot
+        # stand in for this: 0 bytes prints nothing at all, so it never asks
+        # what follows a last full line.
         #
         # dupend.bin is 32 identical bytes: the file ENDS inside a suppressed
         # run. hexdump prints the first line, one '*', and the closing offset --
@@ -903,15 +901,16 @@ c_levels()
 # ---------------------------------------------------------------------------
 # THE DIFFERENTIAL LAYER, against //oracle's c10 reference.
 #
-# WHY, given that every exercise above already has fixtures. The subject's own
-# sentence is the reason: "You must complete this exercise by declaring a
-# fixed-size array." All four of these are a READ LOOP around a buffer, and a
-# read loop is wrong at exactly the sizes nobody commits a fixture for. The
-# corpus walks the boundaries around every buffer size people choose -- 4, 8,
-# 16, 32, 64, 128, 256, 512, 1024, 4096, and the ~30 000 ex01's subject names --
-# testing size-1, size and size+1 at each, and carries content a text fixture
-# cannot: NUL bytes, runs of 0xff, a file with no trailing newline, and a file
-# that is one enormous line.
+# WHY, given that every exercise above already has fixtures. All four of these
+# are a READ LOOP around a buffer, and a read loop is wrong at exactly the
+# sizes nobody commits a fixture for. For ex00 and ex01 the subject says so
+# itself ("You must complete this exercise by declaring a fixed-size array.",
+# p.5 and p.6); ex02 and ex03 allow malloc, but still read their files through
+# a buffer. The corpus walks the boundaries around every buffer size people
+# choose -- 4, 8, 16, 32, 64, 128, 256, 512, 1024, 4096, and the ~30 000 ex01's
+# subject names -- testing size-1, size and size+1 at each, and carries content
+# a text fixture cannot: NUL bytes, runs of 0xff, a file with no trailing
+# newline, and a file that is one enormous line.
 #
 # Measured against deliberately broken programs: a loop that reads ONCE fails 4
 # of 60, and one that writes `strlen(buf)` instead of the byte count fails 22 of

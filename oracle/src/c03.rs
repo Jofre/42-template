@@ -1,7 +1,7 @@
 //! c-03 string family references (strcmp, strncmp, strcat, strncat, strstr,
 //! strlcat). See oracle/README.md for the corpus-line format per function.
 
-use crate::common::{bench_lines, o_strcmp, rand_body, sink, string_pairs, to_hex, unhex, Rng};
+use crate::common::{bench_lines, largest_dec, long_text, o_strcmp, rand_body, sink, string_pairs, to_hex, unhex, widest_hex, Rng};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -67,6 +67,82 @@ fn o_strlcat(dest: &[u8], src: &[u8], size: usize) -> (Vec<u8>, u64) {
 }
 
 // ---------------------------------------------------------- generators
+/// `cases` with `long` put in at `at` (the end of a structured head), cut
+/// back to `count` cases or to the head and `long`, whichever is more: a
+/// small --count keeps the capacity cases, a large one stays exact.
+fn with_long<T>(mut cases: Vec<T>, at: usize, long: Vec<T>, count: usize) -> Vec<T> {
+    let keep = count.max(at + long.len());
+    let tail = cases.split_off(at.min(cases.len()));
+    cases.extend(long);
+    cases.extend(tail);
+    cases.truncate(keep);
+    cases
+}
+
+/// strcmp's and strncmp's capacity cases (finding 041), with strncmp's n:
+/// every pair the corpus held was at most 32 bytes, so a comparison that
+/// copied its strings into room of a round size (16, 64, 256, 1024, 4096)
+/// passed every case. Equal through 5000 bytes; 4100 bytes that differ in
+/// the last one, with n reaching it and n stopping one short; a prefix of
+/// 4100 against 4101; and a last byte above 0x7f against one below it, after
+/// 4097 equal ones. Each string from a seed of its own.
+fn long_cmp_cases() -> Vec<(Vec<u8>, Vec<u8>, usize)> {
+    let t5000 = long_text(5000, 5000);
+    let t4100 = long_text(4100, 4100);
+    let mut last = t4100.clone();
+    last[4099] = b'#'; // a byte long_text never holds
+    let mut longer = t4100.clone();
+    longer.push(b'x');
+    let mut hi = long_text(4097, 4097);
+    let mut lo = hi.clone();
+    hi.push(0x80);
+    lo.push(0x01);
+    vec![
+        (t5000.clone(), t5000, 6000),
+        (t4100.clone(), last.clone(), 4100),
+        (t4100.clone(), last, 4099),
+        (longer, t4100, 4101),
+        (hi, lo, 4098),
+    ]
+}
+
+/// strcat's and strncat's capacity cases (finding 041), with strncat's nb:
+/// dest and src were at most 24 bytes each. A dest of 4100 and a src of
+/// 5000, whole and with nb past it; a dest of 1100 and that src cut at 4097;
+/// a dest of 5000 and an empty src. Each from a seed of its own, and every
+/// dest past the 1000 bytes the cycles layer's max_unit leaves out.
+fn long_cat_cases() -> Vec<(Vec<u8>, Vec<u8>, usize)> {
+    let d = long_text(4100, 4100);
+    let s = long_text(5000, 5000);
+    vec![
+        (d.clone(), s.clone(), 5000),
+        (d, s.clone(), 6000),
+        (long_text(1100, 1100), s.clone(), 4097),
+        (s, Vec::new(), 5000),
+    ]
+}
+
+/// strstr's capacity cases (finding 041): every str was at most 19 bytes and
+/// every to_find at most 19. A needle of 4097 bytes found only at the end of
+/// 5001, the one place a '#' stands; one of 4097 found at the start of 5000;
+/// one a byte longer than its 4100-byte str; a '#' that 5000 bytes never
+/// hold. Each from a seed of its own.
+fn long_strstr_cases() -> Vec<(Vec<u8>, Vec<u8>)> {
+    let mut end = long_text(5000, 5000);
+    end.push(b'#');
+    let at_end = end[end.len() - 4097..].to_vec();
+    let t5000 = long_text(5000, 5000);
+    let t4100 = long_text(4100, 4100);
+    let mut over = t4100.clone();
+    over.push(b'x');
+    vec![
+        (end, at_end),
+        (t5000.clone(), t5000[..4097].to_vec()),
+        (t4100, over),
+        (t5000, b"#".to_vec()),
+    ]
+}
+
 fn cat_pairs(rng: &mut Rng, count: usize) -> Vec<(Vec<u8>, Vec<u8>)> {
     let mut out: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
     out.push((vec![], vec![]));
@@ -114,30 +190,34 @@ fn strstr_pairs(rng: &mut Rng, count: usize) -> Vec<(Vec<u8>, Vec<u8>)> {
     out
 }
 
-fn gen_strcmp(seed: u64, count: usize) {
+fn gen_strcmp<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let pairs = string_pairs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
+    let head = string_pairs(&mut Rng::new(seed), 0).len();
+    let long = long_cmp_cases().into_iter().map(|(a, b, _)| (a, b)).collect();
+    let pairs = with_long(string_pairs(&mut rng, count), head, long, count);
     for (a, b) in &pairs {
         let _ = writeln!(w, "{}\t{}\t{}", to_hex(a), to_hex(b), o_strcmp(a, b));
     }
 }
 
-fn gen_strncmp(seed: u64, count: usize) {
+fn gen_strncmp<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let pairs = string_pairs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for (a, b) in &pairs {
+    let head = string_pairs(&mut Rng::new(seed), 0).len();
+    let mut cases: Vec<(Vec<u8>, Vec<u8>, usize)> = Vec::new();
+    for (a, b) in string_pairs(&mut rng, count) {
         let m = a.len().max(b.len());
         let n = if m == 0 { 0 } else { rng.below(m + 2) };
-        let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(a), to_hex(b), n, o_strncmp(a, b, n));
+        cases.push((a, b, n));
+    }
+    for (a, b, n) in &with_long(cases, head, long_cmp_cases(), count) {
+        let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(a), to_hex(b), n, o_strncmp(a, b, *n));
     }
 }
 
-fn gen_strcat(seed: u64, count: usize) {
+fn gen_strcat<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let pairs = cat_pairs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
+    let long = long_cat_cases().into_iter().map(|(d, s, _)| (d, s)).collect();
+    let pairs = with_long(cat_pairs(&mut rng, count), 4, long, count);
     for (d, s) in &pairs {
         let cap = d.len() + s.len() + 1;
         let r = o_strcat(d, s);
@@ -146,12 +226,15 @@ fn gen_strcat(seed: u64, count: usize) {
     }
 }
 
-fn gen_strncat(seed: u64, count: usize) {
+fn gen_strncat<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let pairs = cat_pairs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for (d, s) in &pairs {
+    let mut cases: Vec<(Vec<u8>, Vec<u8>, usize)> = Vec::new();
+    for (d, s) in cat_pairs(&mut rng, count) {
         let n = if s.is_empty() { 0 } else { rng.below(s.len() + 2) };
+        cases.push((d, s, n));
+    }
+    for (d, s, n) in &with_long(cases, 4, long_cat_cases(), count) {
+        let n = *n;
         let k = n.min(s.len());
         let cap = d.len() + k + 1;
         let r = o_strncat(d, s, n);
@@ -160,10 +243,9 @@ fn gen_strncat(seed: u64, count: usize) {
     }
 }
 
-fn gen_strstr(seed: u64, count: usize) {
+fn gen_strstr<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let pairs = strstr_pairs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
+    let pairs = with_long(strstr_pairs(&mut rng, count), 8, long_strstr_cases(), count);
     for (h, nd) in &pairs {
         let res = match o_strstr(h, nd) {
             Some(i) => to_hex(&h[i..]),
@@ -173,11 +255,31 @@ fn gen_strstr(seed: u64, count: usize) {
     }
 }
 
-fn gen_strlcat(seed: u64, count: usize) {
+fn gen_strlcat<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
-    while done < count {
+    // Capacity cases (finding 041): every dest, src and size below is at most
+    // 24. A dest of 4100 and a src of 5000 in exactly the room they need, cut
+    // at size 6000, and with size the length of dest (no room at all); a
+    // dest of 1100 and that src cut at size 4097. Each from a seed of its
+    // own, every dest past the 1000 bytes the cycles layer's max_unit leaves
+    // out, after the first 40 cases, so the first differences a report shows
+    // are short lines.
+    let d = long_text(4100, 4100);
+    let s = long_text(5000, 5000);
+    let mut long = vec![(d.clone(), s.clone(), 9101usize), (d.clone(), s.clone(), 6000), (d, s.clone(), 4100), (long_text(1100, 1100), s, 4097)];
+    while done < count || !long.is_empty() {
+        if done == 40.min(count) && !long.is_empty() {
+            for (d, s, size) in long.drain(..) {
+                let (buf, ret) = o_strlcat(&d, &s, size);
+                let _ = writeln!(w, "{}\t{}\t{}\t{}\t{}\t{}", to_hex(&d), size + 1, to_hex(&s), size, to_hex(&buf), ret);
+                done += 1;
+            }
+            continue;
+        }
+        if done >= count {
+            break;
+        }
         let size = rng.below(25);
         let dlen = if size == 0 { 0 } else { rng.below(size + 1) };
         let high = rng.below(2) == 1;
@@ -198,12 +300,12 @@ fn gen_strlcat(seed: u64, count: usize) {
 /// Dispatch: returns true if `name` belongs to this module.
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
-        "c03_strcmp" => gen_strcmp(seed, count),
-        "c03_strncmp" => gen_strncmp(seed, count),
-        "c03_strcat" => gen_strcat(seed, count),
-        "c03_strncat" => gen_strncat(seed, count),
-        "c03_strstr" => gen_strstr(seed, count),
-        "c03_strlcat" => gen_strlcat(seed, count),
+        "c03_strcmp" => gen_strcmp(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c03_strncmp" => gen_strncmp(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c03_strcat" => gen_strcat(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c03_strncat" => gen_strncat(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c03_strstr" => gen_strstr(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c03_strlcat" => gen_strlcat(&mut io::BufWriter::new(io::stdout()), seed, count),
         _ => return false,
     }
     true
@@ -212,6 +314,40 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
 /// Self-check: hand-verified cases + properties. Returns the failure count.
 pub fn check() -> usize {
     let mut fails = 0usize;
+
+    // ---- every unbounded input past the round capacities (finding 041) ----
+    // Each corpus holds a case past every capacity a function is usually
+    // given room for (16, 64, 256, 1024, 4096), read back from what its
+    // generator writes: each string, and the n or size beside them.
+    {
+        let past = 4096usize;
+        let head = |g: &dyn Fn(&mut Vec<u8>)| -> Vec<u8> {
+            let mut v = Vec::new();
+            g(&mut v);
+            v
+        };
+        let mut want = |ok: bool, arm: &str, what: &str| {
+            if !ok {
+                eprintln!("CHECK FAIL c03 {} corpus holds no {} past 4096", arm, what);
+                fails += 1;
+            }
+        };
+        let c = head(&|w| gen_strcmp(w, 1, 1000));
+        want(widest_hex(&c, 0) > past && widest_hex(&c, 1) > past, "strcmp", "s1 and s2");
+        let c = head(&|w| gen_strncmp(w, 1, 1000));
+        want(widest_hex(&c, 0) > past && widest_hex(&c, 1) > past, "strncmp", "s1 and s2");
+        want(largest_dec(&c, 2) > past as i64, "strncmp", "n");
+        let c = head(&|w| gen_strcat(w, 1, 200));
+        want(widest_hex(&c, 0) > past && widest_hex(&c, 2) > past, "strcat", "dest and src");
+        let c = head(&|w| gen_strncat(w, 1, 200));
+        want(widest_hex(&c, 0) > past && widest_hex(&c, 2) > past, "strncat", "dest and src");
+        want(largest_dec(&c, 3) > past as i64, "strncat", "nb");
+        let c = head(&|w| gen_strstr(w, 1, 200));
+        want(widest_hex(&c, 0) > past && widest_hex(&c, 1) > past, "strstr", "str and to_find");
+        let c = head(&|w| gen_strlcat(w, 1, 200));
+        want(widest_hex(&c, 0) > past && widest_hex(&c, 2) > past, "strlcat", "dest and src");
+        want(largest_dec(&c, 3) > past as i64, "strlcat", "size");
+    }
 
     let cases: &[(&[u8], &[u8], i64)] = &[
         (b"Hello", b"Hello", 0),

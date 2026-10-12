@@ -795,9 +795,10 @@ status_note() {
 		STATUS_FAILS=$((STATUS_FAILS + 1))
 		{
 			echo "make_test.sh: FAIL — '$1' $2 exited with status $RC."
-			echo "  The subject names no exit status for it. This is the robust check,"
-			echo "  which applies the convention that a command that did its job exits"
-			echo "  0; whether it did its job is ${T_BUILD}'s to say. It printed:"
+			echo "  No sentence this harness quotes from your subject names an exit"
+			echo "  status for it. This is the robust check, which applies the convention"
+			echo "  that a command that did its job exits 0; whether it did its job is"
+			echo "  ${T_BUILD}'s to say. It printed:"
 			excerpt
 			exit_hint "$1" "$2"
 		} >&2
@@ -806,9 +807,9 @@ status_note() {
 	WARNED=1
 	echo "make_test.sh: WARNING — '$1' $2 exited with status $RC."
 	echo "  It did what your subject asks of it, so this is not a FAIL at this"
-	echo "  level: the subject says nothing about how it exits, and a non-zero"
-	echo "  exit it does not name is rigour this repo adds, which fails at robust"
-	echo "  (${T_BUILD}_exit). It printed:"
+	echo "  level: no sentence this harness quotes from your subject names how it"
+	echo "  exits, and a non-zero exit none names is rigour this repo adds, which"
+	echo "  fails at robust (${T_BUILD}_exit). It printed:"
 	excerpt
 	exit_hint "$1" "$2"
 }
@@ -1791,6 +1792,7 @@ if [ ! -f "$ARTIFACT" ]; then
 			echo "  It created these files, and none of them is named '$ARTIFACT':"
 			printf '%s\n' "$NEW" > "$AUX/new"
 			rl_excerpt "$AUX/new" 20 new-files.txt
+			# conventions: the call site's --artifact -- the name the contract gives what the build makes
 			echo "  Compare the name the subject gives with the one your $BUILT_BY"
 			echo "  gives its output."
 		} >&2
@@ -2179,7 +2181,11 @@ if [ -z "$SCRIPT" ]; then
 	# else. make knows the name, finds nothing to do for it, says "Nothing to
 	# be done for 're'" and exits 0 -- which read as a re that ran, and was
 	# then blamed on what re did. Told apart by make's own database, where
-	# such a target has neither a prerequisite nor a recipe.
+	# such a target has neither a prerequisite nor a recipe (rule_is_empty).
+	# That database gives an empty rule the Makefile DOES write (`clean:`
+	# alone) the very same entry, and calling it missing failed a clean with
+	# nothing to clean, which had done all of its job. rule_is_written tells
+	# that one apart, and it is judged like any other rule: by what it does.
 	#
 	# JUDGE says whether rule_note judges this run's status; a step's own
 	# check can still clear it (an all that built nothing).
@@ -2202,7 +2208,17 @@ if [ -z "$SCRIPT" ]; then
 			exit 1
 		fi
 		grep -qF "Nothing to be done for '$1'" "$LOG" || return 0
-		rule_is_empty "$1" || return 0
+		# Both checks run make again, and mk keeps every run's status in RC:
+		# `make -npq .DEFAULT` exits 2 (.DEFAULT has no rule). The step goes
+		# on with `make $1`'s own status, or a rule that ran and exited 0 is
+		# reported as one that exited 2.
+		_rr_rc=$RC
+		_rr_missing=0
+		if rule_is_empty "$1" && ! rule_is_written "$1"; then
+			_rr_missing=1
+		fi
+		RC=$_rr_rc
+		[ "$_rr_missing" = 1 ] || return 0
 		if [ "$MODE" != build ]; then
 			not_judged "make $1" "your Makefile names $1 but gives it no rule, so it did nothing"
 			return 0
@@ -2224,24 +2240,70 @@ if [ -z "$SCRIPT" ]; then
 	# prerequisite and no recipe. -p prints the database, -q runs no recipe,
 	# and the goal .DEFAULT is one no rule step uses; only its "# Files"
 	# section is read, and a "# Not a target:" entry is not one.
+	#
+	# Each entry there is a block ended by a blank line, and only the first
+	# line of a block that is not a comment names its target. A recipe line
+	# can start with `RULE:` too: a continued line is printed from its first
+	# column, so `echo x \` over a line `clean: objects` read as a clean rule,
+	# and a clean named only in .PHONY passed as one whenever that recipe's
+	# block came first.
 	rule_is_empty() {
 		mk "$AUX/db" /dev/null "make -npq .DEFAULT" "$MAKE_BIN" -npq .DEFAULT
 		awk -v t="$1" '
 			/^# Files/ { files = 1; next }
 			!files { next }
-			inb && /^$/ { exit }
+			/^$/ { if (inb) exit; blk = 0; nt = 0; next }
 			inb && /^#  recipe to execute/ { recipe = 1; next }
 			inb { next }
 			/^# Not a target:/ { nt = 1; next }
+			/^#/ || blk { next }
+			{ blk = 1 }
 			index($0, t ":") == 1 && !nt {
 				rest = substr($0, length(t) + 2)
 				if (rest ~ /^:/) exit
 				inb = 1; found = 1
 				if (rest !~ /^[ \t]*$/) prereq = 1
-				next
 			}
-			{ nt = 0 }
 			END { exit !(found && !prereq && !recipe) }' "$AUX/db"
+	}
+
+	# rule_is_written RULE: 0 when the Makefile writes a rule for RULE, however
+	# empty. The database cannot say so by itself, since rule_is_empty's two
+	# shapes share one entry there, so it is read again from a copy of the
+	# Makefile whose .PHONY lines declare an ordinary target instead: a name
+	# only .PHONY gave is then "# Not a target:", and a rule the Makefile writes
+	# is still a target. The copy is read from the tree, so its includes resolve
+	# as make's own do. A .PHONY the copy did not rename (an included
+	# makefile's) leaves the target phony there, and the answer stays no: the
+	# verdict this check gave before it existed. The database is read block by
+	# block, for rule_is_empty's reason.
+	rule_is_written() {
+		_rw_mf=
+		for _rw_f in GNUmakefile makefile Makefile; do
+			if [ -f "$_rw_f" ]; then
+				_rw_mf=$_rw_f
+				break
+			fi
+		done
+		[ -n "$_rw_mf" ] || return 1
+		sed 's/^\( *\)\.PHONY\([[:blank:]]*:\)/\1.MAKE_TEST_UNPHONY\2/' \
+			"$_rw_mf" > "$AUX/unphony.mk" || return 1
+		mk "$AUX/db2" /dev/null "make -npq .DEFAULT, over a copy of $_rw_mf" \
+			"$MAKE_BIN" -f "$AUX/unphony.mk" -npq .DEFAULT
+		awk -v t="$1" '
+			/^# Files/ { files = 1; next }
+			!files { next }
+			/^$/ { if (inb) exit; blk = 0; nt = 0; next }
+			inb && /^#  Phony target/ { phony = 1; next }
+			inb { next }
+			/^# Not a target:/ { nt = 1; next }
+			/^#/ || blk { next }
+			{ blk = 1 }
+			index($0, t ":") == 1 && !nt {
+				if (substr($0, length(t) + 2) ~ /^:/) exit
+				inb = 1; found = 1
+			}
+			END { exit !(found && !phony) }' "$AUX/db2"
 	}
 
 	# make_said RULE, inside a FAIL message: what make printed, so the student

@@ -11,8 +11,8 @@
 # it from a fixed place in the turn-in (findings 016, 161). One row per file
 # now, and everything that names it reads or is checked against the row:
 #
-#   the template build      strips it (the strip glob, outside tests/, plus the
-#                           exact name anywhere), writes the ignore rule the
+#   the template build      strips it (the strip glob, plus the exact name
+#                           anywhere), writes the ignore rule the
 #                           template's .gitignore carries, a placeholder text
 #                           file in the project folder, and a line on the
 #                           project's SUBJECT-PLACEHOLDER.pdf;
@@ -35,7 +35,8 @@
 #
 #   project    the project folder, from the repo root
 #   file       the name 42 gives it
-#   path       the ONE path the harness and the student's program read it from
+#   path       the ONE path the harness and the student's program read it
+#              from, ending in the file's name
 #   role       harness  the tests read it; it is never turned in
 #              turn-in  it is turned in with the project; //tools:submit pushes
 #                       it although the template's .gitignore keeps it out of
@@ -44,9 +45,14 @@
 #                       test fails at basic, worded from this row, while it is
 #                       missing (tools/defs.bzl; //tools:conventions checks
 #                       the call is there)
-#   strip      git glob of the copies the template build removes, outside
-#              tests/ (a copy under tests/ with the exact name goes too); wider
-#              than the name where a copy may be renamed
+#   strip      git glob of the copies the template build removes; wider
+#              than the name where a copy may be renamed. One that is the
+#              name with a prefix (*resources.tar.gz) matches only copies
+#              of 42's file, renamed or not, and spares no folder; one
+#              wider than the name (*.dict) matches a kind of file, and
+#              spares tests/, where the harness keeps fixtures of that kind.
+#              A copy with the exact name goes wherever it sits, tests/
+#              included
 #   consumers  the targets that read it, comma-separated: each SKIPs, naming
 #              the path, while it is absent
 #   named-in   the files whose wording must name the path, comma-separated
@@ -55,5 +61,7 @@
 # The placeholder goes in the project folder, never in deliverable/: that
 # folder is what //tools:submit pushes, and a placeholder there would be turned
 # in.
+# conventions: private-name -- the doc patch is checked where it exists
 c-piscine/c-piscine-shell-00	resources.tar.gz	c-piscine/c-piscine-shell-00/resources.tar.gz	harness	*resources.tar.gz	//c-piscine/c-piscine-shell-00:ex07_output	README.md,c-piscine/c-piscine-shell-00/tests/ex07/check.sh,docs/testing.md,tools/template_docs.patch	the intranet, beside the Shell 00 subject
+# conventions: private-name -- the doc patch is checked where it exists
 c-piscine/c-piscine-rush-02	numbers.dict	c-piscine/c-piscine-rush-02/deliverable/ex00/numbers.dict	turn-in	*.dict	-	README.md,docs/rushes.md,tools/template_docs.patch	the intranet, beside the Rush 02 subject

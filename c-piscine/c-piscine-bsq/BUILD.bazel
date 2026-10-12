@@ -87,8 +87,6 @@ c_make(
 # The short version:
 #
 #   NOT TESTED, IN EITHER DIRECTION -- neither the cases here nor any corpus:
-#   * the FULL character appearing in a map body (the description and the
-#     validity list disagree, and both are literal);
 #   * MORE body lines than the count declares (fewer is forced, more is not);
 #   * bytes >= 0x80 among the three characters (isprint above 0x7f is
 #     locale-dependent);
@@ -101,6 +99,12 @@ c_make(
 #     usual newline character"). At basic, no_final_newline accepts either
 #     verdict and checks what both agree on: "map error", or the solved map
 #     with every row ending in a newline.
+#   * the FULL character appearing in a map body (the description and the
+#     validity list disagree, and both are literal). At basic, full_in_body
+#     accepts either verdict and checks what both agree on: "map error", or
+#     the solved map with that character left where it is -- it sits in a
+#     cell no biggest square covers, whether a program takes it for an
+#     obstacle or for an empty cell.
 #
 #   SETTLED, though it looks open: a count that overflows int. "It can be any
 #   valid int", and over any body a test can hold the line count disagrees
@@ -132,7 +136,7 @@ c_make(
 # reading of the sentence allocfail_rule quotes agrees on: it ends by itself,
 # within its time, with bounded output. No message and no status are asserted.
 # No 42 grader refuses a program an allocation, so this is the repo's rigour
-# (TODO.md §23, WP-92). No leak target: this subject states no freeing rule.
+# (WP-92). No leak target: this subject states no freeing rule.
 c_program(
     num = "00",
     name = "bsq",
@@ -294,6 +298,19 @@ c_program(
             "any_of": ["no_final_newline.txt", "maperror.txt"],
             "clues": "clues.tsv",
         },
+        # OPEN too (the list at the top): a row holding the full character.
+        # "map error", or the map solved around it: the cell is one no
+        # biggest square covers under any reading that solves the map, so a
+        # program that crashes on it, stops halfway through the map, or
+        # prints that cell as another character fails either way; which
+        # verdict is ex00_readings' question.
+        {
+            "name": "full_in_body",
+            "args": ["$(location tests/ex00/fixtures/full_in_body.map)"],
+            "fixtures": ["tests/ex00/fixtures/full_in_body.map"],
+            "any_of": ["full_in_body.txt", "maperror.txt"],
+            "clues": "clues.tsv",
+        },
         # Two files in one run: exactly one blank line BETWEEN the outputs.
         # Both orders, because "map error then a map" and "a map then map
         # error" are different code paths in most implementations. Both hold
@@ -436,6 +453,14 @@ c_levels()
 # passes the example. c_levels()' audit now refuses a gate that hands the
 # program none of its output test's input (_waiting_problems), or runs it
 # some other way than an output test of the package does (_gate_problems).
+#
+# The output test that gate is, by name (`waits` on each target behind it,
+# and --gate-label, which its SKIP line names): two cases print subject.txt,
+# the example as an argument and on stdin, so the gate's program and file
+# alone do not say which (tools/defs.bzl, _waits_for). Its red log lists
+# every target that waits for it.
+BSQ_WAITS = "ex00_subject_example_output"
+
 BSQ_GATE = [
     "--gate-differ",
     "$(location //tools:diff_output.sh)",
@@ -445,13 +470,9 @@ BSQ_GATE = [
     "$(location tests/ex00/subject.txt)",
     "--gate-arg",
     "$(location tests/ex00/fixtures/subject.map)",
+    "--gate-label",
+    BSQ_WAITS,
 ]
-
-# The output test that gate is, by name (`waits` on each target behind it):
-# two cases print subject.txt, the example as an argument and on stdin, so
-# the gate's program and file alone do not say which (tools/defs.bzl,
-# _waits_for). Its red log lists every target that waits for it.
-BSQ_WAITS = "ex00_subject_example_output"
 
 # What standard error is held to, a choice at every call (tools/defs.bzl's
 # _RUNNER_CHOICES), and the Run contract's: ignored, unless the subject
@@ -697,7 +718,7 @@ hand_test(
 # does -- so a program slower than that on one map is reported as DID NOT
 # FINISH, saying it may be an infinite loop or too slow, and the tally says
 # the map did not finish, never that its answer was wrong. No layer measures
-# yet how BSQ's cost grows with the map (TODO.md, WP-69).
+# yet how BSQ's cost grows with the map.
 # Measured on a correct program (2026-10-02): 0.6 s for the long maps and
 # 2.5 s for the big ones, as an argument and on stdin alike; 2.7 s on the
 # ASan build for the big ones, 3.4 s for the long ones under memcheck.
@@ -754,8 +775,9 @@ BSQ_FIXED = {
 #   ex00_bsq_multi  ex00_bsq_multi's, three per run: where one map's
 #                   leftovers meet the next map's reading
 #   ex00_readings   ex00_readings' maps, the forms the subject leaves open (a
-#                   count written "+9" or " 9", a last row with no newline):
-#                   input no other corpus holds
+#                   count written "+9" or " 9", a last row with no newline,
+#                   a row holding the full character): input no other corpus
+#                   holds
 #   ex00_bsq_long, ex00_bsq_long_stdin  the long maps, as an argument and
 #                   on stdin: one read() of a 70000 cell line is where a
 #                   buffer sized for the usual map overflows

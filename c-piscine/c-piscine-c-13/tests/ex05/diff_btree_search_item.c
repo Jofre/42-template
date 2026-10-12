@@ -26,7 +26,7 @@ static int	cmp_str(void *a, void *b)
  * items[i] and is linked under pool[parent] on the side the shape names. The
  * pool comes zeroed, so every link the shape does not set stays empty. Nothing
  * here compares an item or walks a tree -- where each item belongs was decided
- * by the reference (oracle/src/c13.rs), which keeps this harness free of any
+ * by the reference, which keeps this harness free of any
  * insert, and the whole tree is one block to free. */
 static t_btree	*plant(t_btree *pool, char **items, char *shape, int n)
 {

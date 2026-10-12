@@ -29,9 +29,11 @@
 #          ft_create_elem), linked after the sources; itself uninstrumented,
 #          and its malloc is the sanitizer's like every other.
 #   --note one line of exercise-specific explanation, printed in place of the
-#          generic one when the probe trips. Only for exercises whose fault
-#          really does have a single shape — see the failure block at the
-#          bottom for why the generic wording has to stay generic.
+#          generic one when the probe trips on an access out of bounds (the
+#          other kinds of report are explained by their kind). Only for
+#          exercises whose fault really does have a single shape — see the
+#          failure block at the bottom for why the generic wording has to
+#          stay generic.
 #   --symbolizer  the pinned llvm-symbolizer, and --symbolizer-lib a library
 #          file beside the libLLVM it loads, so each frame of the report names
 #          a function, a file and a line (tools/runner_lib.sh, rl_sanitizers).
@@ -211,8 +213,18 @@ fi
 # directly below it. So the default now says only what holds for EVERY probe
 # this layer runs, and an exercise whose fault really is n/size-shaped supplies
 # its own sentence with --note.
-echo "asan_check: FAIL — the function accessed memory out of bounds (or hit UB)."
-if [ -n "$NOTE" ]; then
+#
+# And it said "accessed memory out of bounds (or hit UB)" above every report,
+# while AddressSanitizer also stops on what is no access: a block freed twice,
+# a request bigger than the allocator allows. So the headline says what
+# the report's own first line says (rl_sanitizer_kind), and only an access out
+# of bounds gets the note, the probe's comment or the paragraph below, which
+# all say how the probe sized the blocks it handed over. Every other kind is
+# explained by what it is (rl_sanitizer_explain).
+echo "asan_check: FAIL — the function $(rl_sanitizer_about)."
+if [ "$RL_SAN_OOB" != 1 ]; then
+	rl_sanitizer_explain "            "
+elif [ -n "$NOTE" ]; then
 	echo "            $NOTE"
 elif [ -n "$PROBE_SRC" ] && [ -f "$PROBE_SRC" ]; then
 	# The probe's OWN header comment, rather than a sentence written twice.
@@ -248,8 +260,12 @@ else
 fi
 echo "---------------- sanitizer report ----------------"
 rl_sanitizer_report "$WORK/out" 35 sanitizer-report.txt ""
-if [ -n "$SYMBOLIZER" ]; then
+# The top frame of a report that is no access is the allocator's own (free,
+# malloc): the first one in the student's file is the one to read.
+if [ -n "$SYMBOLIZER" ] && [ "$RL_SAN_OOB" = 1 ]; then
 	echo "The top frame is where the access happened; a frame in your file names"
 	echo "its line."
+elif [ -n "$SYMBOLIZER" ]; then
+	echo "The first frame in your file is where it happened, and names its line."
 fi
 exit 1

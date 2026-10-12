@@ -331,6 +331,67 @@ pub fn many_words(n: usize, sep: &[u8]) -> Vec<u8> {
     s
 }
 
+/// `n` bytes of text for a corpus's capacity cases: words of one to nine
+/// letters of both cases and digits, each followed by a space or a
+/// punctuation byte. Printable ASCII only, never a NUL. Drawn from `seed`, a
+/// seed of the case's own, so a corpus's head is the same whatever the
+/// corpus's seed. `n` past every capacity a string is usually given room for
+/// (16, 64, 256, 1024, 4096) is what no random string of the corpora comes
+/// near (finding 041).
+pub fn long_text(n: usize, seed: u64) -> Vec<u8> {
+    let mut rng = Rng::new(seed);
+    let mut out = Vec::with_capacity(n + 10);
+    while out.len() < n {
+        for _ in 0..1 + rng.below(9) {
+            out.push(match rng.below(3) {
+                0 => b'a' + rng.below(26) as u8,
+                1 => b'A' + rng.below(26) as u8,
+                _ => b'0' + rng.below(10) as u8,
+            });
+        }
+        out.push(b"  ,.;-!?"[rng.below(8)]);
+    }
+    out.truncate(n);
+    out
+}
+
+// ------------------------------------------------- capacity self-checks
+//
+// What a module's check() reads to hold its corpora to their capacity cases
+// (finding 041): the corpus a generator writes into a buffer, one line per
+// case and one tab between fields, read back field by field. A field may hold
+// raw bytes (c01_putstr's output), so nothing here assumes UTF-8.
+
+/// Field `k` of every line of `corpus`, as bytes (a short line gives none).
+fn fields_at(corpus: &[u8], k: usize) -> impl Iterator<Item = &[u8]> {
+    corpus
+        .split(|&b| b == b'\n')
+        .filter_map(move |l| l.split(|&b| b == b'\t').nth(k))
+}
+
+/// The most bytes field `k`, written in hex, holds on any line of `corpus`.
+pub fn widest_hex(corpus: &[u8], k: usize) -> usize {
+    fields_at(corpus, k).map(|f| f.len() / 2).max().unwrap_or(0)
+}
+
+/// The largest number field `k`, written in decimal, holds on any line of
+/// `corpus` (a field that is no number counts as none).
+pub fn largest_dec(corpus: &[u8], k: usize) -> i64 {
+    fields_at(corpus, k)
+        .filter_map(|f| std::str::from_utf8(f).ok()?.parse::<i64>().ok())
+        .max()
+        .unwrap_or(i64::MIN)
+}
+
+/// The most elements field `k`, a comma-separated list, holds on any line
+/// of `corpus`.
+pub fn longest_csv(corpus: &[u8], k: usize) -> usize {
+    fields_at(corpus, k)
+        .map(|f| if f.is_empty() { 0 } else { f.iter().filter(|&&b| b == b',').count() + 1 })
+        .max()
+        .unwrap_or(0)
+}
+
 /// ft_split: maximal runs of bytes NOT in `charset`.
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 pub fn o_split(s: &[u8], charset: &[u8]) -> Vec<Vec<u8>> {

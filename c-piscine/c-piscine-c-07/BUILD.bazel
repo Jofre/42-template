@@ -14,27 +14,24 @@ subject(
     },
 )
 
-# allocfail is ON here, and c-08 ex04 is no longer the only exercise with it.
+# allocfail is ON here (as it is for c-08 ex04 and for ex02 below).
 #
-# The rule it checks is not in this subject's own words, which is why it was
-# left off until now: the subject says "Reproduce the behavior of the function
-# strdup (man strdup)", so the contract is the man page's, and that page states
-# the return -- NULL when there is not enough memory. c-08 ex04 spells the same
-# rule out directly; here it arrives by the reference the subject makes.
+# The rule it checks is not in this subject's own words: the subject says
+# "Reproduce the behavior of the function strdup (man strdup)", so the contract
+# is the man page's, and that page states the return -- NULL when there is not
+# enough memory. c-08 ex04 spells the same rule out directly; here it arrives by
+# the reference the subject makes.
 #
 # A weaker hook than a sentence in this subject, but a hook, and the layer sits
 # at level 1 on the strength of it: a cited contract is not a requirement the
 # harness invented, which is the only thing `basic` has to be protected from.
-#
-# This target is RED, and the audit that moved the level is why the level moved.
-# ft_strdup calls malloc and dereferences the result with nothing in between, so
-# it dies on SIGSEGV the first time an allocation is refused -- and at level 3
-# it was red in `bazel test //...` while `bazel run //tools:submit`, which gates
-# at `basic` in every fresh clone, pushed the module green. A layer that only reports
-# to people who already run everything is not a gate.
+# At a higher level its red would show only in `bazel test //...`, while
+# `bazel run //tools:submit`, which gates at `basic` in every fresh clone, would
+# push the module green -- a layer that only reports to people who already run
+# everything is not a gate.
 #
 # It earns its place because ignoring malloc's answer is not a style question:
-# the line after it dereferences the pointer.
+# whatever comes next uses the pointer.
 c_function(
     num = "00",
     fn = "ft_strdup",
@@ -181,6 +178,8 @@ c_diff(
     readings = {"oracle_fn": "c07_convert_base_readings", "diff_clues": "diff_clues_readings.txt"},
 )
 
+# no exact-size c_mem_check on ex04, ex05: RUNTIME-SIZED-ALLOC.
+#
 # WHY ex04 AND ex05 CARRY NO EXACT-SIZE ASan PROBE, while ex00-ex03 do.
 #
 # The other four allocate a block whose size the subject fixes exactly -- a
@@ -230,6 +229,10 @@ c_cycles(
     harness = "diff_strdup.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    # The corpus's strings of 4100 and 5000 bytes test capacity (finding
+    # 041; the diff layers judge them) and are left out here, as C 02's are:
+    # the budget below was measured on the usual case.
+    max_unit = 1000,
     # copy archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 6,
     syscall_budget = 0,

@@ -32,8 +32,17 @@ audit-exercise-without-test	ex01: the exercise has no test, so its //c-piscine/c
 audit-fixture-prototype-declared	OK
 audit-fixture-prototype-missing	ex00_bin: a harness over a student's function names ex00_prototype as the test of its signature, and this package declares no such test
 audit-gate-case-run	OK
+audit-gate-label-missing	ex00_sweep: each one's runner takes --gate-label and none is passed, so the SKIP line each prints while its gate is red names no test. Pass --gate-label ex00_example_output beside --gate-differ (in the shared gate list, if they share one).
+audit-gate-label-missing-whole	ex00_fed_main: each one's runner takes --gate-label and none is passed, so the SKIP line each prints while its gate is red names no test. Pass --gate-label ex00_fed_output beside --gate-differ (in the shared gate list, if they share one).
+audit-gate-label-differ-only	1 message(s): ex00_sweep: its gate is --gate-differ alone, with no program (--gate-bin) and no expected file (--gate-expected) for it to run, which its runner refuses (exit 2) when the test runs. Pass the whole gate, and --gate-label with the output test it waits for.
+audit-gate-label-unresolved	2 message(s): ex00_fed_main: it waits for an output test (its gate is ex00_bin printing tests/ex00/a.txt), and no output test of this package that runs that hands its list on (--waiting, _waiting_args), so no red log says it shows PASSED while it waits. Hand that output test's runner _waiting_args(<its name>). | ex00_fed_main: the gate runs $(location :ex00_bin) with no argument, standard input from $(location tests/ex00/cases.tsv), from the test's own folder, against $(location tests/ex00/a.txt) (--labeled), and no output test of this package runs the program that way
 audit-gate-no-argument	ex00_sweep, ex00_sweep_diff_asan: the gate runs $(location :ex00_bin) with no argument against $(location tests/ex00/example.txt), and no output test of this package runs the program that way
 audit-gate-stdin-case	ex00_sweep, ex00_sweep_diff_asan: the gate runs $(location :ex00_bin) with no argument
+audit-output-gate-run	OK
+audit-output-gate-run-check-stdin	ex00_fed_main: the gate runs $(location :ex00_bin) with no argument, standard input from $(location tests/ex00/in.txt), from the test's own folder, against $(location tests/ex00/a.txt) (--labeled), and no output test of this package runs the program that way
+audit-output-gate-bin-stdin	ex00_fed_defense: the gate runs $(location :ex00_bin) with no argument, standard input from $(location tests/ex00/in.txt), from the test's own folder, against $(location tests/ex00/a.txt) (--labeled), and no output test of this package runs the program that way
+audit-output-gate-unlabeled	ex00_fed_main: the gate runs $(location :ex00_bin) with no argument, standard input from $(location tests/ex00/cases.tsv), from the test's own folder, against $(location tests/ex00/a.txt), and no output test of this package runs the program that way
+audit-output-gate-survive-stdin	ex00_fed_survive: the gate runs $(location :ex00_bin) with no argument, standard input from $(location tests/ex00/in.txt), from the test's own folder, against $(location tests/ex00/a.txt) (--labeled), and no output test of this package runs the program that way
 audit-harness-untagged	ex00_diffbin: it links a harness over a student's files and carries no prototype_test= tag
 audit-ladder	ex00_output: its lvl_* tags (lvl_basic) are not a level and every level above it
 audit-layout-read	OK
@@ -64,6 +73,11 @@ audit-rules-oracle-owned	OK
 audit-rules-oracle-subdir	ex00_run_output: the case reads tests/ex00/fixtures/b.txt, in the directory ex00_oracle_fixtures holds to //oracle's records, and none of its --owns patterns (*.txt fixtures/*.map) matches it
 audit-rules-oracle-unowned	ex00_run_output: the case reads tests/ex00/fixtures/m.in, in the directory ex00_oracle_fixtures holds to //oracle's records, and none of its --owns patterns (*.txt fixtures/*.map) matches it
 audit-rules-oracle-unreadable	ex00_oracle_fixtures: it runs tools/oracle_fixtures.sh, and the audit cannot read its --in-dir-of $(location FILE)
+audit-rules-program-artifact-differ	ex00_bin: c_program(num = "00") names its program "prog_x", and c_make(num = "00") builds "prog"
+audit-rules-program-artifact-same	OK
+audit-rules-suite-by-tag	OK
+audit-rules-suite-short	ex00_rush03: a manual suite, asked for by name to run every test named ex00_rush03_*, and it leaves out ex00_rush03_output
+audit-rules-suite-whole	OK
 audit-suffix-other-layer	ex00_diff_asan: its name ends in _diff_asan, which is the diff_asan layer's (_SUFFIX_LAYER), and it is tagged asan
 audit-suffix-unknown	ex00_frobnicate: its name ends in no suffix tools/defs.bzl's _SUFFIX_LAYER knows
 audit-two-layers	ex00_output: it carries 2 layer tags (output, norm)
@@ -128,9 +142,11 @@ linked-reader-links	OK
 linked-reader-none-linked	OK
 linked-reader-refused	c_program(num = "15"): the grader links toy_base into this exercise (its contract's `linked`), and c_program does not link a grader library into the programs it builds
 no-entry	c_program(num = "99"): exercise 99 is not in this package's subject() contract
+refused-argv-table-unheld	c_argv_table(ex24): the table was emitted from a reference program, and nothing holds it to one
 refused-program-makefile-unused	c_program(ex06): makefile = False, and the subject() contract has ex06 turn in a Makefile
 refused-program-content-only	c_program(ex18): the contract allows open, and no case names a file that will not open
 refused-program-model-nothing-to-answer	c_program(ex18): model, and no case has one expected file for it to answer
+refused-program-reference-exit	c_program(ex18): reference = True, and case "missing" has its output test compare the status 1
 refused-program-malloc-argument	c_program(ex18): malloc = True. Whether the program may allocate is its subject
 refused-program-make-optional	c_program(num = "22"): the contract lists Makefile in `optional`, and with makefile = True, every output test, at basic, runs the program it builds
 refused-program-make-unnamed	c_program(num = "12"): c_program builds from Makefile, and the subject() contract does not ask for it
@@ -147,6 +163,13 @@ standin-runner-ok	OK
 subject-grader-unknown	subject(grader = "peers"): one of moulinette, defense, both
 subject-ok	OK
 subject-root-and-others	00 turn(s) in at the root of deliverable/ (dir = None), and the project has other exercises
+subject-mandatory-ok	OK
+subject-mandatory-not-an-exercise	subject(mandatory = ...): "01" is not an exercise of this contract
+subject-mandatory-twice	subject(mandatory = ...): "00" is named twice
+subject-mandatory-empty	subject(mandatory = []): name the exercises the subject calls mandatory, or leave mandatory out
+subject-mandatory-not-a-list	subject(mandatory = "00"): a list of exercise keys, ["00", "01"]
+subject-mandatory-unquoted	subject(mandatory = ...) quotes no sentence: mandatory_quote is the subject's own words naming its mandatory part
+subject-mandatory-quote-alone	subject(mandatory_quote = ...) with no mandatory list: it quotes the subject for the list it gives
 test-env-grader-by-hand	ex00_output sets RL_GRADER itself
 test-env-other	OK
 test-env-raised-by-hand	ex00_output sets RL_RAISED itself

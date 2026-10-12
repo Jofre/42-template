@@ -10,7 +10,7 @@
 //!   rev_int_tab      <csv>\t<reversed-csv>               (comma-joined decimals)
 //!   sort_int_tab     <csv>\t<sorted-csv>
 
-use crate::common::{bench_lines, ints_csv, join_csv, rand_body, sink, to_hex, unhex, Rng};
+use crate::common::{bench_lines, ints_csv, join_csv, long_text, rand_body, sink, to_hex, unhex, widest_hex, Rng};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -203,9 +203,8 @@ fn gen_ultimate_div_mod(seed: u64, count: usize) {
     }
 }
 
-fn gen_putstr(seed: u64, count: usize) {
+fn gen_putstr<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
     // Structured corners (never a 0x00 or 0x0a): the empty string (must write
     // nothing), a single byte, plain ASCII words, the full printable ASCII run,
@@ -219,6 +218,13 @@ fn gen_putstr(seed: u64, count: usize) {
         vec![0x80],
         vec![0xff, 0x01, 0x7f, 0x80],
         (0x20u8..=0x7e).collect(),
+        // Capacity cases (finding 041): every other string is at most 95
+        // bytes, so a function that wrote through room of its own of a round
+        // size (16, 64, 256, 1024, 4096) passed every case. Text of 4100
+        // bytes, and 5000 of every byte but NUL and newline, each from a seed
+        // of its own.
+        long_text(4100, 4100),
+        rand_body_nonl(&mut Rng::new(5000), 5000, true),
     ];
     for s in structured.drain(..) {
         if done >= count {
@@ -242,9 +248,8 @@ fn gen_putstr(seed: u64, count: usize) {
     }
 }
 
-fn gen_strlen(seed: u64, count: usize) {
+fn gen_strlen<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
     // a few structured lengths first: empty, single, words, and bodies made of
     // high/boundary bytes (0x7f, 0x80, 0xff) so a signed-char length loop that
@@ -262,6 +267,17 @@ fn gen_strlen(seed: u64, count: usize) {
             break;
         }
         let _ = writeln!(w, "{}\t{}", to_hex(s), o_strlen(s));
+        done += 1;
+    }
+    // Capacity cases (finding 041): every other string is at most 63 bytes,
+    // so a length kept in a type or room too small for more passed every
+    // case. Text of 4100 bytes, and 5000 of every byte but NUL, each from a
+    // seed of its own.
+    for s in [long_text(4100, 4100), rand_body(&mut Rng::new(5000), 5000, true)] {
+        if done >= count {
+            break;
+        }
+        let _ = writeln!(w, "{}\t{}", to_hex(&s), o_strlen(&s));
         done += 1;
     }
     while done < count {
@@ -299,8 +315,8 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
         "c01_swap" => gen_swap(seed, count),
         "c01_div_mod" => gen_div_mod(seed, count),
         "c01_ultimate_div_mod" => gen_ultimate_div_mod(seed, count),
-        "c01_putstr" => gen_putstr(seed, count),
-        "c01_strlen" => gen_strlen(seed, count),
+        "c01_putstr" => gen_putstr(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c01_strlen" => gen_strlen(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c01_rev_int_tab" => gen_rev_int_tab(seed, count),
         "c01_sort_int_tab" => gen_sort_int_tab(seed, count),
         _ => return false,
@@ -311,6 +327,25 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
 /// Self-check: hand-verified cases + properties. Returns the failure count.
 pub fn check() -> usize {
     let mut fails = 0usize;
+
+    // ---- every unbounded input past the round capacities (finding 041) ----
+    // putstr's and strlen's corpora each hold a string past every capacity a
+    // function is usually given room for (16, 64, 256, 1024, 4096), read back
+    // from what the generator writes.
+    {
+        let past = 4096usize;
+        let head = |g: &dyn Fn(&mut Vec<u8>)| -> Vec<u8> {
+            let mut v = Vec::new();
+            g(&mut v);
+            v
+        };
+        for (what, c) in [("putstr", head(&|w| gen_putstr(w, 1, 200))), ("strlen", head(&|w| gen_strlen(w, 1, 200)))] {
+            if widest_hex(&c, 0) <= past {
+                eprintln!("CHECK FAIL c01 {} corpus holds no string past 4096 bytes", what);
+                fails += 1;
+            }
+        }
+    }
 
     // ---- the arrays' head keeps its large cases (finding 041) ----
     let head = int_tabs(&mut Rng::new(1), 0);

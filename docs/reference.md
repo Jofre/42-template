@@ -23,9 +23,12 @@ everything in `basic` too.
 `tools/defs.bzl`'s `_LAYER_LEVEL` is the machine-readable source of this
 mapping — if this table and that constant ever disagree, the constant is right.
 
+A level is run one module at a time, as below; the second line, `complete`,
+runs the same as `//c-piscine/c-piscine-c-05/...`:
+
 ```sh
-bazel test //c-piscine/c-piscine-c-05:basic       # one module, one level
-bazel test //c-piscine/c-piscine-c-05:complete    # same as //c-piscine/c-piscine-c-05/...
+bazel test //c-piscine/c-piscine-c-05:basic
+bazel test //c-piscine/c-piscine-c-05:complete
 ```
 
 ## Run contract
@@ -56,7 +59,7 @@ it by name too, and `//tools:conventions` refuses a script that guesses.
 |---|---|---|
 | `progname_test.sh` (C 06 ex00) | `exNN_progname` | `exNN_progname_exit` |
 | `argv_table.sh` (C 06 ex01–ex03, Reloaded ex18–ex19) | `exNN_output`, `exNN_asan` | `exNN_exit` |
-| `argv_check.sh` (C 06 ex01–ex03) | `exNN_argv_diff` | `exNN_argv_diff_exit`, which replays the same generated corpus: `exNN_exit` runs only the table's rows |
+| `argv_check.sh` (C 06 ex01–ex03, Reloaded ex18 and ex19) | `exNN_argv_diff` | `exNN_argv_diff_exit`, which replays the same generated corpus: `exNN_exit` runs only the table's rows |
 | `diff_output.sh`, for `c_program`'s cases (C 10, C 11 ex05, BSQ, Rush 01, Rush 02, Reloaded ex27) | `exNN[_case]_output` | `exNN[_case]_exit`, which runs the same invocation -- one per invocation: two cases that make the same run and compare its two streams share the first one's twin (C 10 ex00's `empty` and `empty_stderr`). A case the subject answers with an error message it names is marked `invalid_input` and gets none: a non-zero status is how an error conventionally ends. Nor does an `any_of` or `survive` case, whose reading the subject leaves open: one reading may be an error; nor one whose output test compares its status already (`exit` with `exit_quote`) |
 | `header_check.sh` (`c_header`'s `exit` key: C 08 ex01) | — | the case itself, which `c_header` refuses below `robust` unless an `exit_quote` gives the subject's sentence |
 | `run_check.sh` (Rush 00's own `main.c`) | `ex00_rushNN_main` | `ex00_rushNN_main_exit`. The subject's `main.c` is an example ("Example of main.c file", and the defense replaces it), so its `return (0);` names no status the turn-in must return |
@@ -178,8 +181,7 @@ with its name after `exNN_`, and its rows are keyed to that name.
 `//tools:conventions` checks that every such label names a case or a
 `--case`; `c_levels()`' audit refuses a `clues_<x>.tsv` in an exercise any
 of whose tests passes `--case`, and a test of it that hands its `clues.tsv`
-to a runner without one (`_keyed_clue_problems`, ruling R7 of TODO.md
-section 23).
+to a runner without one (`_keyed_clue_problems`).
 
 **After a crash, what a missing row means** depends on who wrote the program.
 The harness's own test programs (`c_function`, `c_libft`, `c_header`, the
@@ -238,7 +240,9 @@ there is none; every file a named case reads in a directory an
 patterns, so none is hand-typed beside the reference's unseen; every
 exercise has a test; every exercise whose contract names a `Makefile`
 has its `exNN_build` (a `c_make` call, where its recipe and wildcards checks
-are each decided); and EACH generated corpus replayed through a corpus
+are each decided); a manual suite named `N`, which you ask for by name (Rush
+00's `ex00_rush0N`, one variant's every layer), lists every test named `N_*`;
+and EACH generated corpus replayed through a corpus
 runner (`tools/defs.bzl`'s `_CORPUS_RUNNERS`) has its twins under the memory
 checkers -- a replay of the same corpus on the ASan build, and, where the
 subject allows `malloc` or prints no allowed-functions line at all, a sample
@@ -255,8 +259,10 @@ tables below to the ones in `tools/defs.bzl` the audit reads,
 and every `//oracle` arm named `<x>_fixtures` to a test that passes it as
 `--fn`. And every gate runs one of the module's output tests: a corpus
 runner's (`_gate_problems`), and one that replays the case its layer runs, the
-valgrind arm's and the allocfail sweep's (`_case_gate_problems`) -- the same
-program, expected file, arguments, standard input and run folder. A gate
+valgrind arm's and the allocfail sweep's, or writes an output test's run out
+whole, a survive case's and a rush variant's `_main` and `_defense`
+(`_case_gate_problems`) -- the same program, expected file, arguments,
+standard input, `--labeled` and run folder. A gate
 that runs the program some other way can be red on a correct program, and
 its layer then SKIPs, green, wherever `NO_SKIP=1` is not set.
 
@@ -272,15 +278,15 @@ its layer then SKIPs, green, wherever `NO_SKIP=1` is not set.
 | `prototype` | basic | your definition matches the signature the subject fixes, and your header holds the structure the subject prints, where it prints one (C 12's `t_list`, C 13's `t_btree`: the project's `tests/layout/<header>`; its names, `tests/layout/tag/<header>`, at strict). A red says which: the signature, the structure, its names, a header read twice with no include guard, a name defined in two places, or a file that does not compile on its own |
 | `symbols` | strict | the file exports exactly what the subject names; helpers are `static` |
 | `method` | strict | how the turn-in is built, where its subject says so and nothing it prints can show it (`tools/method_check.sh`; [Sentences about how](#sentences-about-how) lists each). Recursive or iterative (`exNN_method`, `c_function`'s `method`): the exercise's own test program runs on the student's sources compiled with `-finstrument-functions`, and the layer reads whether a function of theirs is entered again while it is still running -- recursive when one is (the function, a static helper, or two calling each other), iterative when none ever is (a closed form or a table is iterative; a loop over a stack of its own is not recursive). A fixed-size array (`exNN_fixed_array`, `c_program`'s `fixed_array`): the pinned gcc names every array of variable length, every `alloca` and, where the subject bounds the array, every object of that many bytes or more -- an upper bound only, on the object and never on the stack frame that holds it |
-| `valgrind` | strict | no leaks or invalid access to the heap or to unmapped memory, and every descriptor the program opened is closed. memcheck does not see a write past an array on the stack while it stays inside the stack, and its OK line says so: an ASan build sees those (the exercise's `asan` layers, where it has them). Leaks only where the subject allows `malloc`; the invalid-access and uninitialised-value half runs over `c_mem_check`'s probes too, where nothing allocates at all. Where a program's subject allows `malloc` (Rush 01, Rush 02, BSQ, C 10 ex02/ex03), a sample of 25 cases of each generated corpus runs under memcheck as well (`_valgrind` on the corpus: `ex00_sweep_valgrind`, `ex00_rush02_valgrind`, `ex00_rush02_dictfuzz_valgrind`, `ex00_bsq_valgrind`, `ex00_bsq_stdin_valgrind`, `ex00_bsq_multi_valgrind`, `exNN_file_valgrind`). A red states the rule it applies, under its verdict and once for a corpus: the subject's own sentence where `c_program` has a `memory_rule` (Rush 02's p.7), which `corpus_memory()` hands its corpus's sample too, and otherwise this harness's rule, said to be so |
+| `valgrind` | strict | no leaks or invalid access to the heap or to unmapped memory, and every descriptor the program opened is closed. memcheck does not see a write past an array on the stack while it stays inside the stack, and its OK line says so: an ASan build sees those (the exercise's `asan` layers, where it has them). Leaks only where the subject allows `malloc`; the invalid-access and uninitialised-value half runs over `c_mem_check`'s probes too, where nothing allocates at all. Where a program's subject allows `malloc` (Rush 01, Rush 02, BSQ, C 10 ex02/ex03), a sample of 25 cases of each generated corpus runs under memcheck as well (`_valgrind` on the corpus: `ex00_sweep_valgrind`, `ex00_readings_valgrind`, `ex00_rush02_valgrind`, `ex00_rush02_dictfuzz_valgrind`, `ex00_bsq_valgrind`, `ex00_bsq_stdin_valgrind`, `ex00_bsq_multi_valgrind`, `ex00_bsq_long_valgrind`, `ex00_bsq_long_stdin_valgrind`, `exNN_file_valgrind`; BSQ's big maps have none, `no_valgrind`). A red states the rule it applies, under its verdict and once for a corpus: the subject's own sentence where `c_program` has a `memory_rule` (Rush 02's p.7), which `corpus_memory()` hands its corpus's sample too, and otherwise this harness's rule, said to be so |
 | `diff` | strict | a seeded corpus, against the Rust reference in `//oracle`: hundreds of thousands of cases for a function, hundreds for a program, and among them a few far past the capacities a student might pick (arrays of 5000 ints, strings of 5000 words), since a corpus large only in its number of cases never fills a fixed-size array (finding 041). The corpora seed `0x7f`/`0x80`/`0xff` on purpose, where a signed-`char` mistake hides. Some hand-written fixtures hold such bytes too, and always where an exercise repeats a contract another module fuzzes (C 04 ex00/ex01, C 09 ex00), since each module is graded on its own files; where a fixture holds none, this layer is the first to see that class. Every block malloc hands out there starts holding `0xa5`, never a zero, in its first 4 KiB and its last bytes (`tools/dirty_malloc.c`, linked by `//tools:diffio`), so a field, count or terminator a function never writes in memory it allocated does not read as the zero most of them should hold; no memcheck layer runs such a build, where the fill would read as written |
 | `diff_asan` | robust | the same corpus under ASan/UBSan, judging memory and how each run ended, never the output. For a function (`c_diff`), the first `asan_count` cases of its corpus (200000 of the 400000, by default) on its harness's ASan build; a crash names the case, symbolised by the pinned `llvm-symbolizer`. For a program, the corpus runner's `--sanitized` replay on the ASan build of the program: C 06 ex01–ex03 (on the guarded build `c_argv_table` makes, each argument in a heap block of its own, so a read past an argument's end is seen: `--guarded-argv`), C 10 ex00–ex03, Piscine Reloaded ex27, Rush 01's sweep (its 4x4 cases and the argc probes) and its reading's shape probes, Rush 02's generated dictionaries, and BSQ's maps, readings, long maps and big maps (`tools/runner_lib.sh`, "A CORPUS UNDER A MEMORY CHECKER"). Those with no guarded build say in their verdict that the arguments were not watched (`rl_mem_argv_note`). A replay under a checker makes no stderr choice: standard error is where the checker reports |
 | `asan` | robust | adversarial memory probes, and every program case under ASan/UBSan |
 | `allocfail` | basic | one `malloc` refused at a time; the error must be reported, not dereferenced. Opt-in per exercise, and only where the subject or a man page it cites states the contract. Its `_allocfail_leaks` target, at robust, also asks that nothing obtained before the refusal is left allocated: the repo's rigour, where the subject allows `free`. A program (`c_program`'s `allocfail`) is swept at robust as `_program_allocfail`: no grader at 42 refuses a program an allocation. Every allocfail target prints, under its verdict, the rule its call site states (`allocfail_rule`, required), and never one of its own: the runner cannot know which subject it reads |
 | `ilp32` | complete | the same cases where `long` is no wider than `int`, in a build that stops at undefined behaviour (`SIGILL`) |
 | `perf` | complete | how cost grows with the number of cases, in time and memory, and, where a BUILD file asks, with the length of one input (reported, never failed). Fails only past its own lines: the case-count exponent (2.6, measured twice), 5000x the reference's time or 200x its memory, or a crash |
-| `cycles` | complete | instructions per unit of work, via callgrind, the allocator and a harness callback shown apart; a corpus's capacity cases, far bigger than the rest, are left out where the call says so (`c_cycles`' `max_unit`: C 07 ex03 and ex05, C 09 ex02, C 12 ex02, ex08 and ex14, C 13 ex01, ex05 and ex06), and the report says how many. Never fails on its numbers, nor on a run too long to profile (reported); fails when the function crashed under it or did not build |
-| `oracle` | complete | the reference's own cross-checks (`//oracle:oracle_check`), each fixture a model of a tool made, against that model (`exNN_<case>_model`), fixtures the reference writes held to it (BSQ's, Rush 00's and Rush 02's `ex00_oracle_fixtures`), and named cases the reference program passes (Rush 02's `ex00_reference_cases`) |
+| `cycles` | complete | instructions per unit of work, via callgrind, the allocator and a harness callback shown apart; a corpus's capacity cases, far bigger than the rest, are left out where the call says so (`c_cycles`' `max_unit`: C 01 ex05 and ex06, C 02 ex00, ex01, ex02, ex03, ex04, ex05, ex06, ex07, ex08, ex09, ex10 and ex11, C 03 ex00, ex01, ex02, ex03, ex04 and ex05, C 07 ex00, ex03 and ex05, C 09 ex02, C 12 ex02, ex08 and ex14, C 13 ex01, ex05 and ex06, Piscine Reloaded ex16, ex17 and ex20), and the report says how many. Never fails on its numbers, nor on a run too long to profile (reported); fails when the function crashed under it or did not build |
+| `oracle` | complete | the reference's own cross-checks (`//oracle:oracle_check`), each fixture a model of a tool made, against that model (`exNN_<case>_model`), each argument table against the program it was emitted from (C 06's and Reloaded's `exNN_model`), fixtures the reference writes held to it (BSQ's, Rush 00's and Rush 02's `ex00_oracle_fixtures`), and named cases the reference program passes (C 11's `ex05_reference_cases`, and BSQ's, Rush 01's and Rush 02's `ex00_reference_cases`) |
 | `selftest` | complete | the harness's own guards (`//tools/tests:selftest*`, and one inside modules: a twin's `exNN_twin`, see [Shell turn-ins](#shell-turn-ins)) |
 
 `norm`, `compile`, `files`, `forbidden` and `prototype` are green on a fresh
@@ -313,10 +319,11 @@ suite and no submit gate can. Four kinds of harness target live inside a
 module, and none runs anything of yours: a twin's `exNN_twin` (`selftest`),
 which guards the harness's own `tests/` folder, a program case's
 `exNN_<case>_model` (`oracle`), which holds a
-fixture to the model that made it, BSQ's, Rush 00's and Rush 02's
+fixture to the model that made it (and an argument table's `exNN_model`, a
+table to the program it was emitted from), BSQ's, Rush 00's and Rush 02's
 `ex00_oracle_fixtures` (`oracle`), which check that the named cases' files
 are what the reference writes, and that no file the reference owns was typed
-by hand, and Rush 02's `ex00_reference_cases` (`oracle`), which runs every
+by hand, and C 11's `ex05_reference_cases` and BSQ's, Rush 01's and Rush 02's `ex00_reference_cases` (`oracle`), which runs every
 named case with the reference program in place of yours, so that a case and
 the file it expects cannot drift apart. Each runs in its module's `:complete`
 suite and its per-exercise suite, and in a submit gated at `complete`, and at
@@ -365,7 +372,7 @@ tags: `bazel query --output=build //<module>:<target> | grep tags`.
 | `_main` | `output` | basic | Rush 00: the team's own `main.c` links, runs and prints |
 | `_memcheck` | `valgrind` | strict | the exercise's own fixture under memcheck |
 | `_method` | `method` | strict | recursive or iterative, as the subject says: whether a function of the turned-in file is entered again while it is still running, on the exercise's own test program |
-| `_model` | `oracle` | complete | a program case's expected file against the `//oracle` model of the tool it was made from (`c_program`'s `model`: C 10, Reloaded ex27); runs nothing of yours |
+| `_model` | `oracle` | complete | a program case's expected file against the `//oracle` model of the tool it was made from (`c_program`'s `model`: C 10, Reloaded ex27), or an argument table against the `//oracle` program it was emitted from, every row run again (`c_argv_table`'s `model`: C 06 ex01–ex03, Reloaded ex18 and ex19); runs nothing of yours |
 | `_newest_first` | `output` | strict | an order by date where the subject names no direction: which direction the target tests is in its exercise's row under [Shell turn-ins](#shell-turn-ins) |
 | `_norm` | `norm` | basic | norminette, or `sh -n` on a shell exercise's generator |
 | `_norm_header` | `norm` | strict | the two rules of the Norm the pinned norminette skips, in every header the exercise turns in (`c_levels()` emits it from the subject contract, `tools/header_norm.sh`): "Header files must be protected from double inclusions" (III.5), decided by preprocessing a file that includes the header twice and one that includes it once: the same lines both ways is "safe to include twice", which is all the OK says, so a header with nothing a second inclusion could repeat (empty, comments alone, or only `#include`s of guarded headers) passes, guard or no guard; and the `s_`, `u_` or `e_` a struct, union or enum defined inside a `typedef` must start by (III.1). A `typedef` that only names one (`typedef struct timeval t_tv;`, or a struct defined elsewhere) defines nothing to read: libc's names are not the student's, and norminette reads a struct defined outside a `typedef` where it is defined. A required header that is missing is a gated NOT TURNED IN; an exercise that only allows headers and has none gets no test |
@@ -382,8 +389,8 @@ tags: `bazel query --output=build //<module>:<target> | grep tags`.
 | `_program_allocfail_leaks` | `allocfail` | robust | the same sweep, judging what a run that ended by itself still held at exit (Rush 02's freeing rule) |
 | `_prototype` | `prototype` | basic | the signature the subject fixes (return and parameter types), and the layout of the structure it prints where the grader links a function built on it |
 | `_prototype_names` | `prototype` | strict | the parameter names, where the subject fixes them too (Rush 00: "named x and y"); read from the pinned clang's AST |
-| `_readings` | `diff` | strict | this harness's reading of what a subject leaves open, over a corpus of the cases the readings part on, stated in the target's hints (BSQ: the count's form, a map with no final newline; Rush 01: the one argument's blanks and a sign or zero before a digit; C 02 ex09: a byte above `0x7f` in a word; C 04 ex04 and ex05 and C 07 ex04: a byte above `0x7f`, or a control byte, in a base -- each with its ASan twin `exNN_readings_diff_asan`, `c_diff`'s `readings`). One the subject's words do not reach is a convention, raised to robust and listed among the targets raised above their layer (C 11 ex06: the order of a byte above `0x7f`) |
-| `_reference_cases` | `oracle` | complete | every named case of a program, run as its output test runs it with `//oracle`'s reference program in the student's place (`c_program`'s `reference`; BSQ, Rush 01, Rush 02); runs nothing of yours |
+| `_readings` | `diff` | strict | this harness's reading of what a subject leaves open, over a corpus of the cases the readings part on, stated in the target's hints (BSQ: the count's form, a map with no final newline, the full character in a map's row; Rush 01: the one argument's blanks and a sign or zero before a digit; C 02 ex09: a byte above `0x7f` in a word; C 04 ex04 and ex05 and C 07 ex04: a byte above `0x7f`, or a control byte, in a base -- each with its ASan twin `exNN_readings_diff_asan`, `c_diff`'s `readings`). One the subject's words do not reach is a convention, raised to robust and listed among the targets raised above their layer (C 11 ex06: the order of a byte above `0x7f`) |
+| `_reference_cases` | `oracle` | complete | every named case of a program, run as its output test runs it with `//oracle`'s reference program in the student's place (`c_program`'s `reference`; C 11 ex05, BSQ, Rush 01, Rush 02); runs nothing of yours |
 | `_refcost` | `cycles` | complete | instructions per unit of work, beside the reference's own |
 | `_regular` | `output` | strict | "files" where a directory can carry a matching name: what the target tests is in its exercise's row under [Shell turn-ins](#shell-turn-ins) |
 | `_rush02_dictfuzz` | `diff` | strict | Rush 02's corpus over generated dictionaries |
@@ -391,7 +398,7 @@ tags: `bazel query --output=build //<module>:<target> | grep tags`.
 | `_sweep` | `output` | basic | Rush 01: every 4x4 clue vector, each grid checked against the subject's rules alone, and the argument counts that are not one |
 | `_symbols` | `symbols` | strict | exactly the symbols the subject names are exported |
 | `_twin` | `selftest` | complete | Piscine Reloaded's twin shell exercises: their own `tests/exNN/` holds only the README pointing at the tests they read; runs nothing of yours |
-| `_valgrind` | `valgrind` | strict | a program case under memcheck; or, for a corpus (`_file_valgrind`, `_sweep_valgrind`, `_rush02_valgrind`, `_rush02_dictfuzz_valgrind`, `_bsq_valgrind`, `_bsq_stdin_valgrind`, `_bsq_multi_valgrind`, `_readings_valgrind`), 25 of its cases spread evenly over it (a case of `_bsq_multi_valgrind` is a run of up to three maps; Rush 01's runs every probe its plain target asks for besides, from the one list both read: `ex00_sweep_valgrind` its three argc probes, 28 in all, and `ex00_readings_valgrind` its six shape probes alone), each judged as a case's own arm is |
+| `_valgrind` | `valgrind` | strict | a program case under memcheck; or, for a corpus (`_file_valgrind`, `_sweep_valgrind`, `_rush02_valgrind`, `_rush02_dictfuzz_valgrind`, `_bsq_valgrind`, `_bsq_stdin_valgrind`, `_bsq_multi_valgrind`, `_bsq_long_valgrind`, `_bsq_long_stdin_valgrind`, `_readings_valgrind`), 25 of its cases spread evenly over it (a case of `_bsq_multi_valgrind` is a run of up to three maps; Rush 01's runs every probe its plain target asks for besides, from the one list both read: `ex00_sweep_valgrind` its three argc probes, 28 in all, and `ex00_readings_valgrind` its six shape probes alone), each judged as a case's own arm is |
 
 A case named so that a longer suffix matches (a case `diff` makes
 `ex00_diff_asan`, which reads as `diff_asan`) does not load: rename it.
@@ -442,6 +449,7 @@ row says which reading it takes.
 | `//c-piscine/c-piscine-rush-02:ex00_dict_crlf_strict_output` | strict | whether a CR before the newline is one of "the spaces" to trim or a byte that is not printable: the subject never says, and this target holds this harness's reading, that it is not printable (basic's `ex00_dict_crlf` accepts either) |
 | `//c-piscine/c-piscine-rush-02:ex00_dict_missing_strict_output` | strict | a dictionary that does not exist: this harness's reading of "If the dictionary does not allow you to perform the conversion" covers one that cannot be opened, where the general rule also allows "simply return control" (basic's `ex00_dict_missing_output` asks only that the run end by itself) |
 | `//c-piscine/c-piscine-rush-02:ex00_past_dictionary_strict_output` | strict | whether a number past the dictionary's largest scale is refused or spelt by combining scale words: the subject never says, and this harness's reading of "If the dictionary does not allow you to perform the conversion" covers it; basic's `ex00_past_dictionary` asks only that the program end by itself |
+| `//c-piscine-reloaded/c-piscine-reloaded:ex19_high_bytes_argv_diff` | robust | the same as C 06 ex03's `ex03_high_bytes_argv_diff`, for its twin: in every case of its corpus with an argument, a byte above `0x7f` decides the order, and "sorted by ascii order" (page 28) does not reach one. `ex19_argv_diff`, at strict, replays the cases such a byte does not decide |
 | `//c-piscine-reloaded/c-piscine-reloaded:ex22_long_arg_output` | strict | the same as C 08 ex02's, for its twin |
 | `//c-piscine-reloaded/c-piscine-reloaded:ex22_double_arg_output` | strict | the same as C 08 ex02's, for its twin |
 | `//c-piscine-reloaded/c-piscine-reloaded:ex23_int_fields_output` | complete | the same, for C 08 ex03's twin |
@@ -490,9 +498,10 @@ forces every one of them open** and turns a missing tool into a failure.
 | layer | stays quiet until | why |
 |---|---|---|
 | `diff`, `diff_asan` | the exercise's `output` fixture passes | fuzzing a wrong answer reports the same wrongness thousands of times |
-| `valgrind` | same | ditto, and a stub leaks nothing |
+| `valgrind` | the `output` fixture of the run it checks passes: for a function's `exNN_valgrind` or `exNN_memcheck`, `exNN_bin` against the exercise's expected file; for a program case's `_valgrind`, that case's own `_output`; for a corpus sample, the same gate as the replay it samples; for a rush variant's, its labelled table (`ex00_rush0N_output`). `exNN_probe_memcheck` and a survive case's arm wait for nothing | a memory report over a wrong answer speaks over the red that matters, and a stub leaks nothing; a probe is written so a stub survives it, and a survive case's run has no fixture to wait for |
+| `cycles` | the exercise's `output` fixture passes (its gate is `exNN_bin` against that fixture's expected file) | the cost of a wrong answer is not information |
+| `output`: Rush 00's `ex00_rush0N_defense` and `ex00_rush0N_main` | that variant's labelled table passes (`ex00_rush0N_output`) | both run the same `rush()`; while the table is red they fail with it, without its hints |
 | `output`: Rush 01's `ex00_sweep` | the subject's own example passes (`ex00_subject_output`) | the one case the subject printed says it first; 438 restatements of it do not |
-| `cycles` | same | the cost of a wrong answer is not information |
 | `method`'s `exNN_method` | the exercise's own `output` fixture passes (`exNN_output`'s expected output, from its test program) | a stub calls nothing twice, and a wrong answer has no method worth reading yet |
 | `method`'s `exNN_fixed_array` | the pinned gcc compiles every turned-in source | a file that does not compile has no array to measure; the compile layers say why, in the compiler's words |
 | `perf` | `output`, `diff` **and** `asan` pass | measuring how a broken thing scales says nothing |
@@ -508,13 +517,18 @@ A test that waits says SKIP in its log, and Bazel shows it PASSED: a test
 that ran cannot report itself skipped. So the red log of the `output` test it
 waits for names it, under `WAITING FOR THIS OUTPUT`, with its level. Which
 `output` test that is, is read from the gate: the program and expected file
-it gates on (`--gate-bin`, `--gate-expected`), or a survive case's
-`--gate-label`; where two `output` tests run that same pair (cases sharing an
-expected file), the call says which with `waits = "<that test>"`
-(`hand_test`, `corpus_memory`). `c_levels()`' audit refuses a gate that
-resolves to no `output` test or to two, or to the `output` test of another
-exercise, whose red log you would not be reading, and one that hands the
-program none of the input that test's run does.
+it gates on (`--gate-bin`, `--gate-expected`), or the test its
+`--gate-label` names (a survive case's, Rush 00's `_defense` and `_main`,
+the method and cycles layers', and the BSQ and Rush 01 and 02 replays',
+whose SKIP line names it too); where two `output` tests run that same pair
+(cases sharing an expected file), the call says which with
+`waits = "<that test>"` (`hand_test`, `corpus_memory`). `c_levels()`' audit
+refuses a gate that resolves to no `output` test or to two, or to the
+`output` test of another exercise, whose red log you would not be reading,
+and one that hands the program none of the input that test's run does. It
+also refuses a gated test whose runner can name its `output` test in the
+SKIP line and is not told to (`--gate-differ` with no `--gate-label`,
+`_gate_label_problems`): that SKIP would name no test.
 
 Two layers report one cause, on purpose, where each says something the other
 cannot: a copy of a file the grader brings, kept in a Makefile turn-in (C 09
@@ -627,27 +641,29 @@ so beside their calls: `c_twin(num = "27", of =
 declared pair's folders identical, file for file and byte for byte, and two
 `c_program` calls' `cases` identical but for the exercise's number, however
 each call is laid out (a call written with its number in a variable cannot
-be matched, and is reported); and it
+be matched, and is reported), and so their `c_diff` calls' `size`, `seed`,
+`count`, `asan_count`, `perf_count` and `perf_length` and their `c_cycles`
+calls' `budget`, `syscall_budget` and `count`, since the two replay one
+corpus -- each as written, so a default spelled out on one call and left out
+of the other is reported -- and the layers that replay a generated corpus
+(`hand_test` and `corpus_memory` calls naming a corpus runner, written out or
+over a table of rows), layer for layer; and it
 reports a `tests/` folder that is all a copy of another module's with no
 `c_twin` line.
 
 ## Flags
 
-```sh
-bazel test //...                          # everything: needs memory to spare
-bazel test //c-piscine/c-piscine-c-00/...           # one module
-bazel test //c-piscine/c-piscine-c-01:ex02_output   # a single target
-
-bazel test //c-piscine/c-piscine-c-00/... --nocache_test_results   # re-run even a cached PASS
-# a file saved during a run, and the program still runs the old one:
-bazel shutdown && bazel test //c-piscine/c-piscine-c-00/... --nocache_test_results --use_action_cache=false
-bazel test //c-piscine/c-piscine-c-00/... --test_output=errors     # print the log of failing tests
-bazel test //c-piscine/c-piscine-c-00/... --nokeep_going           # stop at the first (harness) build error
-bazel test //... --test_tag_filters=norm  # one layer, whole repo: needs memory to spare
-
-# "show me everything that is wrong right now"
-bazel test //... --nocache_test_results --test_output=errors   # needs memory to spare
-```
+| to | type |
+|---|---|
+| run everything (it needs memory to spare) | `bazel test //...` |
+| run one module | `bazel test //c-piscine/c-piscine-c-00/...` |
+| run a single target | `bazel test //c-piscine/c-piscine-c-01:ex02_output` |
+| re-run even a cached PASS | `bazel test //c-piscine/c-piscine-c-00/... --nocache_test_results` |
+| re-run when a file was saved during a run and the program still runs the old one | `bazel shutdown && bazel test //c-piscine/c-piscine-c-00/... --nocache_test_results --use_action_cache=false` |
+| print the log of failing tests | `bazel test //c-piscine/c-piscine-c-00/... --test_output=errors` |
+| stop at the first (harness) build error | `bazel test //c-piscine/c-piscine-c-00/... --nokeep_going` |
+| run one layer, whole repo (it needs memory to spare) | `bazel test //... --test_tag_filters=norm` |
+| see everything that is wrong right now (it needs memory to spare) | `bazel test //... --nocache_test_results --test_output=errors` |
 
 Code that does not compile or link, or a missing turn-in file, never fails the
 build: the tests that need it FAIL with the compiler's words or NOT TURNED IN,
@@ -696,7 +712,7 @@ target's time; one that takes a third of its limit or more is resized.
 | `MAKE_TIMEOUT` | unset | seconds one run of a `c_make` exercise's `make`, or of its creator script, gets (`make_test.sh`); unset, what is left of the test's own limit |
 | `RL_MARGIN` | a tenth of the test's limit, 4–20 | seconds a runner keeps back from `TEST_TIMEOUT` to write its report |
 | `RL_MAX_HANGS` | `3` | how many runs of a sweep may run out of their own time limit before it stops trying the rest |
-| `RL_EXCERPT_WIDTH` | `300` | bytes of one line an excerpt of captured output shows before it cuts the line, and says so |
+| `RL_EXCERPT_WIDTH` | `300` | bytes of one line an excerpt of captured output shows before it cuts the line, and says so; the same for each corpus line a function's `diff` report shows, for each argument of a failing `exNN_argv_diff` case and the expected and printed lines under it (`argv_check.sh`), and for the number and both outputs of a failing case of Rush 02's corpus (`rush02_check.sh`); and the length past which a line that replays a case, which cannot be cut and still run, is kept as a test output and named instead of printed |
 | `VALGRIND_TIMEOUT` | `60` | seconds a valgrind run gets |
 | `VALGRIND_LOG_CAP` | 8 MiB | `ulimit -f` cap on what a valgrind run may write |
 | `VALGRIND_FDS` | unset | `lax` turns a descriptor the program left open from a `valgrind` failure into a note |
@@ -710,7 +726,7 @@ target's time; one that takes a third of its limit or more is resized.
 | `HEADER_CC` | `cc` | compiler for the header-driven `output` tests, run by hand: a test is handed the pinned clang-12 (`--cc`), which wins |
 | `PROTOTYPE_CC` | `cc` | compiler for the `prototype` layer, run by hand (`--cc` wins, as above) |
 | `ILP32_CC` | unset | a 32-bit compiler to try first, when the pinned zig is unavailable |
-| `ZIG_CACHE_HOME` | `$TMPDIR/zig-cache-42` | shared on purpose; per-test isolation costs ~15s each |
+| `ZIG_CACHE_HOME` | `${TMPDIR:-/tmp}/zig-cache-42-$USER` | shared across tests on purpose, one per user (a shared /tmp belongs to whoever created it first); per-test isolation costs ~15s each |
 | `ASAN_OPTIONS`, `UBSAN_OPTIONS` | unset | appended after the harness's own, so your key wins |
 | `ALLOCFAIL_TIMEOUT` | `10` | seconds one allocation-failure run gets |
 | `ALLOCFAIL_MAX` | `64` | how many allocations one sweep refuses, one per run: all of them up to that many, and past it that many, the first ones and then spread evenly to the last (a function's `_allocfail` and a program's `_program_allocfail` alike) |
@@ -727,8 +743,6 @@ target's time; one that takes a third of its limit or more is resized.
 | `RUSH01_MAX_TIMEOUTS` | `3` | how many timeouts the sweep tolerates before calling it a hang; bonus-size ones count apart, and after this many the other bonus sizes are not tried |
 | `FORBIDDEN_CC` | `cc` | compiler for the forbidden-symbol layer's link probe, run by hand (`--cc` wins, as above) |
 | `SYMBOLS_CC` | `cc` | compiler for the `symbols` layer, run by hand (`--cc` wins, as above) |
-| `SUBMIT_GATE` | `basic` | which level `//tools:submit` must be green at before it pushes |
-| `NO_C_PISCINE_PRIME` | unset | set to anything to stop `prime.sh --background` firing from a shell profile |
 
 `bazel run` targets **do** inherit your shell environment, so a plain `export`
 is enough for these:
@@ -737,9 +751,9 @@ is enough for these:
 |---|---|---|
 | `SUBMIT_GATE` | `.submit-level`, else `basic` | which level the pre-push gate demands |
 | `C_PISCINE_SCRATCH` | chosen by `tools/drives.sh` | where Bazel's state goes, for `setup.sh` and for the `tools/bazel` wrapper |
-| `C_PISCINE_CAMPUS` | detected (`/goinfre`, `/sgoinfre`) | `1` or `0` overrides whether this is a campus box, for `env_drift`, `init` and the wrapper |
+| `C_PISCINE_CAMPUS` | detected (`/goinfre`, `/sgoinfre`, `/nfs/homes`) | `1` or `0` overrides whether this is a campus box, for `env_drift`, `init` and the wrapper |
 | `C_PISCINE_TRACE_EVERY` | `5` | seconds between two samples of a prime's trace (`tools/prime_trace.sh`) |
-| `NO_C_PISCINE_PRIME` | unset | set to stop the background first-build warm-up |
+| `NO_C_PISCINE_PRIME` | unset | set to anything to stop `prime.sh --background` firing from a shell profile (the background first-build warm-up) |
 | `LOGIN42`, `EMAIL42` | `.vscode/settings.json` | the identity `submit` and `gen_header` use |
 | `HEADER_ART` | `tools/header_art.txt` | the ASCII art `gen_header` draws |
 
@@ -754,7 +768,7 @@ it is made of.
 | `bazel run //tools:prime` | — | download and build everything once, on demand |
 | `bazel run //tools:gen_header` | `42 header FILE` | print a 42 header: `/* */` for `.c`/`.h`, `#` for a `Makefile`, `*.mk` or `*.sh` |
 | `bazel run //tools:reset_headers` | `42 header --reset --all`; `42 header --reset` in a module re-stamps that one | re-stamp existing headers after an identity change |
-| `bazel run //tools:submit` | `42 submit --all`; `42 submit` in a module pushes that one | test, then push each green module to the Vogsphere URL in `.submit-remotes`; `-n` lists what it would push |
+| `bazel run //tools:submit` | `42 submit --all`; `42 submit` in a module pushes that one | test, then push each green module to its Vogsphere URL in `.submit-remotes`; `42 submit URL` saves URL there and passes it as `--url`, which pushes the one module named to it; `-n` lists what it would push; `--written-only` lets an exercise not written yet through the gate, and refuses a module with nothing written, or with an exercise of its subject's mandatory part (the contract's `mandatory`) not written yet |
 | `bazel run //<module>:generate` | `42 generate`, in the module | rebuild one module's generated deliverables, e.g. `//c-piscine/c-piscine-shell-00:generate` |
 | `bazel run //tools:generate` | `42 generate`, at the root | rebuild every generated exercise: Shell 00, Shell 01 and Piscine Reloaded ex00–ex05 |
 | `bazel run //tools:norminette -- PATH…` | `42 norm PATH…` | norminette on the files named; `42 norm` alone is the `norm` layer's verdict |
@@ -764,9 +778,10 @@ it is made of.
 | `… \| sh tools/first_red.sh` | `42 test` | what does not build, one next objective, and a module-sized summary |
 | `… \| sh tools/first_red.sh --all` | `42 test --all` | ... and one line per exercise |
 
-`42` alone lists its commands, from `tools/fortytwo/commands.tsv`. Four have no
-one target to name: `42 watch`, `42 clues`, `42 doctor` and `42 stop`
-([testing.md](testing.md#the-42-command)). `//tools:prime` is not a `42`
+`42` alone lists its commands, from `tools/fortytwo/commands.tsv`. Five have no
+one target to name: `42 watch`, `42 clues`, `42 doctor`, `42 stop`, and
+`42 config`, which runs no Bazel at all and reads and writes the settings'
+files itself ([testing.md](testing.md#the-42-command)). `//tools:prime` is not a `42`
 command: on a campus machine it froze the session.
 
 ## Layout
@@ -816,7 +831,8 @@ c-piscine/                 <- the C Piscine
     generators/exNN.sh     <- your commands (the answer); produce the deliverable
     deliverable/           <- generated, gitignored
   c-piscine-exam-prep/     <- the study guide: the concepts the projects ask
-                              for and the local tools; not a project
+                              for and the local tools; not a project; its
+                              page and PDF are renderings of the Markdown
 c-piscine-reloaded/        <- Piscine Reloaded: a course with ONE project, still
   c-piscine-reloaded/         given its own folder so every course has one shape.
                               Mixes generators/ (shell, ex00-ex05) and
@@ -855,6 +871,7 @@ project's `BUILD.bazel`.
 |---|---|---|
 | `grader` | who grades: `moulinette`, `defense` (peers at an evaluation) or `both` | every runner's words about where a failure costs, as `RL_GRADER` (`tools/runner_lib.sh`'s `rl_at`: "an outright KO at the defense"); the files layer's advice about an extra file |
 | `group` | a group project | recorded for the team rules ([rushes.md](rushes.md#working-as-a-team)) |
+| `mandatory`, `mandatory_quote` | the exercises the subject itself calls its mandatory part, where it says so (C 00, Shell 00 and Shell 01 each end that part with a sentence saying it), and that sentence with its page; left out where the subject says nothing of the kind | `submit --written-only`, which does not push the project while one of them is still a stub, and a blocked gate's advice (`tools/first_red.sh --written` reads the list from the call, and `macro_fixtures_test` holds that reading to the macros') |
 | `strict` | whether it forbids files it did not ask for ("You cannot leave any additional file", "submit only the files requested"); every Piscine project does | the files layer: an extra file fails, or warns. A folder of no exercise, a file outside every exercise folder, and a file named as a program the exercise builds (c_program's `name`, c_make's `artifact`), fail either way |
 | `exercise(page = ...)` | the page the header box is printed on | a reader checking the entry |
 | `dir` | the "Turn-in directory" line, verbatim (`"ex00/"`); `None` where there is none | every path every layer builds: `deliverable/ex00`, or `deliverable` |

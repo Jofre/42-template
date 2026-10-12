@@ -6,5 +6,6 @@
     * nodes visited depth-first -> this order cannot be produced by following
                                  one subtree to its end; every node at a level
                                  comes before any node below it
-    * a level is skipped      -> how the traversal knows a level still has
-                                 nodes left in it
+    * a level is skipped      -> a level that holds nodes is never visited:
+                                 what tells your code there is more of the
+                                 tree below?

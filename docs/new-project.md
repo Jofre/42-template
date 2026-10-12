@@ -39,8 +39,11 @@ here to one of the two, and every check it names to one that exists.
 3. **One folder per project, named as 42 names it**, inside its course folder
    (`cursus/<project>/`), holding one `BUILD.bazel` and the subject beside it
    as `en.subject.pdf` / `es.subject.pdf`. The template build replaces every
-   subject with a placeholder; nothing in the harness reads one.
-   **(unchecked)**
+   subject with a placeholder; nothing in the harness reads one. A new course
+   folder goes on the `COURSE_NAMES` line of every script that walks the
+   course folders by name. **Checked by:** `//tools:conventions` ("A script
+   that walks the course folders by name lists every one of them"); the
+   folder and its name **(unchecked)**.
 4. **Register the module** in two lists: a row `<path>=REPLACE_ME` in
    `tools/submit.sh`'s `REMOTES` table (never a URL: those live in
    `.submit-remotes`), and its label in `_MODULES` in
@@ -56,9 +59,12 @@ here to one of the two, and every check it names to one that exists.
    subject turns in also gets a `c_issued()` call. **Checked by:**
    `//tools:conventions` ("42's own files are registered, and every message
    names the one path").
-6. **A program the project builds** is named in `.gitignore` under its
-   turn-in folder, so a hand-run of `make` does not get committed.
-   **(unchecked)**
+6. **A program the project builds** (each `c_make`'s artifact, and each
+   `c_program`'s name where no `c_make` builds that exercise) is named in
+   `.gitignore`, the root's or the project's own, under its turn-in folder,
+   so a hand-run of `make` or `cc` does not get committed. **Checked by:**
+   `//tools:conventions` ("A program a project builds is ignored where it
+   lands").
 7. **The project's own page**, a `README.md` beside its `BUILD.bazel`: what is
    turned in and where, how its tests are built, its corpora and how to replay
    a failing case, its settings, and every question its subject leaves open,
@@ -96,11 +102,19 @@ here to one of the two, and every check it names to one that exists.
    `//tools:conventions` ("Every project reads its turn-in from ONE subject
    contract"), and `//tools/tests:macro_fixtures_test`, which holds the
    folders first_red reads to the macros' own.
-10. **`grader` and `group`.** Who grades -- `moulinette`, `defense` or `both`
-    -- is the contract's to say, and every runner words its messages from it,
-    never by naming the Moulinette. **Checked by:** `subject_problem`, and
-    `//tools:conventions` ("No runner names the grader; the project's contract
-    does").
+10. **`grader`, `group`, and a mandatory part.** Who grades -- `moulinette`,
+    `defense` or `both` -- is the contract's to say, and every runner words its
+    messages from it, never by naming the Moulinette. Where the subject itself
+    says which exercises are its mandatory part (C 00: "You have reached the
+    end of the mandatory exercises required to validate this project."), list
+    their keys in `mandatory` and that sentence, with its page, in
+    `mandatory_quote`: `submit --written-only` will not push the project
+    while one of them is still a stub. A subject that says nothing of the
+    kind gets no list: none is ever inferred. **Checked by:**
+    `subject_problem` (a list of the contract's exercises, with the quote),
+    `//tools/tests:macro_fixtures_test` (first_red reads the list as the
+    macros do), and `//tools:conventions` ("No runner names the grader; the
+    project's contract does").
 11. **`files` and `optional`.** A pattern says what kind of file, never where,
     unless the subject names the place: beside a Makefile, "Makefile, \*.h,
     \*.c" is `"Makefile"` with `"**/*.c"`, `"**/*.h"`, so a `srcs/` and
@@ -260,11 +274,17 @@ here to one of the two, and every check it names to one that exists.
 34. **The files a named case reads are written by an `//oracle` arm**
     (`<x>_fixtures`) and held by `exNN_oracle_fixtures --owns`; where
     `//oracle` has the program, `reference = True` runs every case with it.
+    An argument table (`c_argv_table`) names the `//oracle` command it was
+    emitted from in `model`, and `exNN_model` holds the committed table to
+    it, or says why there is none in `no_model`.
     **Checked by:** `//tools:conventions` ("Every //oracle arm that writes a
     project's fixtures is held by a test"), for a project that has such an
-    arm, and `_audit_problems`, for a file a case reads in the folder an
-    `--owns` test holds that none of its patterns matches; a project with no
-    `<x>_fixtures` arm, a file outside every such folder, and `reference`,
+    arm, `_audit_problems`, for a file a case reads in the folder an
+    `--owns` test holds that none of its patterns matches,
+    `_argv_model_problem`, for an argument table, and
+    `_reference_exit_problem`, for a `reference = True` case whose output
+    test compares a status other than 0; a project with no `<x>_fixtures`
+    arm, a file outside every such folder, and the rest of `reference`,
     **(unchecked)**.
 35. **The cases a subject settles are named, one rule per case**: its own
     example and any case it says the defense will run, at `basic`; each error
@@ -291,8 +311,10 @@ here to one of the two, and every check it names to one that exists.
 39. **A gate is one of its own exercise's output tests, run as that test
     runs it** -- the same program, expected file, arguments, standard input
     and folder -- through `rl_gate`; where two output tests share that run,
-    the call names the one it waits for (`waits`). **Checked by:**
-    `_gate_problems`, `_case_gate_problems`, `_waiting_problems`, and
+    the call names the one it waits for (`waits`), and a runner that takes
+    `--gate-label` is handed that test's name for its SKIP line. **Checked
+    by:** `_gate_problems`, `_case_gate_problems`, `_waiting_problems`,
+    `_gate_label_problems`, and
     `//tools:conventions` ("A corpus runner's gate is tools/runner_lib.sh's
     rl_gate").
 40. **Every plain corpus replay has its memory twins**, `corpus_memory()`
@@ -346,10 +368,13 @@ here to one of the two, and every check it names to one that exists.
     "is", "takes" or a colon) anywhere but its target's own row of
     reference.md; ("A readings corpus's hints name the level its target
     sits at"), for a readings corpus's level; ("A project's BUILD comment
-    names neither the oracle's source"), for the label or a path of
-    `oracle/src` in a comment of a project's BUILD or `.bzl` file. A
-    reading stated in other words, the passive "is read as" among them (too many
-    sentences say it of a byte or a path for a rule to refuse it), a page
+    names neither the oracle's source"), for the label or a path of the
+    oracle's source in a comment of a project's BUILD or `.bzl` file; ("No
+    other shipped file names the oracle's source"), for that path anywhere
+    else that ships but `oracle/` itself: a test file, a fixture's header,
+    a runner's comment and what it prints, a page. A reading stated in
+    other words, the passive "is read as" among them (too many sentences
+    say it of a byte or a path for a rule to refuse it), a page
     that states one without the label, and whether a hint that carries the
     label is its own target's, **(unchecked)**.
 45. **What the subject calls an error is an error**: no target at any level
@@ -420,7 +445,7 @@ here to one of the two, and every check it names to one that exists.
 ## The cost layers
 
 56. **Where one input's length is the question**, `perf_length = {oracle_fn,
-    harness}`: an arm in `oracle/src/length.rs` and a `tests/exNN/len_*.c`
+    harness}`: a length arm of `//oracle` and a `tests/exNN/len_*.c`
     that checks its own result without computing a reference. Reported,
     never gated. **(unchecked)**
 57. **A cycles budget is measured**, at `-O2` on two correct answers -- the
@@ -437,8 +462,9 @@ here to one of the two, and every check it names to one that exists.
     step list, no fix stated outright, no type to widen into, no invitation
     to read the oracle. **Checked by:** `//tools:conventions` ("A hint that
     can fire at first red asks a question"), ("A hint about a value that does
-    not fit names no type to widen into") and ("No runner and no clue sends a
-    student to read the oracle").
+    not fit names no type to widen into"), ("A hint names no loop's inner
+    workings and no step of a known method") and ("No runner and no clue sends
+    a student to read the oracle").
 59. **A hint that sends a student to a manual page only libbsd ships** says
     `man 3bsd <name>` and names man.openbsd.org's page; the image extracts
     that page. **Checked by:** `//tools:conventions` ("A function whose manual
@@ -469,10 +495,15 @@ here to one of the two, and every check it names to one that exists.
     `//tools:conventions` ("Every knob a runner reads from the environment is
     in docs/reference.md's") and ("A setting tools/runner_lib.sh reads with
     an empty default is reset when").
-64. **A doc that shows a whole-repo test run** says on that line that it
-    needs memory to spare; a page shows one module's suite instead.
-    **Checked by:** `//tools:conventions` ("A doc's whole-repo test command
-    says it needs memory to spare").
+64. **A shell block in a page holds only what is typed**: a note about a
+    command goes in the prose around its block, never behind a `#` on the
+    command's line, which zsh, the campus shell, runs as more words of the
+    command when the line is pasted. **A doc that shows a whole-repo test
+    run** says, in the sentence that introduces its block, that it needs
+    memory to spare; a page shows one module's suite instead.
+    **Checked by:** `//tools:conventions` ("A shell block in a page holds
+    what is typed") and ("A doc's whole-repo test command says it needs
+    memory to spare").
 
 ## A new runner or macro
 
@@ -527,12 +558,18 @@ here to one of the two, and every check it names to one that exists.
     `starlark_unit` or `macro_fixtures` case, or a conventions rule with its
     reason. An arm calls only helpers its file defines; a selftest toy takes
     an exercise number, and a fixture tree's TODO.md and HISTORY.md a
-    writer, no other block uses. **Checked by:** `//tools:conventions`
+    writer, no other block uses; a fixture tree under `$WORK` belongs to
+    one section, and none writes into a tree made before the first.
+    **Checked by:** `//tools:conventions`
     ("A script that calls need() defines it"), whose rules report an arm
     that "calls ... and never defines it", a toy exercise written "from two
-    blocks", made "from two statements" or named "in two sections", and a
-    fixture tree's TODO.md or HISTORY.md written "from two statements";
-    that the check was red before it **(unchecked)**.
+    blocks", made "from two statements" or named "in two sections", a
+    fixture tree's TODO.md or HISTORY.md written "from two statements", a
+    file that "names one fixture tree in two sections" (outright, through a
+    variable or a loop, or through a helper and the words a call passes
+    it), and one that "writes from a section into a fixture tree made
+    before the first section"; that the check was red before it
+    **(unchecked)**.
 72. **Prove a check on more than two trees**: the stubs, a correct answer, a
     broken tree (a compile error, a stray `main`, a missing file), and every
     layout the subject allows. A judging harness also gets arms over invented

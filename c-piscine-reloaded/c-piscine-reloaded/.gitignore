@@ -9,6 +9,10 @@
 /deliverable/ex04/
 /deliverable/ex05/
 
-# What a hand-run `make` leaves behind (object files and libft.a are already
-# ignored repo-wide; these executables have no extension to match on).
+# What a hand-run `make` or `cc -o` leaves behind (object files and libft.a
+# are already ignored repo-wide; these executables have no extension to match
+# on). //tools:conventions holds this list to every program the BUILD file
+# names, as it does the root .gitignore.
+/deliverable/ex18/ft_print_params
+/deliverable/ex19/ft_sort_params
 /deliverable/ex27/ft_display_file

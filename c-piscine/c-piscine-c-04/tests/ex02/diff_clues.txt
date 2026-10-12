@@ -1,7 +1,11 @@
   Which FAMILY of numbers diverges?
-    * only 0                -> the digit-peeling loop never runs for it
+    * only 0                -> 0 is written with one digit, like 7: what does
+                               your code do differently for it?
     * every negative        -> the sign, or the digit that follows it
-    * only INT_MIN          -> negating first; INT_MIN has no positive
-                               counterpart in an int
-    * digits reversed       -> the order the recursion unwinds in
-    * one digit short       -> the base case, off by one
+    * only INT_MIN          -> INT_MIN has no positive counterpart in an int:
+                               does your code compute anything from it that
+                               would need one?
+    * digits reversed       -> the order your code finds the digits in,
+                               against the order they are written in
+    * one digit short       -> what decides that the last digit has been
+                               written: does it decide one digit too early?

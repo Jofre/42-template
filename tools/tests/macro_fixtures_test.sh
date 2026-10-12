@@ -47,6 +47,7 @@
 #                          --harnesses FILE --expected-harnesses FILE
 #                          --first-red PATH --turnin-dirs FILE --root-turnin-dirs FILE
 #                          --shell-tags FILE --redirect-args FILE --argvguard-builds FILE
+#                          --knobs FILE --expected-knobs FILE
 #
 #   --dir              the fixture package's directory in the runfiles
 #   --diff-output      tools/diff_output.sh, the runner every output layer uses
@@ -86,6 +87,9 @@
 #                      "name --redirect ... --redirect-lib ..." line per test
 #   --argvguard-builds how each guarded-argv program is built: one "name
 #                      makefile|missing-makefile|srcs" line per program
+#   --knobs            what each knob no project turns gave the targets it
+#                      shapes, in ./knobs (its :knobs), against
+#   --expected-knobs   knobs.expected beside it
 set -u
 
 require() {
@@ -95,7 +99,12 @@ require() {
 		exit 2
 	done
 }
-require cat diff grep head mktemp od rm sed tr
+require awk cat diff grep head mktemp od rm sed sort tr
+
+# A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
+# in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
+# none (tools/runner_lib.sh, "THE SCRATCH FOLDER").
+case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
 
 DIR=""
 DIFF_OUTPUT=""
@@ -120,6 +129,8 @@ ROOT_TURNIN_DIRS=""
 SHELL_TAGS=""
 REDIRECT_ARGS=""
 ARGVGUARD_BUILDS=""
+KNOBS=""
+EXPECTED_KNOBS=""
 MODULE_TURNIN=""
 NL='
 '
@@ -154,6 +165,8 @@ while [ $# -gt 0 ]; do
 		--shell-tags) need "$1" "$#"; SHELL_TAGS="$2"; shift 2 ;;
 		--redirect-args) need "$1" "$#"; REDIRECT_ARGS="$2"; shift 2 ;;
 		--argvguard-builds) need "$1" "$#"; ARGVGUARD_BUILDS="$2"; shift 2 ;;
+		--knobs) need "$1" "$#"; KNOBS="$2"; shift 2 ;;
+		--expected-knobs) need "$1" "$#"; EXPECTED_KNOBS="$2"; shift 2 ;;
 		*) echo "macro_fixtures_test.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -162,14 +175,16 @@ done
 	[ -n "$ROOT_INCLUDES" ] && [ -n "$EX14_NAMES" ] && [ -n "$PROBLEMS" ] && [ -n "$PROBLEMS_EXPECTED" ] &&
 	[ -n "$LEVELS_LAYERS" ] && [ -n "$LEVELS_EXPECTED" ] && [ -n "$HARNESSES" ] &&
 	[ -n "$EXPECTED_HARNESSES" ] && [ -n "$FIRST_RED" ] &&
-	[ -n "$TURNIN_DIRS" ] && [ -n "$ROOT_TURNIN_DIRS" ] && [ -n "$SHELL_TAGS" ] && [ -n "$REDIRECT_ARGS" ] && [ -n "$ARGVGUARD_BUILDS" ] || {
+	[ -n "$TURNIN_DIRS" ] && [ -n "$ROOT_TURNIN_DIRS" ] && [ -n "$SHELL_TAGS" ] && [ -n "$REDIRECT_ARGS" ] && [ -n "$ARGVGUARD_BUILDS" ] &&
+	[ -n "$KNOBS" ] && [ -n "$EXPECTED_KNOBS" ] || {
 	echo "macro_fixtures_test.sh: every option is required (see its header)" >&2
 	exit 2
 }
 for _f in "$LAYERS" "$EXPECTED_LAYERS" "$ROOT_LAYERS" "$ROOT_EXPECTED" "$ROOT_NAMES" \
 	"$ROOT_INCLUDES" "$EX14_NAMES" "$PROBLEMS" "$PROBLEMS_EXPECTED" "$LEVELS_LAYERS" "$LEVELS_EXPECTED" \
 	"$HARNESSES" "$EXPECTED_HARNESSES" \
-	"$FIRST_RED" "$TURNIN_DIRS" "$ROOT_TURNIN_DIRS" "$SHELL_TAGS" "$REDIRECT_ARGS" "$ARGVGUARD_BUILDS" "$DIR/BUILD.bazel" "$ROOT_DIR/BUILD.bazel"; do
+	"$FIRST_RED" "$TURNIN_DIRS" "$ROOT_TURNIN_DIRS" "$SHELL_TAGS" "$REDIRECT_ARGS" "$ARGVGUARD_BUILDS" \
+	"$KNOBS" "$EXPECTED_KNOBS" "$DIR/BUILD.bazel" "$ROOT_DIR/BUILD.bazel"; do
 	[ -f "$_f" ] || { echo "macro_fixtures_test.sh: no file at $_f" >&2; exit 2; }
 done
 [ -f "$DIFF_OUTPUT" ] || { echo "macro_fixtures_test.sh: no runner at $DIFF_OUTPUT" >&2; exit 2; }
@@ -435,6 +450,38 @@ turnin_match() {  # turnin_match PACKAGE DIR EXPECTED
 		bad "first_red reads $1's turn-in folders as the macros do" "$_tm_bad"
 	fi
 }
+# THE EXERCISES AND THE MANDATORY PART, as `first_red.sh --written` reads them
+# for submit's floor: its second column against the exercises the macros list
+# (:turnin_dirs), its third against c_levels()' own :mandatory. A reading that
+# parts from the macros' lets --written-only push without an exercise the
+# subject calls mandatory, or refuses over one it does not.
+written_match() {  # written_match DIR TURNIN_DIRS MANDATORY
+	if [ ! -f "$3" ]; then
+		bad "first_red --written reads $1's contract as the macros do" "no $3 staged"
+		return
+	fi
+	_wm_out=$(sh "$FIRST_RED" --written "$1" 2>&1) || {
+		bad "first_red --written reads $1's contract as the macros do" "it failed: $_wm_out"
+		return
+	}
+	_wm_ex=$(printf '%s\n' "$_wm_out" | awk -F'\t' '{ print $2 }' | sort)
+	_wm_want_ex=$(awk '{ print $1 }' "$2" | sort)
+	_wm_mand=$(printf '%s\n' "$_wm_out" | awk -F'\t' '$3 == "mandatory" { print $2 }' | sort)
+	_wm_want_mand=$(sort "$3")
+	_wm_parts=$(printf '%s\n' "$_wm_out" | awk -F'\t' '$3 != "mandatory" && $3 != "optional" || $1 != "written" && $1 != "stub"')
+	if [ "$_wm_ex" != "$_wm_want_ex" ]; then
+		bad "first_red --written reads $1's contract as the macros do" \
+			"exercises: $(printf '%s' "$_wm_ex" | tr '\n' ' ') != $(printf '%s' "$_wm_want_ex" | tr '\n' ' ')"
+	elif [ "$_wm_mand" != "$_wm_want_mand" ]; then
+		bad "first_red --written reads $1's contract as the macros do" \
+			"mandatory: '$(printf '%s' "$_wm_mand" | tr '\n' ' ')' != '$(printf '%s' "$_wm_want_mand" | tr '\n' ' ')'"
+	elif [ -n "$_wm_parts" ]; then
+		bad "first_red --written reads $1's contract as the macros do" "a line it should not print: $_wm_parts"
+	else
+		ok "first_red --written reads $1's contract as the macros do"
+	fi
+}
+
 turnin_match tools/tests/macro_fixtures "$DIR" "$TURNIN_DIRS"
 turnin_match tools/tests/macro_fixtures/root "$ROOT_DIR" "$ROOT_TURNIN_DIRS"
 # Every module's, from the lines c_levels() emits beside its BUILD.bazel. A
@@ -450,6 +497,7 @@ while IFS= read -r _mt_f; do
 		exit 2
 	}
 	turnin_match "$_mt_d" "$_mt_d" "$_mt_f"
+	written_match "$_mt_d" "$_mt_f" "$_mt_d/mandatory.txt"
 done <<MT_EOF
 $MODULE_TURNIN
 MT_EOF
@@ -568,6 +616,33 @@ else
 	echo "    bazel build //tools/tests/macro_fixtures:harnesses &&"
 	echo "      cat bazel-bin/tools/tests/macro_fixtures/harnesses.txt > tools/tests/macro_fixtures/harnesses.expected"
 fi
+
+# EVERY KNOB NO PROJECT TURNS (./knobs): a macro's parameter or a case's key
+# that no module passes, set on a toy, and what the targets it shapes were
+# given, against knobs.expected. A knob nothing calls is a branch nothing
+# ran; this is where one that stops doing what its docstring says goes red.
+# The floor: a listing with no line in it compares nothing.
+if ! grep -q . "$KNOBS"; then
+	bad "the knobs of tools/tests/macro_fixtures/knobs" "its listing is empty"
+elif diff "$EXPECTED_KNOBS" "$KNOBS" > "$WORK/knobs.diff" 2>&1; then
+	ok "every knob no project turns does what it says ($(grep -c . "$KNOBS") probes)"
+else
+	bad "the knobs of tools/tests/macro_fixtures/knobs" "they differ from its knobs.expected"
+	echo ""
+	echo "  '<' is in knobs.expected and was not emitted so; '>' was emitted and is"
+	echo "  not in it. Each line is a knob, a target it shapes, what was asked of"
+	echo "  that target and what it holds (see :knobs in the package's BUILD file)."
+	sed 's/^/    /' "$WORK/knobs.diff"
+	echo ""
+	echo "  If a macro changed on purpose, check every new line against the knob's"
+	echo "  docstring, then:"
+	echo "    bazel build //tools/tests/macro_fixtures/knobs:knobs &&"
+	echo "      cat bazel-bin/tools/tests/macro_fixtures/knobs/knobs.txt > tools/tests/macro_fixtures/knobs/knobs.expected"
+fi
+# ...and one knob only a build shows: student_lib's hdrs and includes. ex06's
+# source includes a header that sits in inc/, which only the unit's own
+# include directory reaches, so its program is real only if both did.
+is_program "a unit's hdrs and includes reach the programs that link it" "$DIR/knobs/ex06_diffbin"
 
 echo ""
 if [ "$FAIL" -ne 0 ]; then

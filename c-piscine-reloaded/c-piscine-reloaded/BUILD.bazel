@@ -1,5 +1,5 @@
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//tools:defs.bzl", "NORM_NO_RELINK", "NORM_NO_WILDCARDS", "c_argv_table", "c_cycles", "c_diff", "c_function", "c_header", "c_levels", "c_make", "c_mem_check", "c_program", "c_twin", "corpus_memory", "exercise", "hand_test", "shell_exercise", "subject")
+load("//tools:defs.bzl", "NORM_NO_RELINK", "NORM_NO_WILDCARDS", "c_argv_table", "c_cycles", "c_diff", "c_function", "c_header", "c_levels", "c_make", "c_mem_check", "c_program", "c_twin", "corpus_memory", "exercise", "hand_test", "shell_exercise", "stderr_ignored", "subject")
 
 # Piscine Reloaded: ONE project, ONE Vogsphere repository, ex00 ... ex27 at its
 # root. It is a best-of of the Piscine, and its tests are the Piscine's own.
@@ -274,11 +274,12 @@ c_twin(num = "13", of = "//c-piscine/c-piscine-c-05:ex01")
 
 # ex14 = C 05 ex05 ("less than two seconds", as in the Piscine)
 c_function(num = "14", fn = "ft_sqrt", test = "test_sqrt.c", labeled = True, clues = "clues.tsv")
-# `size = "medium"`, as C 05 ex05's and for its reason: a correct answer took
-# up to 53 s here while the whole suite ran beside it, more than a small test's
-# 60 s leaves once its runner keeps back the few seconds it reports in (see
-# c-piscine/c-piscine-c-05/BUILD.bazel).
-c_diff(num = "14", fn = "ft_sqrt", harness = "diff_sqrt.c", oracle_fn = "c05_sqrt", size = "medium", diff_clues = "diff_clues.txt")
+# `size = "large"`, as C 05 ex05's and for its reason, since this replays its
+# corpus file for file: a correct but slow ft_sqrt took 131 s on it with two
+# suites on the machine, near half of "medium"'s 300 (see
+# c-piscine/c-piscine-c-05/BUILD.bazel). //tools:conventions holds the two
+# sizes equal (c_twin below).
+c_diff(num = "14", fn = "ft_sqrt", harness = "diff_sqrt.c", oracle_fn = "c05_sqrt", size = "large", diff_clues = "diff_clues.txt")
 c_cycles(
     num = "14",
     fn = "ft_sqrt",
@@ -316,6 +317,8 @@ c_cycles(
     harness = "diff_strlen.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    # The corpus's capacity cases, as its twin's call leaves them out.
+    max_unit = 1000,
     budget = 3.5,
     syscall_budget = 0,
 )
@@ -332,6 +335,8 @@ c_cycles(
     harness = "diff_strcmp.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    # The corpus's capacity cases, as its twin's call leaves them out.
+    max_unit = 1000,
     budget = 6,
     syscall_budget = 0,
 )
@@ -341,16 +346,134 @@ c_twin(num = "17", of = "//c-piscine/c-piscine-c-03:ex00")
 # names no exit status: exNN_output only notes a plain non-zero return, and
 # exNN_exit, at robust, fails it (docs/reference.md, "Run contract").
 c_program(num = "18", name = "ft_print_params")
-c_argv_table(num = "18")
+c_argv_table(num = "18", model = ["c06_run", "print"])
 
 # ex19 = C 06 ex03, with ft_putchar instead of write
 c_program(num = "19", name = "ft_sort_params")
-c_argv_table(num = "19")
+c_argv_table(num = "19", model = ["c06_run", "sort"])
 
 # Their tests are C 06's, file for file: declared, so //tools:conventions
 # holds each pair of folders identical (c_twin in tools/defs.bzl).
 c_twin(num = "18", of = "//c-piscine/c-piscine-c-06:ex01")
 c_twin(num = "19", of = "//c-piscine/c-piscine-c-06:ex03")
+
+# THE ARGUMENT CORPORA, C 06 ex01's and ex03's, replayed here as there (see
+# c-piscine/c-piscine-c-06/BUILD.bazel for what each corpus walks, why ex03's
+# is two, and why the second sits at robust): the plain replay, its exit
+# replay and its memory twins, from one table. Nothing in this project's
+# contract parts these programs from C 06's: ft_putchar in place of write
+# changes how the bytes are written, not which, and the runner times no call.
+# //tools:conventions holds these layers to C 06's (c_twin above).
+#
+# What they hold each program to, in this project's own subject. C 06 ex01
+# says in a sentence that the arguments go in command-line order and that
+# argv[0] is not displayed. ex18's subject has no such sentence; its
+# request and its example, as the subject prints them (Piscine Reloaded,
+# p.27), are:
+#
+#     "Create a program that displays its given arguments."
+#     "Example :
+#      $>./a.out test1 test2 test3
+#      test1
+#      test2
+#      test3
+#      $>"
+#
+# ex19's (p.28), whose order is "by ascii order" where C 06 ex03's is "in
+# ASCII order": its two corpora part on that sentence as ex03's part on
+# C 06's, the second at robust (docs/reference.md):
+#
+#     "Create a program that displays its given arguments sorted by ascii order."
+#     "It should display all arguments, except for argv[0]."
+#     "All arguments have to have their own line."
+RL_ARGV_CORPORA = [
+    ("ex18_argv", "18", "c06_print_params", "200", [], None),
+    ("ex19_argv", "19", "c06_sort_params", "200", ["--expect-reordering"], None),
+    ("ex19_high_bytes_argv", "19", "c06_sort_params_high", "200", ["--expect-reordering"], 3),
+]
+
+[
+    hand_test(
+        name = stem + "_diff",
+        layer = "diff",
+        level = level,
+        size = "medium",
+        srcs = ["//tools:argv_check.sh"],
+        args = [
+            "--bin",
+            "$(location :ex%s_bin)" % num,
+            "--oracle",
+            "$(location //oracle:oracle)",
+            "--fn",
+            fn,
+            "--count",
+            count,
+        ] + judging +
+        # A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the
+        # Run contract's: ignored, unless the subject requires something of it.
+        stderr_ignored("ex18's and ex19's subjects ask nothing of standard error"),
+        data = [
+            ":ex%s_bin" % num,
+            "//oracle:oracle",
+            "//tools:argv_check.sh",
+            "//tools:exit_status",
+            "//tools:runner_lib.sh",
+        ],
+    )
+    for stem, num, fn, count, judging, level in RL_ARGV_CORPORA
+]
+
+# The exit status over the same corpus, at robust: the subject names none.
+[
+    hand_test(
+        name = stem + "_diff_exit",
+        layer = "diff",
+        level = 3,
+        size = "medium",
+        srcs = ["//tools:argv_check.sh"],
+        args = [
+            "--bin",
+            "$(location :ex%s_bin)" % num,
+            "--oracle",
+            "$(location //oracle:oracle)",
+            "--fn",
+            fn,
+            "--count",
+            count,
+            "--exit-only",
+        ] + stderr_ignored("this replay judges only how each run ended"),
+        data = [
+            ":ex%s_bin" % num,
+            "//oracle:oracle",
+            "//tools:argv_check.sh",
+            "//tools:exit_status",
+            "//tools:runner_lib.sh",
+        ],
+    )
+    for stem, num, fn, count, _judging, _level in RL_ARGV_CORPORA
+]
+
+# The corpus under ASan/UBSan, on c_argv_table's guarded build. No memcheck
+# arm: the subject allows no malloc, which corpus_memory() reads from the
+# contract.
+[
+    corpus_memory(
+        stem = stem,
+        runner = "//tools:argv_check.sh",
+        asan_bin = ":ex%s_argvguard_bin_asan" % num,
+        args = [
+            "--oracle",
+            "$(location //oracle:oracle)",
+            "--fn",
+            fn,
+            "--count",
+            count,
+        ],
+        data = ["//oracle:oracle"],
+        size = "medium",
+    )
+    for stem, num, fn, count, _judging, _level in RL_ARGV_CORPORA
+]
 
 # ex20 = C 07 ex00
 c_function(
@@ -372,6 +495,8 @@ c_cycles(
     harness = "diff_strdup.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    # The corpus's capacity cases, as its twin's call leaves them out.
+    max_unit = 1000,
     budget = 6,
     syscall_budget = 0,
 )

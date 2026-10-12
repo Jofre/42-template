@@ -444,7 +444,7 @@ shell_exercise(
 # program is (:argvguard_builds), where it used to be refused while loading.
 c_program(num = "24", name = "toy_args", makefile = True)
 
-c_argv_table(num = "24")
+c_argv_table(num = "24", no_model = "the toy's table is its own, made from no reference")
 
 # The same table over a program whose Makefile is not written yet
 # (makefile = "once_written", ex27's stub): the graded program is the
@@ -452,7 +452,7 @@ c_argv_table(num = "24")
 # Makefile alone and be an empty stand-in beside a real program (V35).
 c_program(num = "29", name = "toy29", makefile = "once_written")
 
-c_argv_table(num = "29")
+c_argv_table(num = "29", no_model = "the toy's table is its own, made from no reference")
 
 # A check-mode toy whose runs read a fixture in place of a path the subject
 # fixes (redirect): every target that runs the turn-in -- the output test and
@@ -569,6 +569,27 @@ c_program(
     refusals = _REFUSED_MODEL,
 )
 
+# A reference run on a case whose subject names a status other than 0: the
+# reference answers a run with status 0 and says it has none with any other
+# (tools/reference_cases.sh), so that case could never pass, and its report
+# would blame the case for asking what the reference has no answer for.
+_REFUSED_REFERENCE_EXIT = []
+
+c_program(
+    num = "18",
+    name = "toy_reader_reference_exit",
+    cases = [{
+        "name": "missing",
+        "missing_file": "no_such_file_ex18",
+        "args": ["no_such_file_ex18"],
+        "expected": "empty.txt",
+        "exit": 1,
+        "exit_quote": "The toy subject: “it returns 1 when the file will not open.”",
+    }],
+    reference = True,
+    refusals = _REFUSED_REFERENCE_EXIT,
+)
+
 # A call that still says whether the program may allocate: that is the
 # contract's (ex18's subject allows open, read, write and close), read by
 # c_program as corpus_memory() reads it.
@@ -650,6 +671,15 @@ hand_test(
         "the toy subject says nothing of it",
     ],
     refusals = _REFUSED_SPLIT_REASON,
+)
+
+# An argument table that names no model and says nothing of why: its
+# table.txt would be held to nothing (_argv_model_problem).
+_REFUSED_ARGV_UNHELD = []
+
+c_argv_table(
+    num = "24",
+    refusals = _REFUSED_ARGV_UNHELD,
 )
 
 # The .c files the Makefile compiles, as its program's build wrote them
@@ -790,7 +820,8 @@ _RULE_ARM = {
 }
 
 # A corpus runner's gate, and the output test of the subject's example it
-# stands for: the program run on one map, compared with one file.
+# stands for: the program run on one map, compared with one file. The last
+# pair names that test for the SKIP line (_gate_label_problems).
 _GATE = [
     "--gate-differ",
     "$(location //tools:diff_output.sh)",
@@ -798,6 +829,8 @@ _GATE = [
     "$(location :ex00_bin)",
     "--gate-expected",
     "$(location tests/ex00/example.txt)",
+    "--gate-label",
+    "ex00_example_output",
 ]
 _GATE_EXAMPLE = {
     "args": [
@@ -857,7 +890,55 @@ _CASE_SWEEP = {
     "srcs": ["//tools:allocfail_check.sh"],
     "tags": ["allocfail", "ex00"] + LEVELS[2:],
 }
+# Two tests of one rush variant, for the suite cases of _PROBLEMS.
+_SUITE_TESTS = {
+    "ex00_rush03_norm": {"kind": "sh_test", "tags": ["norm", "ex00"] + LEVELS},
+    "ex00_rush03_output": {"kind": "sh_test", "tags": ["output", "ex00"] + LEVELS},
+}
 _CASE_FOLDER = ["--run-as", "toy", "--cwd-file", "toy.cfg=$(location tests/ex00/fixtures/cfg.txt)"]
+
+# An output test fed its table on standard input, and the two tests that
+# wait for it with its whole run written in their --gate-* options
+# (_case_gate_problems): a main() run by run_check.sh, and another
+# program's case through diff_output.sh's --gate-bin, as a rush variant's
+# _main and _defense do. Each gate's input comes at each call.
+_FED_OUTPUT = {
+    "args": [
+        "--bin",
+        "$(location :ex00_bin)",
+        "--expected",
+        "$(location tests/ex00/a.txt)",
+        "--stdin",
+        "$(location tests/ex00/cases.tsv)",
+        "--labeled",
+        "--waiting",
+        "$(location :waiting_ex00_fed_output)",
+    ],
+    "srcs": ["//tools:diff_output.sh"],
+    "tags": ["output", "ex00"] + LEVELS,
+}
+_FED_GATE = ["--gate-bin", "$(location :ex00_bin)", "--gate-expected", "$(location tests/ex00/a.txt)"]
+_FED_MAIN = {
+    "args": ["--bin", "$(location :ex00_mainbin)", "--min-bytes", "1", "--gate-differ", "$(location //tools:diff_output.sh)", "--gate-label", "ex00_fed_output"] + _FED_GATE,
+    "srcs": ["//tools:run_check.sh"],
+    "tags": ["output", "ex00"] + LEVELS,
+}
+_FED_DEFENSE = {
+    "args": [
+        "--bin",
+        "$(location :ex00_defensebin)",
+        "--expected",
+        "$(location tests/ex00/b.txt)",
+        "--stdin",
+        "$(location tests/ex00/in.txt)",
+        "--labeled",
+        "--gate-label",
+        "ex00_fed_output",
+    ] + _FED_GATE,
+    "srcs": ["//tools:diff_output.sh"],
+    "tags": ["output", "ex00"] + LEVELS,
+}
+_FED_IN = ["--gate-stdin", "$(location tests/ex00/cases.tsv)", "--gate-labeled"]
 
 # EVERY CONTRACT CHECK, FED THE BROKEN CONTRACT IT GUARDS AGAINST: one line
 # per case, "case: the message", or "case: OK" where nothing is wrong. A check
@@ -898,6 +979,29 @@ _WAIT_SURVIVE = {
              "$(location tests/ex00/expected.txt)", "--gate-label", "ex00_output"],
     "tags": ["output", "ex00"] + LEVELS,
 }
+
+# A gate that lost its --gate-label pair and that no output test of the
+# package runs: the waiting audit names the test, and the label audit stays
+# quiet rather than name it a second time. Its case below says how many
+# messages the audit gives, so a second one is red there.
+_GATE_LABEL_UNRESOLVED = contract_problem("audit", {
+    "exercises": ["ex00"],
+    "package": "c-piscine/c-piscine-toy",
+    "tests": {
+        "ex00_fed_main": dict(_FED_MAIN, args = [a for a in _FED_MAIN["args"] if a not in ("--gate-label", "ex00_fed_output")] + _FED_IN),
+    },
+}) or ""
+
+# A gate given as --gate-differ alone, its memory twin beside it: one message,
+# the label audit's, and none that renders the missing gate as "None".
+_GATE_DIFFER_ONLY = contract_problem("audit", {
+    "exercises": ["ex00"],
+    "package": "c-piscine/c-piscine-toy",
+    "tests": {
+        "ex00_sweep": dict(_CORPUS_SWEEP, args = _CORPUS_PLAIN["args"] + _GATE[:2]),
+        "ex00_sweep_diff_asan": _CORPUS_ASAN,
+    },
+}) or ""
 
 _PROBLEMS = {
     "before-subject": _BEFORE_SUBJECT,
@@ -997,6 +1101,59 @@ _PROBLEMS = {
         "exercises": {"00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = [])},
         "grader": "peers",
         "group": False,
+    }),
+    # mandatory: the exercises a subject calls its mandatory part, which
+    # `submit --written-only` will not push without, and the subject's own
+    # sentence saying so.
+    "subject-mandatory-ok": contract_problem("subject", {
+        "exercises": {
+            "00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = []),
+            "01": exercise(page = 2, dir = "ex01/", files = ["b.c"], allowed = []),
+        },
+        "grader": "moulinette",
+        "group": False,
+        "mandatory": ["00"],
+        "mandatory_quote": "Toy, p.1: \"These are the mandatory exercises.\"",
+    }),
+    "subject-mandatory-not-an-exercise": contract_problem("subject", {
+        "exercises": {"00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = [])},
+        "grader": "moulinette",
+        "group": False,
+        "mandatory": ["00", "01"],
+        "mandatory_quote": "Toy, p.1: \"These are the mandatory exercises.\"",
+    }),
+    "subject-mandatory-twice": contract_problem("subject", {
+        "exercises": {"00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = [])},
+        "grader": "moulinette",
+        "group": False,
+        "mandatory": ["00", "00"],
+        "mandatory_quote": "Toy, p.1: \"These are the mandatory exercises.\"",
+    }),
+    "subject-mandatory-empty": contract_problem("subject", {
+        "exercises": {"00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = [])},
+        "grader": "moulinette",
+        "group": False,
+        "mandatory": [],
+        "mandatory_quote": "Toy, p.1: \"These are the mandatory exercises.\"",
+    }),
+    "subject-mandatory-not-a-list": contract_problem("subject", {
+        "exercises": {"00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = [])},
+        "grader": "moulinette",
+        "group": False,
+        "mandatory": "00",
+        "mandatory_quote": "Toy, p.1: \"These are the mandatory exercises.\"",
+    }),
+    "subject-mandatory-unquoted": contract_problem("subject", {
+        "exercises": {"00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = [])},
+        "grader": "moulinette",
+        "group": False,
+        "mandatory": ["00"],
+    }),
+    "subject-mandatory-quote-alone": contract_problem("subject", {
+        "exercises": {"00": exercise(page = 1, dir = "ex00/", files = ["a.c"], allowed = [])},
+        "grader": "moulinette",
+        "group": False,
+        "mandatory_quote": "Toy, p.1: \"These are the mandatory exercises.\"",
     }),
     "no-entry": contract_problem("no_entry", {"macro": "c_program", "num": "99"}),
     "untranscribed": contract_problem("untranscribed", {"seen": ["ex00", "ex98"]}),
@@ -1482,12 +1639,14 @@ _PROBLEMS = {
     "refused-program-content-only": " | ".join(_REFUSED_CONTENT_ONLY) or None,
     "refused-program-stale-sentence": " | ".join(_REFUSED_STALE) or None,
     "refused-program-model-nothing-to-answer": " | ".join(_REFUSED_MODEL) or None,
+    "refused-program-reference-exit": " | ".join(_REFUSED_REFERENCE_EXIT) or None,
     "refused-program-malloc-argument": " | ".join(_REFUSED_MALLOC) or None,
     "refused-program-make-optional": " | ".join(_REFUSED_MAKE_OPTIONAL) or None,
     "refused-program-make-unnamed": " | ".join(_REFUSED_MAKE_UNNAMED) or None,
     "refused-program-makefile-unused": " | ".join(_REFUSED_NO_MAKEFILE) or None,
     "refused-test-no-stderr-choice": " | ".join(_REFUSED_NO_CHOICE) or None,
     "refused-test-split-stderr-reason": " | ".join(_REFUSED_SPLIT_REASON) or None,
+    "refused-argv-table-unheld": " | ".join(_REFUSED_ARGV_UNHELD) or None,
     # c_make's QUOTES: every check it is asked for quotes the sentence that
     # requires it, under a key a check reads.
     "make-ok": contract_problem("make", {
@@ -1788,6 +1947,60 @@ _PROBLEMS = {
             "ex00_valgrind": {"args": ["--bin", "$(location :ex00_bin)", "--label", "ex00"], "kind": "sh_test", "srcs": ["//tools:valgrind_test.sh"], "tags": ["valgrind", "ex00"] + LEVELS[1:]},
         },
     }),
+    # ONE PROGRAM, ONE NAME: where c_make and c_program judge the same
+    # exercise, the program c_program runs is the one the Makefile builds,
+    # so its `name` is c_make's `artifact`. Read as existing_rules() gives
+    # them: the program_name= tag on exNN_bin, and exNN_build's --artifact.
+    # Two names were two programs the files layer refused, a .gitignore
+    # holding one, and nothing saying so.
+    "audit-rules-program-artifact-differ": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": {
+            "ex00_bin": {"kind": "student_binary", "tags": ["program_name=prog_x"]},
+            "ex00_build": {"args": ["--anchor", "$(location deliverable/ex00/Makefile)", "--artifact", "prog"], "kind": "sh_test", "tags": ["output", "ex00"] + LEVELS},
+        },
+    }),
+    "audit-rules-program-artifact-same": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": {
+            "ex00_bin": {"kind": "student_binary", "tags": ["program_name=prog"]},
+            "ex00_bin_asan": {"kind": "student_binary", "tags": []},
+            "ex00_build": {"args": ["--anchor", "$(location deliverable/ex00/Makefile)", "--artifact", "prog"], "kind": "sh_test", "tags": ["output", "ex00"] + LEVELS},
+        },
+    }),
+    # A MANUAL SUITE LISTS EVERY TEST OF ITS NAME: it is asked for by name,
+    # as rush_variant's per-variant suite is ("every layer, one variant"),
+    # and four layers added to the macro after the suite never reached it.
+    # A label as existing_rules() gives it may name the package. A suite
+    # that is not manual selects by tag (the :exNN suites, which leave the
+    # manual tests out on purpose) and is not held to it.
+    "audit-rules-suite-whole": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": _SUITE_TESTS | {
+            "ex00_rush03": {"kind": "test_suite", "tags": ["manual"], "tests": [
+                ":ex00_rush03_norm",
+                "//c-piscine/c-piscine-toy:ex00_rush03_output",
+            ]},
+        },
+    }),
+    "audit-rules-suite-short": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": _SUITE_TESTS | {
+            "ex00_rush03": {"kind": "test_suite", "tags": ["manual"], "tests": [":ex00_rush03_norm"]},
+        },
+    }),
+    "audit-rules-suite-by-tag": contract_problem("audit_rules", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "rules": _SUITE_TESTS | {
+            "ex00": {"kind": "test_suite", "tags": ["ex00"], "tests": []},
+            "ex00_rush03": {"kind": "test_suite", "tags": ["ex00"], "tests": [":ex00_rush03_norm"]},
+        },
+    }),
     # _student_bin's `prototype`: required with a harness, refused without.
     "harness-prototype-none-with-reason": contract_problem("harness_prototype", {
         "harness": ["tests/ex00/test_toy.c"],
@@ -2059,6 +2272,95 @@ _PROBLEMS = {
             },
         },
     }),
+    # A GATE WRITTEN OUT WHOLE IS AN OUTPUT TEST'S RUN TOO
+    # (_case_gate_problems): run_check.sh's, and diff_output.sh's --gate-bin.
+    # Rush 00's _main and _defense wait so for their variant's table. Green
+    # where each gate is that test's run, standard input and labels included,
+    "audit-output-gate-run": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_fed_defense": dict(_FED_DEFENSE, args = _FED_DEFENSE["args"] + _FED_IN),
+            "ex00_fed_main": dict(_FED_MAIN, args = _FED_MAIN["args"] + _FED_IN),
+            "ex00_fed_output": _FED_OUTPUT,
+        },
+    }),
+    # ...red where run_check.sh's gate reads another file, which a correct
+    # program fails: the run would SKIP on every correct tree,
+    "audit-output-gate-run-check-stdin": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_fed_defense": dict(_FED_DEFENSE, args = _FED_DEFENSE["args"] + _FED_IN),
+            "ex00_fed_main": dict(_FED_MAIN, args = _FED_MAIN["args"] + ["--gate-stdin", "$(location tests/ex00/in.txt)", "--gate-labeled"]),
+            "ex00_fed_output": _FED_OUTPUT,
+        },
+    }),
+    # ...red where diff_output.sh's --gate-bin gate does,
+    "audit-output-gate-bin-stdin": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_fed_defense": dict(_FED_DEFENSE, args = _FED_DEFENSE["args"] + ["--gate-stdin", "$(location tests/ex00/in.txt)", "--gate-labeled"]),
+            "ex00_fed_main": dict(_FED_MAIN, args = _FED_MAIN["args"] + _FED_IN),
+            "ex00_fed_output": _FED_OUTPUT,
+        },
+    }),
+    # ...red where a gate compares the table without its labels,
+    "audit-output-gate-unlabeled": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_fed_defense": dict(_FED_DEFENSE, args = _FED_DEFENSE["args"] + _FED_IN),
+            "ex00_fed_main": dict(_FED_MAIN, args = _FED_MAIN["args"] + _FED_IN[:2]),
+            "ex00_fed_output": _FED_OUTPUT,
+        },
+    }),
+    # ...and red where a survive case's gate, on its own program, does not
+    # run its exercise's case either.
+    "audit-output-gate-survive-stdin": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_fed_output": _FED_OUTPUT,
+            "ex00_fed_survive": {
+                "args": ["--bin", "$(location :ex00_bin)", "--survive", "--gate-label", "ex00_fed_output"] +
+                        _FED_GATE[2:] + ["--gate-stdin", "$(location tests/ex00/in.txt)", "--gate-labeled"],
+                "srcs": ["//tools:diff_output.sh"],
+                "tags": ["output", "ex00"] + LEVELS,
+            },
+        },
+    }),
+    # A GATED TEST OF A RUNNER THAT TAKES --gate-label NAMES ITS OUTPUT TEST
+    # (_gate_label_problems). Deleting the pair from a hand-written BSQ or
+    # rush target still built, and its SKIP line named no test. Red without
+    # it, naming the test the gate resolves to,
+    "audit-gate-label-missing": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_example_output": _GATE_EXAMPLE,
+            "ex00_sweep": dict(_CORPUS_SWEEP, args = _CORPUS_PLAIN["args"] + _GATE[:-2] + ["--gate-arg", "$(location tests/ex00/example.map)"]),
+            "ex00_sweep_diff_asan": dict(_CORPUS_ASAN, args = _CORPUS_ASAN["args"] + _GATE + ["--gate-arg", "$(location tests/ex00/example.map)"]),
+        },
+    }),
+    # ...and red on a gate written out whole (run_check.sh) as well.
+    "audit-gate-label-missing-whole": contract_problem("audit", {
+        "exercises": ["ex00"],
+        "package": "c-piscine/c-piscine-toy",
+        "tests": {
+            "ex00_fed_defense": dict(_FED_DEFENSE, args = _FED_DEFENSE["args"] + _FED_IN),
+            "ex00_fed_main": dict(_FED_MAIN, args = [a for a in _FED_MAIN["args"] if a not in ("--gate-label", "ex00_fed_output")] + _FED_IN),
+            "ex00_fed_output": _FED_OUTPUT,
+        },
+    }),
+    # ...and red where its gate is --gate-differ alone, which resolves to no
+    # output test and which no other audit names: the runner would refuse it
+    # only when the test runs.
+    "audit-gate-label-differ-only": "%d message(s): %s" % (len(_GATE_DIFFER_ONLY.split(" | ")), _GATE_DIFFER_ONLY),
+    # ...and quiet where its gate resolves to no output test: the waiting
+    # audit names the test, once.
+    "audit-gate-label-unresolved": "%d message(s): %s" % (len(_GATE_LABEL_UNRESOLVED.split(" | ")), _GATE_LABEL_UNRESOLVED),
     # ...and red where the only test that matches its file feeds the map on
     # standard input, which a gate never does.
     "audit-gate-stdin-case": contract_problem("audit", {

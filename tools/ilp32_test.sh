@@ -273,7 +273,10 @@ if [ -n "$ZIG" ] && [ -x "$ZIG" ]; then
 	# person to sit down. The same hazard made Bazel's own output root per-user
 	# (tools/drives.sh, finding 001): a shared path in /tmp belongs to whoever
 	# created it first.
-	ZIG_GLOBAL_CACHE_DIR="${ZIG_CACHE_HOME:-${TMPDIR:-/tmp}/zig-cache-42-${USER:-$(id -un)}}"
+	# NOT THE TEST'S OWN TMPDIR, which runner_lib.sh points at TEST_TMPDIR and
+	# Bazel empties: RL_HOST_TMP is the folder TMPDIR named before, so the cache
+	# outlives the test, as it is there to.
+	ZIG_GLOBAL_CACHE_DIR="${ZIG_CACHE_HOME:-$RL_HOST_TMP/zig-cache-42-${USER:-$(id -un)}}"
 	ZIG_LOCAL_CACHE_DIR="$ZIG_GLOBAL_CACHE_DIR"
 	mkdir -p "$ZIG_GLOBAL_CACHE_DIR" 2>/dev/null
 	export ZIG_GLOBAL_CACHE_DIR ZIG_LOCAL_CACHE_DIR

@@ -7,7 +7,7 @@ Measured before it was written (Bazel 9.2.0, 2026-10-09):
 - one SIGINT stops a run within about a second, with exit 8, and Bazel keeps
   its cache;
 - a run that goes on over an edit can keep, and serve again, a result or even
-  a program built from other contents (TODO.md V111); so can one over an undo
+  a program built from other contents (V111); so can one over an undo
   (taint.raced).
 
 So a save during a run CANCELS it, and the run starts again once the files
@@ -30,7 +30,6 @@ import taint
 from workspace import UsageError
 
 POLL = 1.0
-STUCK = 10.0
 
 
 class Keys:
@@ -80,14 +79,13 @@ class Keys:
 class Watch:
     """The loop. make_run() gives a fresh main.Run of the scope; files() lists what to watch."""
 
-    def __init__(self, out, describe, files, make_run, keys=None, poll=POLL, clock=time.monotonic):
+    def __init__(self, out, describe, files, make_run, keys=None, poll=POLL):
         self.out = out
         self.describe = describe
         self.files = files
         self.make_run = make_run
         self.keys = keys
         self.poll = poll
-        self.clock = clock
 
     def stats(self):
         return taint.stats(self.files())
@@ -130,7 +128,7 @@ class Watch:
                     if asked["quit"]:
                         self.out.say("  stopped.")
                         return rc
-                    if rc == 8 and not run.cancelled:  # Ctrl-C reached the run
+                    if rc == bazel.INTERRUPTED and not run.cancelled:  # Ctrl-C reached the run
                         return rc
                     if run.cancelled:
                         self.out.say("  A file was saved during the run: it stopped, and runs again once\n"

@@ -1,0 +1,619 @@
+load(
+    "//tools:defs.bzl",
+    "c_argv_table",
+    "c_cycles",
+    "c_diff",
+    "c_files",
+    "c_function",
+    "c_header",
+    "c_libft",
+    "c_mem_check",
+    "c_perf",
+    "c_program",
+    "c_reference_cost",
+    "corpus_memory",
+    "exercise",
+    "mandatory_exercises",
+    "rush_common",
+    "rush_variant",
+    "shell_exercise",
+    "student_lib",
+    "subject",
+    "turnin_dir",
+    "turnin_file",
+)
+load("//tools:names_file.bzl", "names_file")
+
+# Its listing is data of //tools/tests:macro_fixtures_test.
+package(default_visibility = ["//tools/tests:__pkg__"])
+
+# EVERY KNOB NO PROJECT TURNS. A macro's parameter, or a key of a case dict,
+# that no call site in a module passes is still a promise: its docstring says
+# what it does, and the first project that needs it will believe that. With no
+# caller, nothing ever ran the branch -- a knob broken by a refactor stayed
+# green everywhere, and a fixture that only checked the macro ACCEPTED the key
+# (starlark_selftest's "every documented key is accepted") never emitted a
+# target from it.
+#
+# So this package calls the macros on invented exercises with each such knob
+# set to something other than its default, and :knobs below lists, per knob,
+# what the targets it shapes were given: an argument and the value after it,
+# whether a flag is there, which files an attribute holds, whether a target
+# was declared at all. //tools/tests:macro_fixtures_test compares that with
+# knobs.expected beside this file, so a knob whose branch stops emitting what
+# its docstring says is a red test.
+#
+# Every test here is tagged manual (tools/defs.bzl's _test, as everywhere
+# under tools/tests/macro_fixtures), and none is ever RUN: the toys name an
+# //oracle arm that does not exist, and a verdict is not what this package is
+# about. That every target it emits analyses -- each label it names is there
+# -- was measured by hand on 2026-10-11 with
+#
+#     bazel build --nobuild $(bazel query 'attr(tags, manual, //tools/tests/macro_fixtures/knobs:*)')
+#
+# Re-run it after adding a toy or a knob.
+#
+# A knob that SOME call site passes is proven by that call site's tests and
+# is not listed; one only another fixture passes is proven there (c_function's
+# hdrs and exports, c_program's malloc, no_missing_file_case and refusals,
+# rush_common's num and clues, a case's "valgrind": tools/tests/macro_fixtures
+# and its ./root). `name`, which every macro takes for buildifier's sake and
+# none reads, controls nothing and is not a knob.
+#
+# The toy project. subject(strict = False) and exercise(strict = True) are
+# knobs of the contract itself: see the files layers below.
+subject(
+    grader = "moulinette",
+    group = False,
+    exercises = {
+        # A function, with a file the subject allows and a header beside it:
+        # the srcs/hdrs overrides leave toy_extra.c out, where the default
+        # would compile it.
+        "00": exercise(
+            page = 1,
+            dir = "ex00/",
+            files = ["toy_twice.c"],
+            optional = ["toy_extra.c", "toy_knob.h"],
+            allowed = ["malloc", "free"],
+        ),
+        # The same function, for the other side of each knob ex00 turns.
+        "01": exercise(page = 1, dir = "ex01/", files = ["toy_twice.c"], allowed = None),
+        # A program, with the same two extras as ex00. No "Allowed functions"
+        # line, so it may allocate and its case gets a valgrind arm; strict,
+        # where the project is not.
+        "02": exercise(
+            page = 1,
+            dir = "ex02/",
+            files = ["toy_prog.c"],
+            optional = ["toy_extra.c", "toy_prog.h"],
+            allowed = None,
+            strict = True,
+        ),
+        # A header exercise whose subject names two headers.
+        "03": exercise(page = 1, dir = "ex03/", files = ["toy_a.h", "toy_b.h"], allowed = None),
+        # A program whose runs are an argument table (C 06's shape).
+        "04": exercise(page = 1, dir = "ex04/", files = ["toy_args.c"], allowed = None),
+        # A library a script of the student's builds (C 09 ex00's shape), its
+        # header in a folder of its own.
+        "05": exercise(
+            page = 1,
+            dir = "ex05/",
+            files = ["toy_creator.sh", "toy_a.c"],
+            optional = ["inc/toy_lib.h"],
+            allowed = ["write"],
+        ),
+        # A unit no exercise macro declares (student_lib), its header in a
+        # folder only the unit's include directory reaches.
+        "06": exercise(page = 1, dir = "ex06/", files = ["toy_six.c"], optional = ["inc/toy_six.h"], allowed = None),
+        # Shell turn-ins: one of two scripts, compared by diff; one checked.
+        "07": exercise(page = 1, dir = "ex07/", files = ["toy_a.sh", "toy_b.sh"], allowed = None),
+        "08": exercise(page = 1, dir = "ex08/", files = ["toy.sh"], allowed = None),
+        # Rush 00's shape: two shared files and a variant.
+        "09": exercise(page = 1, dir = "ex09/", files = ["main.c", "ft_putchar.c"], optional = ["rush03.c"], allowed = ["write"]),
+    },
+    strict = False,
+)
+
+# The rule an allocfail target prints under its verdict: a toy's.
+TOY_RULE = "A toy rule, for the knob fixtures: errors are handled."
+
+# A reason a harness has no prototype test, as _student_bin takes one.
+TOY_NO_PROTOTYPE = "none: a toy harness, which no prototype test checks"
+
+# ---------------------------------------------------------------------------
+# ex00: EVERY OVERRIDE A FUNCTION'S LAYERS TAKE.
+#
+# c_function: srcs and hdrs by hand (toy_extra.c left out); another expected
+# file; prototype = False with no tests/ex00/prototype.h, so no prototype
+# layer and no fail(); no 32-bit replay; and an allocfail layer raised to
+# complete. Its fixture binary's harness then names no prototype test.
+c_function(
+    num = "00",
+    fn = "toy_unit_00",
+    test = "test_toy.c",
+    srcs = [turnin_file("00", "toy_twice.c")],
+    hdrs = [turnin_file("00", "toy_knob.h")],
+    expected = "expected_knob.txt",
+    exports = ["toy_twice"],
+    prototype = False,
+    ilp32 = False,
+    malloc = True,
+    allocfail = "af_toy.c",
+    allocfail_rule = TOY_RULE,
+    allocfail_level = 4,
+)
+
+# c_mem_check: the same srcs and hdrs by hand, and a reason for no prototype.
+c_mem_check(
+    num = "00",
+    fn = "toy_twice",
+    probe = "mem_toy.c",
+    srcs = [turnin_file("00", "toy_twice.c")],
+    hdrs = [turnin_file("00", "toy_knob.h")],
+    prototype = TOY_NO_PROTOTYPE,
+)
+
+# c_cycles: srcs, hdrs, its own count, and a gate run against another file,
+# under --sanitize, fed a file on stdin.
+c_cycles(
+    num = "00",
+    fn = "toy_twice",
+    oracle_fn = "toy_arm",
+    harness = "cyc_toy.c",
+    srcs = [turnin_file("00", "toy_twice.c")],
+    hdrs = [turnin_file("00", "toy_knob.h")],
+    count = 77,
+    gate_expected = "expected_knob.txt",
+    gate_sanitize = True,
+    gate_stdin = "tests/ex00/stdin.txt",
+)
+
+# c_reference_cost: srcs and hdrs.
+c_reference_cost(
+    num = "00",
+    fn = "toy_twice",
+    oracle_fn = "toy_arm",
+    harness = "ref_toy.c",
+    units = 3,
+    srcs = [turnin_file("00", "toy_twice.c")],
+    hdrs = [turnin_file("00", "toy_knob.h")],
+)
+
+# c_diff: its seed, a gate binary, file and stdin of its own, a reason for no
+# prototype, and a count for the perf layer it emits -- which takes the seed
+# and the gate with it, and is live (c_perf's `enabled`, which c_diff sets).
+c_diff(
+    num = "00",
+    fn = "toy_unit_00",
+    harness = "diff_toy.c",
+    oracle_fn = "toy_arm",
+    seed = 7,
+    gate_bin = ":ex01_bin",
+    gate_expected = "expected_knob.txt",
+    gate_stdin = "tests/ex00/stdin.txt",
+    perf_count = 1234,
+    prototype = TOY_NO_PROTOTYPE,
+)
+
+# ---------------------------------------------------------------------------
+# ex01: THE OTHER SIDE.
+#
+# c_function: prototype = False beside a tests/ex01/prototype.h, which turns
+# off the fail() for a missing header and nothing else -- the layer is still
+# emitted -- and the 32-bit replay left at its default.
+c_function(
+    num = "01",
+    fn = "toy_unit_01",
+    test = "test_toy.c",
+    exports = ["toy_twice"],
+    prototype = False,
+)
+
+# c_diff: no sanitizer twin (and so no perf layer of its own), and an
+# ungated corpus.
+c_diff(
+    num = "01",
+    fn = "toy_unit_01",
+    harness = "diff_toy.c",
+    oracle_fn = "toy_arm",
+    sanitize = False,
+    perf = False,
+    gate_bin = "",
+)
+
+# c_perf written out by hand: a reader of its own, a baseline, every gate
+# threshold, no ASan stage (c_diff above built no twin), a gate corpus of its
+# own size, a seed, and `enabled` left at False.
+c_perf(
+    num = "01",
+    fn = "toy_unit_01",
+    oracle_fn = "toy_arm",
+    harness = "perf_toy.c",
+    seed = 5,
+    baseline_bin = ":ex00_bin",
+    gate_exponent = "1.5",
+    gate_slowdown = "9",
+    gate_memory = "3",
+    gate_asan_bin = "",
+    gate_count = 99,
+    prototype = TOY_NO_PROTOTYPE,
+)
+
+# ---------------------------------------------------------------------------
+# ex02: A PROGRAM.
+#
+# c_program: srcs and hdrs by hand (toy_extra.c left out), and the two case
+# keys no module's case takes: "sanitize" and "labeled", which reach every
+# arm that compares the case's output -- the output test, its valgrind arm's
+# gate, the allocation-failure sweep's gate and the reference's run.
+c_program(
+    num = "02",
+    name = "toy_prog",
+    srcs = [turnin_file("02", "toy_prog.c")],
+    hdrs = [turnin_file("02", "toy_prog.h")],
+    allocfail = "dump",
+    allocfail_rule = TOY_RULE,
+    reference = True,
+    cases = [{
+        "name": "dump",
+        "expected": "empty.txt",
+        "sanitize": True,
+        "labeled": True,
+    }],
+)
+
+# corpus_memory: how many cases its memcheck arm samples.
+corpus_memory(
+    stem = "ex02_sweep",
+    runner = "//tools:file_check.sh",
+    args = ["--label", "ex02/toy_prog"],
+    data = [],
+    sample = 7,
+)
+
+# The files layer: a heading of its own, and the contract's strictness --
+# ex02's exercise(strict = True) over the project's subject(strict = False),
+# which ex00 takes.
+c_files(
+    num = "02",
+    label = "toy/heading",
+)
+
+c_files(num = "00")
+
+# ---------------------------------------------------------------------------
+# ex03: A HEADER, chosen from the two the subject names; a helper compiled
+# beside the main; a case fed on stdin, and one whose status the toy subject
+# names.
+c_header(
+    num = "03",
+    main = "test_toy.c",
+    hdr = "toy_b.h",
+    extra_srcs = ["helper.c"],
+    cases = [
+        {"name": "fed", "expected": "empty.txt", "stdin": "tests/ex03/in.txt"},
+        {"name": "quoted", "expected": "empty.txt", "exit": 0, "exit_quote": "The toy subject: “it returns 0.”"},
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# ex04: AN ARGUMENT TABLE, its three files named, and no ASan arm.
+c_program(num = "04", name = "toy_args")
+
+c_argv_table(
+    num = "04",
+    scenarios = "scen_knob.tsv",
+    expected = "table_knob.txt",
+    clues = "clues_knob.tsv",
+    asan = False,
+    model = ["c06_run", "print"],
+)
+
+# ---------------------------------------------------------------------------
+# ex05: A LIBRARY. Its header and include directory by hand, its own fixture
+# and hints, more exports than its symbols, no prototype header, and
+# labelled rows.
+c_libft(
+    num = "05",
+    script = "toy_creator.sh",
+    artifact = "libtoy.a",
+    symbols = ["toy_a"],
+    test = "test_lib.c",
+    hdrs = [turnin_file("05", "inc/toy_lib.h")],
+    includes = [turnin_dir("05") + "/inc"],
+    expected = "lib_knob.txt",
+    clues = "clues_knob.tsv",
+    exports = ["toy_a", "toy_b"],
+    prototype = False,
+    labeled = True,
+    make = {
+        "quotes": {
+            "cc": "The toy subject: \"A script builds the library with cc.\"",
+        },
+        "recipe": "any",
+    },
+)
+
+# ---------------------------------------------------------------------------
+# ex06: A UNIT DECLARED BY HAND, with a header in inc/ and that folder on its
+# include path. Its program is real only if both reached the compile
+# (//tools/tests:macro_fixtures_test runs it); ungated, unsanitized, no perf.
+student_lib(
+    name = "toy_six_unit",
+    srcs = [turnin_file("06", "toy_six.c")],
+    hdrs = [turnin_file("06", "inc/toy_six.h")],
+    includes = [turnin_dir("06") + "/inc"],
+)
+
+c_diff(
+    num = "06",
+    fn = "toy_six_unit",
+    harness = "diff_six.c",
+    oracle_fn = "toy_arm",
+    sanitize = False,
+    perf = False,
+    gate_bin = "",
+    prototype = TOY_NO_PROTOTYPE,
+)
+
+# ---------------------------------------------------------------------------
+# ex07 and ex08: SHELL. Diff mode: the deliverable named, its expected file,
+# run with an interpreter, in an environment. Check mode: its check script.
+shell_exercise(
+    num = "07",
+    mode = "diff",
+    deliverable = "toy_b.sh",
+    expected = "expected_knob.txt",
+    run = True,
+    interp = "bash",
+    env = ["TOY=1"],
+)
+
+shell_exercise(
+    num = "08",
+    mode = "check",
+    check = "check_knob.sh",
+    stable = False,
+)
+
+# ---------------------------------------------------------------------------
+# ex09: A RUSH VARIANT, every knob turned: its exports, the corpus's seed and
+# sizes, both hint files. Ungated (a variant the team does not owe), so every
+# target is manual and none of it is built by //...
+rush_common(num = "09")
+
+rush_variant(
+    variant = "03",
+    num = "09",
+    gated = False,
+    exports = ["rush", "rush_helper"],
+    seed = 3,
+    count = 50,
+    asan_count = 40,
+    clues = "clues_knob.tsv",
+    diff_clues = "diff_knob.txt",
+)
+
+# ---------------------------------------------------------------------------
+# WHAT EACH KNOB GAVE THE TARGETS IT SHAPES, one line per probe:
+# "<knob>: <target> <query> = <value>". A query is
+#   kind        the rule's kind, or "not declared"
+#   --flag      every value that follows --flag in its args, or "absent"
+#   ?--flag     whether the bare flag is in its args: present or absent
+#   attr:text   the items of a list attribute (srcs, hdrs, data, tags,
+#               includes, harness...) that hold text, or "none"
+# Read by //tools/tests:macro_fixtures_test against knobs.expected beside
+# this file. Built last, so every target above is in existing_rules().
+_PROBES = [
+    # c_function, ex00 against ex01.
+    ("c_function srcs", "toy_unit_00", "srcs:"),
+    ("c_function srcs", "ex00_norm", "data:deliverable/"),
+    ("c_function hdrs, with srcs", "toy_unit_00", "hdrs:"),
+    ("c_function expected", "ex00_output", "--expected"),
+    ("c_function expected", "ex00_allocfail", "--gate-expected"),
+    ("c_function prototype = False, no header", "ex00_prototype", "kind"),
+    ("c_function prototype = False, no header", "ex00_bin", "tags:prototype_test="),
+    ("c_function prototype = False, a header", "ex01_prototype", "kind"),
+    ("c_function prototype = False, a header", "ex01_bin", "tags:prototype_test="),
+    ("c_function ilp32 = False", "ex00_ilp32", "kind"),
+    ("c_function ilp32 default", "ex01_ilp32", "kind"),
+    ("c_function allocfail_level", "ex00_allocfail", "tags:lvl_"),
+    # c_mem_check.
+    ("c_mem_check srcs", "ex00_asan", "--src"),
+    ("c_mem_check srcs", "ex00_memprobe", "srcs:"),
+    ("c_mem_check hdrs", "ex00_asan", "--hdr"),
+    ("c_mem_check hdrs", "ex00_memprobe", "hdrs:"),
+    ("c_mem_check prototype", "ex00_memprobe", "tags:prototype_test="),
+    # c_cycles.
+    ("c_cycles srcs", "ex00_cycles", "--src"),
+    ("c_cycles hdrs", "ex00_cycles", "data:toy_knob.h"),
+    ("c_cycles count", "ex00_cycles", "--count"),
+    ("c_cycles gate_expected", "ex00_cycles", "--gate-expected"),
+    ("c_cycles gate_expected", "ex00_cycles", "--gate-label"),
+    ("c_cycles gate_sanitize", "ex00_cycles", "?--gate-sanitize"),
+    ("c_cycles gate_stdin", "ex00_cycles", "--gate-stdin"),
+    ("c_cycles gate_stdin", "ex00_cycles", "data:stdin.txt"),
+    # c_reference_cost.
+    ("c_reference_cost srcs", "ex00_refcost", "--src"),
+    ("c_reference_cost hdrs", "ex00_refcost", "data:toy_knob.h"),
+    # c_diff, ex00 against ex01.
+    ("c_diff seed", "ex00_diff", "--seed"),
+    ("c_diff seed", "ex00_diff_asan", "--seed"),
+    ("c_diff seed", "ex00_perf", "--seed"),
+    ("c_diff gate_bin", "ex00_diff", "--gate-bin"),
+    ("c_diff gate_bin", "ex00_perf", "--gate-bin"),
+    ("c_diff gate_bin = \"\"", "ex01_diff", "?--gate-differ"),
+    ("c_diff gate_expected", "ex00_diff", "--gate-expected"),
+    ("c_diff gate_expected", "ex00_perf", "--gate-expected"),
+    ("c_diff gate_stdin", "ex00_diff", "--gate-stdin"),
+    ("c_diff gate_stdin", "ex00_diff_asan", "--gate-stdin"),
+    ("c_diff gate_stdin", "ex00_perf", "--gate-stdin"),
+    ("c_diff perf_count", "ex00_perf", "--count"),
+    ("c_diff prototype", "ex00_diffbin", "tags:prototype_test="),
+    ("c_diff prototype", "ex00_diffbin_asan", "tags:prototype_test="),
+    ("c_diff sanitize = False", "ex01_diff_asan", "kind"),
+    ("c_diff sanitize = False", "ex01_diffbin_asan", "kind"),
+    ("c_diff perf = False", "ex06_perf", "kind"),
+    # c_perf by hand (ex01) against c_diff's (ex00).
+    ("c_perf harness", "ex01_perf", "--student-bin"),
+    ("c_perf harness", "ex01_perfbin", "harness:"),
+    ("c_perf harness", "ex01_perfbin", "tags:manual"),
+    ("c_perf prototype", "ex01_perfbin", "tags:prototype_test="),
+    ("c_perf seed", "ex01_perf", "--seed"),
+    ("c_perf baseline_bin", "ex01_perf", "--baseline-bin"),
+    ("c_perf baseline_bin default", "ex00_perf", "--baseline-bin"),
+    ("c_perf gate_exponent", "ex01_perf", "--gate-exponent"),
+    ("c_perf gate_slowdown", "ex01_perf", "--gate-slowdown"),
+    ("c_perf gate_memory", "ex01_perf", "--gate-memory"),
+    ("c_perf gate_asan_bin = \"\"", "ex01_perf", "--gate-asan-bin"),
+    ("c_perf gate_asan_bin default", "ex00_perf", "--gate-asan-bin"),
+    ("c_perf gate_count", "ex01_perf", "--gate-count"),
+    ("c_perf enabled = False", "ex01_perf", "tags:manual"),
+    ("c_perf enabled = True", "ex00_perf", "tags:manual"),
+    # c_program, ex02.
+    ("c_program srcs", "ex02_bin", "srcs:"),
+    ("c_program srcs", "ex02_norm", "data:deliverable/"),
+    ("c_program hdrs, with srcs", "ex02_bin", "hdrs:"),
+    ("c_program case sanitize", "ex02_output", "?--sanitize"),
+    ("c_program case sanitize", "ex02_valgrind", "?--gate-sanitize"),
+    ("c_program case sanitize", "ex02_program_allocfail", "?--gate-sanitize"),
+    ("c_program case sanitize", "ex02_reference_cases", "?--sanitize"),
+    ("c_program case labeled", "ex02_output", "?--labeled"),
+    ("c_program case labeled", "ex02_valgrind", "?--gate-labeled"),
+    ("c_program case labeled", "ex02_program_allocfail", "?--gate-labeled"),
+    ("c_program case labeled", "ex02_reference_cases", "?--labeled"),
+    ("corpus_memory sample", "ex02_sweep_valgrind", "--sample"),
+    ("c_files label", "ex02_files", "--label"),
+    ("exercise strict = True", "ex02_files", "?--strict"),
+    ("subject strict = False", "ex00_files", "?--strict"),
+    # c_header, ex03.
+    ("c_header hdr", "ex03_fed_output", "--hdr"),
+    ("c_header hdr", "ex03_norm", "data:deliverable/"),
+    ("c_header extra_srcs", "ex03_fed_output", "--src"),
+    ("c_header extra_srcs", "ex03_compile_clang", "data:helper.c"),
+    ("c_header case stdin", "ex03_fed_output", "--stdin"),
+    ("c_header case stdin", "ex03_fed_output", "tags:case_reads="),
+    ("c_header case exit_quote", "ex03_quoted_output", "--exit-quote"),
+    ("c_header case exit_quote", "ex03_quoted_output", "--exit-source"),
+    # c_argv_table, ex04.
+    ("c_argv_table scenarios", "ex04_output", "--scenarios"),
+    ("c_argv_table expected", "ex04_output", "--expected"),
+    ("c_argv_table clues", "ex04_output", "--clues"),
+    ("c_argv_table clues", "ex04_exit", "--clues"),
+    ("c_argv_table asan = False", "ex04_asan", "kind"),
+    ("c_argv_table asan = False", "ex04_argv_asan", "kind"),
+    ("c_argv_table asan = False", "ex04_argvguard_bin_asan", "kind"),
+    ("c_argv_table model", "ex04_model", "--argv-table"),
+    # c_libft, ex05.
+    ("c_libft hdrs", "ex05_output", "data:toy_lib.h"),
+    ("c_libft hdrs", "ex05_norm", "data:deliverable/"),
+    ("c_libft includes", "ex05_output", "--inc"),
+    ("c_libft includes", "ex05_bin", "includes:"),
+    ("c_libft expected", "ex05_output", "--expected"),
+    ("c_libft expected", "ex05_ilp32", "--expected"),
+    ("c_libft clues", "ex05_output", "--clues"),
+    ("c_libft exports", "ex05_symbols", "--expect"),
+    ("c_libft prototype = False", "ex05_prototype", "kind"),
+    ("c_libft prototype = False", "ex05_bin", "tags:prototype_test="),
+    ("c_libft labeled", "ex05_output", "?--labeled"),
+    ("c_libft labeled", "ex05_ilp32", "?--labeled"),
+    # student_lib, ex06 (and its program, run by the test).
+    ("student_lib hdrs", "toy_six_unit", "hdrs:"),
+    ("student_lib includes", "toy_six_unit", "includes:"),
+    # shell_exercise, ex07 and ex08.
+    ("shell_exercise deliverable", "ex07_output", "--deliverable"),
+    ("shell_exercise deliverable", "ex07_files", "--turnin"),
+    ("shell_exercise expected", "ex07_output", "--expected"),
+    ("shell_exercise run", "ex07_output", "?--run"),
+    ("shell_exercise interp", "ex07_output", "--interp"),
+    ("shell_exercise env", "ex07_output", "--env"),
+    ("shell_exercise env", "ex07_files", "--env"),
+    ("shell_exercise check", "ex08_output", "--check"),
+    # rush_variant, ex09.
+    ("rush_variant num", "ex09_rush03_output", "kind"),
+    ("rush_variant exports", "ex09_rush03_symbols", "--expect"),
+    ("rush_variant seed", "ex09_rush03_diff", "--seed"),
+    ("rush_variant seed", "ex09_rush03_diff_asan", "--seed"),
+    ("rush_variant count", "ex09_rush03_diff", "--count"),
+    ("rush_variant asan_count", "ex09_rush03_diff_asan", "--count"),
+    ("rush_variant clues", "ex09_rush03_output", "--clues"),
+    ("rush_variant clues", "ex09_rush03_defense", "--clues"),
+    ("rush_variant clues", "ex09_rush03_survive", "--clues"),
+    ("rush_variant clues", "ex09_rush03_valgrind", "--clues"),
+    ("rush_variant diff_clues", "ex09_rush03_diff", "--clues"),
+    ("rush_variant diff_clues", "ex09_rush03_diff_asan", "--clues"),
+    # ...and the gate no knob turns: _defense and _main wait for the
+    # variant's _output, its whole run in their --gate-* options, and
+    # _main_exit waits for nothing. A gate dropped from either one, or a
+    # word of its run, changes a line here.
+    ("rush_variant output gate", "ex09_rush03_defense", "--gate-label"),
+    ("rush_variant output gate", "ex09_rush03_defense", "--gate-bin"),
+    ("rush_variant output gate", "ex09_rush03_defense", "--gate-expected"),
+    ("rush_variant output gate", "ex09_rush03_defense", "--gate-stdin"),
+    ("rush_variant output gate", "ex09_rush03_defense", "?--gate-labeled"),
+    ("rush_variant output gate", "ex09_rush03_main", "--gate-label"),
+    ("rush_variant output gate", "ex09_rush03_main", "--gate-differ"),
+    ("rush_variant output gate", "ex09_rush03_main", "--gate-bin"),
+    ("rush_variant output gate", "ex09_rush03_main", "--gate-expected"),
+    ("rush_variant output gate", "ex09_rush03_main", "--gate-stdin"),
+    ("rush_variant output gate", "ex09_rush03_main", "?--gate-labeled"),
+    ("rush_variant output gate", "ex09_rush03_main_exit", "?--gate-differ"),
+    ("rush_variant output gate", "ex09_rush03_output", "--bin"),
+    ("rush_variant output gate", "ex09_rush03_output", "--expected"),
+    ("rush_variant output gate", "ex09_rush03_output", "--stdin"),
+    ("rush_variant output gate", "ex09_rush03_output", "?--labeled"),
+]
+
+_RULES = existing_rules()
+
+names_file(
+    name = "knobs",
+    names = [
+        "%s: %s %s = %s" % (knob, rule, query, (
+            "not declared" if rule not in _RULES else _RULES[rule]["kind"] if query == "kind" else (
+                ",".join([
+                    _RULES[rule]["args"][i + 1]
+                    for i in range(len(_RULES[rule]["args"]) - 1)
+                    if _RULES[rule]["args"][i] == query
+                ]) or "absent"
+            ) if query.startswith("--") else (
+                "present" if query[1:] in _RULES[rule]["args"] else "absent"
+            ) if query.startswith("?") else (
+                ",".join(sorted([
+                    str(v)
+                    for v in (_RULES[rule].get(query.partition(":")[0]) or [])
+                    if query.partition(":")[2] in str(v)
+                ])) or "none"
+            )
+        ))
+        for knob, rule, query in _PROBES
+    ],
+)
+
+exports_files(["knobs.expected"])
+
+# This file, for //tools/tests:conventions: a package with a turn-in, so its
+# BUILD file is held to the same rules as a module's. And the toys' C, for
+# the checks that read every C file outside the zone: a header that sends
+# its reader to tools/diffio.h includes it.
+filegroup(
+    name = "conventions_srcs",
+    srcs = ["BUILD.bazel"] + glob([
+        "tests/**/*.c",
+        "tests/**/*.h",
+    ]),
+)
+
+# Its turn-in folders as the macros compute them, for first_red's reading of
+# the contract above (see ../BUILD.bazel's :turnin_dirs).
+names_file(
+    name = "turnin_dirs",
+    names = ["ex%s %s" % (n, turnin_dir(n)) for n in ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09"]],
+)
+
+# Its mandatory part as the macros read it: none, for a contract that names
+# none, which first_red --written must read as none.
+names_file(
+    name = "mandatory",
+    names = mandatory_exercises(),
+)

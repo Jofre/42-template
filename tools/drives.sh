@@ -14,7 +14,7 @@
 #                   wrapper would choose on that box
 #
 # WHY ONE FILE. The campus inspection records the drives so that the choice can
-# be made from facts (TODO.md D7), and a choice made in one script from facts
+# be made from facts (D7), and a choice made in one script from facts
 # another script reports differently is a guess again. env-audit prints exactly
 # what drives_choose decides, on the box being audited.
 #
@@ -40,6 +40,20 @@
 #   C_PISCINE_LEGACY_ROOT   stands in for /tmp/bazelcache (see drives_default_root)
 #
 # C_PISCINE_SCRATCH is not a knob but the documented override: you said so.
+
+# WHAT A FULL RUN TAKES, in whole gigabytes rounded up, and the one place the
+# figure lives: setup.sh's two warnings print it and its free-space threshold is
+# built from it, drives_root_warning below prints it, and every other file that
+# needs it points here.
+#
+# Measured on 2026-10-11, 2822 test targets: a cold `bazel test //...
+# --keep_going` left 4.4 GB under a fresh --output_user_root (the output base
+# 2.1, the download cache 2.2, the install base 0.2), and a second run with
+# setup.sh's disk cache filled that cache with 0.3 GB more. That is the end of a
+# run, not its peak. Measure again when the suite has grown, the same way, and
+# change this line and its date.
+# shellcheck disable=SC2034
+DRIVES_FULL_GB=5
 
 drives_user() {
 	printf '%s' "${USER:-$(id -un 2> /dev/null)}"
@@ -79,7 +93,14 @@ drives_campus() {
 # forever, and `C_PISCINE_SCRATCH=myscratch sh tools/setup.sh` hung with no
 # output at all. drives_choose refuses a relative C_PISCINE_SCRATCH now, but a
 # probe must end whatever it is handed.
+#
+# DRIVES_MADE: the topmost folder a real probe's mkdir made, empty when the
+# folder was there already (and always, predicting). A caller that refuses
+# the place it chose can then take back what choosing it made, and only that:
+# .devcontainer/postcreate.sh does, for a place inside the workspace.
 drives_probe() {
+	# shellcheck disable=SC2034  # read by the callers
+	DRIVES_MADE=""
 	if [ "${DRIVES_DRY:-0}" = 1 ]; then
 		_dp=$1
 		while [ ! -d "$_dp" ]; do
@@ -91,7 +112,18 @@ drives_probe() {
 		[ -w "$_dp" ]
 		return
 	fi
+	# The same walk, keeping the last folder that is not there yet.
+	_dp=$1
+	_dm=""
+	while [ ! -d "$_dp" ]; do
+		_dm=$_dp
+		case "$_dp" in
+			*/*) _dp=${_dp%/*}; [ -n "$_dp" ] || _dp=/ ;;
+			*) break ;;
+		esac
+	done
 	mkdir -p "$1" 2> /dev/null || return 1
+	DRIVES_MADE=$_dm
 	[ -w "$1" ] || return 1
 	( : > "$1/.drives-probe.$$" ) 2> /dev/null || return 1
 	rm -f "$1/.drives-probe.$$"
@@ -100,7 +132,7 @@ drives_probe() {
 
 # DRIVES_SCRATCH: the directory Bazel's big, rebuildable state goes under, and
 # DRIVES_WHY, one phrase a person can read. Returns 1 when nothing qualifies,
-# with DRIVES_WHY saying why.
+# with DRIVES_WHY saying why. DRIVES_MADE is the chosen candidate's probe's.
 #
 # CANDIDATES, TRIED IN ORDER, each probed for real:
 #   1. C_PISCINE_SCRATCH  you said so; nothing overrules it, and if it cannot
@@ -122,6 +154,8 @@ drives_probe() {
 drives_choose() {
 	DRIVES_SCRATCH=""
 	DRIVES_WHY=""
+	# shellcheck disable=SC2034  # read by the callers
+	DRIVES_MADE=""
 	if [ -n "${C_PISCINE_SCRATCH:-}" ]; then
 		case "$C_PISCINE_SCRATCH" in
 			/*) ;;
@@ -258,9 +292,9 @@ drives_rc_file() {
 	_rr_file=$1
 }
 
-# DRIVES_ROOT: the output_user_root a checkout gets when no rc file names one,
-# and DRIVES_ROOT_WHY. It is setup.sh's own choice with /bazel appended, so a
-# checkout where setup.sh never ran (a second clone, a worktree) behaves as if
+# DRIVES_ROOT: the output_user_root workspace $1 gets when no rc file names
+# one, and DRIVES_ROOT_WHY. It is setup.sh's own choice with /bazel appended, so
+# a checkout where setup.sh never ran (a second clone, a worktree) behaves as if
 # it had, minus the shared disk cache.
 #
 # ONE EXCEPTION, and it exists so that this change moves nobody's state. Until
@@ -269,13 +303,14 @@ drives_rc_file() {
 # finding 001 is about. OFF CAMPUS, on a machine where that directory is yours,
 # it is per-user in fact, and relocating it would re-download 2 GB of pinned
 # tools and leave an orphaned server holding a gigabyte and a half. So it is
-# kept there (drives_legacy_kept). On campus it never is: that is the one place
-# the path is shared. C_PISCINE_SCRATCH still comes first, because you said so.
+# kept there, when this checkout's state is in it (drives_legacy_kept). On
+# campus it never is: that is the one place the path is shared.
+# C_PISCINE_SCRATCH still comes first, because you said so.
 # shellcheck disable=SC2034  # DRIVES_ROOT_WHY is read by the callers
 drives_default_root() {
-	if drives_legacy_kept; then
+	if drives_legacy_kept "${1:-}"; then
 		DRIVES_ROOT=$DRIVES_LEGACY
-		DRIVES_ROOT_WHY="kept where this machine's Bazel state already was (yours, off campus)"
+		DRIVES_ROOT_WHY="kept where this checkout's Bazel state already was (yours, off campus)"
 		return 0
 	fi
 	if drives_choose; then
@@ -288,14 +323,50 @@ drives_default_root() {
 	return 1
 }
 
-# Does the exception above apply here? DRIVES_LEGACY names the old shared root
-# either way. setup.sh asks too: it records no root of its own while the
-# wrapper is keeping this one, so that re-running it moves nothing either.
+# Does the exception above apply to workspace $1? DRIVES_LEGACY names the old
+# shared root either way. setup.sh asks too: it records no root of its own while
+# the wrapper is keeping this one, so that re-running it moves nothing either.
+#
+# ONLY STATE THAT IS ALREADY THERE is kept, which is what the exception is for:
+# the old root has to hold this workspace's output base, and the per-user root
+# must not. A folder that is merely yours is not enough. Any copy of the
+# repository from before the change, run once on the machine (an old clone, an
+# old template checked out to compare), creates the old root, and every
+# checkout without a .bazelrc.local then moved into it: a second server on a
+# cold output base, the warm one under the per-user root left running. With no
+# workspace named nothing is kept.
 drives_legacy_kept() {
 	drives_campus
 	DRIVES_LEGACY=${C_PISCINE_LEGACY_ROOT:-/tmp/bazelcache}
-	[ -z "${C_PISCINE_SCRATCH:-}" ] && [ "$DRIVES_CAMPUS" = 0 ] &&
-		[ -d "$DRIVES_LEGACY" ] && [ -O "$DRIVES_LEGACY" ] && [ -w "$DRIVES_LEGACY" ]
+	if ! { [ -z "${C_PISCINE_SCRATCH:-}" ] && [ "$DRIVES_CAMPUS" = 0 ] &&
+		[ -d "$DRIVES_LEGACY" ] && [ -O "$DRIVES_LEGACY" ] && [ -w "$DRIVES_LEGACY" ] &&
+		[ -n "${1:-}" ] && drives_holds_base "$DRIVES_LEGACY" "$1"; }; then
+		return 1
+	fi
+	# The per-user root, predicted: asking must not create it.
+	_lk_own=$(
+		DRIVES_DRY=1
+		drives_choose && printf '%s' "$DRIVES_SCRATCH/bazel"
+	)
+	[ -z "$_lk_own" ] || ! drives_holds_base "$_lk_own" "$1"
+}
+
+# Does output root $1 hold workspace $2's output base? Bazel names a base after
+# the md5 of the workspace's path and writes that path, with no newline, into
+# the base's DO_NOT_BUILD_HERE, which is read here instead: md5sum is `md5` on
+# a Mac, and a read needs no tool at all. Bazel may have written the physical
+# path, so a workspace reached through a symbolic link is compared both ways.
+drives_holds_base() {
+	_hb_phys=""
+	for _hb_f in "$1"/*/DO_NOT_BUILD_HERE; do
+		[ -r "$_hb_f" ] || continue
+		_hb_ws=""
+		IFS= read -r _hb_ws < "$_hb_f" || :
+		[ "$_hb_ws" = "$2" ] && return 0
+		[ -n "$_hb_phys" ] || _hb_phys=$(cd "$2" 2> /dev/null && pwd -P)
+		[ -n "$_hb_phys" ] && [ "$_hb_ws" = "$_hb_phys" ] && return 0
+	done
+	return 1
 }
 
 # The output_user_root that applies to workspace $1: an rc file's if one names
@@ -307,18 +378,21 @@ drives_bazel_root() {
 		printf '%s' "$_br"
 		return 0
 	fi
-	drives_default_root && printf '%s' "$DRIVES_ROOT"
+	drives_default_root "$1" && printf '%s' "$DRIVES_ROOT"
 	return 0
 }
 
 # The output base a path under Bazel's tree belongs to: everything before its
-# first /execroot/. Under `bazel run` the working directory is a runfiles tree
+# last /execroot/. Under `bazel run` the working directory is a runfiles tree
 # inside the output base, so this is what Bazel actually used -- read back from
 # Bazel rather than predicted, because a message a script prints about itself is
-# not evidence. Returns 1 for a path outside any output base (a hand run).
+# not evidence. Returns 1 for a path outside any output base (a hand run). The
+# LAST, because an output base can sit inside another's execroot: the
+# selftest's fixtures do, in the test's own TEST_TMPDIR, and the first one
+# named the sandbox the selftest ran in.
 drives_output_base_of() {
 	case "$1" in
-		*/execroot/*) printf '%s' "${1%%/execroot/*}" ;;
+		*/execroot/*) printf '%s' "${1%/execroot/*}" ;;
 		*) return 1 ;;
 	esac
 }
@@ -391,10 +465,10 @@ drives_root_ok() {
 # Print the campus warning for Bazel state at $1 (an output base or root), or
 # nothing; $2 is the workspace, whose rc files say where the root comes from.
 # Off campus there is nothing to say: one person, one machine. On campus, two
-# things go wrong silently -- $HOME is quota'd at about 5 GB against a build of
-# 8.9 GB, and a path with no login in it is one a second student collides on
-# (their build waits on your lock, or cannot write your directory at all). Both
-# are fixed the same way.
+# things go wrong silently -- $HOME is quota'd at about 5 GB against a full
+# build of DRIVES_FULL_GB (above), and a path with no login in it is one a
+# second student collides on (their build waits on your lock, or cannot write
+# your directory at all). Both are fixed the same way.
 #
 # THE ADVICE HAS TO WORK WHEN FOLLOWED, which "re-run setup" alone did not:
 # setup.sh keeps a root .bazelrc.local already records, a root ~/.bazelrc sets
@@ -416,8 +490,9 @@ drives_root_warning() {
 	[ "$DRIVES_CAMPUS" = 1 ] || return 0
 	[ -n "$1" ] || return 0
 	if drives_under_home "$1"; then
-		_rw_what="which is inside your home: a 42 home is capped at about 5 GB,
-  and a full build is 8.9 GB, so it fails part-way with a disk error."
+		_rw_what="which is inside your home: a 42 home is capped at about 5 GB in
+  all, and a full build alone is about $DRIVES_FULL_GB GB, so it fails part-way
+  with a disk error."
 	elif ! drives_per_user "$1"; then
 		_rw_what="which is not yours alone: a second student on this machine
   collides on it (their build waits on your lock, or cannot write it at all)."
@@ -457,7 +532,7 @@ drives_root_warning() {
 			printf '  No drive on this machine qualifies by itself: neither %s/%s\n' \
 				"${C_PISCINE_GOINFRE:-/goinfre}" "$(drives_user)"
 			printf '  nor /tmp/%s can be written. Pick a directory of yours on a local\n' "$(drives_user)"
-			printf '  disk with about 9 GB free, and use it below.\n'
+			printf '  disk with %s GB or more free, and use it below.\n' "$((DRIVES_FULL_GB * 2))"
 			_rw_to="<that directory>"
 			;;
 		"/tmp/$(drives_user)")

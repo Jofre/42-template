@@ -1,6 +1,6 @@
 #!/bin/sh
 # The toy shell exercise's second reading, emitted at strict as ex02_regular.
-# shellcheck source=../../../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-toy.sh}

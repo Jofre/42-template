@@ -83,12 +83,13 @@ in `ex24_build_exit`, at `robust`: the subject does not say how a rule exits.
 Nothing but the Makefile goes in `deliverable/ex24/` — a copy of the grader's
 files there, or anything else under a `srcs/` or `includes/` of your own, would
 be pushed with it, and the build test fails when it finds one.
-To try your Makefile by hand, build it somewhere else, from the repository root:
+To try your Makefile by hand, build it somewhere else, from the repository
+root. The last line runs `make` twice, and the second run must do nothing:
 
 ```sh
 rm -rf /tmp/ex24 && cp -r c-piscine-reloaded/c-piscine-reloaded/tests/ex24/grader /tmp/ex24
 cp c-piscine-reloaded/c-piscine-reloaded/deliverable/ex24/Makefile /tmp/ex24/
-make -C /tmp/ex24 && make -C /tmp/ex24     # the second run must do nothing
+make -C /tmp/ex24 && make -C /tmp/ex24
 ```
 
 **ex27** is a program and its Makefile, like C 10 ex00: the subject names the binary
@@ -115,9 +116,12 @@ bazel run //tools:norminette -- -R CheckDefine \
 
 ## Running the tests
 
+The first line runs what is a KO at the Moulinette; the second, every layer of
+one exercise:
+
 ```sh
-bazel test //c-piscine-reloaded/c-piscine-reloaded:basic   # what is a KO at the Moulinette
-bazel test //c-piscine-reloaded/c-piscine-reloaded:ex06    # one exercise, every layer
+bazel test //c-piscine-reloaded/c-piscine-reloaded:basic
+bazel test //c-piscine-reloaded/c-piscine-reloaded:ex06
 ```
 
 A stub fails its `output` layer and passes the rest, with four kinds of

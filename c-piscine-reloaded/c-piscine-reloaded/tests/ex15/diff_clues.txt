@@ -3,7 +3,9 @@
                                           counted
     * the empty string diverges        -> a loop that cannot run zero times
     * a trailing byte appears          -> the terminator is being written out
-    * everything is right but shifted by one -> the index moves before the
-                                          character at it is printed
+    * everything is right but shifted by one -> every byte is printed, one
+                                          place off: for each byte your code
+                                          writes, which index does it read it
+                                          from, and when does that index change?
     * only inputs holding a byte of 0x80 or more -> whether a comparison in
                                           your loop sees that char as negative

@@ -3,6 +3,7 @@
     * only arrays with equal strings -> the comparison's meaning at zero
     * the array is unchanged  -> the swap is moving copies, not the pointers in
                                  the array
-    * the order is right but the strings are damaged -> pointers are being
-                                 copied, not their contents; nothing here needs
-                                 to touch the characters
+    * the order is right but the strings are damaged -> the characters
+                                 themselves changed: does your code move the
+                                 pointers in the array, or the bytes they point
+                                 at?

@@ -3,10 +3,9 @@
 
 char	*ft_convert_base(char *nbr, char *base_from, char *base_to);
 
-/* A base_to holding whitespace: a case the subject leaves open, read by this
- * harness as VALID, with nothing added to the result (the reading is stated
- * once, in oracle/src/c07.rs, and c-07's BUILD says why it sits at strict).
- * Every expected row is one of that reference's own checks.
+/* A base_to holding whitespace: a case the subject leaves open. This target
+ * tests one reading of it, at strict (c-07's BUILD says why), and its hint
+ * says which.
  *
  * Prints "<label>\t[<result>]", the brackets so that a space at either end of
  * the result can be seen; an invalid request prints (null). */

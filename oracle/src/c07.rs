@@ -3,7 +3,7 @@
 //! the reader harness allocates/frees on the C side. See oracle/README.md for
 //! the per-function corpus-line format.
 
-use crate::common::{bench_lines, many_words, o_split, rand_body, sink, to_hex, unhex, Rng};
+use crate::common::{bench_lines, long_text, longest_csv, many_words, o_split, rand_body, sink, to_hex, unhex, widest_hex, Rng};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -179,9 +179,8 @@ fn body(rng: &mut Rng, len: usize, high: bool) -> Vec<u8> {
     rand_body(rng, len, high)
 }
 
-fn gen_strdup(seed: u64, count: usize) {
+fn gen_strdup<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
     // structured: empty, single, ascii text, full-range bytes.
     let fixed: Vec<Vec<u8>> = vec![
@@ -190,6 +189,12 @@ fn gen_strdup(seed: u64, count: usize) {
         b"42 Barcelona".to_vec(),
         b"\t hi \n".to_vec(),
         vec![0x01, 0x7f, 0x80, 0xff],
+        // Capacity cases (finding 041): every other string is at most 39
+        // bytes, so a copy sized by room of a round size (16, 64, 256, 1024,
+        // 4096) passed every case. Text of 4100 bytes, and 5000 of every
+        // byte but NUL, each from a seed of its own.
+        long_text(4100, 4100),
+        rand_body(&mut Rng::new(5000), 5000, true),
     ];
     for s in &fixed {
         if done >= count {
@@ -228,6 +233,11 @@ fn range_pairs(rng: &mut Rng, count: usize) -> Vec<(i64, i64)> {
         (-2147483648, -2147483647), // single element at INT_MIN
         (-2147483648, -2147483648), // empty at INT_MIN -> NULL
         (-2147483648, -2147483646), // two elements starting at INT_MIN
+        // Capacity cases (finding 041): every other range holds 20 ints at
+        // most, so an array of a round size (16, 64, 256, 1024, 4096) held
+        // every one. 5000 ints from 0, and 5100 across zero.
+        (0, 5000),
+        (-2600, 2500),
     ];
     while out.len() < count {
         let min = (rng.below(1001) as i64) - 500;
@@ -237,10 +247,9 @@ fn range_pairs(rng: &mut Rng, count: usize) -> Vec<(i64, i64)> {
     out
 }
 
-fn gen_range(seed: u64, count: usize) {
+fn gen_range<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let pairs = range_pairs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
     for (min, max) in pairs.iter().take(count) {
         let res = match o_range(*min, *max) {
             None => "NULL".to_string(),
@@ -254,10 +263,9 @@ fn gen_range(seed: u64, count: usize) {
     }
 }
 
-fn gen_ultimate_range(seed: u64, count: usize) {
+fn gen_ultimate_range<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let pairs = range_pairs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
     for (min, max) in pairs.iter().take(count) {
         let (ret, res) = match o_range(*min, *max) {
             None => (0i64, "NULL".to_string()),
@@ -684,9 +692,9 @@ fn emit_split<W: Write>(w: &mut W, s: &[u8], charset: &[u8]) {
 /// Dispatch: returns true if `name` belongs to this module.
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
-        "c07_strdup" => gen_strdup(seed, count),
-        "c07_range" => gen_range(seed, count),
-        "c07_ultimate_range" => gen_ultimate_range(seed, count),
+        "c07_strdup" => gen_strdup(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c07_range" => gen_range(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c07_ultimate_range" => gen_ultimate_range(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c07_strjoin" => gen_strjoin(seed, count),
         "c07_convert_base" => convert_base_corpus(&mut io::BufWriter::new(io::stdout()), seed, count, false),
         "c07_convert_base_readings" => convert_base_corpus(&mut io::BufWriter::new(io::stdout()), seed, count, true),
@@ -699,6 +707,31 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
 /// Self-check: hand-verified cases + properties. Returns the failure count.
 pub fn check() -> usize {
     let mut fails = 0usize;
+
+    // ---- every unbounded input past the round capacities (finding 041) ----
+    // strdup's corpus holds a string, and range's and ultimate_range's a
+    // range, past every capacity a function is usually given room for (16,
+    // 64, 256, 1024, 4096), read back from what the generator writes.
+    {
+        let past = 4096usize;
+        let head = |g: &dyn Fn(&mut Vec<u8>)| -> Vec<u8> {
+            let mut v = Vec::new();
+            g(&mut v);
+            v
+        };
+        if widest_hex(&head(&|w| gen_strdup(w, 1, 200)), 0) <= past {
+            eprintln!("CHECK FAIL c07 strdup corpus holds no string past 4096 bytes");
+            fails += 1;
+        }
+        if longest_csv(&head(&|w| gen_range(w, 1, 200)), 2) <= past {
+            eprintln!("CHECK FAIL c07 range corpus holds no range of more than 4096 ints");
+            fails += 1;
+        }
+        if longest_csv(&head(&|w| gen_ultimate_range(w, 1, 200)), 3) <= past {
+            eprintln!("CHECK FAIL c07 ultimate_range corpus holds no range of more than 4096 ints");
+            fails += 1;
+        }
+    }
 
     // ---- the split corpora's large cases (c07 and c09) hold as many words as
     //      they say, each where many_words put it (finding 041).

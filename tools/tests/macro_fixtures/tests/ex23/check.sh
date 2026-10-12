@@ -4,7 +4,7 @@
 # the redirect does to a run is shell_test.sh's, proven by the selftest's
 # --redirect arms; this toy proves the macro hands it to every target that
 # runs the turn-in (:redirect_args).
-# shellcheck source=../../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-toy.sh}

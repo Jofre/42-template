@@ -80,7 +80,7 @@ require() {
 		exit 2
 	done
 }
-require awk date dirname env grep mkdir sed tail tr
+require awk date dirname env grep mkdir sed sort tail tr
 # conventions: optional python3 -- reads norminette's package metadata, since it
 # has no --version flag. Absent, that one row reports "(not importable)" and
 # every other row is still compared.
@@ -164,7 +164,7 @@ cd "$WS" || { echo "env_drift.sh: cannot enter '$WS'" >&2; exit 2; }
 # exited 2 on every machine while the selftest, which runs it from tools/,
 # stayed green. //tools/tests:selftest now runs it the way `bazel run` does.
 if [ -r "$WS/tools/drives.sh" ]; then
-	# shellcheck source=drives.sh
+	# shellcheck source=tools/drives.sh
 	. "$WS/tools/drives.sh"
 else
 	echo "env_drift.sh: cannot read $WS/tools/drives.sh, which says which machine this is" >&2
@@ -504,9 +504,10 @@ echo ""
 # THE C++ TOOLCHAIN BAZEL CACHED, which is a different question from every row
 # above and the one that actually broke a campus box.
 #
-# `cc_binary` still uses Bazel's AUTO-DETECTED toolchain (TODO.md records that
-# as deferred: making it hermetic is a rules_cc job). Auto-detection runs ONCE,
-# writes absolute paths into
+# `cc_binary` builds with the pinned //tools/cc_toolchain by default
+# (MODULE.bazel). The toolchain rules_cc AUTO-DETECTS from the box is reached
+# only by --config=gcc (.bazelrc), and it survives in output bases cached before
+# the pin. Where it exists, auto-detection ran ONCE, writes absolute paths into
 # external/..._local_config_cc/BUILD as `tool_paths = {"ar": "...", ...}`, and
 # caches them for the life of the output base. It does not re-run because PATH
 # changed.
@@ -559,10 +560,14 @@ if [ -n "$STALE_TOOLS" ]; then
 	printf '%s\n' "$STALE_TOOLS"
 	echo ""
 	echo "  Fix, cheapest first -- the repository cache is a SIBLING of the"
-	echo "  output base and survives both, so neither re-downloads anything:"
+	echo "  output base and survives both, so neither re-downloads anything."
+	echo "  Re-detect just this:"
 	echo ""
-	echo "      rm -rf <recorded-dir> <recorded-dir>.marker   # re-detects just this"
-	echo "      bazel clean --expunge                          # or start clean"
+	echo "      rm -rf <recorded-dir> <recorded-dir>.marker"
+	echo ""
+	echo "  or start clean:"
+	echo ""
+	echo "      bazel clean --expunge"
 	echo ""
 	echo "  The usual cause is a tool that WAS on PATH when the toolchain was"
 	echo "  detected and is not now -- uninstalling Homebrew is the common one."

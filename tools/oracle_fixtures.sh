@@ -16,7 +16,7 @@
 #     <path><TAB><escaped bytes>
 #
 # the path relative to the fixtures' directory, the bytes escaped as
-# oracle/src/common.rs's esc_posix does (\\, \n, \t, and \0NNN in octal for
+# the oracle's shared escaper does (\\, \n, \t, and \0NNN in octal for
 # every other byte outside printable ASCII), which `printf %b` decodes in any
 # POSIX shell. A path holds only letters, digits, '_', '-', '.' and '/', with
 # no empty or ".." segment: a record naming anything else is refused (exit 2),
@@ -252,6 +252,6 @@ if [ "$UNOWNED" -gt 0 ]; then
 	echo "oracle_fixtures: FAIL — $UNOWNED file(s) match $OWNED_LIST, which this project"
 	echo "  says the reference writes, and '$FN' writes none of them. A fixture or"
 	echo "  expected output typed by hand drifts from the reference in silence:"
-	echo "  add it to the reference's fixture arm (oracle/src/), then --write."
+	echo "  add it to the reference's fixture arm, '$FN', then --write."
 fi
 exit 1

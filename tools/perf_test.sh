@@ -167,6 +167,9 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole perf_test "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS"
+
 [ -n "$RUNNER" ] && [ -n "$STUDENT" ] && [ -n "$ORACLE" ] && [ -n "$FN" ] || {
 	echo "perf_test.sh: need --runner, --student-bin, --oracle and --oracle-fn" >&2
 	exit 2

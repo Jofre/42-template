@@ -3,10 +3,11 @@
 # .bazelrc.local (which is NOT tracked: the right path differs per machine and
 # per user) and edit to taste. Every clone and every worktree reads its own.
 #
-# WHY: a full run of this repo builds ~1300 test binaries plus 84 ASan twins.
-# Measured footprint under the output root: 8.9 GB. A 42 campus machine usually
-# caps $HOME at 5 GB and gives you no sudo, so the build fails partway with a
-# disk error that does not name the cause.
+# WHY: a full run of this repo builds thousands of test targets, hundreds of
+# them ASan twins. Its footprint under the output root is DRIVES_FULL_GB in
+# tools/drives.sh, which says when and how it was measured. A 42 campus
+# machine usually caps $HOME at 5 GB and gives you no sudo, so the build fails
+# partway with a disk error that does not name the cause.
 #
 # Without this file the root is not unset: tools/bazel, the wrapper bazelisk
 # runs, picks the same one setup.sh would (/goinfre/$USER/bazel on campus,

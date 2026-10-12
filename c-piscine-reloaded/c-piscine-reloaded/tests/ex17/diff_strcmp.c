@@ -8,12 +8,17 @@ int	ft_strcmp(char *s1, char *s2);
 
 int	main(void)
 {
-	char			line[8192];
+	char			*line;
+	size_t			linecap;
 	char			*f[3];
 	unsigned char	*a;
 	unsigned char	*b;
 
-	while (dio_line(line, sizeof(line)))
+	/* A line of any length (tools/diffio.h, dio_getline): the corpus holds
+	 * strings past 4 KiB (finding 041), past what a line buffer holds. */
+	line = NULL;
+	linecap = 0;
+	while (dio_getline(&line, &linecap))
 	{
 		if (dio_split(line, f, 3) < 2)
 			continue ;
@@ -23,5 +28,6 @@ int	main(void)
 		free(a);
 		free(b);
 	}
+	free(line);
 	return (0);
 }

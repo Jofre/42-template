@@ -33,8 +33,7 @@
     "**/bazel-*": true
   },
   "files.watcherExclude": {
-    "**/bazel-*": true,
-    "**/.cache/bazel/**": true
+    "**/bazel-*": true
   },
   "search.exclude": {
     "**/bazel-*": true

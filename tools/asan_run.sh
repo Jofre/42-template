@@ -108,6 +108,9 @@ $2"; shift 2 ;;
 	esac
 done
 
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole asan_run "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_ARGS$RL_GATE_PASS$RL_GATE_LABEL"
+
 [ -n "$BIN" ] || { echo "asan_run.sh: --bin is required" >&2; exit 2; }
 
 # Check the binary is actually runnable BEFORE running it. Everything below
@@ -261,10 +264,20 @@ if [ "$RL_CAUSE" = stopped ]; then
 	exit 2
 fi
 
+# What the report is, from its own first line (rl_sanitizer_kind): the
+# headline was "a memory error or undefined behaviour" above every report,
+# and the line under it explained an out-of-bounds read whatever the report
+# said.
 if rl_sanitized "$ERR"; then
-	echo "asan_run: FAIL — ${LABEL:-the program} hit a memory error or undefined behaviour."
-	echo "          The output layer cannot see this: an out-of-bounds read can"
-	echo "          still return the bytes you expected."
+	echo "asan_run: FAIL — ${LABEL:-the program} $(rl_sanitizer_about)."
+	if [ "$RL_SAN_OOB" = 1 ]; then
+		echo "          The output layer cannot see this: an out-of-bounds read can"
+		echo "          still return the bytes you expected."
+	else
+		rl_sanitizer_explain "          "
+		echo "          The output layer cannot see this: the bytes printed can"
+		echo "          still be the ones you expected."
+	fi
 	echo "---------------- sanitizer report ----------------"
 	rl_sanitizer_report "$ERR" 40 sanitizer-report.txt "  "
 	exit 1

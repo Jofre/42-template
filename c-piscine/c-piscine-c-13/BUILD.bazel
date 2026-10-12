@@ -104,15 +104,14 @@ c_diff(
 
 # What cmpf is handed. The subject gives the prototype and no line calling
 # cmpf, so the ORDER of its two arguments is open: no level checks it, and
-# either order passes (WP-46's decision, TODO.md section 23; the swapped
-# order stays green, as the mutation run of 2026-10-03 recorded). What every
-# reading agrees on is what the two are: the data_ref the search was given
-# and a node's item. The fixture counts the calls that hand cmpf anything
-# else (its last row), and the diff harness's comparator answers "no match"
-# to a call that does not hand it the query, so a search that never does
-# finds nothing there. //tools/tests's selftest builds the fixture over a
-# toy that hands cmpf a node, and requires the last row to count it, so the
-# file is visible to it.
+# either order passes (WP-46's decision; the swapped order stays green, as the
+# mutation run of 2026-10-03 recorded). What every reading agrees on is what
+# the two are: the data_ref the search was given and a node's item. The
+# fixture counts the calls that hand cmpf anything else (its last row), and the
+# diff harness's comparator answers "no match" to a call that does not hand it
+# the query, so a search that never does finds nothing there. //tools/tests's
+# selftest builds the fixture over a toy that hands cmpf a node, and requires
+# the last row to count it, so the file is visible to it.
 exports_files(
     ["tests/ex05/test_btree_search_item.c"],
     visibility = ["//tools/tests:__pkg__"],
@@ -166,22 +165,17 @@ c_diff(
     diff_clues = "diff_clues.txt",
 )
 
-# The module's capstone is the one exercise here whose working storage has to
-# fit the CALLER'S data -- which is why its `allowed` list is the only one
-# besides create_node/insert_data to carry malloc and free. A breadth-first
-# walk has to remember the nodes it has reached but not yet visited, and room
-# of a fixed size is the cheapest thing to reach for.
-#
-# Nothing else in this repo could contradict that guess, once. Measured on a
-# walk that kept its waiting nodes in room for 64: the fixture's hand-wired
-# trees reproduced BYTE FOR BYTE, clean under ASan+UBSan on their shapes, the
-# 400k differential OK and the 200k crash-fuzz OK -- those trees were 6 nodes
-# at most and the corpus was capped twice over (10 items drawn, 64 decoded).
-# The corpus now holds trees of 600 and 2000 items (finding 041), which room
-# for 64 does not survive, and a capacity past those still does. The valgrind
-# layer is no help either, because room of a fixed size is normally on the
-# stack, which memcheck does not see past (valgrind_test.sh's OK line says
-# so).
+# The size of the tree the caller hands over is what this probe measures. This
+# is the one exercise here whose `allowed` list carries malloc and free besides
+# create_node/insert_data, and no layer measured how it copes with a tree much
+# larger than the fixtures'. Measured on a toy variant whose capacity was fixed
+# at 64: the fixture's hand-wired trees reproduced BYTE FOR BYTE, clean under
+# ASan+UBSan on their shapes, the 400k differential OK and the 200k crash-fuzz
+# OK -- those trees were 6 nodes at most and the corpus was capped twice over
+# (10 items drawn, 64 decoded). The corpus now holds trees of 600 and 2000
+# items (finding 041), which that toy does not survive, and a capacity past
+# those still does. The valgrind layer is no help either: memcheck does not
+# see past a stack frame (valgrind_test.sh's OK line says so).
 #
 # So the size of a tree is an axis no layer measured, and two now do. The
 # output fixture ends on a HEAP-SHAPED tree of 20000 nodes (fifteen levels,
@@ -189,17 +183,14 @@ c_diff(
 # reading of the subject agrees on that walk, so it is a basic case. And this
 # probe measures both dimensions under ASan: the same 20000-node tree, and a
 # 5000-deep SPINE, handed over with every node and every item allocated to its
-# exact size. The two are not redundant -- each catches a variant the other
-# misses. The heap tree reds room for the waiting nodes fixed at a round
-# number, and the spine does not (a spine is one node per level, so it is never
-# wide). The spine reds a variant with room enough for its waiting nodes but a
-# fixed number of something it keeps per LEVEL, and the heap tree does not,
-# because it is only fifteen levels deep. The first version used a complete
+# exact size. The two are not redundant -- each reds a toy variant the other
+# leaves green, because the heap tree is only fifteen levels deep and the
+# spine is never more than one node wide. The first version used a complete
 # tree of 1023 nodes and a 200-deep spine and said it failed a capacity chosen
-# as a constant at any size -- and room for 1024 passed it (finding 041); the
-# sizes now sit past every power of two a guess is likely to stop at. Width and
-# depth both come from the caller's data, so the probe fails a capacity chosen
-# as a constant on either axis.
+# as a constant at any size -- and a toy with a capacity of 1024 passed it
+# (finding 041); the sizes now sit past every power of two a guess is likely
+# to stop at. Width and depth both come from the caller's data, so the probe
+# fails a capacity chosen as a constant on either axis.
 #
 # It asserts nothing about the OUTPUT -- visit order, level numbers and
 # is_first_elem belong to the *_output and *_diff layers, and a second red

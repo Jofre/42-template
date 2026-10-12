@@ -19,11 +19,20 @@
 # a fixture and the model disagree -- and until they are reconciled, that
 # fixture is not evidence about anyone's program.
 #
+# AN ARGUMENT TABLE (--argv-table, c_argv_table's exNN_model) is the same
+# question asked of every row at once. Its table.txt was emitted once, by
+# hand, with `argv_table.sh --emit` from a reference program, and nothing
+# held it to one afterwards. Here the model stands in that program's place:
+# argv_table.sh --emit runs it once per row of the scenarios file, as the
+# table was made, and the stream it prints is compared with the file.
+#
 # Usage:
 #   model_check.sh --oracle PATH --expected FILE [--stream stdout|stderr]
 #                  [--stdin FILE] [--argv-file FILE]
 #                  [--run-as NAME [--cwd-file DEST=SRC]...]
 #                  [--exit N] [--absent NAME]... -- WORD...
+#   model_check.sh --oracle PATH --expected TABLE --argv-table PATH
+#                  --scenarios FILE -- WORD...
 #
 #   --oracle    $(location //oracle:oracle)
 #   --expected  the case's expected file
@@ -40,6 +49,11 @@
 #   --absent    a name the case hands over as one that will not open
 #               ("missing_file"): if something by that name is where this
 #               runs, nothing is run and this exits 2, as diff_output.sh does
+#   --argv-table  tools/argv_table.sh: the expected file is an argument
+#               table, and the model's words are the program it is made from
+#               (C 06 ex01: c06_run print), run once per row of --scenarios.
+#               Takes none of the case options above.
+#   --scenarios the table's scenarios file
 #   WORD...     the model's words, then the case's "args": for C 10 ex01,
 #               c10_run --prog ex01_bin cat no_such_file_ex01 <a fixture's path>
 #
@@ -54,7 +68,7 @@ require() {
 		exit 2
 	done
 }
-require cmp mktemp rm
+require awk chmod cmp mktemp rm
 
 RL_NAME=model_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
@@ -65,6 +79,7 @@ case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esa
 
 # conventions: runs no student code -- it runs //oracle's model on a case's arguments
 # conventions: harness tool ORACLE -- the Rust reference (//oracle), whose model made the fixture
+# conventions: harness tool TABLE -- tools/argv_table.sh, which runs the model, never a student's program, once per row
 
 ORACLE=""
 EXPECTED=""
@@ -75,6 +90,9 @@ ABSENT=""
 ARGV_FILE=""
 RUN_AS=""
 CWD_FILES=""
+TABLE=""
+SCENARIOS=""
+CASE_OPT=""
 
 need() { [ "$2" -ge 2 ] || { echo "model_check.sh: $1 needs a value" >&2; exit 2; }; }
 
@@ -82,15 +100,17 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
 		--expected) need "$1" "$#"; EXPECTED="$2"; shift 2 ;;
-		--stream) need "$1" "$#"; STREAM="$2"; shift 2 ;;
-		--stdin) need "$1" "$#"; STDIN_FILE="$2"; shift 2 ;;
-		--exit) need "$1" "$#"; EXPECT_EXIT="$2"; shift 2 ;;
+		--stream) need "$1" "$#"; STREAM="$2"; CASE_OPT=$1; shift 2 ;;
+		--stdin) need "$1" "$#"; STDIN_FILE="$2"; CASE_OPT=$1; shift 2 ;;
+		--exit) need "$1" "$#"; EXPECT_EXIT="$2"; CASE_OPT=$1; shift 2 ;;
 		--absent) need "$1" "$#"; ABSENT="$ABSENT
-$2"; shift 2 ;;
-		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; shift 2 ;;
-		--run-as) need "$1" "$#"; RUN_AS="$2"; shift 2 ;;
+$2"; CASE_OPT=$1; shift 2 ;;
+		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; CASE_OPT=$1; shift 2 ;;
+		--run-as) need "$1" "$#"; RUN_AS="$2"; CASE_OPT=$1; shift 2 ;;
 		--cwd-file) need "$1" "$#"; CWD_FILES="$CWD_FILES
-$2"; shift 2 ;;
+$2"; CASE_OPT=$1; shift 2 ;;
+		--argv-table) need "$1" "$#"; TABLE="$2"; shift 2 ;;
+		--scenarios) need "$1" "$#"; SCENARIOS="$2"; shift 2 ;;
 		--) shift; break ;;
 		*) echo "model_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -121,9 +141,88 @@ if [ -n "$ARGV_FILE" ]; then
 	_aw=$(rl_argv_words "$ARGV_FILE") || { echo "model_check.sh: cannot read --argv-file '$ARGV_FILE'" >&2; exit 2; }
 	eval "set -- \"\$@\" $_aw"
 fi
+if [ -n "$TABLE$SCENARIOS" ]; then
+	[ -n "$TABLE" ] && [ -n "$SCENARIOS" ] || {
+		echo "model_check.sh: --argv-table and --scenarios go together: the table is made from its scenarios" >&2
+		exit 2
+	}
+	[ -z "$CASE_OPT" ] || {
+		echo "model_check.sh: --argv-table checks a whole table, run row by row from --scenarios;" >&2
+		echo "                it takes none of a case's options (given: $CASE_OPT)" >&2
+		exit 2
+	}
+	[ -f "$TABLE" ] || { echo "model_check.sh: --argv-table '$TABLE' is not there" >&2; exit 2; }
+	[ -r "$SCENARIOS" ] || { echo "model_check.sh: cannot read --scenarios '$SCENARIOS'" >&2; exit 2; }
+fi
 
 WORK=$(mktemp -d) || exit 2
 rl_traps 'rm -rf "$WORK"'
+
+# AN ARGUMENT TABLE: the model behind a small script, which argv_table.sh
+# --emit runs as the program, once per row, from here. The script notes a
+# row the model gave no answer for (a status other than 0): --emit refuses
+# that run as it refuses a crash, and the note is what lets the refusal name
+# the model's command rather than only the script that stood in for it.
+if [ -n "$TABLE" ]; then
+	case "$ORACLE" in /*) ;; *) ORACLE="$PWD/$ORACLE" ;; esac
+	printf '#!/bin/sh\n%s "$@"\n_rc=$?\n[ "$_rc" = 0 ] || echo "$_rc" >> %s\nexit "$_rc"\n' \
+		"$(rl_cmdline "$ORACLE" "$@")" "$(rl_cmdline "$WORK/no_answer")" > "$WORK/model" &&
+		chmod +x "$WORK/model" || { echo "model_check.sh: cannot write $WORK/model" >&2; exit 2; }
+	sh "$TABLE" --emit --bin "$WORK/model" --scenarios "$SCENARIOS" > "$WORK/out" 2> "$WORK/err"
+	_rc=$?
+	if [ -s "$WORK/no_answer" ]; then
+		echo "model_check.sh: the model returned a status other than 0 on a row of" >&2
+		echo "                ${SCENARIOS##*/} (oracle $(rl_cmdline "$@")): it has no answer" >&2
+		echo "                there, so the table cannot be checked against it." >&2
+		exit 2
+	fi
+	if [ "$_rc" != 0 ]; then
+		echo "model_check.sh: argv_table.sh --emit could not make the table from the model" >&2
+		echo "                (exit $_rc); what it said:" >&2
+		rl_excerpt "$WORK/err" 20 model-table-emit.txt "    " >&2
+		exit 2
+	fi
+	_name=${EXPECTED##*/}
+	if cmp -s "$EXPECTED" "$WORK/out"; then
+		echo "model_check: OK — $_name is the table the model makes, row for row, from ${SCENARIOS##*/}."
+		exit 0
+	fi
+	echo "model_check: FAIL — the expected table is not the one the model makes"
+	echo "             from its scenarios."
+	echo "  The model: oracle $(rl_cmdline "$@"), run once per row of ${SCENARIOS##*/}"
+	echo "  by argv_table.sh --emit."
+	# Each row that differs, both ways, five at most: a row is one line.
+	: > "$WORK/rows"
+	LC_ALL=C awk -v w="$WORK" '
+		FILENAME == ARGV[1] { e[FNR] = $0; ne = FNR; next }
+		{ g[FNR] = $0; ng = FNR }
+		END {
+			n = (ne > ng) ? ne : ng
+			for (i = 1; i <= n && k < 5; i++) {
+				if ((i in e) && (i in g) && e[i] == g[i]) continue
+				k++
+				printf "%d\n", i > (w "/rows")
+				if (i in e) printf "%s\n", e[i] > (w "/e" k); else printf "" > (w "/e" k)
+				if (i in g) printf "%s\n", g[i] > (w "/g" k); else printf "" > (w "/g" k)
+			}
+		}' "$EXPECTED" "$WORK/out"
+	_k=0
+	while IFS= read -r _row; do
+		_k=$((_k + 1))
+		echo "  row $_row:"
+		printf '    the file:   '; rl_vis lines < "$WORK/e$_k"; printf '\n'
+		printf '    the model:  '; rl_vis lines < "$WORK/g$_k"; printf '\n'
+	done < "$WORK/rows"
+	[ "$_k" -gt 0 ] || echo "  Every row reads the same, and the files still differ: in how the last row ends."
+	echo ""
+	echo "  The table was emitted from a reference program, and one of the two has"
+	echo "  moved: the file was edited by hand, a row of the scenarios changed"
+	echo "  without it, or the model changed. Find which is right, and make the"
+	echo "  other agree: emit the table again with argv_table.sh --emit, the model"
+	echo "  above as --bin, or fix the model. Until then the table grades programs"
+	echo "  against rows nothing backs."
+	exit 1
+fi
 
 # THE CASE'S RUN FOLDER, when it has one: the model runs where the program
 # would, beside the same files under the same names. Every path this runs

@@ -1,22 +1,31 @@
 #!/bin/sh
 # stub_check.sh — prove that no deliverable in this tree holds an answer.
 #
-# Run it before publishing or sharing a copy of this workspace:
+# Run it before publishing or sharing a copy of this workspace, over every
+# deliverable in the repo:
 #
-#     sh tools/stub_check.sh            # every deliverable in the repo
-#     sh tools/stub_check.sh c-piscine/c-piscine-c-02   # one module, while working
-#     sh tools/stub_check.sh --approved # the headers approved below, by path
+#     sh tools/stub_check.sh
+#
+# Over one module, while working:
+#
+#     sh tools/stub_check.sh c-piscine/c-piscine-c-02
+#
+# And to list the headers approved below, by path:
+#
+#     sh tools/stub_check.sh --approved
 #
 # Exit 0 = every deliverable is a stub. Exit 1 = at least one still has a body,
 # and each offending line is printed with its file and line number. Exit 2 =
-# a file it could not read, or an index git could not list: no verdict at all.
+# a file it could not read, or an index git could not list: no verdict at all;
+# or a file that holds no answer and is no stub either -- an empty one, or a
+# .c or .h without its 42 header (NEITHER A STUB NOR AN ANSWER, below).
 #
 # NOTE TO WHOEVER EDITS THIS FILE: it SHIPS on the template, so it is bound by
 # the same rule it enforces. Describe the shape of an answer; never paste one.
-# Both blocks below used to quote real solutions verbatim — three c-01 bodies and
-# three finished c-08 headers — which put four paste-ready answers into the one
-# file whose entire job is keeping them out. Name the exercise and say what shape
-# the mistake had; the reader can look at their own subject.
+# Both blocks below used to quote real solutions verbatim — three c-01 bodies
+# and three finished c-08 headers — which put four paste-ready answers into the
+# one file whose entire job is keeping them out. Name the exercise and say what
+# shape the mistake had; the reader can look at their own subject.
 #
 # WHY NOT A HEURISTIC
 # -------------------
@@ -40,8 +49,8 @@
 # printed "OK — all 123 deliverable(s) are stubs" over a tree that still
 # contained four finished c-08 answers, because c-08's deliverable IS a header
 # and a header is not a .c. Measured, not imagined — c-08 ex00 through ex03 each
-# turn in a header, all four were complete, and all four shipped in the published
-# template with the checker reporting success.
+# turn in a header, all four were complete, and all four shipped in the
+# published template with the checker reporting success.
 #
 # The same blind spot covered rush-00's rush.h (which carried a whole data
 # model: one team's structs and macros), c-09's Makefile and
@@ -79,7 +88,7 @@
 # named files and no header, so the template ships none: the note lives in
 # docs/rushes.md, where the symbols layer's rule is explained. A rush.h copied
 # from an older template now fails here, which is the point -- `git rm` it and
-# drop the include from the rush0N.c stubs (docs/publishing.md).
+# drop the include from the rush0N.c stubs.
 #
 # NOT APPROVED ANY MORE: includes/ft.h (c-09 ex01). It was, with its cost
 # written down: its five prototypes are c-08 ex00's whole deliverable, so every
@@ -177,27 +186,27 @@ body_hash() {
 
 # ONE NAME PER LINE. Every list of paths here is a file read with `while IFS=
 # read -r`, one name per line, and none is ever expanded bare. The lists were
-# strings walked with `for f in $c_files`, which splits a name at its blanks:
-# a staged answer named `ft_x copy.c` -- the name a file manager gives a
-# duplicate -- was scored as `ft_x` and `copy.c`, two files that do not exist,
-# and the answer itself was never opened. "OK -- all 3 deliverable(s) are
-# stubs", exit 0, on a tree whose one answer would have shipped (found
-# rehearsing a template publish, 2026-10-03; --file mode did the same, as
-# `awk: cannot open` followed by OK). The index is listed with `git ls-files -z`, so git quotes
-# no name either; a name that holds a newline splits into lines no index entry
-# has, and each of those is refused below, which fails the run.
+# strings walked with `for f in $c_files`, which splits a name at its blanks: a
+# staged answer named `ft_x copy.c` -- the name a file manager gives a duplicate
+# -- was scored as `ft_x` and `copy.c`, two files that do not exist, and the
+# answer itself was never opened. "OK -- all 3 deliverable(s) are stubs", exit
+# 0, on a tree whose one answer would have shipped (found rehearsing a template
+# publish, 2026-10-03; --file mode did the same, as `awk: cannot open` followed
+# by OK). The index is listed with `git ls-files -z`, so git quotes no name
+# either; a name that holds a newline splits into lines no index entry has, and
+# each of those is refused below, which fails the run.
 #
 # WHERE THE CONTENT COMES FROM, which is not the same question as where the
 # file LIST comes from -- and getting them from two different places is what
-# made the second half of the publish runbook a no-op.
+# made the second of a publish's two runs a no-op.
 #
 # Repo mode lists files with `git ls-files`, i.e. from the INDEX, and then every
-# checker below used to read that path off DISK. docs/publishing.md tells the
-# maintainer to run this twice: once after stubbing, then "again, over the
-# staged tree". Both runs read the same working-tree files, so the second one
-# proved nothing the first had not. An answer sitting in the index behind a
-# stubbed file on disk -- exactly what a forgotten or partial `git add -A`
-# leaves, and `git commit` publishes the INDEX -- was reported as a stub.
+# checker below used to read that path off DISK. A template publish ran this
+# twice: once after stubbing, then again, over the staged tree. Both runs
+# read the same working-tree files, so the second one proved nothing the
+# first had not. An answer sitting in the index behind a stubbed file on
+# disk -- exactly what a forgotten or partial `git add -A` leaves, and
+# `git commit` publishes the INDEX -- was reported as a stub.
 #
 # Reproduced in a scratch repo before this was written: index holding a
 # function with a real body, disk holding the (void)/return(0) stub, verdict
@@ -241,18 +250,21 @@ case "$scope" in
 	-*) echo "stub_check: unknown option: $scope" >&2; exit 2 ;;
 esac
 
-# Two counts, because they are two findings. `bad` is a deliverable this
+# Three counts, because they are three findings. `bad` is a deliverable this
 # checker read and found holding code; `unread` is a file it never opened -- a
-# kind it cannot classify, or one sitting in no place a check reads. The
-# summary used to fold the second into the first, and over Rush 02's two
+# kind it cannot classify, or one sitting in no place a check reads; `refused`
+# is one score() read and found to be neither a stub nor an answer (below).
+# The summary used to fold the second into the first, and over Rush 02's two
 # copies of 42's dictionary it printed "2 of 2 deliverable(s) still contain an
 # implementation" where nothing had held code at all: a maintainer reads that
 # line as answers about to ship, and goes looking in the wrong files.
 bad=0
 unread=0
+refused=0
 checked=0
 report() { bad=$((bad + 1)); echo "  $1"; echo "$2"; }
 report_unread() { unread=$((unread + 1)); echo "  $1"; echo "$2"; }
+report_refused() { refused=$((refused + 1)); echo "  $1"; echo "$2"; }
 
 # ---------------------------------------------------------------- C sources
 #
@@ -337,13 +349,20 @@ judge_c() {
 # through here.
 judge_h() {
 	_h=$(body_hash "$2") || return 2
+	# The path the entry's glob is matched against, without the ./ a caller
+	# may put before it: tools/answer_scan.sh hands every file over as
+	# ./<path>, and an approved header spelled so was "an implementation".
+	_hp=$1
+	while :; do
+		case "$_hp" in ./*) _hp=${_hp#./} ;; *) break ;; esac
+	done
 	_ok=0
 	# Both the hash and the path must match the SAME entry.
 	echo "$APPROVED_HEADERS" | while read -r _eh _ep _; do
 		[ -n "$_eh" ] || continue
 		[ "$_eh" = "$_h" ] || continue
 		# shellcheck disable=SC2254
-		case "$1" in $_ep) exit 9 ;; esac
+		case "$_hp" in $_ep) exit 9 ;; esac
 	done || _ok=1
 	[ "$_ok" -eq 0 ] || return 0
 	awk '
@@ -391,6 +410,44 @@ judge_sh() {
 	' < "$2"
 }
 
+# ------------------------------------------- NEITHER A STUB NOR AN ANSWER
+#
+# Every judge above asks what a file holds that a stub may not, and an empty
+# file holds nothing, so it passed: "OK -- all 1 deliverable(s) are stubs" over
+# a zero-byte .c. So did a stub's body with no 42 header above it. Neither is an
+# answer, and neither is what the template ships: every stub it ships keeps
+# something (a 42 header and a signature, a description and a TODO, a rule that
+# only echoes), and every .c and .h opens with the 11-line 42 header. A file
+# without that header is one reset_headers.sh skips, so the template build
+# never re-stamps it and whatever stands in its place ships as it stands; and
+# the norm refuses it. So each is refused, with a reason of its own, and the
+# run exits 2 (below) unless an answer was found too.
+#
+# Asked only of a file its judge found nothing in: an answer with no header is
+# an answer, and is reported as one. A file that defines nothing at all is
+# still a stub when its header is there -- the template ships one, a header and
+# a comment.
+#
+# is_blank KIND SRC -- SRC holds no line but blanks, and, for a script, its
+# #! line. That is what empty means here, not zero bytes: the test was
+# `[ ! -s ]`, so a generator holding one newline, or nothing but #!/bin/sh,
+# and a Makefile holding one newline each passed as a stub, keeping no more
+# of what the template gave them than a zero-byte file does.
+is_blank() {
+	awk -v kind="$1" '
+		kind == "sh" && NR == 1 && /^#!/ { next }
+		/[^ \t\r]/ { found = 1; exit }
+		END { exit (found ? 1 : 0) }' < "$2"
+}
+
+# has_header SRC -- the header as reset_headers.sh knows it: its border, a
+# comment of 74 stars, on line 1 and on line 11.
+has_header() {
+	awk 'BEGIN { b = "/* "; for (i = 0; i < 74; i++) b = b "*"; b = b " */" }
+		(NR == 1 || NR == 11) && $0 == b { n++ }
+		END { exit (n == 2 ? 0 : 1) }' < "$1"
+}
+
 # score KIND PATH -- read PATH, the blob the index holds for it in repo mode,
 # judge it as KIND, and report what it holds that a stub may not. Never in a
 # $(...): refuse has to end the run, not a subshell.
@@ -399,7 +456,10 @@ score() {
 	if [ "$MODE" = file ]; then
 		_src=$2
 	else
-		git show ":$2" > "$CONTENT_TMP" 2> /dev/null ||
+		# git's stderr goes out as it is: a blob it gives prints nothing
+		# there, and where it gives none, its line is the one saying why
+		# (a path a merge left in conflict: "not at stage 0").
+		git show ":$2" > "$CONTENT_TMP" ||
 			refuse "$2" "is tracked but its staged content could not be read"
 		_src=$CONTENT_TMP
 	fi
@@ -407,7 +467,26 @@ score() {
 	# fails the judge with nothing printed, and nothing is exactly what a
 	# stub prints.
 	_out=$("judge_$1" "$2" "$_src") || refuse "$2" "could not be read to the end"
-	[ -z "$_out" ] || report "$2" "$_out"
+	if [ -n "$_out" ]; then
+		report "$2" "$_out"
+	elif is_blank "$1" "$_src"; then
+		# The #! line is named only where is_blank skipped one.
+		_shebang=""
+		[ "$1" = sh ] && _shebang=" (and a script's #! line)"
+		report_refused "$2" "$(printf '    %s\n    %s\n    %s\n    %s' \
+			"is empty: no line in it but blanks$_shebang. It holds no" \
+			"answer, and it is no stub either: every stub keeps what the template gave" \
+			"it -- a 42 header and a signature, a description and a TODO, a rule that" \
+			"only echoes.")"
+	else
+		case "$1" in
+			c | h)
+				has_header "$_src" || report_refused "$2" "$(printf '    %s\n    %s\n    %s' \
+					"has no 42 header -- the 11-line block every .c and .h stub opens with," \
+					"a border of 74 stars on its first and last line. The norm requires it," \
+					"and nothing re-stamps a file without one.")" ;;
+		esac
+	fi
 }
 
 if [ "$MODE" = file ]; then
@@ -448,11 +527,14 @@ else
 
 	# ls_index FILE PATHSPEC... -- the INDEX's paths matching PATHSPEC, one per
 	# line, into FILE. A listing that fails is a refusal like an unreadable
-	# blob: an empty list would read as a tree with nothing to ship.
+	# blob: an empty list would read as a tree with nothing to ship. Git's own
+	# words go out first: they were thrown away, and where git refuses the
+	# folder -- no repository, or one another user owns that safe.directory
+	# does not name -- they are the only line saying what to fix.
 	ls_index() {
 		_lf=$1
 		shift
-		git ls-files -z -- "$@" > "$_lf.z" 2> /dev/null || {
+		git ls-files -z -- "$@" > "$_lf.z" || {
 			echo "stub_check: git could not list the index (git ls-files -- $*)." >&2
 			echo "            Refusing to score anything: an empty listing reads as nothing to ship." >&2
 			exit 2
@@ -464,9 +546,9 @@ else
 	# under a generators/, which for a shell module is the only place its
 	# answer lives (its deliverable/ is generated and gitignored). The four
 	# kinds below are read; ANYTHING ELSE tracked there is a file this checker
-	# cannot vouch for, and the rule learned the hard way (HISTORY.md item 0,
-	# lesson 2) is that a file kind which is not checked is a file kind that
-	# SHIPS. The kinds were once three, and c-08's finished headers went out
+	# cannot vouch for, and the rule learned the hard way is that a file kind
+	# which is not checked is a file kind that SHIPS. The kinds were once
+	# three, and c-08's finished headers went out
 	# under an "OK — all 123 deliverable(s) are stubs" verdict because nothing
 	# read *.h. The same hole was open one kind further along:
 	# c-piscine/c-piscine-rush-02/deliverable/ex00/README.md was a group
@@ -522,8 +604,16 @@ else
 	# whole job.
 	res_allow=$(git show :tools/resources.tsv 2> /dev/null | awk -F'\t' '
 		!/^#/ && NF >= 3 { print $1 "/" $2 ".DOWNLOAD-ME.txt"; print $3 }')
+	#
+	# The course folders by name, one line, which //tools:conventions holds
+	# to the course folders the tree holds: a new course left out of it is
+	# one whose project folders this rule never reads.
+	COURSE_NAMES="c-piscine c-piscine-reloaded cursus"
 	if [ -z "$scope" ]; then
-		ls_index "$LISTS/course" 'c-piscine/*' 'c-piscine-reloaded/*' 'cursus/*'
+		for _cn in $COURSE_NAMES; do
+			ls_index "$LISTS/course_one" "$_cn/*"
+			cat "$LISTS/course_one"
+		done > "$LISTS/course"
 	else
 		ls_index "$LISTS/course" "$_prefix/*"
 	fi
@@ -564,9 +654,15 @@ if [ "$MODE" = repo ]; then
 fi
 
 echo
-if [ "$bad" -eq 0 ] && [ "$unread" -eq 0 ]; then
+if [ "$bad" -eq 0 ] && [ "$unread" -eq 0 ] && [ "$refused" -eq 0 ]; then
 	echo "stub_check: OK — all $checked deliverable(s) are stubs."
 	exit 0
+fi
+if [ "$refused" -gt 0 ]; then
+	echo "stub_check: REFUSED — $refused of $checked deliverable(s) above hold no answer and are"
+	echo "            no stub either: each is empty, or has no 42 header. Put back what it"
+	echo "            lost, and run this again."
+	[ "$bad" -gt 0 ] || [ "$unread" -gt 0 ] || exit 2
 fi
 if [ "$bad" -eq 0 ]; then
 	echo "stub_check: FAIL — none of $checked deliverable(s) holds an implementation, and"

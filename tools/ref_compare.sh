@@ -210,6 +210,9 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole ref_compare "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS"
+
 [ -n "$HARNESS" ] && [ -n "$SRCS" ] || {
 	echo "ref_compare.sh: need --harness and at least one --src" >&2
 	exit 2
@@ -258,8 +261,10 @@ rl_traps 'rm -rf "$T"'
 # all until ex08's own output fixture is green, and says WHY it is saying
 # nothing so a silent green is not mistaken for approval.
 #
-# NO_SKIP=1 (set in CI) forces the gate open, so a layer that has quietly
-# stopped measuring is visible the day it happens.
+# NO_SKIP=1 -- the maintainer's forced sweep, `bazel test //...
+# --test_env=NO_SKIP=1`; nothing runs it unattended, since the repo has no
+# CI -- forces the gate open, so a layer that has quietly stopped measuring
+# is visible the day someone sweeps.
 # ---------------------------------------------------------------------------
 if [ "${NO_SKIP:-0}" != "1" ] && [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] &&
 	[ -n "$GATE_EXPECTED" ] && [ -x "$GATE_BIN" ] && [ -f "$GATE_EXPECTED" ]; then
@@ -501,7 +506,8 @@ profile() {
 		rl_overrun "the callgrind run of $1"
 		exit 1
 	fi
-	rl_run "$VALGRIND" --tool=callgrind --callgrind-out-file="$_out" "$@" \
+	# --vgdb=no: no FIFOs in TMPDIR for a gdb that never comes (cycles_check.sh).
+	rl_run "$VALGRIND" --tool=callgrind --vgdb=no --callgrind-out-file="$_out" "$@" \
 		> /dev/null 2>"$T/vg.err" < /dev/null
 	rl_classify "$?"
 	[ "$RL_CAUSE" != ok ] || return 0

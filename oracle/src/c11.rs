@@ -1,5 +1,6 @@
 //! c-11 references: function-pointer family (foreach, map, any, count_if,
-//! is_sort, sort_string_tab, advanced_sort_string_tab). Each callback is a
+//! is_sort, sort_string_tab, advanced_sort_string_tab), and the program
+//! do-op (ex05), run whole by `oracle run do-op` (see "do-op" below). Each callback is a
 //! single FIXED deterministic function, implemented identically here and in the
 //! matching C reader harness — the callback itself is never fuzzed.
 //!
@@ -31,7 +32,7 @@
 //! csv    = comma-joined decimal ints ("" for size 0)
 //! tokN   = lowercase-hex of a NUL-free C string (tokens comma-joined)
 
-use crate::common::{bench_lines, ints_csv, join_csv, rand_body, sink, strcmp_signed, to_hex, unhex_csv, Rng};
+use crate::common::{bench_lines, ints_csv, join_csv, longest_csv, rand_body, sink, strcmp_signed, to_hex, unhex_csv, Rng};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -156,10 +157,20 @@ fn rand_tokens(rng: &mut Rng, maxn: usize, maxl: usize, high: bool) -> Vec<Vec<u
 }
 
 // ---------------------------------------------------------- generators
-fn gen_foreach(seed: u64, count: usize) {
+fn gen_foreach<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let tabs = bounded_tabs(&mut rng, count, i32::MAX as i64);
-    let mut w = io::BufWriter::new(io::stdout());
+    let mut tabs = bounded_tabs(&mut rng, count, i32::MAX as i64);
+    // Capacity cases (finding 041): every other array holds 12 ints at most,
+    // so a function that kept what it visits in room of a round size (16,
+    // 64, 256, 1024, 4096) passed every case. Arrays of 300 and 5000 ints,
+    // each from its index alone, after the structured head (eight arrays);
+    // the corpus keeps its count.
+    let long: Vec<Vec<i32>> = [300usize, 5000]
+        .iter()
+        .map(|&n| (0..n).map(|i| ((i * 7919) % 20011) as i32 - 10005).collect())
+        .collect();
+    tabs.splice(8..8, long);
+    tabs.truncate(count.max(10));
     for v in &tabs {
         // foreach visits each element once, in order: the visited sequence == v.
         // The trailing field re-echoes the input: foreach must not mutate `tab`.
@@ -405,10 +416,116 @@ fn gen_sort_common(seed: u64, count: usize, keep: SortKeep) {
     }
 }
 
+// ------------------------------------------------------------- do-op (ex05)
+//
+// THE PROGRAM, run by `oracle run do-op ARG...` (main.rs's program()) in the
+// student's place on every named case of C 11 ex05 (c_program's reference =
+// True, ex05_reference_cases), so an expected file that drifts from what its
+// case asks fails on any tree. Written from the subject's two pages (p.11's
+// rules and p.12's transcript), which `check()` replays below.
+//
+// WHAT IT ANSWERS, AND WHAT IT DOES NOT. A run either has an answer, the bytes
+// do-op prints, or it does not, and then nothing is printed and the reference
+// says why on standard error and exits 2, as `oracle c10_run` does: a case
+// whose run the subject leaves open must not be held to anything here. It
+// claims no answer for an operand or a result that is not an int ("Your
+// program should treat value as int": what to print past the limits is
+// open), and for an operand with leading white space (the subject's examples
+// show signs and trailing characters, and say nothing of white space).
+//
+// ONE READING, this harness's, held by ex05_opsuffix_output at strict and
+// nowhere at basic: the operator argument is read whole, so "+x" is not one
+// of the five and prints what an invalid operator prints.
+
+/// What do-op prints for a run with argv[1..] = `args`, or why the reference
+/// gives no answer.
+fn o_do_op(args: &[&[u8]]) -> Result<Vec<u8>, &'static str> {
+    // "If the number of arguments is invalid, do-op doesn't display anything."
+    if args.len() != 3 {
+        return Ok(Vec::new());
+    }
+    // "In case of an invalid operator your program should print 0."
+    let op = match args[1] {
+        b"+" | b"-" | b"/" | b"*" | b"%" => args[1][0],
+        _ => return Ok(b"0\n".to_vec()),
+    };
+    let a = do_op_value(args[0])?;
+    let b = do_op_value(args[2])?;
+    if op == b'/' && b == 0 {
+        return Ok(b"Stop : division by zero\n".to_vec());
+    }
+    if op == b'%' && b == 0 {
+        return Ok(b"Stop : modulo by zero\n".to_vec());
+    }
+    // INT_MIN / -1 has a quotient that is not an int, and the remainder
+    // INT_MIN % -1 comes from the same division: both are open.
+    if (op == b'/' || op == b'%') && a == i32::MIN && b == -1 {
+        return Err("the quotient is not an int, and the subject leaves open what to print");
+    }
+    // In i64, where no int operand overflows; C's / and % truncate toward
+    // zero, and so do Rust's.
+    let (a, b) = (a as i64, b as i64);
+    let r = match op {
+        b'+' => a + b,
+        b'-' => a - b,
+        b'*' => a * b,
+        b'/' => a / b,
+        _ => a % b,
+    };
+    if r < i32::MIN as i64 || r > i32::MAX as i64 {
+        return Err("the result is not an int, and the subject leaves open what to print");
+    }
+    Ok(format!("{}\n", r).into_bytes())
+}
+
+/// An operand as the subject's transcript reads one: a run of '+' and '-',
+/// an odd number of '-' making it negative, then the digits up to the first
+/// other byte ("42amis" is 42, "--+-20toto12" is -20, "toto3" is 0).
+fn do_op_value(s: &[u8]) -> Result<i32, &'static str> {
+    if matches!(s.first(), Some(b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r')) {
+        return Err("an operand starts with white space, which the subject's examples do not settle");
+    }
+    let mut i = 0;
+    let mut neg = false;
+    while i < s.len() && (s[i] == b'+' || s[i] == b'-') {
+        neg ^= s[i] == b'-';
+        i += 1;
+    }
+    let mut v: i64 = 0;
+    while i < s.len() && s[i].is_ascii_digit() {
+        v = v * 10 + (s[i] - b'0') as i64;
+        if v > 1i64 << 31 {
+            return Err("an operand is not an int, and the subject leaves open how to read it");
+        }
+        i += 1;
+    }
+    let v = if neg { -v } else { v };
+    i32::try_from(v).map_err(|_| "an operand is not an int, and the subject leaves open how to read it")
+}
+
+/// `oracle run do-op ARG...`: what `./do-op ARG...` prints, and status 0; or
+/// nothing, why on standard error, and status 2 where it has no answer.
+pub fn do_op_run(args: &[std::ffi::OsString]) -> i32 {
+    use std::os::unix::ffi::OsStrExt;
+    let a: Vec<&[u8]> = args.iter().map(|s| s.as_bytes()).collect();
+    match o_do_op(&a) {
+        Ok(out) => {
+            let mut o = io::stdout();
+            let _ = o.write_all(&out);
+            let _ = o.flush();
+            0
+        }
+        Err(why) => {
+            eprintln!("oracle run do-op: no answer: {}", why);
+            2
+        }
+    }
+}
+
 /// Dispatch: returns true if `name` belongs to this module.
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
-        "c11_foreach" => gen_foreach(seed, count),
+        "c11_foreach" => gen_foreach(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c11_map" => gen_map(seed, count),
         "c11_any" => gen_any(seed, count),
         "c11_count_if" => gen_count_if(seed, count),
@@ -424,6 +541,23 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
 /// Self-check: hand-verified cases + properties. Returns the failure count.
 pub fn check() -> usize {
     let mut fails = 0usize;
+
+    // ---- every unbounded input past the round capacities (finding 041) ----
+    // foreach's corpus holds an array past every capacity a function is
+    // usually given room for (16, 64, 256, 1024, 4096), read back from what
+    // the generator writes.
+    {
+        let past = 4096usize;
+        let head = |g: &dyn Fn(&mut Vec<u8>)| -> Vec<u8> {
+            let mut v = Vec::new();
+            g(&mut v);
+            v
+        };
+        if longest_csv(&head(&|w| gen_foreach(w, 1, 200)), 0) <= past {
+            eprintln!("CHECK FAIL c11 foreach corpus holds no array of more than 4096 ints");
+            fails += 1;
+        }
+    }
 
     // ---- the sorts' large cases hold as many strings as they say, sorted.
     for n in [600usize, 1200] {
@@ -600,6 +734,135 @@ pub fn check() -> usize {
         }
     }
 
+    fails += check_do_op();
+    fails
+}
+
+/// do-op's reference against the subject's own runs, and against i32's
+/// checked arithmetic, which it does not call to give its answers.
+fn check_do_op() -> usize {
+    let mut fails = 0usize;
+    let run = |w: &[&str]| -> Result<Vec<u8>, &'static str> {
+        let a: Vec<&[u8]> = w.iter().map(|s| s.as_bytes()).collect();
+        o_do_op(&a)
+    };
+
+    // The subject's transcripts, p.11 and p.12, every run as printed.
+    let transcript: [(&[&str], &str); 10] = [
+        (&["42", "+", "21"], "63\n"),
+        (&[], ""),
+        (&["1", "+", "1"], "2\n"),
+        (&["42amis", "-", "--+-20toto12"], "62\n"),
+        (&["1", "p", "1"], "0\n"),
+        (&["1", "+", "toto3"], "1\n"),
+        (&["toto3", "+", "4"], "4\n"),
+        (&["foo", "plus", "bar"], "0\n"),
+        (&["25", "/", "0"], "Stop : division by zero\n"),
+        (&["25", "%", "0"], "Stop : modulo by zero\n"),
+    ];
+    for (w, want) in transcript.iter() {
+        if run(w) != Ok(want.as_bytes().to_vec()) {
+            eprintln!("CHECK FAIL c11 do-op: the subject's run {:?} does not reproduce", w);
+            fails += 1;
+        }
+    }
+
+    // Any other number of arguments prints nothing, whatever they hold.
+    for w in [&["1"][..], &["1", "+"], &["1", "+", "1", "1"], &["", "", "", "", ""]] {
+        if run(w) != Ok(Vec::new()) {
+            eprintln!("CHECK FAIL c11 do-op: {} argument(s) printed something", w.len());
+            fails += 1;
+        }
+    }
+
+    // Every pair of ints, under each operator: the answer where it is an
+    // int, the subject's line for a zero divisor, and no answer otherwise. An
+    // operand written with a sign run and a tail of other bytes reads the same.
+    let mut rng = Rng::new(11);
+    for i in 0..20000 {
+        let (a, b) = (rng.i32val(), rng.i32val());
+        let b = if i % 50 == 0 { 0 } else { b };
+        let op = [b'+', b'-', b'*', b'/', b'%'][rng.below(5)];
+        let want: Result<Vec<u8>, ()> = match op {
+            b'/' | b'%' if b == 0 => Ok(if op == b'/' {
+                b"Stop : division by zero\n".to_vec()
+            } else {
+                b"Stop : modulo by zero\n".to_vec()
+            }),
+            _ => {
+                // i32's checked operations: None where the answer is not an
+                // int, INT_MIN / -1 and INT_MIN % -1 among them.
+                let r = match op {
+                    b'+' => a.checked_add(b),
+                    b'-' => a.checked_sub(b),
+                    b'*' => a.checked_mul(b),
+                    b'/' => a.checked_div(b),
+                    _ => a.checked_rem(b),
+                };
+                match r {
+                    Some(r) => Ok(format!("{}\n", r).into_bytes()),
+                    None => Err(()),
+                }
+            }
+        };
+        let left = if a >= 0 && i % 3 == 0 {
+            format!("+-+-{}x7", a)
+        } else {
+            a.to_string()
+        };
+        let right = if b < 0 && i % 4 == 0 {
+            format!("--{}--1", b)
+        } else {
+            b.to_string()
+        };
+        let ops = [op];
+        let got = o_do_op(&[left.as_bytes(), &ops, right.as_bytes()]).map_err(|_| ());
+        if got != want {
+            eprintln!("CHECK FAIL c11 do-op: {} {} {} gave {:?}", left, op as char, right, got);
+            fails += 1;
+            break;
+        }
+    }
+
+    // Anything but the five operators, alone, prints 0, a zero divisor
+    // included: the operator is judged before the numbers.
+    for op in ["", "p", "plus", "x", "++", "//", "+x", " +", "%%", "add"] {
+        if run(&["7", op, "0"]) != Ok(b"0\n".to_vec()) {
+            eprintln!("CHECK FAIL c11 do-op: operator {:?} did not print 0", op);
+            fails += 1;
+        }
+    }
+
+    // What the subject leaves open has no answer: a value or result past an
+    // int, and leading white space.
+    for w in [
+        &["2147483648", "+", "0"][..],
+        &["0", "+", "-2147483649"],
+        &["99999999999999999999", "*", "1"],
+        &["2147483647", "+", "1"],
+        &["-2147483648", "/", "-1"],
+        &["-2147483648", "%", "-1"],
+        &["-2147483648", "*", "-1"],
+        &[" 1", "+", "1"],
+        &["1", "+", "\t1"],
+    ] {
+        if run(w).is_ok() {
+            eprintln!("CHECK FAIL c11 do-op: {:?} has an answer, and the subject leaves it open", w);
+            fails += 1;
+        }
+    }
+    // The ends of an int, which have one.
+    for (w, want) in [
+        (&["-2147483648", "+", "0"][..], "-2147483648\n"),
+        (&["-2147483647", "-", "1"], "-2147483648\n"),
+        (&["2147483647", "*", "1"], "2147483647\n"),
+        (&["-2147483648", "%", "1"], "0\n"),
+    ] {
+        if run(w) != Ok(want.as_bytes().to_vec()) {
+            eprintln!("CHECK FAIL c11 do-op: {:?} is not {:?}", w, want);
+            fails += 1;
+        }
+    }
     fails
 }
 

@@ -1,8 +1,10 @@
   Both columns are printed after the call, so read them as a pair.
-    * both outputs equal one input     -> one value was overwritten before it
-                                          was saved
+    * both outputs equal one input     -> one input's value is in neither
+                                          output: at which line of your code
+                                          does it stop existing anywhere?
     * both unchanged                   -> the function is working on copies, not
                                           on what the caller passed
-    * only equal values diverge        -> a swap written as arithmetic, or an
-                                          xor, meeting the case where both
-                                          pointers could be the same
+    * only equal values diverge        -> equal values read the same swapped
+                                          or not, so a value was changed rather
+                                          than moved: what does your code store
+                                          that is neither a nor b?

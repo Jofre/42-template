@@ -3,14 +3,15 @@
 #
 # WHAT IT CHECKS. `oracle check` sums the failure count of every module's
 # check() (c00-c13, rush00-rush02, rush01_bonus, rush01_validate, bsq, shell00,
-# shell01). The
+# shell01, length). The
 # checks come in three kinds,
-# all of them INTERNAL to the crate. Kinds 1 and 2 are in every module; kind 3
-# is in only four, so do not read it as blanket coverage:
+# all of them INTERNAL to the crate. Kinds 1 and 2 are in every module but
+# length, which has kind 2 only; kind 3 is in only eighteen, so do not read it as
+# blanket coverage:
 #
 #   1. hand-written tables — literal input/output pairs typed into the Rust
 #      source and verified once by a human. c09's strcmp table pins the exact
-#      byte difference including high bytes (0x80 vs 0x7f -> 1); rush replays
+#      byte difference including high bytes (0x80 vs 0x7f -> 1); rush00 replays
 #      the subject's own worked examples from chapters V..IX verbatim (V is
 #      Rush00 and IX is Rush04 — checked against the rush-00 subject).
 #   2. property assertions over a seeded sweep — things that must hold for
@@ -27,40 +28,60 @@
 #      quote the module's own number and not a round one: c03 5 000, c04
 #      20 000 + 5 000, c05 506 exhaustive probes (-5..500) plus 2 000 random,
 #      c13 8 000 generated corpora, the rest 20 000 — each off its own fixed
-#      seed. rush is not sampled at all: it renders EVERY 1..60 x 1..60 box for
+#      seed. rush00 is not sampled at all: it renders EVERY 1..60 x 1..60 box for
 #      all five variants and holds each against a second, independently written
 #      construction in the same crate.
 #   3. generator self-checks — that the CORPUS still contains what it claims,
-#      which nothing else would notice. ONLY c00, rush, rush01, bsq and rush02
-#      do this (oracle/README.md says what each asserts). c00 asserts its
-#      corpus head still pins 0, +/-1 and the i32 boundaries rather than
-#      letting them drift into the random tail; rush asserts its size table
-#      stays inside the contract, has no duplicates, and still covers both the
-#      subject's sizes and the ceiling dimensions; bsq, that each count error
-#      isolates its rule and that no settled record holds a reading its strict
-#      arm owns; rush02, that its generated dictionaries answer what the
+#      which nothing else would notice. ONLY c00, c01, c02, c03, c04, c06, c07,
+#      c08, c10, c11, c12, c13, shell01, rush00, rush01, rush01_bonus, bsq and
+#      rush02 do this (oracle/README.md says what each asserts). c01, c02, c03, c04, c06, c07
+#      and c11 assert that the corpora they name for an unbounded
+#      input still hold a case past every round capacity (16..4096): a string
+#      past 4096 bytes, a list past 4096 ints, an argument list past 1024; c12
+#      and c13, that their lists and trees still hold two of 600 and 2000
+#      elements; c08, that its corners still hold a high byte, an empty array
+#      and an empty string; c10, that its files still hold an empty one, a NUL,
+#      no final newline, one past 4096 bytes and a hexdump squeeze. c00
+#      asserts its corpus head still pins 0, +/-1 and the i32 boundaries rather
+#      than letting them drift into the random tail; rush00 asserts its size
+#      table stays inside the contract, has no duplicates, and still covers both
+#      the subject's sizes and the ceiling dimensions; bsq, that each count
+#      error isolates its rule and that no settled record holds a reading its
+#      strict arm owns; rush02, that its generated dictionaries answer what the
 #      corpus expects of them when parsed back.
 #
-# WHAT IT DOES NOT CHECK, despite what this comment used to say. It never calls
-# libc to compare against, and it never reads the curated expected.txt
-# fixtures. The crate is std-only with zero dependencies. Its one extern "C"
-# block, and the only unsafe code, is shell01.rs's lookup in this machine's user
-# database -- the Shell 01 ex01 reference is the machine's own group list, so
-# it has to ask glibc -- and the only files it opens are a shell command's
-# inputs (shell00_diff_apply's two files) and /sys/class/net for
-# shell01_hwaddr, whose self-check accepts this machine's own addresses. Nothing
-# else touches the host. Where a hand-written case happens to match a fixture it was
-# transcribed by hand, so editing that fixture does NOT make this guard notice;
-# the two can drift apart silently. A green run means the references agree with
-# their own tables and their own invariants, which is worth having, but it is
-# strictly less than agreement with libc or with the fixtures. Do not quote it
-# as more than it is: the whole value of this target is that the repo points at
-# it to argue its results are trustworthy.
+# Beside the modules' checks, `oracle check` runs the binary itself with an
+# argument that is not UTF-8 -- to each reference program `oracle run` knows,
+# to c-06's and c-10's, and once to the commands that take words -- and holds
+# each run to a status of that command's own: the reference's answer, its "no
+# answer", or a refusal, never Rust's panic (exit 101), which a runner would
+# read as the reference crashing.
+#
+# WHAT IT DOES NOT CHECK, despite what this comment used to say. It never
+# compares against libc, and it never reads the curated expected.txt fixtures.
+# The crate is std-only with zero dependencies. Its one extern "C" block, and
+# all of its unsafe code, is the Shell 01 references': the lookup in this
+# machine's user database -- the Shell 01 ex01 reference is the machine's own
+# group list, so it has to ask glibc -- and setlocale/strcoll for
+# shell01_rdwssap's collation, which its own self-check calls too. The only
+# files it opens are the ones a command is handed (shell00_diff_apply's two,
+# shell01_rdwssap's passwd file, the maps `oracle run bsq` gets, the paths
+# c-10's programs run on, the rush-02 dictionary) and /sys/class/net for
+# shell01_hwaddr, whose self-check accepts this machine's own addresses.
+# Nothing else touches the host but those runs of the binary itself. Where a
+# hand-written case happens to match a fixture it was transcribed by hand, so
+# editing that fixture does NOT make this guard notice; the two can drift
+# apart silently. A green run means the
+# references agree with their own tables and their own invariants, which is
+# worth having, but it is strictly less than agreement with libc or with the
+# fixtures. Do not quote it as more than it is: the whole value of this target
+# is that the repo points at it to argue its results are trustworthy.
 #
 # Without this target that self-check is dead code: a regression in a generator
 # or a reference would be discovered by a CORRECT student's test going red,
-# which is the single worst failure mode this repo has. It runs in well under a
-# second, so it is cheap insurance.
+# which is the single worst failure mode this repo has. It runs in about 15 s
+# on a quiet machine (more in a loaded full suite), a small price for that
+# insurance.
 #
 # Usage:
 #   oracle_check.sh --oracle PATH
@@ -83,6 +104,11 @@ require() {
 	done
 }
 require cat mktemp rm sed
+
+# A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
+# in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
+# none (tools/runner_lib.sh, "THE SCRATCH FOLDER").
+case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
 
 # conventions: runs no student code -- it runs the Rust reference's own self-check
 # conventions: harness tool ORACLE -- the Rust reference (//oracle)

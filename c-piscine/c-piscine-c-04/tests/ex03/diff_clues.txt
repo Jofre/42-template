@@ -11,9 +11,10 @@
                                            on the way to it not fit? (What C
                                            promises about each type's width:
                                            docs/testing.md, under ilp32.)
-    * only INT_MIN                      -> accumulating the positive value first
-                                           costs you exactly one representable
-                                           number
+    * only INT_MIN                      -> its magnitude is one more than
+                                           INT_MAX, so no int holds it: does
+                                           anything your code computes on the
+                                           way to INT_MIN need to?
     * only strings starting with a byte of 0x80 or more, or a control byte
                                         -> whether your whitespace test names
                                            the bytes the subject lists, or a

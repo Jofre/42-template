@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import uuid
 
 # What a child Bazel must not inherit. Under `bazel run //tools:42`, bazelisk
@@ -237,7 +238,7 @@ def base_lock(output_base):
 def drop_outputs(exe, ws, packages, environ=None):
     """Delete what Bazel built for these packages, so that it builds them again. Returns an exit code.
 
-    The repair for contents a run could not vouch for (TODO.md V111): a
+    The repair for contents a run could not vouch for (V111): a
     file edited while Bazel built from it can leave a program built from the
     other contents, and neither --nocache_test_results nor
     --use_action_cache=false rebuilds it. With its outputs gone, Bazel builds
@@ -276,24 +277,23 @@ class Bep:
     """What 42 reads from a run's Build Event Protocol file, and nothing else."""
 
     def __init__(self):
-        self.selected = []      # every test target the run built or tried to (targetConfigured/aborted)
+        self.selected = []      # every test target the run built or tried to (targetConfigured)
         self.tags = {}          # label -> its tags
         self.status = {}        # label -> testSummary overallStatus
         self.logs = {}          # label -> test.log path of its last attempt
-        self.aborted = {}       # label -> reason
-        self.exit_name = None   # buildFinished's exit code name
-        self.patterns = []
 
     def does_not_build(self):
-        """Selected and no testSummary: Bazel 9 has no FAILED_TO_BUILD summary."""
-        return [l for l in self.selected if l not in self.status]
+        """Selected and no testSummary (Bazel 9 gives one that does not build
+        none), or one that says FAILED_TO_BUILD: no test ran."""
+        return [l for l in self.selected if self.status.get(l, "FAILED_TO_BUILD") == "FAILED_TO_BUILD"]
 
     def failed(self):
-        return [l for l in self.selected if self.status.get(l) in ("FAILED", "TIMEOUT", "FLAKY", "INCOMPLETE", "REMOTE_FAILURE", "FAILED_TO_BUILD")]
+        return [l for l in self.selected if self.status.get(l) in ("FAILED", "TIMEOUT", "FLAKY", "INCOMPLETE", "REMOTE_FAILURE")]
 
 
 def _uri_path(uri):
-    return uri[len("file://"):] if uri.startswith("file://") else uri
+    """A file:// URI's path. Bazel quotes it: a space is %20, a '%' is %25."""
+    return urllib.parse.unquote(uri[len("file://"):]) if uri.startswith("file://") else uri
 
 
 def read_bep(path):
@@ -309,9 +309,7 @@ def read_bep(path):
             except ValueError:
                 continue  # a run cancelled mid-write leaves a partial last line
             eid = ev.get("id", {})
-            if "pattern" in eid:
-                bep.patterns = eid["pattern"].get("pattern", [])
-            elif "targetConfigured" in eid:
+            if "targetConfigured" in eid:
                 label = eid["targetConfigured"].get("label")
                 conf = ev.get("configured", {})
                 if label and ("testSize" in conf or conf.get("targetKind", "").endswith("_test rule")):
@@ -326,17 +324,4 @@ def read_bep(path):
                 for out in ev.get("testResult", {}).get("testActionOutput", []):
                     if out.get("name") == "test.log":
                         bep.logs[label] = _uri_path(out.get("uri", ""))
-            elif "targetCompleted" in eid:
-                label = eid["targetCompleted"].get("label")
-                if "aborted" in ev and label:
-                    bep.aborted[label] = ev["aborted"].get("reason", "")
-            elif "buildFinished" in eid:
-                bep.exit_name = ev.get("finished", {}).get("exitCode", {}).get("name")
-            if "aborted" in ev and "targetCompleted" not in eid:
-                label = None
-                for k in ("targetConfigured", "pattern"):
-                    if k in eid and isinstance(eid[k], dict):
-                        label = eid[k].get("label")
-                if label:
-                    bep.aborted.setdefault(label, ev["aborted"].get("reason", ""))
     return bep

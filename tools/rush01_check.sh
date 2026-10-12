@@ -45,9 +45,8 @@
 # half of a rush01 solver. It used to be written out here in awk, shaped enough
 # like C to port line for line, in a file every clone of this repo ships. It
 # lives in //oracle now, in Rust written mostly with iterators rather than
-# C-shaped loops (oracle/src/rush01_validate.rs, with the other references and
-# the README that says what reading one costs), and this runner ASKS it, as
-# `oracle rush01_validate`, one request per grid:
+# C-shaped loops, and this runner ASKS it, as `oracle rush01_validate`, one
+# request per grid:
 #
 #     request  <W> <H><TAB><clues><TAB><cells>
 #     reply    <faults><TAB><category><TAB><message><TAB><why>
@@ -78,7 +77,7 @@
 #                   [--probe-shape] [--probes-only]
 #                   [--clues FILE [--case NAME]] [--label TEXT] [--timeout SECS]
 #                   [--gate-differ F --gate-bin P --gate-expected F
-#                    [--gate-arg STR | --gate-arg-file F]]
+#                    [--gate-arg STR | --gate-arg-file F] [--gate-label NAME]]
 #                   (--stderr-empty | --stderr-ignored REASON
 #                    | --sanitized | --valgrind PATH --valgrind-tools FILE
 #                      [--sample N] [--rule FILE])
@@ -102,9 +101,11 @@
 #                       program's one clues.tsv (its target's name after
 #                       exNN_): only those rows and the ones keyed to nothing
 #                       are shown, never the rows of the program's cases
-#   --max-size N        REQUIRE grids up to N x N (default 4). Larger sizes are
-#                       still run and still judged if answered with a grid; see
-#                       "THE BONUS IS GRADED ONLY IF IT WAS ATTEMPTED" below.
+#   --max-size N        also REQUIRE grids from 1x1 up to N x N; the mandatory
+#                       4x4 is required whatever N is (default 0: the mandatory
+#                       board only). Other sizes are still run and still judged
+#                       if answered with a grid; see "THE BONUS IS GRADED ONLY
+#                       IF IT WAS ATTEMPTED" below.
 #   --max-cases N       replay at most N corpus cases, spread evenly (0 = all)
 #   --probe-argc        also assert the three argv SHAPES the corpus cannot
 #                       express: no argument, two arguments, one empty argument.
@@ -142,6 +143,11 @@
 #                       memory checker (tools/runner_lib.sh, "A SUBJECT'S
 #                       SENTENCE COMES FROM THE CALL SITE")
 #   --timeout SECS      per-run wall-clock budget (default 10, or RUSH01_TIMEOUT)
+#   --gate-label NAME   the output test the gate is, by name, for the SKIP line
+#                       (runner_lib.sh's RL_GATE_NAME). Any of --gate-differ,
+#                       --gate-bin, --gate-expected and --gate-label without
+#                       the first three is a wiring mistake, refused
+#                       (rl_gate_whole); --gate-arg alone is the probes' vector
 #   --show N            how many failing cases to print (default DIFF_MAX_ROWS,
 #                       40; 0 prints all); every one is kept in test.outputs
 #   --sanitized         BIN is the ASan/UBSan build: replay the cases judging
@@ -199,7 +205,7 @@
 # THE ARGV THAT CONTAINS SPACES
 # -----------------------------
 # rush01 takes ONE argument holding 16 space-separated digits. Bazel's sh_test
-# tokenises `args` on whitespace (see the comment at tools/defs.bzl:430 — this
+# tokenises `args` on whitespace (see shell_word() in tools/defs.bzl — this
 # repo has been bitten by it repeatedly), so a clue vector written straight into
 # `args` arrives as sixteen separate arguments and the interface the subject
 # specifies is silently destroyed.
@@ -232,10 +238,9 @@
 # fail this. Pass --max-size 9 to drop the leniency and REQUIRE the bonus.
 #
 # Above 6x6 the corpus lists witnesses rather than every solution — exhaustively
-# solving a 7x7 clue vector does not finish (see oracle/src/rush01_bonus.rs) — so
-# those lines carry a "?" marker and the membership cross-check is skipped for
-# them. Satisfying every rule is what makes a grid correct; membership was only
-# ever a second opinion on top.
+# solving a 7x7 clue vector does not finish — so those lines carry a "?" marker
+# and the membership cross-check is skipped for them. Satisfying every rule is
+# what makes a grid correct; membership was only ever a second opinion on top.
 #
 # CORPUS FORMAT (this runner defines it; the reference must emit it)
 # -----------------------------------------------------------------
@@ -261,12 +266,12 @@
 # stripped from inside a solution field by the rule above, so `<sol>|<sol>` reads
 # as one 32-digit grid and is rejected as a malformed corpus. That rejection is
 # loud (exit 2, "the case list itself is wrong") and it is the intended
-# behaviour: oracle/src/rush01.rs pins the same choice in its `SOL_SEP` constant
-# and explains it there. A reader that quietly accepted both would hide a
-# reference drifting away from the format instead of stopping the run.
+# behaviour: the reference pins the same choice, and says why beside it. A
+# reader that quietly accepted both would hide a reference drifting away from
+# the format instead of stopping the run.
 #
 # oracle/README.md's rush01 section once described the set as
-# "<solution>|<solution>|..." while oracle/src/rush01.rs emitted TAB-separated
+# "<solution>|<solution>|..." while the reference emitted TAB-separated
 # fields. It now says TAB, and names `|` as the separator that is NOT available
 # here -- this runner strips `|` from inside a solution field, so one between
 # two solutions reads as a 32-digit grid and the whole corpus is rejected. The
@@ -284,7 +289,9 @@ set -u
 
 # The external commands this runner takes from PATH. See diff_output.sh for why
 # they are declared and probed; exit 2, never 1, because this says the check
-# never ran rather than that the code under test is wrong.
+# never ran rather than that the code under test is wrong. awk reads every
+# answer and hands the grids to the reference, so a missing awk is never a
+# quiet skip.
 require() {
 	for _t in "$@"; do
 		command -v "$_t" > /dev/null 2>&1 && continue
@@ -407,6 +414,7 @@ while [ $# -gt 0 ]; do
 		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
 		--gate-arg) need "$1" "$#"; GATE_ARG="$2"; GATE_ARG_SET=1; shift 2 ;;
 		--gate-arg-file) need "$1" "$#"; GATE_ARG_FILE="$2"; shift 2 ;;
+		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
 		--show) need "$1" "$#"; SHOW="$2"; shift 2 ;;
 		--stderr-empty) STDERR_EMPTY=1; shift ;;
 		--stderr-ignored) need "$1" "$#"; STDERR_WHY="$2"; shift 2 ;;
@@ -420,6 +428,11 @@ while [ $# -gt 0 ]; do
 			exit 2 ;;
 	esac
 done
+
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+# --gate-arg is not one of its options here: it is also the probes' base
+# vector, given with no gate at all.
+rl_gate_whole rush01_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$RL_GATE_NAME"
 
 [ -n "$BIN" ] || { echo "rush01_check: --bin is required" >&2; exit 2; }
 [ -n "$LABEL" ] || LABEL="$(basename "$BIN")"
@@ -451,15 +464,6 @@ if [ ! -x "$BIN" ]; then
 	echo "rush01_check: FAIL — '$BIN' is not an executable file."
 	echo "               Nothing could be run, so nothing was checked."
 	exit 1
-fi
-
-# awk reads every answer (the grid's shape, the line counts, the Error handling)
-# and hands the grids to the reference. Without it this layer cannot report a
-# pass it can stand behind, so there is no quiet-skip path for it at all.
-if ! command -v awk >/dev/null 2>&1; then
-	echo "rush01_check: FAIL — no awk on this machine, and this layer reads every"
-	echo "               answer in awk. It cannot report a pass."
-	exit 2
 fi
 
 # The reference is run from inside awk (see WHERE THE RULES LIVE), by a shell
@@ -639,8 +643,8 @@ function have_validator() { return ENVIRON["RUSH01_ORACLE"] != "" }
 # goes out as the NUMBER awk read it as — %.17g round-trips a double exactly —
 # because in the no-solution path below a grid is built before every row has
 # been shown to be well-formed, and the verdict there has always been computed
-# on awk's numeric reading of each token (see WHY A CELL IS A NUMBER in
-# oracle/src/rush01_validate.rs).
+# on awk's numeric reading of each token. The validator then treats the value
+# as the awk it replaced did, which keeps the verdicts what they were.
 function grid_request(g, cl,   r, c, k, s) {
 	s = GW " " GH "\t"
 	for (k = 1; k <= 2 * GW + 2 * GH; k++) s = s (k > 1 ? " " : "") cl[k]
@@ -793,10 +797,10 @@ mode == "prep" {
 	ns = 0
 	nalt = 0
 	# A field of "?" is the reference saying "the solutions that follow are
-	# WITNESSES, not the whole set" — see rush01_bonus.rs. Exhaustively solving a
-	# 7x7 clue vector does not finish, so above 6x6 the corpus cannot promise
-	# completeness and the membership cross-check below has to be turned off for
-	# that line. The 4x4 corpus never carries the marker.
+	# WITNESSES, not the whole set". Exhaustively solving a 7x7 clue vector
+	# does not finish, so above 6x6 the corpus cannot promise completeness and
+	# the membership cross-check below has to be turned off for that line. The
+	# 4x4 corpus never carries the marker.
 	exh = 1
 	for (i = 2; i <= nf; i++) {
 		if (f[i] == "") continue
@@ -1261,9 +1265,9 @@ function judge_end(   i, k, fault, faults, key, sawrow) {
 	faults = check_grid(gg, cl)
 	if (faults < 0) validator_failed()
 	# Above 6x6 the corpus lists WITNESSES, not the whole set (exhaustively
-	# solving a 7x7 vector does not finish — see rush01_bonus.rs), so "not in the
-	# list" carries no information there and the cross-check below would report a
-	# harness fault for a perfectly good grid. Satisfying every rule IS being a
+	# solving a 7x7 vector does not finish), so "not in the list" carries no
+	# information there and the cross-check below would report a harness
+	# fault for a perfectly good grid. Satisfying every rule IS being a
 	# solution; the membership test only ever added a second opinion.
 	if (faults == 0 && !exh) { print (is_bonus() ? "bonus-ok" : "ok") >> catfile; exit 0 }
 	if (faults == 0 && !(key in member)) {
@@ -1469,6 +1473,10 @@ judge_one() {
 		FAILS=$((FAILS + 1))
 		TIMEOUTS=$((TIMEOUTS + 1))
 		echo "timeout" >> "$CATS"
+		# Red, but never judged wrong (ruling R4): the verdict counts it
+		# apart (tools/runner_lib.sh, RL_DNF), a probe's apart from a case's.
+		RL_DNF=$((RL_DNF + 1))
+		[ -z "$PROBE_KIND" ] || PDNF=$((PDNF + 1))
 		[ "$_side" -gt "$MANDATORY_N" ] && TIMEOUTS_LARGE=$((TIMEOUTS_LARGE + 1))
 		echo " --------------------------------------------------"
 		echo " $_word $_id  argv: \"$_clue\"${_argvdesc:+  -- $_argvdesc}"
@@ -1593,6 +1601,8 @@ probe_do() {
 NPROBE=0
 PRUN=0
 PFAILS=0
+# Of PFAILS, the probes that did not finish (in RL_DNF too).
+PDNF=0
 BASE=""
 probe_list count
 if [ "$NPROBE" -gt 0 ]; then
@@ -1752,8 +1762,7 @@ if [ -n "$OUT_OF_TIME" ]; then
 	# its own limit" (V84). Those of a 4x4 are in $FAILS, and left out of
 	# the cases judged wrong: not judged (ruling R4), and named apart.
 	_hung=$(awk '$0 == "timeout" || $0 == "bonus-slow" { c++ } END { print c + 0 }' "$CATS")
-	_tmo=$(awk '$0 == "timeout" { c++ } END { print c + 0 }' "$CATS")
-	rl_sweep_stopped "$SWEPT" "$TOTAL" "$((FAILS - _tmo))" "$_hung"
+	rl_sweep_stopped "$SWEPT" "$TOTAL" "$((FAILS - RL_DNF))" "$_hung"
 	STOPPED=1
 fi
 
@@ -1823,8 +1832,9 @@ stderr_note() {
 # What the probes did, in their own count (see the probes, above).
 probe_tally() {
 	[ "$PRUN" -gt 0 ] || return 0
+	rl_dnf_said "$TMO" "$PDNF"
 	echo "              and $PRUN probe(s), argument lists no corpus line can hold:"
-	echo "              $((PRUN - PFAILS)) of them answered Error, as each must."
+	echo "              $((PRUN - PFAILS)) of them answered Error, as each must${RL_DNF_SAID:+, and $RL_DNF_SAID}."
 }
 if [ "$PROBES_ONLY" -eq 1 ] && [ "$FAILS" -eq 0 ] && [ "$HARNESS" -eq 0 ] && [ -z "$OUT_OF_TIME" ]; then
 	echo "rush01_check: OK — $LABEL: all $PRUN probe(s) answered Error; $SRC"
@@ -1884,9 +1894,12 @@ fi
 if [ -n "$OUT_OF_TIME" ] && [ "$FAILS" -eq 0 ]; then
 	echo "rush01_check: FAIL — $LABEL: did not finish; $RUN case(s) and $PRUN probe(s) judged, none wrong; $SRC"
 elif [ "$PROBES_ONLY" -eq 1 ]; then
-	echo "rush01_check: FAIL — $LABEL: $PFAILS of $PRUN probe(s) judged wrong; $SRC"
+	# A run that did not finish is counted apart, never judged wrong (V85).
+	rl_dnf_said "$TMO" "$PDNF"
+	echo "rush01_check: FAIL — $LABEL: $((PFAILS - PDNF)) of $PRUN probe(s) judged wrong${RL_DNF_SAID:+, and $RL_DNF_SAID}; $SRC"
 else
-	echo "rush01_check: FAIL — $LABEL: $((FAILS - PFAILS)) of $RUN case(s) judged wrong; $SRC"
+	rl_dnf_said "$TMO" "$((RL_DNF - PDNF))"
+	echo "rush01_check: FAIL — $LABEL: $((FAILS - PFAILS - RL_DNF + PDNF)) of $RUN case(s) judged wrong${RL_DNF_SAID:+, and $RL_DNF_SAID}; $SRC"
 	probe_tally
 fi
 [ -n "$CENSUS" ] && echo "              by fault:$CENSUS"
@@ -1897,6 +1910,8 @@ if [ "$BONUS_SKIPPED" -gt 0 ]; then
 	echo "              ($BONUS_SKIPPED bonus-size case(s) not attempted: the program ran out of"
 	echo "               time on $BONUS_TIMEOUTS of them.)"
 fi
+# Behind the verdict's own indent, as every line above under it.
+rl_dnf_note "$((FAILS - RL_DNF))" "              "
 stderr_note
 # The one clues.tsv rule (rl_clues): '#' lines are maintainers' and never
 # printed, only the hint column is, and at most CLUE_MODE (3) of them. This

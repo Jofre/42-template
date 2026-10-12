@@ -16,7 +16,7 @@
 //! The escaped output of putstr_non_printable contains only bytes 0x20..=0x7e
 //! (printable + backslash), so it carries no TAB/NL and rides raw in the field.
 
-use crate::common::{bench_lines, sink, unhex, rand_body, to_hex, Rng};
+use crate::common::{bench_lines, largest_dec, long_text, sink, unhex, rand_body, to_hex, widest_hex, Rng};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -150,8 +150,7 @@ fn capitalize_corpus(seed: u64, count: usize, part: bool) -> Vec<Vec<u8>> {
     out
 }
 
-fn gen_capitalize(seed: u64, count: usize, part: bool) {
-    let mut w = io::BufWriter::new(io::stdout());
+fn gen_capitalize<W: Write>(w: &mut W, seed: u64, count: usize, part: bool) {
     for s in &capitalize_corpus(seed, count, part) {
         let _ = writeln!(w, "{}\t{}\t1", to_hex(s), to_hex(&o_strcapitalize(s)));
     }
@@ -217,6 +216,13 @@ fn bodies(rng: &mut Rng, count: usize) -> Vec<Vec<u8>> {
     out.push(b"ab1cd ef2gh".to_vec());
     out.push(b"a-b-c 1a2b".to_vec());
     out.push(b"42abc".to_vec());
+    // Capacity cases (finding 041): every string above and below is at most
+    // 41 bytes, so a function that worked through room of its own of a round
+    // size (16, 64, 256, 1024, 4096) passed every case. Text of 4100 bytes,
+    // and 5000 bytes drawn from every byte but NUL, each from a seed of its
+    // own so the head is the same for every corpus seed.
+    out.push(long_text(4100, 4100));
+    out.push(rand_body(&mut Rng::new(5000), 5000, true));
     while out.len() < count {
         let high = rng.below(2) == 1;
         let len = rng.below(30);
@@ -245,6 +251,14 @@ fn pred_bodies(rng: &mut Rng, count: usize, pass: &[u8]) -> Vec<Vec<u8>> {
         out.push(vec![a, a, a, 0x7f]);
         out.push(vec![0x7f, a, a, a]);
     }
+    // Capacity cases (finding 041): 4100 bytes all in the class, and 5000 of
+    // which only the last is outside it -- the whole string has to be read
+    // to tell. Each byte from its index alone.
+    let run = |n: usize| -> Vec<u8> { (0..n).map(|i| pass[(i * 7 + i / 251) % pass.len()]).collect() };
+    out.push(run(4100));
+    let mut last_out = run(5000);
+    last_out[4999] = 0x7f;
+    out.push(last_out);
     while out.len() < count {
         let len = rng.below(14);
         match rng.below(4) {
@@ -272,19 +286,17 @@ fn pass_pool(kind: u8) -> Vec<u8> {
     }
 }
 
-fn gen_strcpy(seed: u64, count: usize) {
+fn gen_strcpy<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let bs = bodies(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
     for s in &bs {
         // trailing 1: strcpy must return the dest pointer it was given.
         let _ = writeln!(w, "{}\t{}\t1", to_hex(s), to_hex(&o_strcpy(s)));
     }
 }
 
-fn gen_strncpy(seed: u64, count: usize) {
+fn gen_strncpy<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut emitted = 0usize;
     // Structured (src, n) corners so they always run and a failure names them:
     // n==0 (nothing written), n<len (NO NUL written), n==len (still no NUL),
@@ -301,6 +313,16 @@ fn gen_strncpy(seed: u64, count: usize) {
             emitted += 1;
         }
     }
+    // Capacity cases (finding 041): a 4100-byte src padded out to n = 5000,
+    // and a 5000-byte one cut at n = 4097, so no NUL is written. Each from a
+    // seed of its own.
+    for (src, n) in [(long_text(4100, 4100), 5000usize), (long_text(5000, 5000), 4097)] {
+        if emitted >= count {
+            break;
+        }
+        let _ = writeln!(w, "{}\t{}\t{}\t1", to_hex(&src), n, to_hex(&o_strncpy(&src, n)));
+        emitted += 1;
+    }
     let bs = bodies(&mut rng, count);
     for s in &bs {
         if emitted >= count {
@@ -312,28 +334,25 @@ fn gen_strncpy(seed: u64, count: usize) {
     }
 }
 
-fn gen_pred(seed: u64, count: usize, kind: u8, pred: fn(&[u8]) -> bool) {
+fn gen_pred<W: Write>(w: &mut W, seed: u64, count: usize, kind: u8, pred: fn(&[u8]) -> bool) {
     let mut rng = Rng::new(seed);
     let bs = pred_bodies(&mut rng, count, &pass_pool(kind));
-    let mut w = io::BufWriter::new(io::stdout());
     for s in &bs {
         let _ = writeln!(w, "{}\t{}", to_hex(s), if pred(s) { 1 } else { 0 });
     }
 }
 
-fn gen_case(seed: u64, count: usize, xform: fn(&[u8]) -> Vec<u8>) {
+fn gen_case<W: Write>(w: &mut W, seed: u64, count: usize, xform: fn(&[u8]) -> Vec<u8>) {
     let mut rng = Rng::new(seed);
     let bs = bodies(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
     for s in &bs {
         // trailing 1: strupcase/strlowcase/strcapitalize return their str arg.
         let _ = writeln!(w, "{}\t{}\t1", to_hex(s), to_hex(&xform(s)));
     }
 }
 
-fn gen_strlcpy(seed: u64, count: usize) {
+fn gen_strlcpy<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
     // Structured corners: size==0 (nothing written, ret==strlen), size==1 (only
     // the NUL fits), size<len (truncated copy), size==len (last byte dropped for
@@ -360,6 +379,16 @@ fn gen_strlcpy(seed: u64, count: usize) {
         let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(src), size, to_hex(&content), ret);
         done += 1;
     }
+    // Capacity cases (finding 041): a 5000-byte src cut at size 4097, and a
+    // 4100-byte one with room to spare in 5000. Each from a seed of its own.
+    for (src, size) in [(long_text(5000, 5000), 4097usize), (long_text(4100, 4100), 5000)] {
+        if done >= count {
+            break;
+        }
+        let (content, ret) = o_strlcpy(&src, size);
+        let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(&src), size, to_hex(&content), ret);
+        done += 1;
+    }
     while done < count {
         let high = rng.below(2) == 1;
         let slen = rng.below(30);
@@ -378,10 +407,9 @@ fn gen_strlcpy(seed: u64, count: usize) {
     }
 }
 
-fn gen_putstr_np(seed: u64, count: usize) {
+fn gen_putstr_np<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let bs = bodies(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
     for s in &bs {
         let esc = o_putstr_np(s);
         // esc is pure ASCII 0x20..=0x7e -> valid UTF-8, no TAB/NL.
@@ -522,19 +550,19 @@ fn gen_print_memory(seed: u64, count: usize) {
 /// Dispatch: returns true if `name` belongs to this module.
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
-        "c02_strcpy" => gen_strcpy(seed, count),
-        "c02_strncpy" => gen_strncpy(seed, count),
-        "c02_str_is_alpha" => gen_pred(seed, count, 0, is_alpha),
-        "c02_str_is_numeric" => gen_pred(seed, count, 1, is_numeric),
-        "c02_str_is_lowercase" => gen_pred(seed, count, 2, is_lowercase),
-        "c02_str_is_uppercase" => gen_pred(seed, count, 3, is_uppercase),
-        "c02_str_is_printable" => gen_pred(seed, count, 4, is_printable),
-        "c02_strupcase" => gen_case(seed, count, o_strupcase),
-        "c02_strlowcase" => gen_case(seed, count, o_strlowcase),
-        "c02_strcapitalize" => gen_capitalize(seed, count, false),
-        "c02_strcapitalize_readings" => gen_capitalize(seed, count, true),
-        "c02_strlcpy" => gen_strlcpy(seed, count),
-        "c02_putstr_non_printable" => gen_putstr_np(seed, count),
+        "c02_strcpy" => gen_strcpy(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c02_strncpy" => gen_strncpy(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c02_str_is_alpha" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 0, is_alpha),
+        "c02_str_is_numeric" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 1, is_numeric),
+        "c02_str_is_lowercase" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 2, is_lowercase),
+        "c02_str_is_uppercase" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 3, is_uppercase),
+        "c02_str_is_printable" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 4, is_printable),
+        "c02_strupcase" => gen_case(&mut io::BufWriter::new(io::stdout()), seed, count, o_strupcase),
+        "c02_strlowcase" => gen_case(&mut io::BufWriter::new(io::stdout()), seed, count, o_strlowcase),
+        "c02_strcapitalize" => gen_capitalize(&mut io::BufWriter::new(io::stdout()), seed, count, false),
+        "c02_strcapitalize_readings" => gen_capitalize(&mut io::BufWriter::new(io::stdout()), seed, count, true),
+        "c02_strlcpy" => gen_strlcpy(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c02_putstr_non_printable" => gen_putstr_np(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c02_print_memory" => gen_print_memory(seed, count),
         _ => return false,
     }
@@ -616,6 +644,39 @@ pub fn check() -> usize {
                 fails += 1;
             }
         };
+    }
+
+    // ---- every unbounded input past the round capacities (finding 041) ----
+    // Each corpus the diff layers replay holds a case past every capacity a
+    // function is usually given room for (16, 64, 256, 1024, 4096), read back
+    // from what its generator writes: the string, and the n or size beside it.
+    {
+        let past = 4096usize;
+        let head = |g: &dyn Fn(&mut Vec<u8>)| -> Vec<u8> {
+            let mut v = Vec::new();
+            g(&mut v);
+            v
+        };
+        let strcpy = head(&|w| gen_strcpy(w, 1, 200));
+        want!(widest_hex(&strcpy, 0) > past, "strcpy corpus holds no src past 4096 bytes");
+        let strncpy = head(&|w| gen_strncpy(w, 1, 200));
+        want!(widest_hex(&strncpy, 0) > past, "strncpy corpus holds no src past 4096 bytes");
+        want!(largest_dec(&strncpy, 1) > past as i64, "strncpy corpus holds no n past 4096");
+        for (kind, pred) in [(0u8, is_alpha as fn(&[u8]) -> bool), (1, is_numeric), (2, is_lowercase), (3, is_uppercase), (4, is_printable)] {
+            let c = head(&|w| gen_pred(w, 1, 200, kind, pred));
+            want!(widest_hex(&c, 0) > past, format!("str_is_* corpus {} holds no string past 4096 bytes", kind));
+        }
+        for (what, xform) in [("strupcase", o_strupcase as fn(&[u8]) -> Vec<u8>), ("strlowcase", o_strlowcase)] {
+            let c = head(&|w| gen_case(w, 1, 200, xform));
+            want!(widest_hex(&c, 0) > past, format!("{} corpus holds no string past 4096 bytes", what));
+        }
+        let cap = head(&|w| gen_capitalize(w, 1, 200, false));
+        want!(widest_hex(&cap, 0) > past, "strcapitalize corpus holds no string past 4096 bytes");
+        let strlcpy = head(&|w| gen_strlcpy(w, 1, 200));
+        want!(widest_hex(&strlcpy, 0) > past, "strlcpy corpus holds no src past 4096 bytes");
+        want!(largest_dec(&strlcpy, 1) > past as i64, "strlcpy corpus holds no size past 4096");
+        let np = head(&|w| gen_putstr_np(w, 1, 200));
+        want!(widest_hex(&np, 0) > past, "putstr_non_printable corpus holds no string past 4096 bytes");
     }
 
     // ---- strncpy hand cases (NUL-padding to n) ----

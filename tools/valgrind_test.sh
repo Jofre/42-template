@@ -37,6 +37,10 @@
 #
 #   --gate-expected-alt  another output the gated case accepts (a case's
 #                    "any_of"), handed to the differ as --expected-alt.
+#                    It and the other options after --gate-expected describe
+#                    a gate: given without all of --gate-differ, --gate-bin
+#                    and --gate-expected, they are refused as a wiring
+#                    mistake (runner_lib.sh's rl_gate_whole).
 #
 #   --argv-file, --run-as, --cwd-file, --show-run and --case mean what
 #                    tools/diff_output.sh's options of those names mean, and
@@ -132,6 +136,8 @@ GATE_DIFFER=""
 GATE_BIN=""
 GATE_EXPECTED=""
 GATE_PASS=""
+# Set by an option that describes the gate; checked by rl_gate_whole.
+GATE_SAID=""
 VALGRIND=""
 VGTOOLS=""
 ARGV_FILE=""
@@ -317,11 +323,11 @@ while [ $# -gt 0 ]; do
 		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
 		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
 		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
-		--gate-expected-alt) need "$1" "$#"; rl_list_add GATE_PASS --expected-alt "$2"; shift 2 ;;
-		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; shift 2 ;;
-		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
-		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
+		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-expected-alt) need "$1" "$#"; rl_list_add GATE_PASS --expected-alt "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-sanitize) rl_list_add GATE_PASS --sanitize; GATE_SAID=1; shift ;;
+		--gate-labeled) rl_list_add GATE_PASS --labeled; GATE_SAID=1; shift ;;
 		--no-leak-check) NO_LEAK_CHECK=1; shift ;;
 		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; rl_list_add GATE_PASS --argv-file "$2"; shift 2 ;;
 		--run-as) need "$1" "$#"; RUN_AS="$2"; rl_list_add GATE_PASS --run-as "$2"; shift 2 ;;
@@ -341,6 +347,9 @@ $2"; rl_list_add GATE_PASS --cwd-file "$2"; shift 2 ;;
 		*) echo "valgrind_test.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole valgrind_test "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_SAID"
 
 # --explain KEY...: the paragraphs the cases of a corpus named (--brief),
 # each once, and no run.
@@ -610,6 +619,8 @@ BLOCKS=$(( CAP / 512 + 2 ))
 # --track-origins=yes costs roughly 2x runtime on programs this small and buys
 # the one thing that makes an uninitialised-value report actionable: where the
 # uninitialised bytes came from.
+# --vgdb=no: otherwise every run opens three FIFOs in TMPDIR for a gdb that
+# never comes, and a run killed at its time limit leaves them behind.
 # THE LEAK HALF IS SEPARABLE, and one caller needs it separated.
 #
 # memcheck reports nine classes; only four of them are leaks. Invalid read,
@@ -640,6 +651,7 @@ fi
 		--track-origins=yes \
 		--track-fds=yes \
 		--error-exitcode=42 \
+		--vgdb=no \
 		--log-file="$VGLOG" \
 		"$RUN_BIN" "$@" < "$STDIN_FILE" > /dev/null 2> "$CHILDERR"
 )

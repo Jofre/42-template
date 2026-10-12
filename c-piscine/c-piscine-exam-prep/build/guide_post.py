@@ -10,17 +10,21 @@ print-template derives the PDF's pandoc template from the page's: the same
 styles, no web fonts (the PDF is built offline), print.css laid over them, and
 a plain "Contents" list instead of the collapsible one.
 
-screen and print fix what this pandoc (2.9) does to the guide's answer blocks:
-it wraps <summary> in a paragraph. The screen page gets the <details> back as
-written; the PDF gets them as always-open answer boxes, since paper cannot
-click. print also gives every table explicit column widths -- print.css lays
-tables out `fixed`, and fixed layout without widths makes every column equal --
-and keeps inline code from breaking anywhere but between its words.
+screen and print move each self-check answer to the end of its chapter, where
+a reader meets it after answering, and leave a link under its question. They
+also undo what this pandoc (2.9) does to an answer block: it wraps <summary>
+in a paragraph. The screen page gets each answer as a <details>, folded; the
+PDF gets them as always-open answer boxes, since paper cannot click. print
+also gives every table explicit column widths -- print.css lays tables out
+`fixed`, and fixed layout without widths makes every column equal -- and keeps
+inline code from breaking anywhere but between its words.
 """
 import html
 import re
 import sys
 
+# An answer block as pandoc 2.9 writes it, which answers_last() leaves in
+# no rendering.
 DETAILS = re.compile(r'<details>\n<p><summary>(.*?)</summary></p>')
 
 
@@ -135,21 +139,103 @@ PLANTED_PROSE = ('a sentence of plain words, long enough that its share of '
 PLANTED_WORD = '--an-invented-option=with,a,long,list,of,values'
 
 
+# A self-check question and the answer block under it, as pandoc 2.9 writes
+# them (a paragraph is one line at the build's --columns): the question's
+# number, then the answer's text.
+QA = re.compile(r'(<p><strong>(Q\d+)\.[^\n]*</strong></p>\n)'
+                r'<details>\n<p><summary>.*?</summary></p>\n(.*?)</details>\n',
+                re.S)
+# Where a chapter starts: a part (h2) or a chapter (h3) heading.
+CHAPTER = re.compile(r'(?=<h[23][ >])')
+
+
+def answers_last(s, block):
+    """Move each self-check answer to the end of its chapter.
+
+    A reader is to answer before reading the answer, and one printed under
+    its question is read first: on paper always, since paper cannot fold.
+    So each chapter's answers go after everything else in it, under a
+    heading of their own and in order, each made by block(id, label, text);
+    the question keeps a link to its answer.
+    """
+    out = []
+    for part in CHAPTER.split(s):
+        head = re.match(r'<h[23] id="([^"]+)"', part)
+        chapter = head.group(1) if head else 'top'
+        found = []
+
+        def take(m):
+            ref = 'answer-%s-%s' % (chapter, m.group(2).lower())
+            found.append(block(ref, 'Answer to ' + m.group(2), m.group(3)))
+            return (m.group(1) + '<p class="answer-link"><a href="#%s">'
+                    'Answer: end of the chapter</a></p>\n' % ref)
+        part = QA.sub(take, part)
+        if found:
+            answers = ('<h4 id="answers-%s">Self-check answers</h4>\n'
+                       % chapter + ''.join(found))
+            if '</body>' in part:
+                part = part.replace('</body>', answers + '</body>', 1)
+            else:
+                part = part + answers
+        out.append(part)
+    s = ''.join(out)
+    stray = DETAILS.search(s)
+    if stray:
+        sys.exit('guide_post.py: an answer block follows no "**Qn. ...**" '
+                 'question, so it has no chapter end to go to: %r'
+                 % s[stray.start():stray.start() + 120])
+    return s
+
+
+def screen(s):
+    """The page: each answer folded, at the end of its chapter."""
+    return answers_last(s, lambda ref, label, text: (
+        '<details id="%s"><summary>%s</summary>\n%s</details>\n'
+        % (ref, label, text)))
+
+
+def printed(s):
+    """The PDF's HTML: answers open at the end of each chapter, tables with
+    widths, code kept whole."""
+    s = answers_last(s, lambda ref, label, text: (
+        '<div class="answer" id="%s"><p class="answer-label">%s</p>\n%s</div>\n'
+        % (ref, label, text)))
+    s = re.sub(r'<table>.*?</table>', colgroup, s, flags=re.S)
+    return inline_code(s)
+
+
+RENDER = {'screen': screen, 'print': printed}
+
+# A chapter as pandoc 2.9 writes one: a self-check question and its answer,
+# a section after them, then the next chapter. Invented words.
+PLANTED_CHAPTER = ('<h3 id="planted">Planted</h3>\n'
+                   '<h4 id="self-check-planted">Self-check</h4>\n'
+                   '<p><strong>Q1. A planted question?</strong></p>\n'
+                   '<details>\n<p><summary>Answer</summary></p>\n\n'
+                   '<p>A planted answer.</p>\n</details>\n'
+                   '<h4 id="pitfalls-planted">Pitfalls</h4>\n'
+                   '<p>A planted pitfall.</p>\n'
+                   '<h3 id="next">Next</h3>\n<p>The next chapter.</p>\n')
+
+
 def self_check(css_path):
     """The layout rules no build of the guide as it is can show broken.
 
     The render gate reads the PDF of the guide as it is: a table the guide
     does not hold yet, or a code block it does not hold yet, is never
     rendered, so a rule that stopped holding goes unseen until one is
-    written. So the two rules are checked here on their own, before every
-    build (tools/exam_guide.sh):
+    written; and nothing reads where an answer lands. So the three rules are
+    checked here on their own, before every build (tools/exam_guide.sh):
       - widths() gives a column at least the width its longest word prints,
         on the planted table above (V21: it gave the word's column 119.6 pt
         of the 231.5 it needs, and the gate refused the build);
       - print.css keeps every block with a language unfolded (V20: a folded
-        recipe line is another command, and the gate cannot see a fold).
+        recipe line is another command, and the gate cannot see a fold);
+      - both renderings print a self-check answer once, after the rest of
+        its chapter, on the planted chapter above (the PDF printed each
+        answer open under its question, read before it was answered).
 
-    Returns a list of sentences, empty when both hold.
+    Returns a list of sentences, empty when all three hold.
     """
     problems = []
     cells = ''.join('<td>%s</td>' % PLANTED_PROSE for _ in range(3))
@@ -163,6 +249,16 @@ def self_check(css_path):
                         'columns %.1f pt of the %.1f it prints in: a column is '
                         'never narrower than its longest word (V21)'
                         % (len(PLANTED_WORD), got, need))
+    for mode, render in sorted(RENDER.items()):
+        out = render(PLANTED_CHAPTER)
+        at = [out.find(t) for t in ('A planted question', 'A planted pitfall',
+                                    'A planted answer', '<h3 id="next"')]
+        if -1 in at or at != sorted(at) or out.count('A planted answer') != 1:
+            problems.append('the %s rendering does not print a self-check '
+                            'answer once, at the end of its chapter: a '
+                            'reader answers before reading it, and an '
+                            'answer printed under its question is read '
+                            'first' % mode)
     css = open(css_path, encoding='utf-8').read()
     css = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
     if not re.search(r'(^|[\s,}])pre\[class\]\s*(,[^{]*)?\{[^}]*white-space:\s*pre\s*[;}]', css):
@@ -183,18 +279,11 @@ def main():
         for p in problems:
             print('  ' + p)
         sys.exit(1 if problems else 0)
+    if mode not in RENDER:
+        sys.exit('guide_post.py: unknown mode ' + mode)
     path = sys.argv[2]
     s = open(path, encoding='utf-8').read()
-    if mode == 'screen':
-        s = DETAILS.sub(r'<details><summary>\1</summary>\n', s)
-    elif mode == 'print':
-        s = DETAILS.sub(r'<div class="answer"><p class="answer-label">\1</p>', s)
-        s = s.replace('</details>', '</div>')
-        s = re.sub(r'<table>.*?</table>', colgroup, s, flags=re.S)
-        s = inline_code(s)
-    else:
-        sys.exit('guide_post.py: unknown mode ' + mode)
-    open(path, 'w', encoding='utf-8').write(s)
+    open(path, 'w', encoding='utf-8').write(RENDER[mode](s))
 
 
 if __name__ == '__main__':

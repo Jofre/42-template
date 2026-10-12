@@ -30,7 +30,7 @@
 # target lies outside the directory, dated so that the link sorts in the same
 # place by its own date or by its target's. A link to a DIRECTORY is left out:
 # whether that is a "directory name" the subject does not say.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-midLS}

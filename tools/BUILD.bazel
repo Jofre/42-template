@@ -202,6 +202,11 @@ exports_files([
     # subject was. Exported for //tools/tests:selftest, which checks the one
     # thing a PDF reader is strict about: every cross-reference offset.
     "placeholder_pdf.sh",
+    # Builds the study guide's page and PDF, and its --check refuses a
+    # rendering whose stamp is not the build inputs' as they are now; the
+    # template build runs it. Exported for //tools/tests:selftest, which
+    # checks that stamp on a toy guide.
+    "exam_guide.sh",
     # Finds an exercise's answer outside deliverable/ and generators/. The
     # template build runs it before stubbing; exported for the selftest.
     "answer_scan.sh",
@@ -237,6 +242,9 @@ exports_files([
     # and a tool that does that has to be shown to leave mode and body alone.
     "reset_headers.sh",
     "init.sh",
+    # Run, never sourced, by init.sh and by `42 config set login|email`:
+    # the one writer of the identity, exported for the selftest's init arms.
+    "identity.sh",
     # Sourced, never run: which machine this is, and where Bazel's state may
     # go on it. setup.sh, prime.sh, init.sh, env_drift.sh, env-audit.sh and the
     # wrapper below all ask it, so they cannot disagree (finding 001).
@@ -259,7 +267,8 @@ exports_files([
 #
 # Not data: the campus warning about where this checkout's Bazel state is reads
 # tools/drives.sh from the workspace (BUILD_WORKSPACE_DIRECTORY), as every
-# script that asks it does. Beside the script is not a place under `bazel run`.
+# script that asks it does, and the identity is written by the workspace's
+# tools/identity.sh. Beside the script is not a place under `bazel run`.
 sh_binary(name = "init", srcs = ["init.sh"])
 
 # bazel run //tools:42 -- [command]   (`42 help` lists the commands)
@@ -499,6 +508,8 @@ filegroup(
         "requirements.txt",
         # The 42 command's registry, held to the run targets of this file.
         "fortytwo/commands.tsv",
+        # The pinned versions, each held to the files that install it.
+        "pins.tsv",
     ] + glob(
         [
             "*.sh",

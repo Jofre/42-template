@@ -1,9 +1,10 @@
 #!/bin/sh
 # first_red.sh — turn a wall of red into one next objective.
 #
-# Usage:
-#   bazel test //c-piscine/c-piscine-c-05:basic 2>&1 | sh tools/first_red.sh   # what to do next
-#   bazel test //... 2>&1 | sh tools/first_red.sh --all   # ... and everything (needs memory to spare)
+# Usage: for what to do next,
+#   bazel test //c-piscine/c-piscine-c-05:basic 2>&1 | sh tools/first_red.sh
+# ... and for everything, which needs memory to spare:
+#   bazel test //... 2>&1 | sh tools/first_red.sh --all
 #
 #   --cmd 42      every command the report suggests is written as the `42`
 #                 command that runs the same tests (tools/42.sh), not as Bazel's
@@ -12,6 +13,22 @@
 #                 column it cannot fill; an empty file when nothing is next).
 #                 BUCKET is build, ko, work, wrong, slow or rigour. `42` reads it
 #                 to show that one test's log, in the report's own order.
+#   --triage FILE also write every red exercise's bucket, one line each,
+#                 "BUCKET<tab>MODULE<tab>EXERCISE", in the report's order:
+#                 the verdicts it words, work being "not written yet". BUCKET
+#                 is one of --next's, or norun (nothing of it ran); a test of
+#                 the whole module is its own EXERCISE (deliverable_files).
+#                 An empty file when nothing failed. submit.sh's
+#                 --written-only reads it.
+#   --written MODDIR  no report, and nothing read from stdin: one line per
+#                 exercise of MODDIR's subject() contract, in its order,
+#                 "STATE<tab>exNN<tab>PART". STATE is stub where the report
+#                 would call it "not written yet" (no file of it holds a body,
+#                 as stub_check reads them) and written otherwise; PART is
+#                 mandatory where the contract's `mandatory` names it, and
+#                 optional otherwise, every exercise of a contract that names
+#                 none. Exit 2 when no contract could be read. submit.sh reads
+#                 it for the floor --written-only will not push below.
 #
 # Exit 0 = the report is complete. Exit 1 = the run did not complete: something
 # did not build, or the run stopped early, so part of it could not say anything,
@@ -158,9 +175,10 @@ require awk dirname find mktemp mv rm sed sort tr
 # (buildifier's): a line `subject(` at the start, an entry `"NN": exercise(`
 # holding one `dir = "..."` or `dir = None`, the call closed by a `)` at the
 # start of a line. A comment is dropped before anything is read, so a note
-# that mentions `dir = None` is not the contract. //tools/tests:turnin_dirs
-# holds this reading to the macros' own turnin_dir() for every exercise of
-# every project (and macro_fixtures_test on the toy ones), and
+# that mentions `dir = None` is not the contract.
+# //tools/tests:macro_fixtures_test holds this reading to the macros' own
+# turnin_dir() (each package's :turnin_dirs) for every exercise of every
+# project and of the toy ones, and
 # //tools:conventions checks that it finds an entry for every tests/exNN
 # folder.
 turnin_of() {  # turnin_of MODDIR EX
@@ -193,9 +211,107 @@ turnin_of() {  # turnin_of MODDIR EX
 	printf '%s\n' "$_to"
 }
 
+# stub_check.sh is found NEXT TO THIS SCRIPT, not relative to the working
+# directory. A runner that only works when you happen to be standing in the
+# repo root is a runner that fails the first time it is called from anywhere
+# else -- and this one is meant to be piped into from wherever you ran bazel.
+STUB_CHECK="$(dirname "$0")/stub_check.sh"
+
+# Is this exercise written? stub_check.sh answers per file: 0 a stub, 1 holds a
+# body, 2 not a kind it reads (numbers.dict, a stray a.out) or a file that is
+# neither (empty, or a .c or .h with no 42 header). What 2 counts as is the
+# caller's: in the rule bucket a stray file, or a lost header, is itself the
+# rule broken, so it counts as written; beside a red output it says nothing
+# about the code, so it does not. A shell exercise is its generator, never the
+# deliverable/ that the generator writes.
+is_written() {  # is_written MOD EX UNKNOWN_COUNTS(0|1)
+	_m=$(printf '%s' "$1" | sed 's|^//||')
+	if [ -f "$_m/generators/$2.sh" ]; then
+		sh "$STUB_CHECK" --file "$_m/generators/$2.sh" > /dev/null 2>&1
+		[ $? -eq 1 ]
+		return
+	fi
+	# The exercise's turn-in folder, as its subject contract names it
+	# (turnin_of, above). Where there is no contract to read -- a run piped
+	# in from outside the workspace -- there is nothing to inspect either.
+	_d=$(turnin_of "$_m" "$2") || return 1
+	_d="$_m/$_d"
+	[ -d "$_d" ] || return 1
+	find "$_d" -type f | {
+		while IFS= read -r _f; do
+			sh "$STUB_CHECK" --file "$_f" > /dev/null 2>&1
+			case $? in
+				0) ;;
+				1) exit 0 ;;
+				*) [ "$3" -eq 1 ] && exit 0 ;;
+			esac
+		done
+		exit 1
+	}
+}
+
+# THE CONTRACT'S EXERCISES AND ITS MANDATORY PART, read from the subject()
+# call the way turnin_of reads it, comments dropped first: every entry
+# `"NN": exercise(`, in the order written, and the list `mandatory = [...]`,
+# on one line or over several. Prints one exNN a line, nothing for a
+# contract with no mandatory list; false with no BUILD.bazel or no subject().
+# //tools/tests:macro_fixtures_test holds both readings, through --written,
+# to the macros' own (each package's :turnin_dirs and :mandatory).
+contract_read() {  # contract_read MODDIR exercises|mandatory
+	[ -f "$1/BUILD.bazel" ] || return 1
+	awk -v what="$2" '
+		/^subject\(/ { insub = 1; found = 1; next }
+		insub && /^\)/ { exit }
+		!insub { next }
+		{
+			line = $0; sub(/#.*/, "", line)
+			if (what == "exercises") {
+				while (match(line, /"[0-9][0-9]": *exercise\(/)) {
+					print "ex" substr(line, RSTART + 1, 2)
+					line = substr(line, RSTART + RLENGTH)
+				}
+			} else
+				text = text " " line
+		}
+		END {
+			if (!found) exit 1
+			if (what != "mandatory" || !match(text, /[(, ]mandatory *= *\[/)) exit 0
+			rest = substr(text, RSTART + RLENGTH)
+			rest = substr(rest, 1, index(rest, "]") - 1)
+			while (match(rest, /"[0-9][0-9]"/)) {
+				print "ex" substr(rest, RSTART + 1, 2)
+				rest = substr(rest, RSTART + RLENGTH)
+			}
+		}' "$1/BUILD.bazel"
+}
+
+# --written MODDIR: each exercise's STATE and PART (see the usage above). The
+# judge is is_written's, with what stub_check cannot read left uncounted: the
+# one that leaves an exercise "not written yet" in the report, so a floor
+# built on this and the report's own words never disagree.
+written_of() {  # written_of MODDIR
+	[ -f "$STUB_CHECK" ] || { echo "first_red.sh: $STUB_CHECK is not beside it" >&2; return 2; }
+	_wo_ex=$(contract_read "$1" exercises) || _wo_ex=""
+	if [ -z "$_wo_ex" ]; then
+		echo "first_red.sh: no subject() contract with an exercise in $1/BUILD.bazel" >&2
+		return 2
+	fi
+	_wo_mand=$(contract_read "$1" mandatory) || return 2
+	_wo_mand=" $(printf '%s\n' "$_wo_mand" | tr '\n' ' ')"
+	for _wo_e in $_wo_ex; do
+		case "$_wo_mand" in
+			*" $_wo_e "*) _wo_p=mandatory ;;
+			*) _wo_p=optional ;;
+		esac
+		if is_written "$1" "$_wo_e" 0; then _wo_s=written; else _wo_s=stub; fi
+		printf '%s\t%s\t%s\n' "$_wo_s" "$_wo_e" "$_wo_p"
+	done
+}
+
 MODE=summary
 CMD=bazel
 NEXT=""
+TRIAGE=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--all) MODE=all; shift ;;
@@ -207,11 +323,18 @@ while [ $# -gt 0 ]; do
 		--next)
 			[ $# -ge 2 ] && [ -n "$2" ] || { echo "first_red.sh: --next FILE" >&2; exit 2; }
 			NEXT=$2; shift 2 ;;
+		--triage)
+			[ $# -ge 2 ] && [ -n "$2" ] || { echo "first_red.sh: --triage FILE" >&2; exit 2; }
+			TRIAGE=$2; shift 2 ;;
 		# The turn-in folder of one exercise, as the report reads it: for
 		# the checks that hold this reading to the contract's.
 		--turnin)
 			[ $# -ge 3 ] || { echo "first_red.sh: --turnin MODDIR EX" >&2; exit 2; }
 			turnin_of "$2" "$3"
+			exit ;;
+		--written)
+			[ $# -ge 2 ] && [ -n "$2" ] || { echo "first_red.sh: --written MODDIR" >&2; exit 2; }
+			written_of "$2"
 			exit ;;
 		*) echo "first_red.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -221,12 +344,9 @@ done
 if [ -n "$NEXT" ]; then
 	: > "$NEXT" || { echo "first_red.sh: cannot write $NEXT" >&2; exit 2; }
 fi
-
-# stub_check.sh is found NEXT TO THIS SCRIPT, not relative to the working
-# directory. A runner that only works when you happen to be standing in the
-# repo root is a runner that fails the first time it is called from anywhere
-# else -- and this one is meant to be piped into from wherever you ran bazel.
-STUB_CHECK="$(dirname "$0")/stub_check.sh"
+if [ -n "$TRIAGE" ]; then
+	: > "$TRIAGE" || { echo "first_red.sh: cannot write $TRIAGE" >&2; exit 2; }
+fi
 
 # The build stand-in's mark, from the one file that defines it (see
 # tools/standin.sh): a test whose log holds it ran a program that never built.
@@ -637,38 +757,6 @@ awk -F'\t' -v out="$WORK" -v mark="$STANDIN_MARK" -v nomark="$NOTURNIN_MARK" \
 : >> "$WORK.t"; : >> "$WORK.b"
 sort -u "$WORK.t" -o "$WORK.t"
 
-# Is this exercise written? stub_check.sh answers per file: 0 a stub, 1 holds a
-# body, 2 not a kind it reads (numbers.dict, a stray a.out). What 2 counts as is
-# the caller's: in the rule bucket a stray file is itself the rule broken, so it
-# counts as written; beside a red output it says nothing about the code, so it
-# does not. A shell exercise is its generator, never the deliverable/ that the
-# generator writes.
-is_written() {  # is_written MOD EX UNKNOWN_COUNTS(0|1)
-	_m=$(printf '%s' "$1" | sed 's|^//||')
-	if [ -f "$_m/generators/$2.sh" ]; then
-		sh "$STUB_CHECK" --file "$_m/generators/$2.sh" > /dev/null 2>&1
-		[ $? -eq 1 ]
-		return
-	fi
-	# The exercise's turn-in folder, as its subject contract names it
-	# (turnin_of, above). Where there is no contract to read -- a run piped
-	# in from outside the workspace -- there is nothing to inspect either.
-	_d=$(turnin_of "$_m" "$2") || return 1
-	_d="$_m/$_d"
-	[ -d "$_d" ] || return 1
-	find "$_d" -type f | {
-		while IFS= read -r _f; do
-			sh "$STUB_CHECK" --file "$_f" > /dev/null 2>&1
-			case $? in
-				0) ;;
-				1) exit 0 ;;
-				*) [ "$3" -eq 1 ] && exit 0 ;;
-			esac
-		done
-		exit 1
-	}
-}
-
 # EMPTY stand-ins, settled: over a stub, the exercise is not written yet --
 # its tests are ordinary reds ("run"), and it leaves the build list; over
 # written files it does not build ("standin"). Where there is nothing to
@@ -863,6 +951,11 @@ while IFS="$(printf '\t')" read -r kind mod ex what count first layers ftb slow 
 	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$mod" "$ex" "$what" \
 		"$count" "$first" "$layers" "$ftb" "$slow" "$sl" >> "$WORK.2"
 done < "$WORK"
+# Every exercise's verdict, settled, for --triage: the bucket, the module and
+# the exercise of each line but the TOTAL.
+if [ -n "$TRIAGE" ]; then
+	awk -F'\t' -v OFS='\t' '$1 != "TOTAL" { print $1, $2, $3 }' "$WORK.2" > "$TRIAGE"
+fi
 
 # Pass 3: render. What does not build, then one objective, then a module-sized
 # picture of what is left -- and with --all, one line per exercise. Never one
@@ -947,7 +1040,7 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 	}
 	$1 == "TOTAL" { total = $2; nex = $3; next }
 	{
-		kind[++r] = $1; mod[r] = $2; ex[r] = $3; what[r] = $4
+		mod[++r] = $2; ex[r] = $3
 		cnt[r] = $5; lay[r] = $7
 		if (!(mod[r] in mseen)) { mseen[mod[r]] = 1; morder[++nm] = mod[r] }
 		mred[mod[r]] += $5

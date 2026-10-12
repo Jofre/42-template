@@ -30,7 +30,7 @@
 # missing is ONE line, its type-and-permissions line, which says so: its date,
 # size and links are graded only when it is there to read them from, so an
 # empty archive is seven lines saying what is missing, not twenty.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 TAR=${1:?the archive name, which each BUILD call passes}

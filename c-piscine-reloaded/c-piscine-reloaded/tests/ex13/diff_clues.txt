@@ -1,6 +1,12 @@
   Same contract as the iterative one, so compare against that first.
     * 0 diverges              -> the base case
-    * every negative          -> the subject says what an invalid input returns,
-                                 and a recursion has to check before it recurses
-    * only large inputs       -> overflow, and what the subject says to return
+    * every negative          -> the subject says what an invalid input returns:
+                                 does your function reach that answer before it
+                                 calls itself?
+    * only large inputs       -> every answer here fits in an int: what does
+                                 your code do differently as the input grows,
+                                 and does anything it computes on the way to
+                                 the answer not fit? (What C promises about
+                                 each type's width: docs/testing.md, under
+                                 ilp32.)
     * it never terminates     -> the base case is not reachable from every input

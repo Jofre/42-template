@@ -12,7 +12,7 @@
 # is the reading Shell 01 ex02's regular.sh applies to find_sh.sh, which has
 # the same words. Which one 42 applies is not settled -- which is what puts
 # this at strict and not at basic (docs/reference.md, "Run contract").
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 C=${1:-clean}

@@ -1,6 +1,7 @@
   The string is printed after the call, as hex: decode it to read it as text.
-    * the first word only               -> what the previous character is when
-                                           there is none
+    * the first word only               -> the start of the string starts a
+                                           word too: how does your code decide
+                                           that a word starts there?
     * words after a digit or punctuation -> what counts as a word boundary here;
                                            the subject's own example has both
     * a word starting with a digit       -> the first character is not always a

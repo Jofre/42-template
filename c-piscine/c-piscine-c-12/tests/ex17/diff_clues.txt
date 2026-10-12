@@ -1,10 +1,12 @@
   Both lists are printed as they went in, then the merged one.
     * either list empty       -> both are already merged, and neither may be
                                  walked as though it had a first element
-    * one list entirely below the other -> the seam, where one list runs out and
-                                 the rest of the other has to follow it
-    * interleaved values      -> the general case; if only this diverges, the
-                                 comparison decides which side is taken next
+    * one list entirely below the other -> the seam, where one list's values
+                                 end and the other's begin: is every element
+                                 of both still there, in order?
+    * interleaved values      -> the general case; if only this diverges, find
+                                 the first value out of order: which list did
+                                 it come from, and which value is before it?
     * the result is short by exactly the second list -> the second list is being
                                  traversed but not linked, or linked and then
                                  overwritten

@@ -1,8 +1,8 @@
 /* Live-differential reader harness for btree_level_count.
  * Line: <seq>\t<shape>\t<height>. seq = the items, comma-joined hex; shape =
  * where each one hangs ("-" the root, "3L" left of item 3). Links the tree from
- * those two, reprints <seq>\t<shape>\t then the student's btree_level_count
- * (node-count height; empty 0, single 1). See diffio.h. */
+ * those two, reprints <seq>\t<shape>\t then what the student's
+ * btree_level_count returned for it, in decimal. See diffio.h. */
 #include "diffio.h"
 #include "ft_btree.h"
 
@@ -10,7 +10,7 @@
  * items[i] and is linked under pool[parent] on the side the shape names. The
  * pool comes zeroed, so every link the shape does not set stays empty. Nothing
  * here compares an item or walks a tree -- where each item belongs was decided
- * by the reference (oracle/src/c13.rs), which keeps this harness free of any
+ * by the reference, which keeps this harness free of any
  * insert, and the whole tree is one block to free. */
 static t_btree	*plant(t_btree *pool, char **items, char *shape, int n)
 {

@@ -28,11 +28,9 @@ def touch(path, text="x"):
 class Watched(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.root = self.tmp.name
         self.p = FakeProject(self.root, {"ex00": "deliverable/ex00", "ex01": "deliverable"})
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def rel(self, paths):
         return sorted(os.path.relpath(p, self.root) for p in paths)
@@ -115,12 +113,10 @@ class Raced(unittest.TestCase):
 class Store(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.env = {"XDG_STATE_HOME": os.path.join(self.tmp.name, "state"), "HOME": self.tmp.name}
         self.ws = os.path.join(self.tmp.name, "ws")
         os.makedirs(self.ws)
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def test_state_lives_outside_the_checkout_one_folder_per_checkout(self):
         d = taint.state_dir(self.ws, self.env)

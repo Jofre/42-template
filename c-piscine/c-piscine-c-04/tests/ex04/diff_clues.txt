@@ -4,11 +4,14 @@
                                            them is about length
     * only negative numbers             -> the sign, printed once, before the
                                            digits
-    * only INT_MIN                      -> negating first; it has no positive
-                                           counterpart
+    * only INT_MIN                      -> INT_MIN has no positive counterpart
+                                           in an int: does your code compute
+                                           anything from it that would need one?
     * only base 1 or an empty base      -> a base too short to represent
                                            anything is rejected, not divided by
-    * digits reversed                   -> the order the recursion unwinds in
+    * digits reversed                   -> the order your code finds the digits
+                                           in, against the order they are
+                                           written in
     * zero prints nothing               -> the loop that cannot run zero times
     * only bases holding a byte above 0x7f, or a control byte -> every base
                                            here is invalid by a rule the

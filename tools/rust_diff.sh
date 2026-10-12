@@ -75,6 +75,8 @@ GATE_DIFFER=""
 GATE_BIN=""
 GATE_EXPECTED=""
 GATE_PASS=""
+# How many bytes of one corpus line a report shows: rl_excerpt's width.
+SHOW_W=${RL_EXCERPT_WIDTH:-300}
 # `--flag` with nothing after it used to die as "2: parameter not set" from
 # `set -u` -- the right exit code wrapped in raw shell. Same loop in every
 # runner, so the fix is the same three lines in every runner.
@@ -101,6 +103,9 @@ while [ $# -gt 0 ]; do
 		*) echo "rust_diff: unknown arg $1" >&2; exit 2 ;;
 	esac
 done
+
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole rust_diff "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS"
 
 if [ -z "$ORACLE" ] || [ -z "$FN" ] || [ -z "$STUDENT" ]; then
 	echo "rust_diff: need --oracle, --oracle-fn and --student-bin" >&2
@@ -203,8 +208,8 @@ standin_check rust_diff "$STUDENT" fail "the program this layer replays"
 #
 # Reusing that comment rather than writing a legend per exercise means the legend
 # cannot drift from the parser -- they are the same lines -- and it costs no new
-# files. It is not a substitute for a real diff_clues.txt (see TODO item 1), it
-# is what every exercise gets for free until one is written.
+# files. It is not a substitute for the curated diff_clues.txt beside the
+# harness; it is what an exercise gets for free where none is written.
 #
 # THE SHAPE IT READS, which //tools:conventions holds every tests/**/diff_*.c
 # to (finding 058): within the first 12 lines, a comment line that begins
@@ -337,15 +342,33 @@ not_started() {
 # replay_how PREFIX -- the command that replays one corpus line, a WORD from
 # case_word: corpus line N as ONE shell word that gives back its exact bytes
 # (rl_shword), never raw (see reproducer, below).
+case "$STUDENT" in
+	/*) REPLAY_BIN=$STUDENT ;;
+	*) REPLAY_BIN=bazel-bin/$STUDENT ;;
+esac
 replay_how() {
-	case "$STUDENT" in
-		/*) _rp_bin=$STUDENT ;;
-		*) _rp_bin=bazel-bin/$STUDENT ;;
-	esac
-	printf '%s%s runs it on its own:\n' "$1" "printf '%s\\n' WORD | $_rp_bin"
+	printf '%s%s runs it on its own:\n' "$1" "printf '%s\\n' WORD | $REPLAY_BIN"
 }
 case_word() {  # case_word N
 	sed -n "${1}{p;q;}" "$T/exp" | LC_ALL=C tr -d '\n' | rl_shword
+}
+# case_shown N NAME -- corpus line N as case_word writes it; or, when the
+# line is longer than a report shows (SHOW_W), kept as test output NAME and
+# named, with the command that replays it from there. A word must give back
+# every byte, so it cannot be cut, and the corpora hold lines of 20 to 80 KB
+# (finding 041): three of them as words were a log of hundreds of KB.
+case_shown() {
+	sed -n "${1}{p;q;}" "$T/exp" > "$T/case.$1"
+	_cs_n=$(($(wc -c < "$T/case.$1") - 1))
+	if [ "$_cs_n" -le "$SHOW_W" ]; then
+		case_word "$1"
+	elif rl_save "$T/case.$1" "$2"; then
+		printf '(case %d, a line of %d bytes, too long to show: %s < %s runs it)' \
+			"$1" "$_cs_n" "$REPLAY_BIN" "$RL_SAVED"
+	else
+		printf '(case %d, a line of %d bytes, too long to show; only a run under bazel test keeps it)' \
+			"$1" "$_cs_n"
+	fi
 }
 
 # How far the run got, for a report on one that did not finish: the first line
@@ -389,7 +412,7 @@ reproducer() {  # reproducer DONE TOTAL [died]
 	fi
 	_rp_i=$(($1 + 1))
 	while [ "$_rp_i" -le "$(($1 + 3))" ] && [ "$_rp_i" -le "$2" ]; do
-		printf '    %s\n' "$(case_word "$_rp_i")"
+		printf '    %s\n' "$(case_shown "$_rp_i" "case-$_rp_i.txt")"
 		_rp_i=$((_rp_i + 1))
 	done
 }
@@ -414,9 +437,12 @@ show_died_case() {
 	echo "  wrote it -- the inputs, then the reference's answer -- written as a shell"
 	echo "  word that gives back its exact bytes, so that"
 	replay_how "  "
-	printf '    %s\n' "$(case_word "$DIED_CASE")"
-	sed -n "${DIED_CASE}p" "$T/exp" > "$T/case.txt"
-	rl_save "$T/case.txt" crashing-case.txt && echo "    (kept as $RL_SAVED)"
+	_dc_w=$(case_shown "$DIED_CASE" crashing-case.txt)
+	printf '    %s\n' "$_dc_w"
+	case "$_dc_w" in
+		"(case "*) ;;
+		*) rl_save "$T/case.$DIED_CASE" crashing-case.txt && echo "    (kept as $RL_SAVED)" ;;
+	esac
 }
 
 # Whether everything the run DID answer matched: said only when checked. The
@@ -471,13 +497,25 @@ if [ "$CRASH_ONLY" -eq 1 ]; then
 		reproducer "$NDONE" "$NCASES"
 	fi
 	echo ""
-	echo "  The harness was built with AddressSanitizer and UBSan. They stop the run"
-	echo "  at the first access outside a block the program owns, or the first"
-	echo "  undefined operation, and the report says which: READ or WRITE, how many"
-	echo "  bytes, and how far outside which block. The answer can still have been"
-	echo "  right -- this layer does not compare values, the diff layer does -- so"
-	echo "  what to look at is what the code touched, not what it printed. The top"
-	echo "  frame below is where the access happened."
+	# What the report is, from its own first line (rl_sanitizer_kind): the
+	# paragraph below explained an access outside a block, READ or WRITE,
+	# whatever the report said. It stays for that kind, and for a
+	# report whose kind no line names.
+	if [ "$RL_SAN_OOB" = 1 ] || [ -z "$RL_SAN_KIND" ]; then
+		echo "  The harness was built with AddressSanitizer and UBSan. They stop the run"
+		echo "  at the first access outside a block the program owns, or the first"
+		echo "  undefined operation, and the report says which: READ or WRITE, how many"
+		echo "  bytes, and how far outside which block. The answer can still have been"
+		echo "  right -- this layer does not compare values, the diff layer does -- so"
+		echo "  what to look at is what the code touched, not what it printed. The top"
+		echo "  frame below is where the access happened."
+	else
+		echo "  The sanitizer stopped the harness when it $(rl_sanitizer_about)."
+		rl_sanitizer_explain "  "
+		echo "  The answer can still have been right -- this layer does not compare"
+		echo "  values, the diff layer does. The first frame below in your file is"
+		echo "  where it happened."
+	fi
 	# A file and a line only when the pinned symbolizer named them: without
 	# --symbolizer every frame is an address, and saying otherwise would send
 	# a student looking for a line number that was never printed.
@@ -639,27 +677,63 @@ read -r _nd _more < "$T/div.n"
 # as the output tables mark a line's end: a space at the end of a line is
 # no byte the renderer escapes, and "61\ta " read exactly as "61\ta" (V49).
 # A $ in the line itself is rendered \x24, so the mark is never the text.
+#
+# A LINE PAST SHOW_W BYTES is shown to its first SHOW_W, the rest counted and
+# no $ after it (rl_vis's WIDTH), and the bytes where the two lines part are
+# shown under the pair (rl_diff_window), since a cut can fall before them.
+# The corpora hold lines of 20 to 80 KB early in the file (finding 041), and
+# a common bug printed every one of the first fifteen whole: a first red log
+# of hundreds of KB of hex. Only what is shown is cut; the lines were compared
+# whole, and are kept whole as test outputs.
 div_line() {
-	if [ -s "$1" ]; then rl_vis arg < "$1"; printf '$'; else printf '(an empty line)'; fi
+	if [ ! -s "$1" ]; then
+		printf '(an empty line)'
+		return
+	fi
+	rl_vis arg "" "$SHOW_W" < "$1"
+	[ "$(wc -c < "$1")" -gt "$SHOW_W" ] || printf '$'
+}
+div_long() {  # div_long FILE -- true when FILE is cut when shown
+	[ -f "$1" ] && [ "$(wc -c < "$1")" -gt "$SHOW_W" ]
 }
 # Rendered first, then printed with the legend of what they show
-# (rl_vis_legend): a fixed one named a tab and a backslash under lines that
-# held neither.
+# (rl_vis_legend), read off the lines alone (div.lines): a fixed one named a
+# tab and a backslash under lines that held neither, and a window under a
+# pair carries a legend of its own.
+div_shown() {  # div_shown TEXT -- one line of the list, and of div.lines
+	printf '%s\n' "$1" >> "$T/div.shown"
+	printf '%s\n' "$1" >> "$T/div.lines"
+}
 : > "$T/div.shown"
+: > "$T/div.lines"
 _i=1
 while [ "$_i" -le "$_nd" ]; do
 	if [ -f "$T/div.$_i.ref" ]; then
-		printf '  reference: %s\n' "$(div_line "$T/div.$_i.ref")" >> "$T/div.shown"
+		div_shown "  reference: $(div_line "$T/div.$_i.ref")"
 	else
-		echo "  reference: (no line -- its $NTOTAL cases end before this one)" >> "$T/div.shown"
+		div_shown "  reference: (no line -- its $NTOTAL cases end before this one)"
 	fi
-	printf '  student  : %s\n' "$(div_line "$T/div.$_i.act")" >> "$T/div.shown"
+	div_shown "  student  : $(div_line "$T/div.$_i.act")"
+	if div_long "$T/div.$_i.ref" || div_long "$T/div.$_i.act"; then
+		[ ! -f "$T/div.$_i.ref" ] ||
+			rl_diff_window "$T/div.$_i.ref" "$T/div.$_i.act" "    " reference student >> "$T/div.shown"
+		if rl_save "$T/div.$_i.act" "divergence-$_i-student.txt"; then
+			_kept="divergence-$_i-student.txt"
+			! [ -f "$T/div.$_i.ref" ] || ! rl_save "$T/div.$_i.ref" "divergence-$_i-reference.txt" ||
+				_kept="divergence-$_i-reference.txt and $_kept"
+			echo "    the whole lines: $_kept, in ${RL_SAVED%/*}/" >> "$T/div.shown"
+		else
+			echo "    (only a run under bazel test keeps the whole lines)" >> "$T/div.shown"
+		fi
+	fi
 	_i=$((_i + 1))
 done
 cat "$T/div.shown"
 [ "$_more" = 1 ] && echo "  ..."
-[ "$_nd" -eq 0 ] || echo "  In the lines above, \$ is where a line ended."
-rl_vis_legend "$T/div.shown"
+# The note on the $ only under a line that ends in one: a line cut short ends
+# in its count of bytes left out, and a $ the line itself holds is \x24.
+! grep -q '\$$' "$T/div.lines" || echo "  In the lines above, \$ is where a line ended."
+rl_vis_legend "$T/div.lines"
 # No line differs, yet the files do. The list was empty then, under a
 # headline saying "diverges". Output past the reference's last line is a line
 # the list shows, so that leaves two ways: the output is the reference's cut

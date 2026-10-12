@@ -106,10 +106,10 @@ c_diff(num = "08", fn = "ft_strlowcase", harness = "diff_strlowcase.c", oracle_f
 
 c_function(num = "09", fn = "ft_strcapitalize", test = "test_strcapitalize.c", labeled = True, clues = "clues.tsv")
 
-# ft_strcapitalize edits its string IN PLACE up to the NUL, inspecting the
-# PREVIOUS byte for word boundaries — so it must read no earlier than str[0] nor
-# write past the NUL. Under ASan on an EXACTLY strlen+1 heap buffer, any
-# off-by-one overflows and is caught here (output diffing can't see it).
+# ft_strcapitalize edits its string IN PLACE, and the string is all it is
+# handed: a read before str[0] or a write past the NUL is out of bounds. Under
+# ASan on an EXACTLY strlen+1 heap buffer, any off-by-one at either end is
+# caught here (output diffing can't see it).
 c_mem_check(num = "09", fn = "ft_strcapitalize", probe = "mem_strcapitalize.c")
 
 # No libc equivalent: the reference encodes the documented word-capitalize
@@ -158,7 +158,8 @@ c_diff(
     # 200000, not 100000: as many as the ASan twin replays, so each case it
     # checks for memory is value-checked here too (V34, the owner's choice,
     # 2026-10-04); c_diff refuses a twin larger than its plain replay.
-    count = 200000,    diff_clues = "diff_clues.txt",
+    count = 200000,
+    diff_clues = "diff_clues.txt",
 )
 
 # sanitize: the address column moves with ASLR, so test_print_memory.c
@@ -171,11 +172,11 @@ c_function(num = "12", fn = "ft_print_memory", test = "test_print_memory.c", san
 
 c_mem_check(num = "12", fn = "ft_print_memory", probe = "mem_print_memory.c")
 
-# The layer TODO item 2 was really about. ~83 lines of format -- sixteen bytes a
+# The layer this exercise needs most. A dense format -- sixteen bytes a
 # row, hex in pairs, a short final row padded to width, non-printables replaced
-# -- and its whole correctness evidence was one fixture. A row that pads by one
-# space too few, or that treats 0x7f as printable, is invisible in an example
-# and immediate here.
+# -- and without it its whole correctness evidence is one fixture. A row that
+# pads by one space too few, or that treats 0x7f as printable, is invisible in
+# an example and immediate here.
 #
 # The address column is normalised to the row's offset on BOTH sides: the
 # subject prints the real address, which no reference can predict and which
@@ -209,8 +210,7 @@ c_diff(
     # passing yet". //tools:conventions now checks the pair repo-wide.
     gate_sanitize = True,
     # The corpus is small blocks, and each case pays for a pipe, a fork-free
-    # capture and a read; 100k is what the neighbouring write()-per-character
-    # exercise settled on for the same reason.
+    # capture and a read.
     # 200000, not 100000: as many as the ASan twin replays, so each case it
     # checks for memory is value-checked here too (V34, the owner's choice,
     # 2026-10-04); c_diff refuses a twin larger than its plain replay.
@@ -227,6 +227,10 @@ c_diff(
 
 c_levels()
 
+# Every corpus below but ex12's holds strings of 4100 and 5000 bytes, which
+# test capacity (finding 041; the diff layers judge them). Each c_cycles call
+# leaves them out (max_unit = 1000), as C 07's and C 09's do: its budget,
+# where it has one, was measured on the usual case.
 c_cycles(
     num = "00",
     fn = "ft_strcpy",
@@ -234,6 +238,7 @@ c_cycles(
     harness = "diff_strcpy.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # A number, not a reference implementation: it says where you stand without
     # saying how to get there.
     budget = 6,
@@ -247,6 +252,7 @@ c_cycles(
     harness = "diff_strncpy.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # copy archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 6,
     syscall_budget = 0,
@@ -259,6 +265,7 @@ c_cycles(
     harness = "diff_str_is_alpha.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # scan archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 3.5,
     syscall_budget = 0,
@@ -271,6 +278,7 @@ c_cycles(
     harness = "diff_str_is_numeric.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # scan archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 3.5,
     syscall_budget = 0,
@@ -283,6 +291,7 @@ c_cycles(
     harness = "diff_str_is_lowercase.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # scan archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 3.5,
     syscall_budget = 0,
@@ -295,6 +304,7 @@ c_cycles(
     harness = "diff_str_is_uppercase.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # scan archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 3.5,
     syscall_budget = 0,
@@ -307,6 +317,7 @@ c_cycles(
     harness = "diff_str_is_printable.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # scan archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 3.5,
     syscall_budget = 0,
@@ -319,6 +330,7 @@ c_cycles(
     harness = "diff_strupcase.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # transform archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 7,
     syscall_budget = 0,
@@ -331,6 +343,7 @@ c_cycles(
     harness = "diff_strlowcase.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # transform archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 7,
     syscall_budget = 0,
@@ -343,6 +356,7 @@ c_cycles(
     harness = "diff_strcapitalize.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # MEASURED at -O2 on two correct answers written apart: 17.0 and 21.6
     # instructions per byte. The 7 this replaced was carried over from the
     # one-test-per-byte exercises beside it, never measured here, and a correct
@@ -360,6 +374,7 @@ c_cycles(
     harness = "diff_strlcpy.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # copy archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 6,
     syscall_budget = 0,
@@ -372,6 +387,7 @@ c_cycles(
     harness = "diff_putstr_non_printable.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # NO BUDGET, for instructions or for write() calls, on purpose. This one
     # PRINTS, and both figures follow how the output is handed to write(),
     # which is the student's choice: measured at -O2 on two correct answers

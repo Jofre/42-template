@@ -71,17 +71,18 @@ genrule(
 # every reference to its own hand-written case tables and to property assertions
 # swept over seeded inputs (ordered-permutation, round-trip, involution, the
 # div_mod and strlcat return identities, ...) — a few thousand to 20 000 cases
-# depending on the module, with rush instead sweeping every 1..60 x 1..60 box
-# exhaustively — plus, in c00, rush, rush01 and bsq only, checks that the
-# generators still emit the corners they promise. It is entirely in-crate: it
-# does NOT compare against libc and does NOT read the curated expected.txt
-# fixtures — see the header of tools/oracle_check.sh for the exact scope and
-# the per-module sweep widths, and do not restate it as more than that.
+# depending on the module, with rush00 instead sweeping every 1..60 x 1..60 box
+# exhaustively — plus, in the modules tools/oracle_check.sh's header lists,
+# checks that the generators still emit the corners they promise. It is
+# entirely in-crate: it does NOT compare against libc and does NOT read the
+# curated expected.txt fixtures — see that header for the exact scope and the
+# per-module sweep widths, and do not restate it as more than that.
 #
 # Modest as it is, it has to be a test target: without this the check is dead
 # code, and a regression in a reference would instead surface as a CORRECT
-# student's *_diff going red — the worst failure mode this repo has. Sub-second,
-# so it is cheap.
+# student's *_diff going red — the worst failure mode this repo has. It takes
+# about 15 s on a quiet machine (more in a loaded full suite), a small price
+# for that.
 hand_test(
     name = "oracle_check",
     layer = "oracle",

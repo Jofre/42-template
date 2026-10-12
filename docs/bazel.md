@@ -212,6 +212,13 @@ When a file changed while a run read it, `42` also deletes what Bazel built for
 that project before it runs it again ([testing.md](testing.md#the-42-command)
 says why), and `--show_bazel` shows that line too.
 
+`42 test --show_starlark` runs no test. It answers another question about the
+same selection: for each test, the line of the `BUILD.bazel` file whose call
+declares it, the macro that call is (`tools/defs.bzl` defines them), and the
+lowest level that runs it. Bazel answers with `bazel query`, which reads the
+`BUILD.bazel` files and builds nothing; with `--dry-run`, `42` prints the first
+of those queries.
+
 ### `42 watch`
 
 ```
@@ -269,14 +276,22 @@ The path is a full one because the program starts in a folder of Bazel's
 $ bazel run //tools:submit -- c-piscine/c-piscine-c-00 -n
 ~/42/c-piscine/c-piscine-c-00$ 42 submit --level strict -n --dry-run
 $ bazel run //tools:submit -- c-piscine/c-piscine-c-00 --gate-level strict -n
+~/42/c-piscine/c-piscine-c-00$ 42 submit --written-only --dry-run
+$ bazel run //tools:submit -- c-piscine/c-piscine-c-00 --written-only
 ~/42$ 42 submit --all --dry-run
 $ bazel run //tools:submit
+~/42/c-piscine/c-piscine-c-00$ 42 submit git@git.example.com:you/c-00.git --dry-run
+$ bazel run //tools:submit -- c-piscine/c-piscine-c-00 --url git@git.example.com:you/c-00.git
 ```
 
 `//tools:submit` is a script of this repository: it runs each project's tests
 as a gate, at your level, and pushes the projects that pass
 ([submitting.md](submitting.md)). `42` names the project you are in. With
 `--all` it names none, and the script then takes every project that has a URL.
+A URL given to `42 submit` reaches the script as `--url`, which pushes the one
+project named there. Before it runs the script, `42` saves that URL in
+`.submit-remotes`, the file the script reads URLs from, so the next
+`42 submit` needs none; with `-n` or `--dry-run` it saves nothing.
 
 ### `42 generate`, `42 header`, `42 init`
 

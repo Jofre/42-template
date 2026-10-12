@@ -27,14 +27,14 @@ WS = checkout()
 sys.path.insert(0, os.path.join(WS, "tools", "fortytwo"))
 
 
-def run42(argv, cwd=None, environ=None):
-    """main.main() in-process: (exit status, stdout, stderr)."""
+def run42(argv, cwd=None, environ=None, ws=None):
+    """main.main() in-process, in the checkout or ws: (exit status, stdout, stderr)."""
     import main
     env = dict(environ or {})
     env.setdefault("PATH", os.environ.get("PATH", ""))
     env.setdefault("HOME", os.environ.get("TEST_TMPDIR", "/tmp"))
-    env["FT_WS"] = WS
-    env["FT_CWD"] = cwd or WS
+    env["FT_WS"] = ws or WS
+    env["FT_CWD"] = cwd or ws or WS
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         rc = main.main(list(argv), env)

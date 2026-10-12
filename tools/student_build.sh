@@ -43,7 +43,7 @@
 # does not compile is then a BUILD failure, the ones that include a turn-in
 # header too: `bazel build //... --action_env=STUDENT_BUILD_STRICT=1` on a tree
 # whose exercises compile -- the stubs, or answers -- is the check that every
-# test program still builds (docs/publishing.md runs it on the template).
+# test program still builds (every template publish runs it, on the stubs).
 # Without it, a harness file that includes a turn-in header and does not
 # compile is a stand-in like any other, and on a level no sweep reaches it
 # would go unseen (docs/testing.md, "A test that never compiled is not a test
@@ -85,15 +85,15 @@
 # Usage:
 #   student_build.sh --out PATH [--label TEXT] [--dir DIR]
 #                    --cc CC [--cflag F]... [--ld LD] [--lflag F]...
-#                    [--ar AR] [--arflag F]... [--copt F]... [--linkopt F]...
+#                    [--ar AR] [--arflag F]... [--copt F]...
 #                    [--src F]... [--harness F]... [--no-archive]
 #                    [--makefile M] [--make MAKE] [--includes-out F]
 #                    [--sources-out F]
 #
 # With no --cflag the compile line is "-c @SRC@ -o @OBJ@" plus any --copt; with
-# no --lflag the link line is "-o @OUT@ @OBJS@" plus any --linkopt; with no
-# --arflag the archive line is "rcs @LIB@". That is the form a hand run and the
-# selftest use; Bazel always passes the toolchain's own lines.
+# no --lflag the link line is "-o @OUT@ @OBJS@"; with no --arflag the archive
+# line is "rcs @LIB@". That is the form a hand run and the selftest use; Bazel
+# always passes the toolchain's own lines.
 #
 # UNTIL THE MAKEFILE IS WRITTEN (--fallback-src). C 10, C 11 ex05 and Piscine
 # Reloaded ex27 turn in "Makefile, and files needed for your program" too, and
@@ -170,7 +170,6 @@ CFLAGS=""
 LFLAGS=""
 ARFLAGS=""
 COPTS=""
-LINKOPTS=""
 SRCS=""
 HARNESS=""
 FALLBACK=""
@@ -190,7 +189,6 @@ while [ $# -gt 0 ]; do
 		--lflag) need "$1" "$#"; LFLAGS=$(add "$LFLAGS" "$2"); shift 2 ;;
 		--arflag) need "$1" "$#"; ARFLAGS=$(add "$ARFLAGS" "$2"); shift 2 ;;
 		--copt) need "$1" "$#"; COPTS=$(add "$COPTS" "$2"); shift 2 ;;
-		--linkopt) need "$1" "$#"; LINKOPTS=$(add "$LINKOPTS" "$2"); shift 2 ;;
 		--src) need "$1" "$#"; SRCS=$(add "$SRCS" "$2"); shift 2 ;;
 		--harness) need "$1" "$#"; HARNESS=$(add "$HARNESS" "$2"); shift 2 ;;
 		--no-archive) ARCHIVE=0; shift ;;
@@ -257,7 +255,6 @@ fi
 [ -n "$CFLAGS" ] || CFLAGS=$(printf -- '-c\n@SRC@\n-o\n@OBJ@')
 [ -z "$COPTS" ] || CFLAGS=$(add "$CFLAGS" "$COPTS")
 [ -n "$LFLAGS" ] || LFLAGS=$(printf -- '-o\n@OUT@\n@OBJS@')
-[ -z "$LINKOPTS" ] || LFLAGS=$(add "$LFLAGS" "$LINKOPTS")
 [ -n "$ARFLAGS" ] || ARFLAGS=$(printf -- 'rcs\n@LIB@')
 
 WORK=$(mktemp -d) || { echo "student_build.sh: mktemp failed" >&2; exit 2; }

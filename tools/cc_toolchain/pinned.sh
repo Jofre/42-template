@@ -8,8 +8,8 @@
 # toolchain's compiler, archiver and linkers. They exist because a fetched tool
 # that cannot find its own libraries does not fail: the loader answers from the
 # box's /lib and the "pinned" tool runs the machine's code under a pinned name.
-# Bazel gives compile actions no way to set LD_LIBRARY_PATH (measured -- see
-# HISTORY.md §21), so the tool itself has to.
+# Bazel gives compile actions no way to set LD_LIBRARY_PATH (measured), so
+# the tool itself has to.
 #
 # pinned_repo NAME prints the repository's directory relative to the working
 # directory, in the two layouts these scripts are ever run from:

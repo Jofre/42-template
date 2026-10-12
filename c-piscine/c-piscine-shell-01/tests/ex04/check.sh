@@ -9,7 +9,7 @@
 # assert the terminator on the RAW bytes.
 # Host/network-coupled: its output test runs outside the sandbox (run_tags in
 # the BUILD file), and what this machine cannot show is a SKIP, below.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-MAC.sh}

@@ -1,52 +1,41 @@
 /* Memory-safety probe for btree_apply_by_level — run under AddressSanitizer.
  *
- * WHY THIS EXISTS. A breadth-first walk needs somewhere to remember the nodes
- * it has reached but not yet visited, and how much room that takes is not the
- * author's to choose: it is a property of the tree the function is handed —
- * how wide its widest level is, and how deep it goes. The fixture's
- * hand-wired trees are 6 nodes at most, and the differential's largest trees
- * hold 2000 items. So a walk whose capacity is a constant past those
- * reproduces them BYTE FOR BYTE, is clean under ASan+UBSan on their shapes,
- * and survives the differential and the crash-fuzz without a murmur. The
- * fixture's one big tree (the same 20000 nodes as below) says it outright
- * when such a walk visits a node wrong; this probe is what catches the walk
- * that writes past its room and happens to visit everything right anyway.
+ * WHY THIS EXISTS. The fixture's hand-wired trees are 6 nodes at most, and
+ * the differential's largest trees hold 2000 items. A function can be right
+ * on every one of them, clean under ASan+UBSan on their shapes, and still
+ * read or write out of bounds on a tree much wider or much deeper than they
+ * are. The fixture's one big tree (the same 20000 nodes as below) reports a
+ * node visited wrong; this probe reports an access out of bounds even when
+ * every node is visited right. It asserts nothing about the output.
  *
- * The valgrind layer cannot substitute for this one. Room of a fixed size
- * usually lives on the STACK, and memcheck does not police stack frames; even
- * a heap block of a guessed size never overflows on a 6-node tree. Width and
- * depth are the axes nothing else measures, so they are measured here.
+ * The valgrind layer cannot substitute for this one: memcheck does not police
+ * stack frames, and a heap block too small for these trees is never
+ * overflowed by a 6-node one. Width and depth are the axes nothing else
+ * measures, so they are measured here.
  *
- * WHAT THE PROBE DOES. It hands the function trees whose SHAPE is adversarial,
- * and asserts nothing at all about the output — deciding whether the visit
- * order, the level numbers and is_first_elem are right is the *_output and
- * *_diff layers' job, and duplicating them here would only produce a second
- * red saying the same thing. Two shapes, one per axis:
+ * WHAT THE PROBE DOES. It hands the function trees whose SHAPE is extreme.
+ * Whether the visit order, the level numbers and is_first_elem are right is
+ * the *_output and *_diff layers' job, and checking them here would only
+ * produce a second red saying the same thing. Two shapes, one per axis:
  *
- *   1. A HEAP-SHAPED tree of 20000 nodes — every level full but the last,
- *      which is filled from the left: fifteen levels, 8192 nodes on the widest
- *      one and 3617 on the last. Room for waiting nodes fixed at a round
- *      number (64, 256, 1024, 4096, 16384 …) is written past while the walk
- *      crosses those levels.
- *   2. A 5000-deep alternating SPINE — one node per level, so it is never wide,
- *      but anything kept PER LEVEL in room fixed at "trees are not that deep"
- *      is written past. Measured, so the two shapes are not redundant: each
- *      reds a variant — byte-exact on the fixture too — that the other leaves
- *      green, because the heap is only fifteen levels deep and the spine is
+ *   1. WIDTH: a HEAP-SHAPED tree of 20000 nodes — every level full but the
+ *      last, which is filled from the left: fifteen levels, 8192 nodes on the
+ *      widest one and 3617 on the last.
+ *   2. DEPTH: a 5000-deep alternating SPINE — one node per level, so it is
  *      never more than one node wide.
  *
- * Together they say: a tree's width and its depth both come from the caller's
- * data, and the probe fails a capacity chosen as a constant, at any of the
- * sizes such a guess lands on. The first version of this probe used a complete
- * tree of 1023 nodes and a 200-deep spine and claimed exactly that — and room
- * for 1024 waiting nodes passed it (finding 041). The sizes now sit past every
- * power of two a guess is likely to stop at.
+ * Measured, so the two shapes are not redundant: each reds a toy variant —
+ * byte-exact on the fixture too — that the other leaves green, because the
+ * heap is only fifteen levels deep and the spine is one node wide. A tree's
+ * width and depth both come from the caller's data, so the sizes sit past
+ * every power of two a fixed capacity is likely to stop at. The first version
+ * of this probe used a complete tree of 1023 nodes and a 200-deep spine, and
+ * a toy with a fixed capacity of 1024 passed it (finding 041).
  *
  * Every allocation is EXACT — one block the size of a node per node, and one
  * the size of an int per item — so a stray read or write anywhere near a node
  * or its item lands in a sanitizer redzone rather than on a harmless
- * neighbouring byte. NULL and the one-node tree are exercised too: a walk that
- * primes its queue before testing the root has nowhere to hide on them.
+ * neighbouring byte. NULL and the one-node tree are exercised too.
  *
  * A correct implementation is clean on all four inputs; verified before this
  * landed. This is a test input, not an implementation. */

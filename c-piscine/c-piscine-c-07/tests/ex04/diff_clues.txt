@@ -19,7 +19,9 @@
                                  is negative? (Whether such a byte may be a
                                  digit at all is ex04_readings' question.)
     * only negative numbers   -> the sign, written once, ahead of the digits
-    * only INT_MIN            -> negating first costs you exactly one number
+    * only INT_MIN            -> INT_MIN has no positive counterpart in an int:
+                                 does your code compute anything from it that
+                                 would need one?
     * zero prints nothing     -> a loop that cannot run zero times
     * the digits are right, reversed -> the order they are produced versus the
                                  order they are needed

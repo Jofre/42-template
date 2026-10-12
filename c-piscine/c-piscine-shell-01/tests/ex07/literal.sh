@@ -16,7 +16,7 @@
 # program as /etc/passwd), whose names sort differently under the two
 # readings; where the locale is not installed the two are the same order, and
 # this says it cannot tell them apart rather than passing.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-r_dwssap.sh}

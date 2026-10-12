@@ -22,6 +22,7 @@ load(
     "diff_readings_problem",
     "fixed_array_problem",
     "hand_test",
+    "lvl_tags",
     "method_problem",
     "pinned_cc_problem",
     "program_allocfail_problem",
@@ -507,6 +508,21 @@ def starlark_unit(name):
             words in redirect_problem("07", mode, r),
             True,
         )
+
+    # lvl_tags: its `level` raises the one rule above its layer. No caller
+    # passes it today, so this is what holds the branch.
+    _case(
+        cases,
+        "lvl_tags: a layer alone gets its own ladder",
+        lvl_tags("allocfail"),
+        ["allocfail", "lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"],
+    )
+    _case(
+        cases,
+        "lvl_tags: level raises the rule up the ladder",
+        lvl_tags("allocfail", level = 3),
+        ["allocfail", "lvl_robust", "lvl_complete"],
+    )
 
     hand_test(
         name = name,

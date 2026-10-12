@@ -17,7 +17,7 @@ The subject also says: "You should use an array of pointers to function to take 
 #
 # The int-limit cases (intmax, intmin): both operands and the result are ints.
 What are the largest and the smallest values an int holds (INT_MAX and INT_MIN, in limits.h)? Does the code that reads a number reach both, and does the code that prints one print both?	intmax	intmin
-Which int is the only one whose negation does not fit in an int? What happens to a number printer that makes a negative number positive before it prints the digits?	intmax	intmin
+Which int is the only one whose negation does not fit in an int? When yours prints that one, does anything it computes along the way need a value an int cannot hold?	intmax	intmin
 #
 # The strict cases intmin_div and intmin_mod: INT_MIN / -1 and INT_MIN % -1.
 What is -2147483648 divided by -1, and does the answer fit in an int? The subject leaves open what to print for it, so these cases ask one thing only: does the program end by itself, killed by no signal?	intmin_div	intmin_mod

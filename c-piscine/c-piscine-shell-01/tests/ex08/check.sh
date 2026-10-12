@@ -30,7 +30,7 @@
 # capture strips it, so the examples' raw bytes are checked for it; the pairs
 # compare what comes before it, so a missing newline fails one line and not
 # every pair.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-add_chelou.sh}

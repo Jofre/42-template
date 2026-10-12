@@ -35,7 +35,7 @@ c_function(num = "01", fn = "ft_putstr", test = "test_putstr.c", clues = "clues.
 
 c_function(num = "02", fn = "ft_putnbr", test = "test_putnbr.c", labeled = True, clues = "clues.tsv")
 
-# Live differential fuzz against the Rust reference (//oracle): 400k seeded ints,
+# Live differential fuzz against the Rust reference (//oracle): seeded ints,
 # exact-value compare. The harness sets stdout unbuffered so the student's
 # write() bytes stay interleaved with the harness's printf labels.
 c_diff(
@@ -131,9 +131,17 @@ c_cycles(
     fn = "ft_putnbr_base",
     oracle_fn = "c04_putnbr_base",
     harness = "diff_putnbr_base.c",
-    unit_expr = "length($2)",
+    # The digits it wrote: the third column, as written, less a leading
+    # minus sign. A case whose base is refused writes none, so the corpus's
+    # bases of 5000 bytes add no unit; they are kept, and what they cost
+    # follows how much of a base an answer reads before refusing it. The
+    # figure per digit also carries the check of the base, which a correct
+    # answer makes on every call whatever the digits it then writes.
+    unit_expr = "length($3) - ($3 ~ /^-/)",
     unit_name = "digit",
-    # emit_nbr archetype; budget measured from the implemented c-00..c-04 exercises.
-    budget = 40,
+    # NO BUDGET, on purpose: what one digit costs here follows how the
+    # student checks the base and looks a digit up in it, so a budget would
+    # recommend the technique it was measured from (C 07 ex04's reason). The
+    # figure is printed alone.
     syscall_budget = 1.0,
 )

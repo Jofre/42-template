@@ -72,7 +72,7 @@
 #                [--sanitized | --valgrind PATH --valgrind-tools FILE
 #                 [--sample N] [--rule FILE]]
 #                [--gate-differ PATH --gate-bin PATH --gate-expected PATH
-#                 [--gate-arg WORD]...]
+#                 [--gate-arg WORD]... [--gate-label NAME]]
 #                (--stderr-empty | --stderr-ignored REASON) [--quotes FILE]
 #
 #   --stderr-empty            a case also fails when the program writes
@@ -104,6 +104,10 @@
 #                  correct program answers with "map error" -- never the
 #                  example's square -- so every layer behind it said SKIP on
 #                  every program that passes the example.
+#   --gate-label NAME  the output test the gate is, by name, for the SKIP
+#                  line (runner_lib.sh's RL_GATE_NAME). Any --gate-* without
+#                  all of --gate-differ, --gate-bin and --gate-expected is a
+#                  wiring mistake, refused (rl_gate_whole)
 #   --clues FILE   a clues.tsv, whose hints are shown under a failing run
 #                  (tools/runner_lib.sh's rl_clues: its first three rows)
 #   --case NAME    the name this target's rows are keyed to in a program's
@@ -205,12 +209,16 @@ while [ $# -gt 0 ]; do
 		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
 		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
 		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; shift 2 ;;
+		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
 		--stderr-empty) STDERR_EMPTY=1; shift ;;
 		--stderr-ignored) need "$1" "$#"; STDERR_WHY="$2"; shift 2 ;;
 		--quotes) need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
 		*) echo "bsq_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole bsq_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_ARGS$RL_GATE_NAME"
 
 [ -n "$BIN" ] || { echo "bsq_check.sh: --bin is required" >&2; exit 2; }
 [ -n "$ORACLE" ] || { echo "bsq_check.sh: --oracle is required" >&2; exit 2; }
@@ -342,7 +350,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # THE OPEN FORMS a readings record can hold, one sentence each, keyed by the
-# slug oracle/src/bsq.rs's readings() tags it with (see THE TAGS above). A
+# slug the reference's readings arm tags it with (see THE TAGS above). A
 # failing case prints its sentence, so it says which question it is about.
 FORMS="$WORK/forms"
 {
@@ -351,6 +359,7 @@ FORMS="$WORK/forms"
 	printf '%s\t%s\n' count_plus "its count is written with a '+' in front (\"+9\")"
 	printf '%s\t%s\n' count_space_before 'a space comes before its count (" 9")'
 	printf '%s\t%s\n' count_space_after 'a space comes between its count and the three characters ("9 ")'
+	printf '%s\t%s\n' full_in_body 'a row of its map holds its "full" character'
 } > "$FORMS"
 
 # ---------------------------------------------------------------------------
@@ -409,19 +418,24 @@ say() { printf '%s\n' "$*"; }
 # as ID.map (ID-1.map, ID-2.map ... for a multi-mode run)
 # with the command that replays them (tools/runner_lib.sh's rl_save). The
 # corpus is generated and the scratch files go with the run, so the report
-# used to name a case nobody could run again (finding 174).
+# used to name a case nobody could run again (finding 174). KEPT_MAPS says
+# how many of them, from the first, were kept: none, run by hand outside
+# bazel test, where there is nowhere to keep one.
+KEPT_MAPS=0
 keep_input() {
 	_kc=$1
 	shift
 	_kk=0
 	_knames=""
+	KEPT_MAPS=0
 	for _km in "$@"; do
 		_kk=$((_kk + 1))
-		if [ "$#" -eq 1 ]; then _kf="$_kc.map"; else _kf="$_kc-$_kk.map"; fi
+		_kf=$(kept_name "$_kc" "$_kk" "$#")
 		if ! rl_save "$_km" "$_kf"; then
 			say "   input: generated for this case (a run under bazel test keeps it)"
 			return 0
 		fi
+		KEPT_MAPS=$_kk
 		_knames="$_knames $_kf"
 	done
 	[ -n "$_knames" ] || return 0
@@ -431,6 +445,30 @@ keep_input() {
 	else
 		say "   replay: ./bsq$_knames"
 	fi
+}
+
+# kept_name ID K N -- what keep_input calls the Kth of a case's N maps.
+kept_name() {
+	if [ "$3" -eq 1 ]; then echo "$1.map"; else echo "$1-$2.map"; fi
+}
+
+# mem_report ID MAP... -- rl_mem_report for case ID, which ran on MAP...: a
+# report that names a map by the scratch path it was given (memcheck's open
+# descriptors) shows it by the name keep_input keeps it under, which the
+# replay line above uses. Only a map keep_input kept (KEPT_MAPS): the name
+# of one it could not keep is a file that exists nowhere.
+mem_report() {
+	_mrc=$1
+	shift
+	_mrn=$#
+	_mrk=0
+	for _mrm in "$@"; do
+		_mrk=$((_mrk + 1))
+		[ "$_mrk" -gt "$KEPT_MAPS" ] ||
+			set -- "$@" --as "$_mrm" "$(kept_name "$_mrc" "$_mrk" "$_mrn")"
+	done
+	shift "$_mrn"
+	rl_mem_report "$@"
 }
 
 # diagnose TAG SIDE TOP LEFT WANT GOT MAP -- what KIND of wrong one map's
@@ -623,14 +661,15 @@ diagnose() {
 			else if (kind == "no-square")
 				print "     You printed the map back unchanged. There is a square to draw here."
 			else if (kind == "accepted-invalid-file" && readings + 0 == 1) {
-				print "     Under this harness\047s reading, this file breaks a validity rule.\n" \
-				      "     The subject leaves it open: the hints below state the reading.\n" \
-				      "     What a file that breaks one prints is set by this sentence:"
+				print "     Under this harness\047s reading, this file breaks a validity rule:\n" \
+				      "     that reading decides it, not a sentence quoted from your subject,\n" \
+				      "     and the hints below state it. What a file that breaks one prints\n" \
+				      "     is set by this sentence:"
 				quote_error()
 			} else if (kind == "map-error-unexpected" && readings + 0 == 1)
 				print "     Under this harness\047s reading, this file is valid, so it\n" \
-				      "     has an answer. The subject leaves it open: the hints below state\n" \
-				      "     the reading."
+				      "     has an answer: that reading decides it, not a sentence quoted\n" \
+				      "     from your subject, and the hints below state it."
 			else if (kind == "accepted-invalid-file") {
 				print "     This file breaks one of the rules a valid map follows, and it was\n" \
 				      "     answered as a map. Which rule does its first line, or its line\n" \
@@ -888,7 +927,7 @@ mem_group() {
 		say " --------------------------------------------------"
 		say " RUN $_mg  [$RL_MEM_KIND]  maps $((TOTAL - _mn + 1))-$TOTAL of the corpus: $_mtags"
 		keep_input "run-$_mg" "$@"
-		rl_mem_report
+		mem_report "run-$_mg" "$@"
 	} > "$BLOCK"
 	rl_block "$BLOCK"
 }
@@ -927,7 +966,7 @@ while read -r tag side top left; do
 				say " --------------------------------------------------"
 				say " CASE $TOTAL  [$RL_MEM_KIND]  a map tagged $tag"
 				keep_input "case-$TOTAL" "$WORK/map"
-				rl_mem_report
+				mem_report "case-$TOTAL" "$WORK/map"
 			} > "$BLOCK"
 			rl_block "$BLOCK"
 		fi
@@ -1018,6 +1057,22 @@ fi
 # read "4/5 maps agree, 1 differ".
 _dnf=$(grep -c '^did-not-finish$' "$CATS") || _dnf=0
 _wrong=$((BAD - _dnf))
+# marks_legend -- what the marks of the shown want and got lines are, under a
+# report that showed an answer: a run that did not finish has no want and got
+# lines. Read from the lines the report showed (rl_shown_legend): a legend
+# written once named a tab, a backslash and a dollar under maps that held none
+# of them.
+marks_legend() {
+	[ "$_wrong" -ne 0 ] || return 0
+	echo ""
+	echo "  In the want and got lines, and a file's first line, every byte is"
+	echo "  visible. < and > mark a line cut to a window around the difference."
+	# Named only under a report that shows one: a want or got line that ends
+	# in $ (an escaped dollar is \x24, so the last byte is the mark).
+	grep -Eq '^ +(want [|] |got  [|] ).*[$]$' "$RL_SHOWNF" 2> /dev/null &&
+		echo "  \$ is where a line ended."
+	rl_shown_legend '^ +(want [|] |got  [|] |its first line: ")'
+}
 if [ -n "$RL_STOP" ]; then
 	# The cases judged wrong before the sweep stopped, not counting any the
 	# time ran out in (counted in $BAD, but cut short, not wrong): a verdict,
@@ -1027,6 +1082,10 @@ if [ -n "$RL_STOP" ]; then
 	else
 		rl_sweep_stopped "$TOTAL" "$GOT_CASES" "$_wrong"
 	fi
+	# The cases shown above it hold the same marks, and a readings case among
+	# them says its hints are below, as on a run that ended.
+	marks_legend
+	[ "$BAD" -eq 0 ] || rl_clues "$CLUES" "" "" "$CASE_NAME"
 	exit 1
 fi
 if [ "$BAD" -eq 0 ]; then
@@ -1038,20 +1097,7 @@ fi
 echo "  BY FAULT:"
 sort "$CATS" | uniq -c | sort -rn | sed 's/^/    /'
 rl_stderr_note
-# Only where an answer was shown: a run that did not finish has no want and
-# got lines. The marks are named from the lines the report showed
-# (rl_shown_legend): a legend written once named a tab, a backslash and a
-# dollar under maps that held none of them.
-if [ "$_wrong" -ne 0 ]; then
-	echo ""
-	echo "  In the want and got lines, and a file's first line, every byte is"
-	echo "  visible. < and > mark a line cut to a window around the difference."
-	# Named only under a report that shows one: a want or got line that ends
-	# in $ (an escaped dollar is \x24, so the last byte is the mark).
-	grep -Eq '^ +(want [|] |got  [|] ).*[$]$' "$RL_SHOWNF" 2> /dev/null &&
-		echo "  \$ is where a line ended."
-	rl_shown_legend '^ +(want [|] |got  [|] |its first line: ")'
-fi
+marks_legend
 echo ""
 if [ "$_dnf" -eq 0 ]; then
 	echo "bsq_check: FAIL — $((_all - BAD))/$_all $_unit agree, $BAD differ$_of."

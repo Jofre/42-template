@@ -1,6 +1,6 @@
 """The turn-in files of a scope, their contents, and the contents a run could not vouch for.
 
-Measured (Bazel 9.2.0, 2026-10-09; TODO.md V111): a run that is
+Measured (Bazel 9.2.0, 2026-10-09; V111): a run that is
 going while a file is edited can cache a PASS for contents it never tested,
 and a re-run on a still tree serves it again. So every run takes a snapshot of
 its files before and after, and any content seen around a run that changed
@@ -10,8 +10,9 @@ runs it again with --nocache_test_results, which was measured to heal a
 poisoned build as well as a poisoned result; that run vouches for the content
 again.
 
-Kept per checkout in $XDG_STATE_HOME/42/<sha1 of the checkout path>/, never in
-the checkout: nothing 42 writes may end up in a commit.
+Kept per checkout in $XDG_STATE_HOME/42/<first 16 hex digits of the sha1 of the
+checkout's real path>/ ($HOME/.local/state when XDG_STATE_HOME is unset), never
+in the checkout: nothing 42 writes may end up in a commit.
 """
 
 import hashlib

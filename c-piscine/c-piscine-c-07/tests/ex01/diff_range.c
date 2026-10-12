@@ -8,14 +8,19 @@ int	*ft_range(int min, int max);
 
 int	main(void)
 {
-	char	line[8192];
+	char	*line;
+	size_t	linecap;
 	char	*f[3];
 	int		min;
 	int		max;
 	int		*tab;
 	int		i;
 
-	while (dio_line(line, sizeof(line)))
+	/* A line of any length (tools/diffio.h, dio_getline): the corpus holds
+	 * ranges of 5000 ints (finding 041), past what a line buffer holds. */
+	line = NULL;
+	linecap = 0;
+	while (dio_getline(&line, &linecap))
 	{
 		if (dio_split(line, f, 3) < 2)
 			continue ;
@@ -37,5 +42,6 @@ int	main(void)
 		printf("\n");
 		free(tab);
 	}
+	free(line);
 	return (0);
 }

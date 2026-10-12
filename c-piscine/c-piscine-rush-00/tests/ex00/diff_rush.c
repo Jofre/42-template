@@ -4,8 +4,8 @@
  * any other byte outside the printable range as \xHH.
  *
  * We reprint "<x>\t<y>\t" followed by the student's own rectangle, escaped with
- * the same rules (rush_capture.h / oracle/src/rush00.rs), so tools/rust_diff.sh
- * can byte-diff the two files. A mismatch therefore reports the exact size that
+ * the reference's rules (rush_capture.h), so tools/rust_diff.sh can byte-diff
+ * the two files. A mismatch therefore reports the exact size that
  * diverged, with both rectangles on one line each.
  *
  * The same binary is built a second time under ASan+UBSan and replayed over the

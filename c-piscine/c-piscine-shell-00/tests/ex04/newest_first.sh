@@ -20,7 +20,7 @@
 # the table refuses a fixture where any of those keys, either way round,
 # gives the listing expected, so only a listing by modification date, newest
 # first, reads as that one here.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-midLS}

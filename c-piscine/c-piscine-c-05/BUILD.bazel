@@ -110,16 +110,18 @@ c_diff(
 
 c_function(num = "05", fn = "ft_sqrt", test = "test_sqrt.c", labeled = True, clues = "clues.tsv")
 
-# `size = "medium"` for ex05 and ex07, as for ex04 and for a like reason: the
-# subject asks for the right answer and says nothing about speed, and a correct
-# answer can be slow on these corpora. Measured on correct answers: about 20 s
-# alone (37 s under the sanitizers) and up to 55 s while the whole suite ran
-# beside it, which a small test's 60 s, less the few seconds its runner keeps
-# back to report in, does not hold. The price is paid by a harness that never
-# ends: its report comes after 280 s rather than 54. ex06's measured answers
-# finished in seconds, so it stays small.
-# "large": a correct but slow ft_sqrt took 131s with two suites on the
-# machine, near half of "medium"'s 300 (finding 066).
+# ex05 and ex07 are not "small", for a like reason as ex04: the subject asks
+# for the right answer and says nothing about speed, and a correct answer can
+# be slow on these corpora. Measured on correct answers: about 20 s alone (37 s
+# under the sanitizers) and up to 55 s while the whole suite ran beside it,
+# which a small test's 60 s, less the few seconds its runner keeps back to
+# report in, does not hold. The price is paid by a harness that never ends:
+# its report comes after 280 s at "medium" rather than 54, and later still at
+# "large". ex07 is "medium". ex05 is "large": a correct but slow ft_sqrt took
+# 131s with two suites on the machine, near half of "medium"'s 300 (finding
+# 066). Piscine Reloaded's ex14 replays this corpus, and //tools:conventions
+# holds its size to this one (c_twin). ex06's measured answers finished in
+# seconds, so it stays small.
 c_diff(num = "05", fn = "ft_sqrt", harness = "diff_sqrt.c", oracle_fn = "c05_sqrt", size = "large", diff_clues = "diff_clues.txt")
 
 c_function(num = "06", fn = "ft_is_prime", test = "test_is_prime.c", labeled = True, clues = "clues.tsv")
@@ -128,7 +130,7 @@ c_diff(num = "06", fn = "ft_is_prime", harness = "diff_is_prime.c", oracle_fn = 
 
 c_function(num = "07", fn = "ft_find_next_prime", test = "test_find_next_prime.c", labeled = True, clues = "clues.tsv")
 
-# `size = "medium"`: see ex05 above.
+# `size = "medium"`: the reason is given at ex05 above; ex07 never needed "large".
 c_diff(num = "07", fn = "ft_find_next_prime", harness = "diff_find_next_prime.c", oracle_fn = "c05_find_next_prime", size = "medium", diff_clues = "diff_clues.txt")
 
 # labeled: the boards are unlabelled rows (their case is their line number),
@@ -200,6 +202,8 @@ c_levels()
 # layer uses are untouched: these are SEPARATE oracle generators
 # (c05_*_cycles), which is why this arrived without regenerating a single
 # expected.txt or editing one of the eight diff harnesses.
+#
+# no cycles on ex00-ex04: BOUNDED-COST.
 #
 # ex00-ex04 still have no cycles layer. Factorial, power and fibonacci are
 # linear in an input that is bounded to about a dozen before the answer

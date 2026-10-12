@@ -27,7 +27,7 @@
 # regular.sh reads "files" as regular files only, at strict (the exercise's
 # exNN_regular target); the two subjects' different wording leaves the same
 # case open, so one reading serves both.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-find_sh.sh}

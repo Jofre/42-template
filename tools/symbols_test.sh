@@ -326,6 +326,7 @@ fi
 
 echo "symbols_test: FAIL"
 if [ -n "$MISSING" ]; then
+	# conventions: the call site's --expect -- the functions the contract lists
 	echo "  NOT DEFINED (the subject asks for these):"
 	printf '%s\n' "$MISSING" | sed 's/^/    /'
 	echo "  Check the spelling of the function name against the subject."
@@ -343,6 +344,7 @@ fi
 if [ "$STRAY_MAIN" -eq 1 ]; then
 	echo "  DEFINES main():"
 	echo "    main"
+	# conventions: the call site's --expect -- the functions the contract lists, and no main
 	echo "  The subject asks this file for a function, not a program. The grader"
 	echo "  compiles its own main() with your file, and a program with two mains"
 	echo "  does not link. Keep the main() you test with in a file of its own:"

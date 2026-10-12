@@ -5,9 +5,11 @@
   // Terminal > Run Task…, or Run Test Task for the default.
   //
   // The default is ONE module at its basic level: the module of the file open
-  // in the editor, read from its path (<course>/<project>/...). The whole repo
-  // is the second task, and it needs memory to spare: on a campus box, about
-  // 2.5 GB free, it is more than the machine has (docs/environment.md).
+  // in the editor, which is the nearest folder above the file whose
+  // BUILD.bazel calls c_levels(, at any depth: <course>/<project>, or a
+  // project inside a folder that groups several. The whole repo is the second
+  // task, and it needs memory to spare: on a campus box, about 2.5 GB free,
+  // it is more than the machine has (docs/environment.md).
   "version": "2.0.0",
   "tasks": [
     {
@@ -16,7 +18,7 @@
       "command": "sh",
       "args": [
         "-c",
-        "m=$(printf '%s' \"$1\" | cut -d/ -f1-2); if grep -qs '^c_levels(' \"$m/BUILD.bazel\"; then exec bazel test \"//$m:basic\" --test_output=errors; fi; echo 'Open a file of the module to test first: one under its deliverable/ or tests/.' >&2; exit 2",
+        "d=$1; while :; do case $d in ''|.|..|../*|/*) break ;; esac; if grep -qs '^c_levels(' \"$d/BUILD.bazel\"; then exec bazel test \"//$d:basic\" --test_output=errors; fi; d=$(dirname \"$d\"); done; echo 'Open a file of the module to test first: one under its deliverable/ or tests/.' >&2; exit 2",
         "sh",
         "${relativeFileDirname}"
       ],

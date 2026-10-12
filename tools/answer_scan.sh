@@ -1,12 +1,13 @@
 #!/bin/sh
 # answer_scan.sh — find an exercise's answer anywhere OUTSIDE the zone.
 #
-#   sh tools/answer_scan.sh            # from the repo root, on a tree WITH answers
+# From the repo root, on a tree WITH answers:
+#   sh tools/answer_scan.sh
+# The file names the subject contract on standard input declares:
 #   sh tools/answer_scan.sh --declared < BUILD.bazel
-#                                      # the file names its subject contract declares
-#   answer_scan.sh --worktree          # the checkout this file lives in: how the
-#                                      # maintainer's test //tools/tests:answer_scan
-#                                      # runs it (below)
+# The checkout this file lives in, which is how the maintainer's test
+# //tools/tests:answer_scan runs it (below):
+#   answer_scan.sh --worktree
 #
 # --declared is the one reader of those lists: the template build's last
 # check pipes the INDEX's BUILD files through it, so the two gates cannot
@@ -123,6 +124,11 @@ require() {
 }
 require awk cat dirname find git grep mkdir mktemp mv readlink rm sed sort tr wc
 
+# A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
+# in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
+# none (tools/runner_lib.sh, "THE SCRATCH FOLDER").
+case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
+
 MODE=scan
 FROM_SELF=0
 case "${1:-}" in
@@ -181,7 +187,9 @@ if [ "$FROM_SELF" = 1 ]; then
 			echo "answer_scan.sh: --worktree: $0 leads to '${_self:-nothing}', not to a checkout's tools/answer_scan.sh" >&2
 			exit 2 ;;
 	esac
-	git -C "$WS" rev-parse --is-inside-work-tree > /dev/null 2>&1 || {
+	# git's own words go out with the refusal: where git refuses a checkout
+	# another user owns, they are the only line saying what to fix.
+	git -C "$WS" rev-parse --is-inside-work-tree > /dev/null || {
 		echo "answer_scan.sh: --worktree: $WS, where this file lives, is not a git checkout" >&2
 		exit 2
 	}
@@ -200,6 +208,10 @@ STUB_CHECK="$(cd "$(dirname "$0")" && pwd)/stub_check.sh"
 	echo "answer_scan.sh: no stub_check.sh beside this script or in $WS/tools -- it decides what a stub keeps" >&2
 	exit 2
 }
+
+# Made absolute: the zone loop below runs it from the root of the index's
+# copy as well as from here.
+case "$STUB_CHECK" in /*) ;; *) STUB_CHECK=$(pwd)/$STUB_CHECK ;; esac
 
 cd "$WS" || exit 2
 
@@ -256,12 +268,14 @@ zone_list() {
 # answer copied out of the zone before the delete is still a leak, so it is
 # read from there: copied once into $TMP/index/<path>, and every reader
 # below takes that copy (zat). A path the index cannot give either is
-# unread, as before.
+# unread, as before, and git's stderr goes out as it is: a blob it gives
+# prints nothing there, and where it gives none (a blob missing from the
+# object store, a path a merge left in conflict), its line says why.
 zone_list "$TMP/tracked" '*/deliverable/*' '*/generators/*'
 while IFS= read -r f; do
 	{ [ -e "$f" ] || [ -L "$f" ]; } && continue
 	mkdir -p "$TMP/index/${f%/*}" || unread "$f"
-	git show ":$f" > "$TMP/index/$f" 2> /dev/null || unread "$f"
+	git show ":$f" > "$TMP/index/$f" || unread "$f"
 	echo "answer_scan.sh: '$f' is tracked and not in the work tree: its answer is read from the index." >&2
 done < "$TMP/tracked"
 # zat PATH -- sets _zat to where the zone file PATH is read: the work tree's
@@ -472,17 +486,29 @@ sh "$STUB_CHECK" --approved > "$TMP/approved" || {
 zone_list "$TMP/zone" '*/deliverable/*'
 while IFS= read -r f; do
 	# A file stub_check accepts as it stands ships as it stands; one it could
-	# not read (exit 2) is one nothing here has read either.
+	# not read (exit 2) is one nothing here has read either. Exit 2 is also a
+	# file it read and refused, empty or with no 42 header, so its own words
+	# go out with the refusal: "could not be read" over a file read whole sent
+	# the reader looking for a permission problem.
 	case "$f" in
 		*.c|*.h)
 			_sc=0
 			zat "$f"
-			case "$_zat" in /*) ;; *) _zat=./$_zat ;; esac
-			sh "$STUB_CHECK" --file "$_zat" > /dev/null 2>&1 || _sc=$?
+			# Handed over by its repository path, from the root it sits
+			# under (the index's copy has one too): stub_check approves a
+			# header at its path, and $TMP/index/<path> is no such path.
+			_zr=.
+			case "$_zat" in "$TMP/index/"*) _zr=$TMP/index ;; esac
+			( cd "$_zr" && sh "$STUB_CHECK" --file "./$f" ) > "$TMP/stub_check.out" 2>&1 || _sc=$?
 			case "$_sc" in
 				0) continue ;;
 				1) echo "$f" >> "$TMP/csrc" ;;
-				*) unread "$f" ;;
+				*)
+					cat "$TMP/stub_check.out" >&2
+					echo "answer_scan.sh: stub_check.sh refused '$f' (above, exit $_sc)." >&2
+					echo "             Refusing the whole run: a file of the zone it has no verdict" >&2
+					echo "             on is one whose answer was never looked for." >&2
+					exit 2 ;;
 			esac ;;
 	esac
 	# An approved header ships too -- reduced, but under the same name.

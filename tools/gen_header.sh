@@ -73,8 +73,11 @@ case "$FN" in
 		exit 2 ;;
 esac
 
+# The identity, in bytes (LC_ALL=C), as tools/identity.sh writes it: under
+# UTF-8 the trailing '.*' stopped at a byte that is no UTF-8, in a comment
+# after the value, and that byte was left on the end of the login.
 read_42() {
-	sed -n "s/.*\"42header.$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
+	LC_ALL=C sed -n "s/.*\"42header.$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
 		"$SETTINGS" 2>/dev/null | head -1
 }
 LOGIN="${2:-${LOGIN42:-$(read_42 username)}}"

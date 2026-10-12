@@ -16,7 +16,8 @@ char	*ft_strcat(char *dest, char *src);
 
 int	main(void)
 {
-	char			line[8192];
+	char			*line;
+	size_t			linecap;
 	char			*f[4];
 	size_t			dlen;
 	size_t			cap;
@@ -25,7 +26,11 @@ int	main(void)
 	unsigned char	*src;
 	char			*ret;
 
-	while (dio_line(line, sizeof(line)))
+	/* A line of any length (tools/diffio.h, dio_getline): the corpus holds
+	 * strings past 4 KiB (finding 041), past what a line buffer holds. */
+	line = NULL;
+	linecap = 0;
+	while (dio_getline(&line, &linecap))
 	{
 		if (dio_split(line, f, 4) < 3)
 			continue ;
@@ -41,5 +46,6 @@ int	main(void)
 		free(buf);
 		free(src);
 	}
+	free(line);
 	return (0);
 }

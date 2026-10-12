@@ -34,6 +34,11 @@ require() {
 }
 require awk cat chmod cmp cp cut date dirname env find git grep head id ln make mkdir mktemp mv od rm rmdir sed sha256sum sleep sort tail tar tr wc
 
+# A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
+# in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
+# none (tools/runner_lib.sh, "THE SCRATCH FOLDER").
+case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
+
 # SHARDS. Bazel runs this file as several processes at once (shard_count in
 # tools/tests/BUILD.bazel says why), each with TEST_TOTAL_SHARDS and its own
 # TEST_SHARD_INDEX, and each shard runs the ARMS of its own sections only. A
@@ -913,6 +918,32 @@ want_red   "diff_output: a gate that cannot answer runs the case anyway" -- \
 want_broken "diff_output: a gate on a case with an expected output refuses" "needs no gate" -- \
 	"$SH" "$TOOLS/diff_output.sh" --bin "$WORK/ok" --expected "$WORK/exp.txt" \
 	--gate-expected "$WORK/exp.txt"
+# A CASE THAT WAITS FOR ANOTHER PROGRAM'S (--gate-bin): the same code run
+# through another test program, whose fixture has the table and the hints.
+# While that one is red this one SKIPs, and it is judged once it is green.
+# Rush 00's defense case waits so for its variant's labelled table. `bad`
+# fails exp.txt and `ok` passes it, so `bad` stands in for both programs.
+want_green "diff_output: a case waiting on another's SKIPs" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/diff_output.sh" --bin "$WORK/bad" --expected "$WORK/exp.txt" \
+	--gate-bin "$WORK/bad" --gate-expected "$WORK/exp.txt" --gate-label ex00_one_output
+want_out   "diff_output: ...naming that case" "SKIP — ex00_one_output is not passing yet" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/diff_output.sh" --bin "$WORK/bad" --expected "$WORK/exp.txt" \
+	--gate-bin "$WORK/bad" --gate-expected "$WORK/exp.txt" --gate-label ex00_one_output
+want_out   "diff_output: ...in a waiting case's words" 'fails for the same reason' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/diff_output.sh" --bin "$WORK/bad" --expected "$WORK/exp.txt" \
+	--gate-bin "$WORK/bad" --gate-expected "$WORK/exp.txt" --gate-label ex00_one_output
+want_broken_none "diff_output: ...never a survive case's" 'ends by itself' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/diff_output.sh" --bin "$WORK/bad" --expected "$WORK/exp.txt" \
+	--gate-bin "$WORK/bad" --gate-expected "$WORK/exp.txt" --gate-label ex00_one_output
+want_red   "diff_output: ...and is judged once that is green" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/diff_output.sh" --bin "$WORK/bad" --expected "$WORK/exp.txt" \
+	--gate-bin "$WORK/ok" --gate-expected "$WORK/exp.txt" --gate-label ex00_one_output
+want_red   "diff_output: ...or when NO_SKIP=1 forces it open" -- \
+	env NO_SKIP=1 "$SH" "$TOOLS/diff_output.sh" --bin "$WORK/bad" --expected "$WORK/exp.txt" \
+	--gate-bin "$WORK/bad" --gate-expected "$WORK/exp.txt" --gate-label ex00_one_output
+want_red   "diff_output: ...or when its gate cannot answer" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/diff_output.sh" --bin "$WORK/bad" --expected "$WORK/exp.txt" \
+	--gate-bin "$WORK/bad" --gate-expected "$WORK/no-such-expected.txt" --gate-label ex00_one_output
 
 # ---- a case's "missing_file" (--absent) -------------------------------------
 #
@@ -1238,7 +1269,7 @@ want_broken "diff_output: --exit-only with no --exit refuses" 'needs --exit' -- 
 # ...and basic only notes a return the subject names no status for.
 want_green "diff_output: --note-exit passes a plain non-zero return" -- \
 	emit_run "$WORK/v_x.txt" "$WORK/v_x.txt" 3 --note-exit 0
-want_out   "diff_output: ...and says so" 'The subject names no exit' -- \
+want_out   "diff_output: ...and says so" 'from your subject names an exit' -- \
 	emit_run "$WORK/v_x.txt" "$WORK/v_x.txt" 3 --note-exit 0
 # The note names the check that does fail it, when Bazel says which test this
 # is: c_program's twin of exNN_<case>_output is exNN_<case>_exit.
@@ -1503,6 +1534,16 @@ want_out   "runner_lib: ...which it calls a verdict all the same" 'The 2 case(s)
 want_broken_none "runner_lib: ...and one that never started a case, too" "this test's own time limit" -- \
 	rl_stop_with start 2
 
+# THE NOTE ON RUNS THAT DID NOT FINISH (rl_dnf_note) keeps near 80 columns
+# behind rush01's indent of 14, the widest a caller passes: its first line,
+# with no case judged wrong, was 90.
+rl_dnf_width() {  # rl_dnf_width WRONG: true when no line passes 80 columns
+	env -u RL_STOP "$SH" -c '. "$1"; RL_DNF=1; RL_STOP=; rl_dnf_note "$2" "              "' \
+		_ "$TOOLS/runner_lib.sh" "$1" | awk 'length($0) > 80 { bad = 1 } END { exit bad }'
+}
+want_green "runner_lib: the note on runs not finished fits 80 columns" -- rl_dnf_width 0
+want_green "runner_lib: ...with cases judged wrong too" -- rl_dnf_width 2
+
 # A REPLAY LINE IS A SHELL WORD (rl_shword). rush02 printed the number of a
 # failing case through rl_vis inside single quotes: a doubled backslash, $ as
 # \x24, a byte as \xHH, and a quote that ended the word -- a line that ran
@@ -1561,8 +1602,23 @@ want_broken_none "runner_lib: ...but not a run that ends the line" 'end \\' -- \
 	rl_text_of 'end \\\n'
 want_out   "runner_lib: ...and every other backslash as it is (a caret stays put)" \
 	'write(1, "\n", 1);' -- rl_text_of 'write(1, "\\n", 1);\n'
-want_broken_none "runner_lib: ...and a CRLF line ending is a line ending" '\x0d' -- \
+# A carriage return that ends a line is a byte like any other: a script saved
+# with CRLF line ends makes dash print "can't cd to nowhere\r", and the \r is
+# the one clue to the cause. It used to be dropped as part of a line ending,
+# for one tool that writes CRLF, and every excerpt hid it. --crlf, for a run
+# of such a tool, drops it there and nowhere else in the line.
+rl_text_crlf() {  # rl_text_crlf PRINTF-FORMAT: the same, under rl_excerpt --crlf
+	printf "$1" > "$WORK/rl_text.txt"
+	"$SH" -c '. "$1"; rl_excerpt --crlf "$2" 5 t.txt ""' _ "$TOOLS/runner_lib.sh" "$WORK/rl_text.txt"
+}
+want_out   "runner_lib: ...a carriage return that ends a line, as \\x0d" 'crlf\x0d' -- \
 	rl_text_of 'crlf\r\n'
+want_out   "runner_lib: ...which --crlf reads as the line's end" 'one' -- \
+	rl_text_crlf 'one\r\n'
+want_broken_none "runner_lib: ...showing no \\x0d for it" '\x0d' -- \
+	rl_text_crlf 'one\r\n'
+want_out   "runner_lib: ...and only there: one inside the line is \\x0d" 'a\x0db' -- \
+	rl_text_crlf 'a\rb\r\n'
 # The window around a first difference (rl_diff_window) names the escapes
 # its two lines hold, as a table's legend does: a \xHH with no word of what
 # it is reads as four characters the program printed. Nothing escaped,
@@ -1580,6 +1636,21 @@ want_out   "runner_lib: ...a NUL by name" '(\x00 is a NUL)' -- \
 	rl_window_of 'a\000b' 'a\000c'
 want_broken_none "runner_lib: ...and with nothing escaped, says nothing" 'In the lines above' -- \
 	rl_window_of 'plain words' 'plain wordz'
+# A caller whose report names the two sides in its own words passes them, so
+# one report keeps one pair of words; the labels are padded to one width and
+# the ^ still falls under the byte. Invented bytes.
+rl_window_named() {  # the window of "abc" and "abd", its sides named
+	printf 'abc' > "$WORK/rl_win_want"
+	printf 'abd' > "$WORK/rl_win_got"
+	"$SH" -c '. "$1"; rl_diff_window "$2" "$3" "  " reference student' _ \
+		"$TOOLS/runner_lib.sh" "$WORK/rl_win_want" "$WORK/rl_win_got"
+}
+want_out   "runner_lib: a difference window takes its sides' names" \
+	'  student,   from byte 1: abd' -- rl_window_named
+rl_window_named_caret() {  # true when the ^ line is where the byte is
+	rl_window_named | grep -qx -- "  $(printf '%26s' '')^"
+}
+want_green "runner_lib: ...and puts the ^ under the byte" -- rl_window_named_caret
 
 # ---- A RUN THAT NEVER STARTED is a harness error, never a result
 #
@@ -1689,8 +1760,11 @@ want_out   "diff_output: bytes: extra output is counted" 'then 2 more follow' --
 # A program that never built: red with the compiler's words, and no hints --
 # the exercise's clues are about what the program prints, and there is no
 # program. It used to print a table of "(no line)" under three of them, with the
-# build failure last, cut to ten lines (findings 165, 173).
-printf 'a hint that fires on any failure\n' > "$WORK/standin/clues.tsv"
+# build failure last, cut to ten lines (findings 165, 173). The clues are this
+# section's, beside the stand-ins rather than in their tree, which every
+# section reads.
+mkdir -p "$WORK/dosc"
+printf 'a hint that fires on any failure\n' > "$WORK/dosc/clues.tsv"
 want_red "diff_output: a stand-in is red, not a wrong output" -- \
 	"$SH" "$TOOLS/diff_output.sh" --bin "$STANDIN_BIN" --expected "$WORK/exp.txt"
 want_out "diff_output: ...says the code did not build" "$STANDIN_SAYS" -- \
@@ -1704,7 +1778,7 @@ want_broken_none "diff_output: ...and never blames the code" 'your code did not 
 	"$SH" "$TOOLS/diff_output.sh" --bin "$WORK/standin/empty" --expected "$WORK/exp.txt"
 want_broken_none "diff_output: ...and shows no exercise hints" 'fires on any failure' -- \
 	"$SH" "$TOOLS/diff_output.sh" --bin "$STANDIN_BIN" --expected "$WORK/exp.txt" \
-		--clues "$WORK/standin/clues.tsv"
+		--clues "$WORK/dosc/clues.tsv"
 
 # 4. ONE reading rule, in tools/runner_lib.sh (rl_clues), for every runner that
 #    prints a clues.tsv -- the maintainer's '#' lines stay out of the HINTS
@@ -1821,6 +1895,32 @@ awk 'BEGIN { for (i = 1; i <= 30; i++) print "line " i }' > "$WORK/rl_long.txt"
 want_broken "rl_excerpt: an empty NAME is a wiring mistake" 'no name to keep' -- \
 	env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/undeclared" "$SH" -c '. "$1"; rl_excerpt "$2" 5 "" ""' \
 	_ "$TOOLS/runner_lib.sh" "$WORK/rl_long.txt"
+# A memory report that names the scratch file a runner handed the program
+# (memcheck's open descriptors) named a file gone with the test, under lines
+# that keep the input by another name. rl_mem_report --as SCRATCH KEPT shows
+# the kept name, literally (a path holds dots: "s.p" must not match "sXp"),
+# the longer of two scratch paths where one starts the other, and says once
+# that it did. An invented report.
+printf '%s\n' '==1== Open file descriptor 4: /w/s.p/map.10' \
+	'==1== Open file descriptor 3: /w/s.p/map.1' '==1== at /w/sXp/map.1' > "$WORK/rl_as.txt"
+rl_as_of() {  # rl_as_of [--as SCRATCH KEPT]...: rl_mem_report over the report above
+	# A copy: RL_MEM_OUT is runner_lib.sh's scratch file, removed at its exit.
+	cp "$WORK/rl_as.txt" "$WORK/rl_as.out"
+	"$SH" -c '. "$1"; shift; RL_MEM=valgrind RL_MEM_KIND=memcheck RL_MEM_RAN=1
+		RL_MEM_OUT=$1; shift; rl_mem_report "$@"' _ "$TOOLS/runner_lib.sh" "$WORK/rl_as.out" "$@"
+}
+want_out "rl_mem_report --as: a scratch path reads as the kept name" \
+	'descriptor 3: run-1-1.map' -- rl_as_of --as /w/s.p/map.1 run-1-1.map --as /w/s.p/map.10 run-1-10.map
+want_out "rl_mem_report --as: ...the longer where one starts another" \
+	'descriptor 4: run-1-10.map' -- rl_as_of --as /w/s.p/map.1 run-1-1.map --as /w/s.p/map.10 run-1-10.map
+want_out "rl_mem_report --as: ...a dot matching only a dot" 'at /w/sXp/map.1' -- \
+	rl_as_of --as /w/s.p/map.1 run-1-1.map
+want_out "rl_mem_report --as: ...saying once which names it showed" \
+	'shown by the name it is kept under: run-1-1.map, run-1-10.map)' -- \
+	rl_as_of --as /w/s.p/map.1 run-1-1.map --as /w/s.p/map.10 run-1-10.map
+want_broken_none "rl_mem_report --as: ...and nothing when it named none" 'kept under' -- \
+	rl_as_of --as /w/other run-1.map
+want_broken_none "rl_mem_report: ...nor without --as" 'kept under' -- rl_as_of
 
 # ---- a signal ENDS the runner -------------------------------------------------
 # Bazel stops a test that runs out of time with SIGTERM. Every runner's trap
@@ -1829,6 +1929,27 @@ printf '#!/bin/sh\nsleep 3\nprintf "hello\\n"\n' > "$WORK/sleepy.sh"
 chmod +x "$WORK/sleepy.sh"
 later_term "diff_output: SIGTERM ends it, cleaned up, with 143" -- \
 	"$SH" "$TOOLS/diff_output.sh" --bin "$WORK/sleepy.sh" --expected "$WORK/exp.txt"
+# ...and one that lands while rl_mem_report --as writes its report, which is
+# a copy of RL_MEM_OUT under the kept names ("$RL_MEM_OUT.as") and, for a
+# sanitizer's, that copy less its shadow map (".as.shown"): the library's
+# EXIT trap removed RL_MEM_OUT and its ".shown" and left both. Without a
+# wait: the excerpt, the last step, sends the signal itself, once both files
+# are written. The report and the path are invented.
+rl_term_in_report() {
+	rm -rf "$WORK/rl_tir"
+	mkdir -p "$WORK/rl_tir"
+	TMPDIR="$WORK/rl_tir" "$SH" -c '. "$1"
+		RL_MEM=sanitized RL_MEM_KIND=sanitizer RL_MEM_RAN=1
+		RL_MEM_OUT=$(mktemp) || exit 2
+		printf "==1==ERROR: AddressSanitizer: heap-buffer-overflow reading %s\n" "$2" > "$RL_MEM_OUT"
+		rl_excerpt() { kill -TERM $$; }
+		rl_mem_report --as "$2" case-1.map' _ "$TOOLS/runner_lib.sh" /w/s.p/map > /dev/null 2>&1
+	_tir_rc=$?
+	_tir_left=$(find "$WORK/rl_tir" -mindepth 1 | sed 's|.*/||' | sort | tr '\n' ' ')
+	printf 'exit %s, left: %s\n' "$_tir_rc" "${_tir_left:-nothing}"
+}
+want_out "rl_mem_report: a SIGTERM while it writes ends it, cleaned up" \
+	'exit 143, left: nothing' -- rl_term_in_report
 
 # ------------------------------------------------------------------- progname
 # This runner had NO arm here at all, which is why it discarded the child's exit
@@ -1839,10 +1960,7 @@ later_term "diff_output: SIGTERM ends it, cleaned up, with 143" -- \
 # The fixtures are SHELL SCRIPTS, not C. The runner only copies --bin to a known
 # name and execs it as ./<name>, and a script's $0 is exactly that name -- while
 # a C fixture printing its argv[0] is c-06 ex00's whole answer, which is what
-# these used to be, in a file that ships on the template. The printf is passed
-# as an argument for the require scanner's sake (see the note above the bsq
-# fake students).
-_pn_pf="printf"
+# these used to be, in a file that ships on the template.
 # no_raw_nul COMMAND... -- the command ran (exit 0 or 1), and nothing it
 # wrote, on either stream, holds a NUL byte: a log with one is "data" to
 # `file` and a binary file to grep (V51).
@@ -1851,15 +1969,15 @@ no_raw_nul() {
 	[ "$?" -lt 2 ] || return 2
 	[ "$(tr -d '\000' < "$WORK/no_raw_nul.out" | wc -c)" -eq "$(wc -c < "$WORK/no_raw_nul.out")" ]
 }
-printf '#!/bin/sh\n%s "%%s\\n" "$0"\n' "$_pn_pf" > "$WORK/pn_ok"
-printf '#!/bin/sh\n%s "%%s\\n" "$0"\nexit 3\n' "$_pn_pf" > "$WORK/pn_rc"
-printf '#!/bin/sh\n%s "%%s\\n" "$0"\nkill -ABRT $$\n' "$_pn_pf" > "$WORK/pn_abort"
-printf '#!/bin/sh\n%s "./a.out\\n"\n' "$_pn_pf" > "$WORK/pn_hard"
+printf '#!/bin/sh\nprintf "%%s\\n" "$0"\n' > "$WORK/pn_ok"
+printf '#!/bin/sh\nprintf "%%s\\n" "$0"\nexit 3\n' > "$WORK/pn_rc"
+printf '#!/bin/sh\nprintf "%%s\\n" "$0"\nkill -ABRT $$\n' > "$WORK/pn_abort"
+printf '#!/bin/sh\nprintf "./a.out\\n"\n' > "$WORK/pn_hard"
 # One byte too many: the name, a NUL, then the newline. diff calls that a binary
 # file, and without -a its whole report was "Binary files X and Y differ".
-printf '#!/bin/sh\n%s "%%s\\000\\n" "$0"\n' "$_pn_pf" > "$WORK/pn_nul"
+printf '#!/bin/sh\nprintf "%%s\\000\\n" "$0"\n' > "$WORK/pn_nul"
 # The right name, on the wrong stream.
-printf '#!/bin/sh\n%s "%%s\\n" "$0" >&2\n' "$_pn_pf" > "$WORK/pn_err"
+printf '#!/bin/sh\nprintf "%%s\\n" "$0" >&2\n' > "$WORK/pn_err"
 chmod +x "$WORK/pn_ok" "$WORK/pn_rc" "$WORK/pn_abort" "$WORK/pn_hard" \
 	"$WORK/pn_nul" "$WORK/pn_err"
 
@@ -1871,7 +1989,7 @@ want_green "progname: prints its own name and exits 0" -- \
 # is a crash, and fails both.
 want_green "progname: right line THEN a plain non-zero return passes" -- \
 	"$SH" "$TOOLS/progname_test.sh" "$WORK/pn_rc"
-want_out   "progname: ...and says so in a note" 'names no exit status' -- \
+want_out   "progname: ...and says so in a note" 'from your subject names an exit' -- \
 	"$SH" "$TOOLS/progname_test.sh" "$WORK/pn_rc"
 want_red   "progname: --exit-only fails that plain non-zero return" -- \
 	"$SH" "$TOOLS/progname_test.sh" --exit-only "$WORK/pn_rc"
@@ -1883,7 +2001,7 @@ want_red   "progname: --exit-only fails the SIGABRT too" -- \
 	"$SH" "$TOOLS/progname_test.sh" --exit-only "$WORK/pn_abort"
 # `return (-1);` is 255, which the shell's 128+N reading called signal 127:
 # the runner asks tools/exit_status instead, so it is a return, noted at basic.
-printf '#!/bin/sh\n%s "%%s\\n" "$0"\nexit 255\n' "$_pn_pf" > "$WORK/pn_255"
+printf '#!/bin/sh\nprintf "%%s\\n" "$0"\nexit 255\n' > "$WORK/pn_255"
 chmod +x "$WORK/pn_255"
 want_green "progname: right line THEN a return of 255 passes" -- \
 	"$SH" "$TOOLS/progname_test.sh" "$WORK/pn_255"
@@ -2198,6 +2316,86 @@ want_out "rust_diff: ...naming the line" 'differ: byte' -- \
 	env PATH="$WORK/ctl/nulawk:$PATH" "$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/mini_oracle" \
 		--oracle-fn x --seed 1 --count 24 --student-bin "$WORK/ctl/nul.sh"
 
+# A LONG LINE IS SHOWN CUT. The corpora hold cases past the round capacities
+# (finding 041), lines of 16 to 80 KB early in the file, and a divergence
+# printed each line whole: one common bug put hundreds of KB of hex in a first
+# red log. Here line 1 is 20 KB of input, and the two answers differ in its
+# last byte. Each side is shown to its first 300 bytes and the rest counted,
+# and the bytes around the first difference are shown apart, so a cut that
+# falls before the difference still says where it is. Only what is shown is
+# cut: the comparison is the whole line's. The same line in a reproducer, a
+# word that must give back every byte, is kept as a file and named instead.
+mkdir -p "$WORK/long"
+cat > "$WORK/long/oracle.sh" <<'LONG_ORACLE'
+#!/bin/sh
+LC_ALL=C awk 'BEGIN {
+	s = ""
+	for (i = 0; i < 10000; i++) s = s "61"
+	print s "\tx"
+	for (i = 1; i < 40; i++) printf "%02x\tc%d\n", i, i
+}'
+LONG_ORACLE
+cat > "$WORK/long/student.sh" <<'LONG_STUDENT'
+#!/bin/sh
+LC_ALL=C sed '1s/x$/y/'
+LONG_STUDENT
+cat > "$WORK/long/dies.sh" <<'LONG_DIES'
+#!/bin/sh
+cat > /dev/null
+[ -z "${DIO_CASE_FILE:-}" ] || echo 1 > "$DIO_CASE_FILE"
+kill -SEGV $$
+LONG_DIES
+# Dies without saying on which case: the reproducer's window, from case 1.
+cat > "$WORK/long/quiet.sh" <<'LONG_QUIET'
+#!/bin/sh
+cat > /dev/null
+kill -SEGV $$
+LONG_QUIET
+chmod +x "$WORK/long/oracle.sh" "$WORK/long/student.sh" "$WORK/long/dies.sh" \
+	"$WORK/long/quiet.sh"
+_long_run=$(LC_ALL=C awk 'BEGIN { for (i = 0; i < 200; i++) printf "61" }')
+want_broken_none "rust_diff: a 20 KB divergent line is not printed whole" "$_long_run" -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --student-bin "$WORK/long/student.sh"
+want_out "rust_diff: ...it says how much of it was left out" '... (19702 more bytes)' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --student-bin "$WORK/long/student.sh"
+want_out "rust_diff: ...and shows where the two lines part" 'first difference: byte 20002' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --student-bin "$WORK/long/student.sh"
+# That window names its two sides as the pair above it does: under a
+# "reference:" and a "student  :" line it said "expected" and "got", two pairs
+# of words for the same two lines in one report.
+want_out "rust_diff: ...naming its sides as the pair does" 'reference, from byte 19994' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --student-bin "$WORK/long/student.sh"
+want_broken_none "rust_diff: ...and in no second pair of words" 'expected, from byte' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --student-bin "$WORK/long/student.sh"
+# Every line shown was cut, so no $ ends one: the note on what a $ is said so
+# under lines that hold none.
+want_broken_none "rust_diff: no \$ note when every line shown was cut" 'is where a line ended' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --student-bin "$WORK/long/student.sh"
+want_red "rust_diff: ...and still fails on that last byte" -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --student-bin "$WORK/long/student.sh"
+want_broken_none "rust_diff: a reproducer does not print a 20 KB word" "$_long_run" -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --student-bin "$WORK/long/quiet.sh"
+want_out "rust_diff: ...it keeps the line as a file and replays from it" \
+	'< bazel-testlogs/mod/ex00_diff/test.outputs/case-1.txt' -- \
+	env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/long/out" TEST_TARGET=//mod:ex00_diff \
+		"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --student-bin "$WORK/long/quiet.sh"
+want_out "rust_diff: ...or says that only a run under bazel test keeps it" \
+	'only a run under bazel test keeps it' -- \
+	env -u TEST_UNDECLARED_OUTPUTS_DIR "$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" \
+		--oracle-fn f --seed 1 --count 40 --student-bin "$WORK/long/quiet.sh"
+want_broken_none "rust_diff: a died case's line is not printed whole" "$_long_run" -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/long/oracle.sh" --oracle-fn f \
+		--seed 1 --count 40 --crash-only --student-bin "$WORK/long/dies.sh"
+
 # --crash-only, which is the ENTIRE diff_asan layer: 77 targets whose verdict is
 # one `rc=$?` and one comparison. It had no arm of any kind. The two above cover
 # the value-diff path only, and value-diff and crash-fuzz share no branch --
@@ -2250,6 +2448,21 @@ want_broken_none "rust_diff: ...and not the abort's other causes" 'stack smashin
 want_out "rust_diff: an abort with no report keeps SIGABRT's words" 'stack smashing' -- \
 	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/mini_oracle" --oracle-fn x \
 		--seed 1 --count 24 --crash-only --student-bin "$WORK/crash_abrt"
+# What the report is, in words: the paragraph under every report explained an
+# access outside a block, READ or WRITE, whatever the report said.
+printf '#!/bin/sh\ncat >/dev/null\necho "==1==ERROR: AddressSanitizer: attempting double-free on 0x602000000010 in thread T0:" >&2\nkill -ABRT $$\n' \
+	> "$WORK/crash_san_twice"
+chmod +x "$WORK/crash_san_twice"
+want_out "rust_diff: --crash-only names a report's kind" \
+	'The sanitizer stopped the harness when it freed the same block twice (double-free)' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/mini_oracle" --oracle-fn x \
+		--seed 1 --count 24 --crash-only --student-bin "$WORK/crash_san_twice"
+want_broken_none "rust_diff: ...explaining no access it was not" 'READ or WRITE' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/mini_oracle" --oracle-fn x \
+		--seed 1 --count 24 --crash-only --student-bin "$WORK/crash_san_twice"
+want_out "rust_diff: ...and an overflow is still explained as one" 'READ or WRITE' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --oracle "$WORK/mini_oracle" --oracle-fn x \
+		--seed 1 --count 24 --crash-only --student-bin "$WORK/crash_san_abrt"
 
 # A SANITIZER REPORT A STUDENT CAN READ (finding 051). diff_asan's report used
 # to be bare offsets into a binary in Bazel's cache, no input, no legend and no
@@ -2854,9 +3067,11 @@ if "$CC" -g -fsanitize=address,undefined -fno-sanitize-recover=all -fuse-ld=bfd 
 else
 	SAN=0
 	# NO_SKIP=1 has to reach this too. Without the guard, a box that cannot link
-	# an instrumented binary silently drops the ONLY regression tests the asan
-	# layers have -- four arms covering asan_run and asan_check -- and this file
-	# still reports success, which is precisely the shape it exists to catch.
+	# an instrumented binary silently drops every arm that needs one -- the
+	# three asan_run arms here and the later sections gated on SAN (the guarded
+	# argv replay, rush02 --sanitized) -- and this file still reports success,
+	# which is precisely the shape it exists to catch. (asan_check's arms run
+	# without the probe; see above.)
 	[ "${NO_SKIP:-0}" != "1" ] || {
 		echo "NO_SKIP set: no sanitizer build is possible here, so the asan arms" >&2
 		echo "             did not run and the asan layers are unproven." >&2
@@ -2864,6 +3079,28 @@ else
 	}
 	printf '  %-52s %s\n' "asan_run: (sanitizer build unavailable)" "skipped"
 fi
+
+# A report's kind is said in words, from its own first line: the headline
+# said "a memory error or undefined behaviour" above every report, and its
+# next line explained an out-of-bounds read whatever the report was. The
+# stand-in writes the lines AddressSanitizer writes for a block freed twice,
+# and ends as abort_on_error ends a run.
+printf '#!/bin/sh\necho "==1==ERROR: AddressSanitizer: attempting double-free on 0x602000000010 in thread T0:" >&2\necho "SUMMARY: AddressSanitizer: double-free (/x/a.out+0x499f02) in free" >&2\nkill -ABRT $$\n' \
+	> "$WORK/san_twice"
+chmod +x "$WORK/san_twice"
+want_out "asan_run: a block freed twice is named as one" \
+	'FAIL — the program freed the same block twice (double-free)' -- \
+	"$SH" "$TOOLS/asan_run.sh" --bin "$WORK/san_twice"
+want_broken_none "asan_run: ...and not explained as a read out of bounds" 'out-of-bounds' -- \
+	"$SH" "$TOOLS/asan_run.sh" --bin "$WORK/san_twice"
+# A leak report's SUMMARY line counts bytes ("7 byte(s) leaked"): its first
+# word is a number, not a kind, and the kind is its ERROR line's. The
+# sanitizer options switch leak reports off; a caller's own options can
+# switch them back on.
+printf '==1==ERROR: LeakSanitizer: detected memory leaks\nSUMMARY: AddressSanitizer: 7 byte(s) leaked in 1 allocation(s).\n' \
+	> "$WORK/san_leak.txt"
+want_out "rl_sanitized: a leak report is named by its ERROR line" 'kind=memory-leak' -- \
+	"$SH" -c '. "$1"; rl_sanitized "$2"; echo "kind=$RL_SAN_KIND"' _ "$TOOLS/runner_lib.sh" "$WORK/san_leak.txt"
 
 # ...AND NO MEMORY LAYER MAY CALL A PROGRAM THAT NEVER BUILT CLEAN. The stand-in
 # exits 86, names no sanitizer and dies on no signal, so asan_run.sh used to
@@ -3051,6 +3288,95 @@ want_out "asan_check: ...a function's exit is said to have ended it" \
 want_out "asan_check: an overflow still reads as one" 'accessed memory out of bounds' -- \
 	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
 		--probe "$WORK/probe.c" --src "$WORK/fill_oob.c"
+# A REPORT OF ANOTHER KIND IS NAMED AS ITS KIND. Every report was headed "the
+# function accessed memory out of bounds (or hit UB)", and AddressSanitizer
+# also stops on what is no access at all: a request bigger than the allocator
+# allows, a block freed twice. Each toy below does one of those and touches
+# nothing outside a block; the headline says what the report's own first line
+# says, in words, with the report's name for it.
+printf '#include <stdlib.h>\nvoid ft_probe_fill(char *b, int n){char *p=malloc((size_t)n << 60);(void)b;free(p);}\n' \
+	> "$WORK/fill_huge.c"
+printf '#include <stdlib.h>\nvoid ft_probe_fill(char *b, int n){char *p=malloc((size_t)n);(void)b;free(p);free(p);}\n' \
+	> "$WORK/fill_twice.c"
+# shellcheck disable=SC2086
+want_out "asan_check: a request too big to allocate is named as one" \
+	'FAIL — the function asked for more memory than can be allocated (allocation-size-too-big)' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_huge.c"
+# shellcheck disable=SC2086
+want_broken_none "asan_check: ...and not as an access out of bounds" 'out of bounds' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_huge.c"
+# NO HINT THAT READS AS ADVICE TO SWITCH THE CHECK OFF. The sanitizer ends
+# a too-big request's report with "HINT: if you don't care about these
+# errors you may set allocator_may_return_null=1", and a stack overflow's
+# with "HINT: this may be a false positive if your program uses some custom
+# stack unwind mechanism", and both were shown to the student word for word.
+# They are left out of what is shown, as the shadow-memory map is, and kept
+# in the whole report. The stack toy steps one past a local array through a
+# pointer, which UBSan's bounds check cannot see, so AddressSanitizer reports.
+printf 'void ft_probe_fill(char *b, int n){char a[4];char *volatile p=a;p[n]=1;b[0]=p[0];}\n' \
+	> "$WORK/fill_stackoob.c"
+mkdir -p "$WORK/asanhint"
+# shellcheck disable=SC2086
+want_broken_none "asan_check: ...and no HINT to switch the check off" 'allocator_may_return_null' -- \
+	env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/asanhint" TEST_TARGET=//mod:ex00_asan \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_huge.c"
+want_out "asan_check: ...which the whole report keeps" 'allocator_may_return_null' -- \
+	cat "$WORK/asanhint/sanitizer-report-full.txt"
+# shellcheck disable=SC2086
+want_out "asan_check: ...and the log says it was left out" \
+	'(the HINT line is left out; the whole report is in bazel-testlogs/mod/ex00_asan/test.outputs/sanitizer-report-full.txt)' -- \
+	env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/asanhint" TEST_TARGET=//mod:ex00_asan \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_huge.c"
+# shellcheck disable=SC2086
+want_broken_none "asan_check: a stack overflow's HINT is left out" 'false positive' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_stackoob.c"
+# shellcheck disable=SC2086
+want_broken_none "asan_check: ...with the line that continues it" 'are* supported' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_stackoob.c"
+# shellcheck disable=SC2086
+want_out "asan_check: ...the report around it still shown" 'stack-buffer-overflow on address' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_stackoob.c"
+# shellcheck disable=SC2086
+want_out "asan_check: ...and the note names both things left out" \
+	'(the shadow-memory map and the HINT line are left out' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_stackoob.c"
+# A SEGV's "Hint: address points to the zero page." says where the address
+# was, not how to quiet the check, and stays.
+printf 'void ft_probe_fill(char *b, int n){char *volatile p=(char *)16;(void)b;p[0]=(char)n;}\n' \
+	> "$WORK/fill_zeropage.c"
+# shellcheck disable=SC2086
+want_out "asan_check: ...a SEGV's Hint about the address stays" 'Hint: address points to the zero page' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_zeropage.c"
+# shellcheck disable=SC2086
+want_out "asan_check: a block freed twice is named as one" \
+	'FAIL — the function freed the same block twice (double-free)' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_twice.c"
+# shellcheck disable=SC2086
+want_broken_none "asan_check: ...not as an access out of bounds" 'out of bounds' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe.c" --src "$WORK/fill_twice.c"
+# The probe's own header comment says how the probe sizes its blocks, which
+# is what an access out of bounds is measured against and nothing else is.
+printf '/* PROBE-HEADER: four bytes, sized to fit exactly. */\n#include <stdlib.h>\nvoid ft_probe_fill(char *b, int n);\nint main(void){char *b = malloc(4); ft_probe_fill(b, 4); free(b); return 0;}\n' \
+	> "$WORK/probe_hdr.c"
+# shellcheck disable=SC2086
+want_broken_none "asan_check: ...nor headed by the probe's sizing" 'PROBE-HEADER' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe_hdr.c" --probe-src "$WORK/probe_hdr.c" --src "$WORK/fill_twice.c"
+# shellcheck disable=SC2086
+want_out "asan_check: ...which an overflow is still shown" 'PROBE-HEADER' -- \
+	"$SH" "$TOOLS/asan_check.sh" $BUILD_PIN \
+		--probe "$WORK/probe_hdr.c" --probe-src "$WORK/probe_hdr.c" --src "$WORK/fill_oob.c"
 # THE COMPILER IS CAMPUS'S, WHATEVER THE BOX HAS. It took the first of
 # clang-12, clang, gcc-10, gcc and cc on PATH, under -Werror, and a variable
 # set and never read is clang-12's to accept and gcc-10's to refuse: the same
@@ -3070,7 +3396,9 @@ want_broken "asan_check: ...and without --ld" '--ld is required' -- \
 # THE LINKER'S PROOFS (tools/runner_lib.sh, rl_ld_pin), each a refusal: a
 # linker whose library directory holds no libbfd loads the box's (or cannot
 # start), and a compiler whose link would run another ld than the wrapper --
-# a stand-in that answers -### with the box's ld and builds nothing.
+# a stand-in that answers -### with the box's ld and builds nothing. The
+# directory with no libbfd is this section's own, as symbols' is its own.
+mkdir -p "$WORK/ldnolib"
 cat > "$WORK/boxld_cc" <<'BOXLD'
 #!/bin/sh
 for a in "$@"; do
@@ -3081,7 +3409,7 @@ BOXLD
 chmod +x "$WORK/boxld_cc"
 # shellcheck disable=SC2086
 want_broken "rl_ld_pin: a linker loading another libbfd refuses" 'the pinned linker loaded' -- \
-	"$SH" "$TOOLS/asan_check.sh" --cc "$CLANG" $CLANG_LIBS --ld "$LD" --ld-lib "$WORK/nolib/none" \
+	"$SH" "$TOOLS/asan_check.sh" --cc "$CLANG" $CLANG_LIBS --ld "$LD" --ld-lib "$WORK/ldnolib/none" \
 		--probe "$WORK/probe.c" --src "$WORK/fill_ok.c"
 # shellcheck disable=SC2086
 want_broken "rl_ld_pin: a compiler linking with another ld refuses" 'did not take the pinned linker' -- \
@@ -3303,6 +3631,13 @@ want_out   "files: ...under a heading of its own" 'SOURCES YOUR MAKEFILE DOES NO
 	"$SH" "$TOOLS/files_test.sh" --label t --required Makefile --optional main.c \
 		--optional srcs/x.c --optional test.c --actual-list "$WORK/files_mk.txt" \
 		--built "$WORK/files_built.txt" --strict
+# It says what the layer counts, never what the exercise takes: that only a
+# source the Makefile compiles is turned in is this layer's inference.
+want_out   "files: ...saying what this layer counts" \
+	'This layer counts a source as turned in only when the Makefile compiles it.' -- \
+	"$SH" "$TOOLS/files_test.sh" --label t --required Makefile --optional main.c \
+		--optional srcs/x.c --optional test.c --actual-list "$WORK/files_mk.txt" \
+		--built "$WORK/files_built.txt" --strict
 want_green "files: every .c built is every .c allowed" -- \
 	"$SH" "$TOOLS/files_test.sh" --label t --required Makefile --optional main.c \
 		--optional srcs/x.c --optional test.c --actual-list "$WORK/files_mk.txt" \
@@ -3346,14 +3681,14 @@ want_broken "files: a build list that is not there refuses" 'no build manifest' 
 # check, not what the program computes. They used to be C programs printing
 # argv[1..] one per line, which is c-06 ex01's answer, in a file that ships on
 # the template.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "${#a}"; done\n' "$_pn_pf" \
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "${#a}"; done\n' \
 	> "$WORK/argv_ok"
-printf '#!/bin/sh\n%s "nope\\n"\n' "$_pn_pf" > "$WORK/argv_bad"
+printf '#!/bin/sh\nprintf "nope\\n"\n' > "$WORK/argv_bad"
 # Prints exactly the right table and THEN dies — the false green fixed in
 # 3381bd0, and the shape these exercises actually fail in, since indexing and
 # swapping argv pointers emits the correct bytes and crashes on the way out. The
 # table it renders reads all PASS; the verdict must still come out red.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "${#a}"; done\nkill -SEGV $$\n' "$_pn_pf" \
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "${#a}"; done\nkill -SEGV $$\n' \
 	> "$WORK/argv_crash"
 chmod +x "$WORK/argv_ok" "$WORK/argv_bad" "$WORK/argv_crash"
 printf 'two\tab\tcde\none\tz\n' > "$WORK/scn.tsv"
@@ -3372,13 +3707,13 @@ want_red   "argv_table: RIGHT table then a crash fails" -- \
 # plain non-zero return and passes; --exit-only, the robust exNN_exit target,
 # judges nothing but how each run ended, so it fails that return and ignores
 # the table.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "${#a}"; done\nexit 3\n' "$_pn_pf" \
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "${#a}"; done\nexit 3\n' \
 	> "$WORK/argv_rc"
 chmod +x "$WORK/argv_rc"
 want_green "argv_table: RIGHT table then a plain non-zero exit passes" -- \
 	"$SH" "$TOOLS/argv_table.sh" --bin "$WORK/argv_rc" \
 		--scenarios "$WORK/scn.tsv" --expected "$WORK/table.txt"
-want_out   "argv_table: ...and says so in a note" 'names no exit status' -- \
+want_out   "argv_table: ...and says so in a note" 'from your subject names an exit' -- \
 	"$SH" "$TOOLS/argv_table.sh" --bin "$WORK/argv_rc" \
 		--scenarios "$WORK/scn.tsv" --expected "$WORK/table.txt"
 want_red   "argv_table: --exit-only fails that plain non-zero exit" -- \
@@ -3390,7 +3725,7 @@ want_red   "argv_table: --exit-only fails that plain non-zero exit" -- \
 want_broken_none "argv_table: a silent non-zero return is not called stderr" 'wrote to stderr' -- \
 	"$SH" "$TOOLS/argv_table.sh" --bin "$WORK/argv_rc" --exit-only \
 		--scenarios "$WORK/scn.tsv" --expected "$WORK/table.txt"
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "${#a}"; done\necho "toy says no" >&2\nexit 3\n' "$_pn_pf" \
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "${#a}"; done\necho "toy says no" >&2\nexit 3\n' \
 	> "$WORK/argv_rc_err"
 chmod +x "$WORK/argv_rc_err"
 want_out   "argv_table: ...while what a run did write is shown" 'toy says no' -- \
@@ -3403,7 +3738,7 @@ want_red   "argv_table: --exit-only still fails a crash" -- \
 	"$SH" "$TOOLS/argv_table.sh" --bin "$WORK/argv_crash" --exit-only \
 		--scenarios "$WORK/scn.tsv" --expected "$WORK/table.txt"
 # A return of 255 is a return (tools/exit_status), not a death by signal 127.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "${#a}"; done\nexit 255\n' "$_pn_pf" \
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "${#a}"; done\nexit 255\n' \
 	> "$WORK/argv_255"
 chmod +x "$WORK/argv_255"
 want_green "argv_table: RIGHT table then a return of 255 passes" -- \
@@ -3412,6 +3747,23 @@ want_green "argv_table: RIGHT table then a return of 255 passes" -- \
 want_broken_none "argv_table: ...and is not called a signal" 'signal' -- \
 	"$SH" "$TOOLS/argv_table.sh" --bin "$WORK/argv_255" \
 		--scenarios "$WORK/scn.tsv" --expected "$WORK/table.txt"
+# --EMIT makes table.txt from a reference program. A clean one prints the
+# table; one that returned a status other than 0 has no answer on that row,
+# and --emit refused only a crash, a hang or a flood: a reference that exited
+# 3 with nothing on stdout wrote a table of empty rows, and exited 0.
+want_out "argv_table: --emit prints a clean reference's table" '2 | 3' -- \
+	"$SH" "$TOOLS/argv_table.sh" --emit --bin "$WORK/argv_ok" \
+		--scenarios "$WORK/scn.tsv"
+printf '#!/bin/sh\nexit 3\n' > "$WORK/argv_rc_silent"
+chmod +x "$WORK/argv_rc_silent"
+want_broken "argv_table: --emit refuses a reference that returned 3" \
+	'two: returned exit status 3' -- \
+	"$SH" "$TOOLS/argv_table.sh" --emit --bin "$WORK/argv_rc_silent" \
+		--scenarios "$WORK/scn.tsv"
+want_broken "argv_table: ...and one that printed its row first" \
+	'one: returned exit status 3' -- \
+	"$SH" "$TOOLS/argv_table.sh" --emit --bin "$WORK/argv_rc" \
+		--scenarios "$WORK/scn.tsv"
 # A run that never started (diff_output's fixture): a harness error, not a
 # table of empty cells.
 want_broken "argv_table: a program exec cannot start is refused" 'could not be started' -- \
@@ -3470,6 +3822,23 @@ want_out "argv_table: ...saying the sanitizer stopped it" 'was stopped by the sa
 		--scenarios "$WORK/scn.tsv"
 want_broken_none "argv_table: ...and not the abort's other causes" 'stack smashing' -- \
 	"$SH" "$TOOLS/argv_table.sh" --bin "$WORK/argv_san" --memory-only \
+		--scenarios "$WORK/scn.tsv"
+# ...and what it reported, from the report's first line: every report read
+# "the sanitizer reported an invalid access", a block freed twice among them.
+printf '#!/bin/sh\necho "==1==ERROR: AddressSanitizer: attempting double-free on 0x602000000010 in thread T0:" >&2\nkill -ABRT $$\n' \
+	> "$WORK/argv_san_twice"
+chmod +x "$WORK/argv_san_twice"
+want_out "argv_table: ...naming what it reported" \
+	'the sanitizer reported that it freed the same block twice (double-free)' -- \
+	"$SH" "$TOOLS/argv_table.sh" --bin "$WORK/argv_san_twice" --memory-only \
+		--scenarios "$WORK/scn.tsv"
+want_broken_none "argv_table: ...never an invalid access it was not" 'invalid access' -- \
+	"$SH" "$TOOLS/argv_table.sh" --bin "$WORK/argv_san_twice" --memory-only \
+		--scenarios "$WORK/scn.tsv"
+# ...nor headed as one above those lines: the summary headline said
+# "INVALID MEMORY ACCESS" whatever the lines under it said.
+want_broken_none "argv_table: ...nor headed as an invalid access" 'INVALID MEMORY ACCESS' -- \
+	"$SH" "$TOOLS/argv_table.sh" --bin "$WORK/argv_san_twice" --memory-only \
 		--scenarios "$WORK/scn.tsv"
 
 # THE GUARDED REPLAY (finding 071). argv and its strings sit where the kernel
@@ -3593,6 +3962,11 @@ FR_TOOLS=$(cd "$TOOLS" && pwd)
 printf '//mod:ex00_compile_gcc  FAILED in 0.3s\n' > "$WORK/fr/ko.log"
 printf '//mod:ex00_output  FAILED in 0.1s\n'      > "$WORK/fr/work.log"
 
+# A stub opens with the 11-line 42 header, as every one the template ships
+# does: stub_check refuses a file without it, and first_red then counts a red
+# rule over it as the student's.
+FR_H=$(awk 'BEGIN { b = "/* "; for (i = 0; i < 74; i++) b = b "*"; b = b " */"
+	print b; for (i = 0; i < 9; i++) printf "/*%76s*/\n", ""; print b }')
 # A deliverable that is written: (void) casts plus a real statement.
 printf 'int\tf(int a)\n{\n\treturn (a + 1);\n}\n' > "$WORK/fr/mod/deliverable/ex00/f.c"
 want_out "first_red: a WRITTEN file failing compile is the student's to fix" \
@@ -3600,7 +3974,8 @@ want_out "first_red: a WRITTEN file failing compile is the student's to fix" \
 	"$SH" -c 'cd "$1" && "$2" "$3/first_red.sh" < "$1/ko.log"' _ "$WORK/fr" "$SH" "$FR_TOOLS"
 
 # The same failure over a STUB must not be blamed on anyone.
-printf 'int\tf(int a)\n{\n\t(void)a;\n\treturn (0);\n}\n' > "$WORK/fr/mod/deliverable/ex00/f.c"
+printf '%s\n\nint\tf(int a)\n{\n\t(void)a;\n\treturn (0);\n}\n' "$FR_H" \
+	> "$WORK/fr/mod/deliverable/ex00/f.c"
 want_broken_none "first_red: the same failure over a STUB is not blamed" \
 	'FIX FIRST' -- \
 	"$SH" -c 'cd "$1" && "$2" "$3/first_red.sh" < "$1/ko.log"' _ "$WORK/fr" "$SH" "$FR_TOOLS"
@@ -3631,6 +4006,16 @@ want_out "first_red: --next writes the first red as TSV" \
 	"$(printf 'work\t//mod\tex00\t//mod:ex00_output')" -- \
 	"$SH" -c 'cd "$1" && "$2" "$3/first_red.sh" --next "$1/next.tsv" < "$1/work.log" > /dev/null && cat "$1/next.tsv"' \
 	_ "$WORK/fr" "$SH" "$FR_TOOLS"
+# --triage FILE writes each red exercise's verdict, the one the report words,
+# as "KIND<tab>MODULE<tab>EXERCISE": what submit's --written-only reads. Over
+# the stub above, ex00's red output is "work", an exercise not written yet.
+want_out "first_red: --triage writes each exercise's verdict" \
+	"$(printf 'work\t//mod\tex00')" -- \
+	"$SH" -c 'cd "$1" && "$2" "$3/first_red.sh" --triage "$1/triage.tsv" < "$1/work.log" > /dev/null && cat "$1/triage.tsv"' \
+	_ "$WORK/fr" "$SH" "$FR_TOOLS"
+want_broken "first_red: --triage needs a file" \
+	'--triage FILE' -- \
+	"$SH" -c 'cd "$1" && "$2" "$3/first_red.sh" --triage < "$1/work.log"' _ "$WORK/fr" "$SH" "$FR_TOOLS"
 want_broken "first_red: --cmd takes bazel or 42" \
 	'--cmd bazel|42' -- \
 	"$SH" -c 'cd "$1" && "$2" "$3/first_red.sh" --cmd make < "$1/work.log"' _ "$WORK/fr" "$SH" "$FR_TOOLS"
@@ -3805,7 +4190,8 @@ want_broken_none "first_red: ... and never gets the stub sentence" \
 	'what an unwritten exercise looks' -- \
 	"$SH" -c 'cd "$1" && "$2" "$3/first_red.sh" < "$1/work.log"' _ "$WORK/fr" "$SH" "$FR_TOOLS"
 mkdir -p "$WORK/fr/mod/deliverable/ex01"
-printf 'int\tg(int a)\n{\n\t(void)a;\n\treturn (0);\n}\n' > "$WORK/fr/mod/deliverable/ex01/g.c"
+printf '%s\n\nint\tg(int a)\n{\n\t(void)a;\n\treturn (0);\n}\n' "$FR_H" \
+	> "$WORK/fr/mod/deliverable/ex01/g.c"
 printf '//mod:ex00_output  FAILED in 0.1s\n//mod:ex01_output  FAILED in 0.1s\n' > "$WORK/fr/mix.log"
 want_out "first_red: written + stub in one module is partly" \
 	'partly written' -- \
@@ -4077,7 +4463,7 @@ want_broken_none "first_red: a compiler line in a test log is no build" \
 want_green "first_red: ... and exits 0" -- \
 	"$SH" -c "$FR_RUN" _ "$WORK/fr" "$SH" "$FR_TOOLS" testout.log
 
-# And a build error in no file of the student's: the oracle's main.rs broken
+# And a build error in no file of the student's: the oracle's entry point broken
 # (an unclosed delimiter) under C 01 answers that pass, WITH --keep_going. Its
 # diff and perf targets say FAILED TO BUILD like a compile error would, and the
 # triage once called that "DOES NOT BUILD ... graded 0" over two exercises
@@ -4904,6 +5290,12 @@ want_out   "method: ...in its own words" 'a stub calls nothing twice' -- mc recu
 want_broken_none "method: ...never the corpus layers'" 'replays a generated corpus' -- \
 	mc recursive loop.c --gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/mc/gate_bin" \
 	--gate-expected "$WORK/mc/wrong.txt"
+# Its SKIP line names the output test it waits for (--gate-label), as Rush
+# 00's main.c names its own: "the output fixture" alone sent a newcomer
+# looking for which one.
+want_out   "method: ...naming the test it waits for" 'SKIP — ex00_output, this exercise' -- \
+	mc recursive loop.c --gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/mc/gate_bin" \
+	--gate-expected "$WORK/mc/wrong.txt" --gate-label ex00_output
 want_red   "method: a green fixture lets it judge" -- mc recursive loop.c \
 	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/mc/gate_bin" \
 	--gate-expected "$WORK/mc/right.txt"
@@ -5231,6 +5623,94 @@ want_out   "make_test: ...as a missing rule, not as what re did" \
 	'your Makefile has no re rule' -- mkr mkre_phony
 want_green "make_test: ...while phony rules that exist pass" -- mkr mkre_phonyok
 
+# An EMPTY rule the Makefile writes is not a missing one. make's database gives
+# `clean:`, written with no prerequisite and no recipe, the same entry as a
+# clean that .PHONY alone names, so it was called missing over a build that
+# leaves nothing for it to remove. It is judged by what it does instead: green
+# with nothing to clean, red on the objects it leaves, while a clean named only
+# in .PHONY stays a missing rule. mkempty writes the Makefile: CLEAN is the
+# clean rule's text (none at all for the .PHONY-only arm), OBJ says whether the
+# build leaves an object, and PHONY, when given, is a .PHONY written first in
+# place of the one-line .PHONY written last.
+# A Makefile line is an answer line to answer_scan wherever else it reads one,
+# a stock line included: these fixtures spell their fclean's prerequisite
+# through %s, and their .PHONY names in another order, so that no line of this
+# file is a whole Makefile line. The Makefiles written are the same.
+mkempty() {  # mkempty DIR CLEAN OBJ|NOOBJ [PHONY]
+	mkdir -p "$WORK/$1"
+	printf 'selftest\n' > "$WORK/$1/sel.txt"
+	{
+		if [ -n "${4:-}" ]; then printf '%b' "$4"; fi
+		printf 'all: libselftest.a\n'
+		if [ "$3" = OBJ ]; then
+			printf 'libselftest.a: sel.o\n\tcp sel.o libselftest.a\n'
+			printf 'sel.o: sel.txt\n\tcp sel.txt sel.o\n'
+		else
+			printf 'libselftest.a: sel.txt\n\tcp sel.txt libselftest.a\n'
+		fi
+		printf '%b' "$2"
+		printf 'fclean: %s\n\trm -f sel.o libselftest.a\n' clean
+		if [ -z "${4:-}" ]; then printf '.PHONY: fclean clean all\n'; fi
+	} > "$WORK/$1/Makefile"
+}
+mkempty mkcl_empty 'clean:\n' NOOBJ
+mkempty mkcl_phony '' NOOBJ
+mkempty mkcl_emptyobj 'clean:\n' OBJ
+mkempty mkcl_emptycont 'clean:\n' NOOBJ '.PHONY: all \\\n\tclean fclean\n'
+want_green "make_test: an empty clean, nothing to clean, passes" -- \
+	mkr mkcl_empty all,clean,fclean
+want_red   "make_test: a clean only in .PHONY still fails" -- \
+	mkr mkcl_phony all,clean,fclean
+want_out   "make_test: ...as a missing rule" 'your Makefile has no clean rule' -- \
+	mkr mkcl_phony all,clean,fclean
+want_red   "make_test: an empty clean that leaves objects fails" -- \
+	mkr mkcl_emptyobj all,clean,fclean
+want_out   "make_test: ...on what it left, not as missing" \
+	'left object files behind' -- mkr mkcl_emptyobj all,clean,fclean
+want_green "make_test: ...and with .PHONY first, continued" -- \
+	mkr mkcl_emptycont all,clean,fclean
+# Telling the two apart runs make again, and the step goes on with the
+# status `make clean` gave, never the database run's (make -npq .DEFAULT
+# exits 2). It used to come back as 2: a WARNING here, and a FAIL in the
+# robust twin, over a clean that exited 0.
+want_broken_none "make_test: ...and says no status of its own" \
+	'exited with status' -- mkr mkcl_empty all,clean,fclean
+# A .PHONY the copy cannot rename, in an included makefile, keeps the old
+# verdict: a clean named only there is still missing.
+mkdir -p "$WORK/mkcl_incphony"
+printf 'selftest\n' > "$WORK/mkcl_incphony/sel.txt"
+printf '.PHONY: fclean clean all\n' > "$WORK/mkcl_incphony/phony.mk"
+{
+	printf 'include phony.mk\n'
+	printf 'all: libselftest.a\n'
+	printf 'libselftest.a: sel.txt\n\tcp sel.txt libselftest.a\n'
+	printf 'fclean: %s\n\trm -f libselftest.a\n' clean
+} > "$WORK/mkcl_incphony/Makefile"
+want_out   "make_test: a clean only in an included .PHONY fails" \
+	'your Makefile has no clean rule' -- mkr mkcl_incphony all,clean,fclean
+# A recipe line can start with `clean:` too: a continued line is printed
+# from the first column of make's database. Read as a target, it gave a
+# clean named only in .PHONY a rule -- from an extra target's recipe
+# (mkcl_stray_rule, whose block is read first) or from the artifact's
+# (mkcl_stray_copy, which only the .PHONY-renamed copy got wrong).
+mkstray() {  # mkstray DIR EXTRA-RULE ARTIFACT-RECIPE-END
+	mkdir -p "$WORK/$1"
+	printf 'selftest\n' > "$WORK/$1/sel.txt"
+	{
+		printf 'all: libselftest.a\n'
+		printf 'libselftest.a: sel.txt\n\tcp sel.txt libselftest.a%b\n' "$3"
+		printf '%b' "$2"
+		printf 'fclean: %s\n\trm -f libselftest.a\n' clean
+		printf '.PHONY: stage fclean clean all\n'
+	} > "$WORK/$1/Makefile"
+}
+mkstray mkcl_stray_rule 'stage:\n\techo "rules:" \\\nclean: objects\n' ''
+mkstray mkcl_stray_copy '' '; echo "rules:" \\\nclean: objects'
+want_out   "make_test: a recipe line is no clean rule" \
+	'your Makefile has no clean rule' -- mkr mkcl_stray_rule all,clean,fclean
+want_out   "make_test: ...in the artifact's recipe either" \
+	'your Makefile has no clean rule' -- mkr mkcl_stray_copy all,clean,fclean
+
 # An all that builds the artifact and then exits non-zero did its job: at
 # basic that is the run contract's WARNING, and it used to be "did not build"
 # over the file it had built. Its re builds the artifact directly, so only
@@ -5302,6 +5782,9 @@ want_red   "make_test --exit-only: clean erroring on a clean tree fails" -- \
 want_out   "make_test --exit-only: ...and names the run" \
 	"FAIL — 'make clean' on a tree with nothing to clean exited" -- mkrx mkre_cleanerr
 want_red   "make_test --exit-only: an all that exits non-zero fails" -- mkrx mkallerr
+# An empty clean that exited 0 is judged as exiting 0 (mkcl_empty, above).
+want_green "make_test --exit-only: an empty clean exits 0" -- \
+	mkrx mkcl_empty all,clean,fclean
 want_green "make_test --exit-only: what a rule did is not its business" -- \
 	mkrx mkre_clean
 want_out   "make_test --exit-only: ...it is not judged" \
@@ -5642,6 +6125,25 @@ later_red_out "make_test: ...and so is a creator script" \
 # named sel_a and sel_b, and a "library" that is their text. An input with an
 # #error line stops it with the compiler's own words for one, FILE:LINE:COL:
 # error, which is what the wildcards decoy is.
+#
+# Its fixtures are its own, beside make_test's rather than in them: MKQ names
+# a folder of this section's from here on (mkr reads it), holding the toy
+# definitions of the rules and the --graph sentences again, and mksecho the
+# Makefile whose recipe only echoes.
+MKQ="$WORK/mksentences"
+mkdir -p "$MKQ" "$WORK/mksecho"
+{
+	printf 'print\tToy, p.1: "Print every command."\n'
+	printf 'unnecessary\tToy, p.1: "Redo nothing that is done."\n'
+	printf 'objects\tToy, p.1: "Each object beside its source."\n'
+} > "$MKQ/graph.tsv"
+{
+	printf 'all\tToy, p.2: "all builds the library."\n'
+	printf 'clean\tToy, p.2: "clean removes what the build made on the way."\n'
+	printf 'fclean\tToy, p.2: "fclean is clean, and the library too."\n'
+	printf 're\tToy, p.2: "re is fclean, then all."\n'
+} > "$MKQ/rules.tsv"
+printf 'all:\n\techo selftest stub\n' > "$WORK/mksecho/Makefile"
 {
 	printf 'cc\tToy, p.3: "Compile with cc and -Wall -Wextra -Werror."\n'
 	printf 'wildcards\tToy, p.3: "Name every file; our files sit beside yours."\n'
@@ -5946,11 +6448,14 @@ want_broken "make_test --quotes: a key no check reads is refused" "unknown key '
 		--anchor "$WORK/mkrc_ok/Makefile" --artifact libselftest.a
 # Where no compile is planned, and the build's lesson is not its compile
 # commands (no --graph), there is nothing to judge, and the build says what
-# the Makefile made: mkbin builds its library with no compile at all.
+# the Makefile made: mksbin, this section's copy of make_test's mkbin, builds
+# its library with no compile at all.
+mkdir -p "$WORK/mksbin"
+printf 'all:\n\t: > libselftest.a\n' > "$WORK/mksbin/Makefile"
 want_green "make_test --recipe-cc: a plan with no compile is not judged" -- \
-	mkrc mkbin any
+	mkrc mksbin any
 want_out   "make_test --recipe-cc: ...and says so" \
-	'no compile command was judged against the sentence about cc' -- mkrc mkbin any
+	'no compile command was judged against the sentence about cc' -- mkrc mksbin any
 # The compile layers build a student's own sources, and a Makefile turned in
 # alone has none: the FAIL names those layers only where they exist.
 mkdir -p "$WORK/mkrc_ov"
@@ -5973,15 +6478,15 @@ want_out   "make_test --recipe-only: ...and says it is one" "is this harness's r
 want_green "make_test --recipe-only: cc and the flags pass" -- mkrc mkrc_ok any --recipe-only
 want_green "make_test --recipe-only: no compile planned is a SKIP" -- \
 	env -u NO_SKIP "$SH" "$TOOLS/make_test.sh" --nm "$NM" --rules "" --recipe-cc any \
-		--quotes "$MKQ/cc.tsv" --recipe-only --anchor "$WORK/mkecho/Makefile" --artifact libselftest.a
+		--quotes "$MKQ/cc.tsv" --recipe-only --anchor "$WORK/mksecho/Makefile" --artifact libselftest.a
 want_red   "make_test --recipe-only: ...that NO_SKIP=1 turns red" -- \
 	env NO_SKIP=1 "$SH" "$TOOLS/make_test.sh" --nm "$NM" --rules "" --recipe-cc any \
-		--quotes "$MKQ/cc.tsv" --recipe-only --anchor "$WORK/mkecho/Makefile" --artifact libselftest.a
+		--quotes "$MKQ/cc.tsv" --recipe-only --anchor "$WORK/mksecho/Makefile" --artifact libselftest.a
 want_out   "make_test --recipe-only: ...and names the build target" \
 	'to judge; selftest_build says why' -- \
 	env NO_SKIP=1 "$SH" "$TOOLS/make_test.sh" --nm "$NM" --rules "" --recipe-cc any \
 		--quotes "$MKQ/cc.tsv" --recipe-only --build-target selftest_build \
-		--anchor "$WORK/mkecho/Makefile" --artifact libselftest.a
+		--anchor "$WORK/mksecho/Makefile" --artifact libselftest.a
 want_broken "make_test --recipe-only: without --recipe-cc it is refused" 'there is no --recipe-cc' -- \
 	mt --rules "" --quotes "$MKQ/cc.tsv" --recipe-only \
 		--anchor "$WORK/mkrc_ok/Makefile" --artifact libselftest.a
@@ -6291,31 +6796,35 @@ want_out   "make_test --wildcards-only: ...and says the rule is the Norm's" \
 	'the Norm, which your work must' -- mkw mkwc_pattern
 want_green "make_test --wildcards-only: a plan with no compile is a SKIP" -- \
 	env -u NO_SKIP "$SH" "$TOOLS/make_test.sh" --nm "$NM" --rules "" --wildcards-only \
-		--quotes "$MKQ/cc.tsv" --anchor "$WORK/mkecho/Makefile" --artifact libselftest.a
+		--quotes "$MKQ/cc.tsv" --anchor "$WORK/mksecho/Makefile" --artifact libselftest.a
 want_red   "make_test --wildcards-only: ...that NO_SKIP=1 turns red" -- \
 	env NO_SKIP=1 "$SH" "$TOOLS/make_test.sh" --nm "$NM" --rules "" --wildcards-only \
-		--quotes "$MKQ/cc.tsv" --anchor "$WORK/mkecho/Makefile" --artifact libselftest.a
+		--quotes "$MKQ/cc.tsv" --anchor "$WORK/mksecho/Makefile" --artifact libselftest.a
 want_out   "make_test --wildcards-only: ...and names the build target" \
 	'decoy; selftest_build says why' -- \
 	env NO_SKIP=1 "$SH" "$TOOLS/make_test.sh" --nm "$NM" --rules "" --wildcards-only \
 		--quotes "$MKQ/cc.tsv" --build-target selftest_build \
-		--anchor "$WORK/mkecho/Makefile" --artifact libselftest.a
+		--anchor "$WORK/mksecho/Makefile" --artifact libselftest.a
 want_broken "make_test --wildcards-only: no sentence about it is refused" "'wildcards' sentence" -- \
 	mt --rules clean --wildcards-only --quotes "$MKQ/graph.tsv" \
 		--anchor "$WORK/mkwc_named/Makefile" --artifact libselftest.a
 
 # WHAT A RULE DOES, where a subject lists it and does not say: this repo's
 # convention, judged by exNN_build_rules (--rules-only) at robust and said to
-# be ours, never at basic. mkre_clean's re is built on clean.
+# be ours, never at basic. The rule steps' Makefiles again, in trees of this
+# section's: mksre_ok does all four jobs, and mksre_clean's re is built on
+# clean.
+mkrules mksre_ok 'rm -f sel.o' "$_mkre"
+mkrules mksre_clean 'rm -f sel.o' 're:\n\trm -f sel.o\n\t$(MAKE) all\n'
 mkr0() {  # mkr0 DIR [MODE]: the rules, with no definition quoted
 	mt --rules all,clean,fclean,re --build-target selftest_build ${2:+"$2"} \
 		--anchor "$WORK/$1/Makefile" --artifact libselftest.a
 }
-want_green "make_test: an undefined re's effect is not judged at basic" -- mkr0 mkre_clean
+want_green "make_test: an undefined re's effect is not judged at basic" -- mkr0 mksre_clean
 want_out   "make_test: ...and it says which target judges it" \
-	"is this repo's convention: selftest_build_rules checks it" -- mkr0 mkre_clean
+	"is this repo's convention: selftest_build_rules checks it" -- mkr0 mksre_clean
 want_broken_none "make_test: ...where every rule is defined, it says nothing" \
-	"this repo's convention" -- mkr mkre_ok
+	"this repo's convention" -- mkr mksre_ok
 # Where fclean and re are defined by clean and clean is not, the note names
 # clean, the definition missing: fclean and re are judged in the subject's
 # words except for the part that is clean's.
@@ -6325,33 +6834,33 @@ mkrn() {  # mkrn DIR: the rules, with fclean and re defined and clean not
 		--quotes "$MKQ/noclean.tsv" --anchor "$WORK/$1/Makefile" --artifact libselftest.a
 }
 want_out   "make_test: an undefined clean is named as the definition missing" \
-	'does not say what clean does. What it does, and so that' -- mkrn mkre_ok
+	'does not say what clean does. What it does, and so that' -- mkrn mksre_ok
 want_out   "make_test: ...and fclean and re as resting on it" \
-	'part of what fclean and re do, is this repo' -- mkrn mkre_ok
+	'part of what fclean and re do, is this repo' -- mkrn mksre_ok
 want_broken_none "make_test: ...never as rules the subject leaves undefined" \
-	'lists fclean' -- mkrn mkre_ok
+	'lists fclean' -- mkrn mksre_ok
 want_red   "make_test --rules-only: re built on clean fails the convention" -- \
-	mkr0 mkre_clean --rules-only
+	mkr0 mksre_clean --rules-only
 want_out   "make_test --rules-only: ...said to be this repo's, not a subject's" \
-	"So this is this repo's convention, which" -- mkr0 mkre_clean --rules-only
+	"So this is this repo's convention, which" -- mkr0 mksre_clean --rules-only
 want_green "make_test --rules-only: rules that keep the convention pass" -- \
-	mkr0 mkre_ok --rules-only
+	mkr0 mksre_ok --rules-only
 want_out   "make_test --rules-only: ...counting what it judged" \
-	"does what this repo's convention says" -- mkr0 mkre_ok --rules-only
+	"does what this repo's convention says" -- mkr0 mksre_ok --rules-only
 want_green "make_test --rules-only: every rule defined leaves it a SKIP" -- \
 	env -u NO_SKIP "$SH" "$TOOLS/make_test.sh" --nm "$NM" --rules all,clean,fclean,re \
-		--quotes "$MKQ/rules.tsv" --rules-only --anchor "$WORK/mkre_ok/Makefile" \
+		--quotes "$MKQ/rules.tsv" --rules-only --anchor "$WORK/mksre_ok/Makefile" \
 		--artifact libselftest.a
 want_red   "make_test --rules-only: ...that NO_SKIP=1 turns red" -- \
 	env NO_SKIP=1 "$SH" "$TOOLS/make_test.sh" --nm "$NM" --rules all,clean,fclean,re \
-		--quotes "$MKQ/rules.tsv" --rules-only --anchor "$WORK/mkre_ok/Makefile" \
+		--quotes "$MKQ/rules.tsv" --rules-only --anchor "$WORK/mksre_ok/Makefile" \
 		--artifact libselftest.a
 # Where the subject defines the rules, the FAIL quotes its sentences, and
 # never calls them a convention.
 want_out   "make_test: a defined re's FAIL quotes the definitions" \
-	'Toy, p.2: "re is fclean, then all."' -- mkr mkre_clean
+	'Toy, p.2: "re is fclean, then all."' -- mkr mksre_clean
 want_broken_none "make_test: ...and calls nothing a convention" \
-	"this repo's convention" -- mkr mkre_clean
+	"this repo's convention" -- mkr mksre_clean
 
 # ------------------------------------------------------------------ generate
 # A mixed project (Piscine Reloaded) writes some exercises by hand in
@@ -6609,19 +7118,24 @@ want_red "cycles_check: and NO_SKIP=1 turns that skip RED" -- \
 	env NO_SKIP=1 "$SH" "$TOOLS/cycles_check.sh" --bin /bin/true $CYC_VG \
 		--callgrind-annotate "$CG_ANNOTATE" \
 		--oracle "$WORK/cyc/empty.sh" --oracle-fn f --symbol probe_sum
+# THE GATE: while the exercise's own output is red there is no right answer
+# to count, so the layer SKIPs, naming the output test it waits for
+# (--gate-label): "the output fixture" alone sent a newcomer looking for
+# which one.
+printf '#!/bin/sh\necho some\n' > "$WORK/cyc/gate.sh"
+chmod +x "$WORK/cyc/gate.sh"
+printf 'other\n' > "$WORK/cyc/gate_no.txt"
+want_out "cycles_check: a red gate SKIPs, naming the test it waits for" \
+	'SKIP — ex00_output, this exercise' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/cycles_check.sh" --bin /bin/true $CYC_VG \
+		--callgrind-annotate "$CG_ANNOTATE" \
+		--oracle "$WORK/cyc/empty.sh" --oracle-fn f --symbol probe_sum \
+		--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/cyc/gate.sh" \
+		--gate-expected "$WORK/cyc/gate_no.txt" --gate-label ex00_output
 
 # And the skip that would retire the whole layer in one upstream release: no
-# callgrind. Hidden the same way the ilp32 arms hide a compiler -- a PATH holding
-# only the coreutils the script needs, so it fails for the right reason and not
-# because the shell itself went missing. Built here rather than reused from the
-# ilp32 section, which runs later in this file: borrowing it made these two arms
-# exit 127 against a directory that did not exist yet.
-mkdir -p "$WORK/cyc/novg"
-# "$SH" is in this list, not just `sh`. These fixtures exist to hide ONE
-# tool by handing over a PATH holding only what the runner needs -- and
-# under //tools/tests:selftest_bash the runner is launched with bash, which
-# then has to be findable too. Without it the arm dies at exit 127 and
-# reports the tool it meant to hide as a harness error.
+# callgrind. It is not hidden by a PATH fixture, as the ilp32 arms hide a
+# compiler; the note below says why.
 #
 # NO FIXTURE PATH HERE, and that is deliberate rather than an omission.
 #
@@ -6690,39 +7204,46 @@ want_out "cycles_check: ...says the code did not build" "$STANDIN_SAYS" -- \
 # The argument checks are worth pinning for a second reason recorded in the
 # runner: sh_test tokenises `args` on spaces, so a two-word --label arrives as a
 # stray argument, and both c_files and c_cycles learned that the hard way.
-printf 'int main(void) { return (0); }\n' > "$WORK/cyc/tiny.c"
+#
+# Its fixtures are its own, beside cycles_check's rather than in them: the
+# same toy oracle, written again.
+mkdir -p "$WORK/rcmp"
+printf '#!/bin/sh\ni=0\nwhile [ $i -lt "$3" ]; do echo "abcdefgh$i"; i=$((i+1)); done\n' \
+	> "$WORK/rcmp/oracle.sh"
+chmod +x "$WORK/rcmp/oracle.sh"
+printf 'int main(void) { return (0); }\n' > "$WORK/rcmp/tiny.c"
 want_broken "ref_compare: it refuses without a unit count to divide by" \
 	'--units must be a positive integer' -- \
-	"$SH" "$TOOLS/ref_compare.sh" --harness "$WORK/cyc/tiny.c" --src "$WORK/cyc/tiny.c" \
+	"$SH" "$TOOLS/ref_compare.sh" --harness "$WORK/rcmp/tiny.c" --src "$WORK/rcmp/tiny.c" \
 		$CYC_VG --callgrind-annotate "$CG_ANNOTATE" \
-		--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum
+		--oracle "$WORK/rcmp/oracle.sh" --oracle-fn f --symbol probe_sum
 want_broken "ref_compare: and a stray argument names its own cause" \
 	'tokenises args on spaces' -- \
-	"$SH" "$TOOLS/ref_compare.sh" --harness "$WORK/cyc/tiny.c" --src "$WORK/cyc/tiny.c" \
+	"$SH" "$TOOLS/ref_compare.sh" --harness "$WORK/rcmp/tiny.c" --src "$WORK/rcmp/tiny.c" \
 		$CYC_VG --callgrind-annotate "$CG_ANNOTATE" \
-		--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum \
+		--oracle "$WORK/rcmp/oracle.sh" --oracle-fn f --symbol probe_sum \
 		--units 1 stray-word
 want_green "ref_compare: no callgrind_annotate SKIPs quietly by default" -- \
 	env -u NO_SKIP "$SH" "$TOOLS/ref_compare.sh" \
-		$CYC_VG --callgrind-annotate "$WORK/cyc/absent-annotate" \
-		--harness "$WORK/cyc/tiny.c" --src "$WORK/cyc/tiny.c" \
-		--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum --units 1
+		$CYC_VG --callgrind-annotate "$WORK/rcmp/absent-annotate" \
+		--harness "$WORK/rcmp/tiny.c" --src "$WORK/rcmp/tiny.c" \
+		--oracle "$WORK/rcmp/oracle.sh" --oracle-fn f --symbol probe_sum --units 1
 want_red "ref_compare: and NO_SKIP=1 turns that skip RED" -- \
 	env NO_SKIP=1 "$SH" "$TOOLS/ref_compare.sh" \
-		$CYC_VG --callgrind-annotate "$WORK/cyc/absent-annotate" \
-		--harness "$WORK/cyc/tiny.c" --src "$WORK/cyc/tiny.c" \
-		--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum --units 1
+		$CYC_VG --callgrind-annotate "$WORK/rcmp/absent-annotate" \
+		--harness "$WORK/rcmp/tiny.c" --src "$WORK/rcmp/tiny.c" \
+		--oracle "$WORK/rcmp/oracle.sh" --oracle-fn f --symbol probe_sum --units 1
 want_broken "ref_compare: a missing --valgrind refuses, never skips" \
 	'--valgrind is required' -- \
 	"$SH" "$TOOLS/ref_compare.sh" \
-		--harness "$WORK/cyc/tiny.c" --src "$WORK/cyc/tiny.c" \
-		--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum --units 1
+		--harness "$WORK/rcmp/tiny.c" --src "$WORK/rcmp/tiny.c" \
+		--oracle "$WORK/rcmp/oracle.sh" --oracle-fn f --symbol probe_sum --units 1
 # Its -O2 build, one side of the ratio, is the pinned clang-12's: it was the
 # box's `cc` (TO VERIFY V38's class).
 want_broken "ref_compare: no --cc refuses, never takes the box's" '--cc is required' -- \
 	"$SH" "$TOOLS/ref_compare.sh" $CYC_VG --callgrind-annotate "$CG_ANNOTATE" \
-		--harness "$WORK/cyc/tiny.c" --src "$WORK/cyc/tiny.c" \
-		--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum --units 1
+		--harness "$WORK/rcmp/tiny.c" --src "$WORK/rcmp/tiny.c" \
+		--oracle "$WORK/rcmp/oracle.sh" --oracle-fn f --symbol probe_sum --units 1
 
 # --------------------------------------------------------------- oracle_check
 # The guard on the guard. Every `diff` layer in the repo trusts //oracle to be
@@ -6836,6 +7357,37 @@ want_broken_none "model_check: ...and names no folder of its own" '(from ' -- \
 want_out "model_check: ...and one from here says where it ran" "RAN: oracle say two words" -- \
 	"$SH" "$TOOLS/model_check.sh" --oracle "$WORK/mdl/model" \
 	--expected "$WORK/mdl/edited.txt" -- say two words
+# AN ARGUMENT TABLE (c_argv_table's `model`): C 06's and Reloaded's tables
+# were emitted once with argv_table.sh --emit and held to nothing after. The
+# toy model is the program, run once per row by the real argv_table.sh.
+printf 'two\tx\ty\nnone\n' > "$WORK/mdl/scen.tsv"
+printf 'two\tx y\nnone\t\n' > "$WORK/mdl/table.txt"
+printf 'two\tx y\nnone\tz\n' > "$WORK/mdl/table_edited.txt"
+want_green "model_check: a table that is the model's, row for row, passes" -- \
+	"$SH" "$TOOLS/model_check.sh" --oracle "$WORK/mdl/model" \
+	--expected "$WORK/mdl/table.txt" --argv-table "$TOOLS/argv_table.sh" \
+	--scenarios "$WORK/mdl/scen.tsv" -- say
+want_red "model_check: a table with a row edited by hand is RED" -- \
+	"$SH" "$TOOLS/model_check.sh" --oracle "$WORK/mdl/model" \
+	--expected "$WORK/mdl/table_edited.txt" --argv-table "$TOOLS/argv_table.sh" \
+	--scenarios "$WORK/mdl/scen.tsv" -- say
+want_out "model_check: ...naming the row, and showing both" 'none\tz$' -- \
+	"$SH" "$TOOLS/model_check.sh" --oracle "$WORK/mdl/model" \
+	--expected "$WORK/mdl/table_edited.txt" --argv-table "$TOOLS/argv_table.sh" \
+	--scenarios "$WORK/mdl/scen.tsv" -- say
+want_broken "model_check: a model with no answer on a row is no verdict" \
+	'status other than 0' -- \
+	"$SH" "$TOOLS/model_check.sh" --oracle "$WORK/mdl/model" \
+	--expected "$WORK/mdl/table.txt" --argv-table "$TOOLS/argv_table.sh" \
+	--scenarios "$WORK/mdl/scen.tsv" -- lost
+want_broken "model_check: a table takes none of a case's options" \
+	"none of a case's options" -- \
+	"$SH" "$TOOLS/model_check.sh" --oracle "$WORK/mdl/model" \
+	--expected "$WORK/mdl/table.txt" --argv-table "$TOOLS/argv_table.sh" \
+	--scenarios "$WORK/mdl/scen.tsv" --stdin "$WORK/mdl/in.txt" -- say
+want_broken "model_check: a table is made from its scenarios" 'go together' -- \
+	"$SH" "$TOOLS/model_check.sh" --oracle "$WORK/mdl/model" \
+	--expected "$WORK/mdl/table.txt" --argv-table "$TOOLS/argv_table.sh" -- say
 
 # ------------------------------------------------------------------ env_drift
 # Not a test layer -- it is the maintainer's answer to "has campus upgraded
@@ -6949,36 +7501,42 @@ want_red "env_drift: --strict still fails off campus" -- \
 # including the sandbox a test runs in. So: bazel-bin's layout, no drives.sh
 # anywhere in it, the workspace in BUILD_WORKSPACE_DIRECTORY as Bazel sets it,
 # and two output bases, one under a folder named for the login. The same
-# launcher runs init's arms below.
+# launcher runs init's arms below, over a tree of their own: init writes
+# its git identity into the workspace it is run in.
 _dr_tools=$(cd "$TOOLS" && pwd)
-mkdir -p "$WORK/br/ws/tools" "$WORK/br/home"
-cp "$TOOLS/drives.sh" "$WORK/br/ws/tools/drives.sh"
-git init -q "$WORK/br/ws"
-for _brp in shared probe/bazel; do
-	_brb="$WORK/br/$_brp/0a1b/execroot/_main/bazel-out/k8-fastbuild/bin/tools"
-	mkdir -p "$_brb/env_drift.runfiles/_main/tools" "$_brb/init.runfiles/_main/tools"
-	ln -s "$_dr_tools/env_drift.sh" "$_brb/env_drift"
-	ln -s "$_dr_tools/init.sh" "$_brb/init"
-done
-br_run() {  # br_run BASE-PARENT TARGET CAMPUS ARGS... -- as `bazel run //tools:TARGET`
-	_brb="$WORK/br/$1/0a1b/execroot/_main/bazel-out/k8-fastbuild/bin/tools"
-	_brt=$2
-	_brc=$3
-	shift 3
+br_tree() {  # br_tree TREE -- that layout at $WORK/TREE
+	mkdir -p "$WORK/$1/ws/tools" "$WORK/$1/home"
+	cp "$TOOLS/drives.sh" "$WORK/$1/ws/tools/drives.sh"
+	cp "$TOOLS/identity.sh" "$WORK/$1/ws/tools/identity.sh"
+	git init -q "$WORK/$1/ws"
+	for _brp in shared probe/bazel; do
+		_brb="$WORK/$1/$_brp/0a1b/execroot/_main/bazel-out/k8-fastbuild/bin/tools"
+		mkdir -p "$_brb/env_drift.runfiles/_main/tools" "$_brb/init.runfiles/_main/tools"
+		ln -s "$_dr_tools/env_drift.sh" "$_brb/env_drift"
+		ln -s "$_dr_tools/init.sh" "$_brb/init"
+	done
+}
+br_tree br
+br_run() {  # br_run TREE BASE-PARENT TARGET CAMPUS ARGS... -- as `bazel run //tools:TARGET`
+	_brr=$1
+	_brb="$WORK/$1/$2/0a1b/execroot/_main/bazel-out/k8-fastbuild/bin/tools"
+	_brt=$3
+	_brc=$4
+	shift 4
 	( cd "$_brb/$_brt.runfiles/_main" &&
-		env BUILD_WORKSPACE_DIRECTORY="$WORK/br/ws" BUILD_WORKING_DIRECTORY="$WORK/br/ws" \
+		env BUILD_WORKSPACE_DIRECTORY="$WORK/$_brr/ws" BUILD_WORKING_DIRECTORY="$WORK/$_brr/ws" \
 			GIT_CEILING_DIRECTORIES="$WORK" C_PISCINE_CAMPUS="$_brc" USER=probe \
-			HOME="$WORK/br/home" C_PISCINE_GOINFRE="$WORK/br/no-goinfre" \
+			HOME="$WORK/$_brr/home" C_PISCINE_GOINFRE="$WORK/$_brr/no-goinfre" \
 			"$SH" "$_brb/$_brt" "$@" )
 }
 want_green "env_drift: runs the way bazel run runs it" -- \
-	br_run shared env_drift 0 --pins "$WORK/drift/same.tsv"
+	br_run br shared env_drift 0 --pins "$WORK/drift/same.tsv"
 want_out "env_drift: on campus, a shared Bazel root is warned about" \
-	'which is not yours alone' -- br_run shared env_drift 1 --pins "$WORK/drift/same.tsv"
+	'which is not yours alone' -- br_run br shared env_drift 1 --pins "$WORK/drift/same.tsv"
 want_broken_none "env_drift: ...a per-user one is not" \
-	'WARNING: Bazel keeps' -- br_run probe/bazel env_drift 1 --pins "$WORK/drift/same.tsv"
+	'WARNING: Bazel keeps' -- br_run br probe/bazel env_drift 1 --pins "$WORK/drift/same.tsv"
 want_broken_none "env_drift: ...and off campus neither is" \
-	'WARNING: Bazel keeps' -- br_run shared env_drift 0 --pins "$WORK/drift/same.tsv"
+	'WARNING: Bazel keeps' -- br_run br shared env_drift 0 --pins "$WORK/drift/same.tsv"
 # ...and a directory in some OTHER execroot -- a test's own runfiles, often in
 # a sandbox -- is not this checkout's state: from there the root is predicted
 # from the workspace, here a per-user one.
@@ -7163,14 +7721,14 @@ want_out "env_drift: libraries that are not there is not a pass" 'UNRUNNABLE' --
 		"$SH" "$TOOLS/env_drift.sh" --pins "$WORK/drift/fetch.tsv"
 
 # ------------------------------------------------------------------ env-audit
-# The campus report, which decisions wait on (TODO.md D7: gathered, not
-# guessed). Until now no arm ran it at all. It runs in a sandbox repository,
-# where it writes its report and nothing else, with two facts set the way a
-# campus box would set them: a timezone off UTC, given as a POSIX TZ string
-# (no zone database needed), and a manual path holding strlcpy's page in
-# section 3bsd, beside one holding none -- the two answers the report must
-# tell apart. Where this machine has no `man` at all, both say "(no page)",
-# which is then the true report.
+# The campus report, which decisions wait on (D7: gathered, not guessed).
+# Until now no arm ran it at all. It runs in a sandbox repository, where it
+# writes its report and nothing else, with two facts set the way a campus box
+# would set them: a timezone off UTC, given as a POSIX TZ string (no zone
+# database needed), and a manual path holding strlcpy's page in section 3bsd,
+# beside one holding none -- the two answers the report must tell apart. Where
+# this machine has no `man` at all, both say "(no page)", which is then the
+# true report.
 # conventions: optional man -- only to know which answer the report owes
 mkdir -p "$WORK/ea/tools" "$WORK/ea/home" "$WORK/ea/man/man3" "$WORK/ea/noman"
 cp "$TOOLS/env-audit.sh" "$TOOLS/drives.sh" "$TOOLS/prime_trace.sh" "$WORK/ea/tools/"
@@ -7238,6 +7796,13 @@ want_out "env-audit: ...its swap rate" '100 out' -- cat "$WORK/ea.page"
 want_out "env-audit: ...a Bazel server's peak memory" \
 	'peak RSS of Bazel server 7: 2500 kB' -- cat "$WORK/ea.page"
 want_out "env-audit: ...whether python3's curses imports" 'python3 curses:' -- cat "$WORK/ea.page"
+# The tools the dev container installs unpinned for the shell exercises, which
+# wait on a campus observation before they can be pinned: a line each, whether
+# or not this machine has the tool (it then says "(not available)").
+for _ea_tool in bc file netstat ip; do
+	want_out "env-audit: ...a version line for $_ea_tool" \
+		"$(printf '%-22s' "$_ea_tool:")" -- cat "$WORK/ea.page"
+done
 want_out "env-audit: ...and it wrote its report in the checkout" \
 	"report written to: $WORK/ea/tools/env-reports/" -- cat "$WORK/ea.page"
 
@@ -7750,6 +8315,10 @@ want_red   "shell_check: ck_executable, mode 644" -- ckx "$WORK/ckexec/plain.sh"
 want_red   "shell_check: ck_executable, no file at all" -- ckx "$WORK/ckexec/none.sh"
 want_out   "shell_check: ck_executable says how to fix it" 'man chmod' -- \
 	ckx "$WORK/ckexec/plain.sh"
+# ...in words of what the check does: the library is shared, and what a
+# subject runs is the call site's to say, never a hint of the library's.
+want_broken_none "shell_check: ...and makes no claim about a subject" 'the subject' -- \
+	ckx "$WORK/ckexec/plain.sh"
 want_broken_none "shell_check: ...but not about a file that is not there" \
 	'man chmod' -- ckx "$WORK/ckexec/none.sh"
 
@@ -7811,7 +8380,11 @@ ckr() {
 want_green "shell_check: ck_run, a status and stderr alone fail nothing" -- \
 	ckr noisy.sh
 want_out   "shell_check: ...but the run is shown, and with which shell" \
-	'ran: sh noisy.sh  (/bin/sh, as the subject requires' -- ckr noisy.sh
+	'ran: sh noisy.sh  (/bin/sh, not through its #! line)' -- ckr noisy.sh
+# A library every check sources quotes no subject: which shell ran the
+# script is what it can say, never that a subject asks for that one.
+want_broken_none "shell_check: ...never what a subject requires" \
+	'subject' -- ckr noisy.sh
 want_out   "shell_check: ...with its exit status" 'exit status 3' -- ckr noisy.sh
 want_out   "shell_check: ...and what it wrote to stderr" 'oops-on-stderr' -- \
 	ckr noisy.sh
@@ -7892,14 +8465,20 @@ want_broken_none "shell_check: a clean run of another program shows nothing" \
 want_out   "shell_check: a failed one is shown..." 'ran: false' -- \
 	ckc quiet.sh 'ck_run "$raw" false'
 want_broken_none "shell_check: ...without the note about /bin/sh" \
-	'as the subject requires' -- ckc quiet.sh 'ck_run "$raw" false'
-# A line that ends in \r\n, as ssh-keygen writes its errors (Shell 00 ex03),
-# is shown without a '?' for its carriage return.
+	'/bin/sh, not through' -- ckc quiet.sh 'ck_run "$raw" false'
+# A line that ends in \r\n is shown with its carriage return, \x0d: a script
+# saved with CRLF line ends makes dash's errors end in one, and it is the one
+# clue to the cause. ck_run --crlf, for a program that ends its lines with
+# CRLF (ssh-keygen, in Shell 00 ex03's check), shows it as the line's end.
 printf 'printf "crlf-line\\r\\n" >&2\nexit 1\n' > "$WORK/ckrun/crlf.sh"
-want_out   "shell_check: a line on stderr ending in CRLF is shown" \
-	'         crlf-line' -- ckc crlf.sh 'ck_run "$raw" sh "$D"'
-want_broken_none "shell_check: ...without a '?' for the carriage return" \
-	'crlf-line?' -- ckc crlf.sh 'ck_run "$raw" sh "$D"'
+want_out   "shell_check: a CR ending a stderr line is shown as \\x0d" \
+	'         crlf-line\x0d' -- ckc crlf.sh 'ck_run "$raw" sh "$D"'
+want_out   "shell_check: ...and under --crlf as the line's end" \
+	'         crlf-line' -- ckc crlf.sh 'ck_run --crlf "$raw" sh "$D"'
+want_broken_none "shell_check: ...with no \\x0d" \
+	'crlf-line\x' -- ckc crlf.sh 'ck_run --crlf "$raw" sh "$D"'
+want_broken_none "shell_check: ...nor a '?' for it" \
+	'crlf-line?' -- ckc crlf.sh 'ck_run --crlf "$raw" sh "$D"'
 # The turn-in's stdin is /dev/null, never the check's. A check that runs it
 # once per line of a list, in a `while read` loop, handed it the rest of the
 # list: a program that reads its stdin swallowed every case after the first,
@@ -9525,8 +10104,10 @@ space_char The subject says the space, or digits, can be among
 digit_chars The subject says the space, or digits, can be among
 tie_top_first Two squares of the biggest size fit in this map
 no_final_newline The subject says the lines of a map are "separated
+full_in_body A row of this map holds the "full" character
 stdin_invalid With no argument, where does the subject say the map comes from? Is anything
 readings This harness's reading of the count, at strict
+readings This harness's reading of the "full" character, at strict
 CLUE_TABLE
 cat > "$WORK/ct_rush01" <<'CLUE_TABLE'
 subject What does the subject's `| cat -e` transcript show
@@ -9743,7 +10324,7 @@ want_red   "run_check: the wrong exit status fails" -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_exit" --exit 0
 want_green "run_check: --note-exit only notes it" -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_exit" --note-exit 0
-want_out   "run_check: ...and says so" 'names no exit status' -- \
+want_out   "run_check: ...and says so" 'from your subject names an exit' -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_exit" --note-exit 0
 want_red   "run_check: --exit-only is the robust twin that fails it" -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_exit" --exit 0 --exit-only
@@ -9760,15 +10341,15 @@ want_green "run_check: a return of 255 is noted, not failed, at basic" -- \
 want_broken_none "run_check: ...and is never called a crash" 'crash' -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_m1" --note-exit 0
 # Where a failed status came from is the caller's to say (--exit-source, as
-# in diff_output.sh): --exit-only printed "The subject names no exit status"
-# under every status, a subject-named one included.
+# in diff_output.sh): --exit-only printed that its subject names no exit
+# status under every status, a subject-named one included.
 want_broken_none "run_check: a status the subject names is never 'names none'" \
-	'names no exit status' -- \
+	'from your subject names an exit' -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_exit" --exit 0 --exit-only
 want_out   "run_check: ...it says the subject names it" 'The subject names this status' -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_exit" --exit 0 --exit-only
 want_out   "run_check: --exit-source convention says it is the convention" \
-	'The subject names no exit status' -- \
+	'from your subject names an exit' -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_exit" --exit 0 --exit-only --exit-source convention
 want_broken "run_check: --exit-source takes subject or convention" 'must be subject or convention' -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_exit" --exit 0 --exit-source rule
@@ -9784,6 +10365,139 @@ want_red   "run_check: a stand-in is red" -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$STANDIN_BIN" --min-bytes 1
 want_out   "run_check: ...says the code did not build" "$STANDIN_SAYS" -- \
 	"$SH" "$TOOLS/run_check.sh" --bin "$STANDIN_BIN" --min-bytes 1
+
+# THE GATE (--gate-*, runner_lib.sh's rl_gate): a run that waits for an
+# output test SKIPs while that test's fixture is red. Rush 00's own main.c
+# waits so for its variant's labelled table: it links the same rush(), and a
+# stub there prints nothing here either. rc_ok passes rc_gate_ok.txt and
+# fails rc_gate_no.txt; the run under test asks for more than rc_ok prints,
+# so it is red whenever it runs. rc_cat prints its stdin: its gate is green
+# only when --gate-stdin reaches it.
+printf 'some output\n' > "$WORK/rc_gate_ok.txt"
+printf 'other output\n' > "$WORK/rc_gate_no.txt"
+printf '#!/bin/sh\ncat\n' > "$WORK/rc_cat"
+chmod +x "$WORK/rc_cat"
+want_green "run_check: SKIPs while its output is red" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt"
+want_out   "run_check: ...saying so" 'SKIP' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt"
+want_out   "run_check: ...in its own words" 'prints something and ends' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt"
+want_broken_none "run_check: ...never the corpus layers'" 'replays a generated corpus' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt"
+want_red   "run_check: ...and runs once that output is green" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_ok.txt"
+want_red   "run_check: ...or when NO_SKIP=1 forces it open" -- \
+	env NO_SKIP=1 "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt"
+want_red   "run_check: ...handing the gate its stdin" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_cat" --gate-expected "$WORK/rc_gate_ok.txt" \
+	--gate-stdin "$WORK/rc_gate_ok.txt"
+# --gate-label names the output test it waits for, in the SKIP line alone:
+# the paragraph under it stays this runner's, never a survive case's.
+want_out   "run_check: ...naming the test it waits for" \
+	"SKIP — ex00_one_output, this exercise's own output fixture, is not passing yet" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt" \
+	--gate-label ex00_one_output
+want_out   "run_check: ...under its own words" 'prints something and ends' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt" \
+	--gate-label ex00_one_output
+want_broken_none "run_check: ...never a survive case's" 'ends by itself' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt" \
+	--gate-label ex00_one_output
+# A gate is --gate-differ, --gate-bin and --gate-expected together. Any
+# --gate-* without all three is a wiring mistake, refused as diff_output.sh
+# refuses its own: rl_gate fails open on a missing piece, so the run would
+# go on as if no gate had been asked for, and its SKIP line never come.
+want_broken "run_check: --gate-label with no gate refuses" 'a gate needs' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-label ex00_one_output
+want_broken "run_check: ...as does a gate with no --gate-differ" 'a gate needs' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt" --gate-label ex00_one_output
+want_broken "run_check: ...or with no --gate-expected" 'a gate needs' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-label ex00_one_output
+want_broken "run_check: ...or with no --gate-bin" 'a gate needs' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$WORK/rc_ok" --min-bytes 100000 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-expected "$WORK/rc_gate_no.txt" --gate-stdin "$WORK/rc_gate_ok.txt"
+# A main.c that did not build is red whatever the gate says: the program it
+# waits for is built without it, so its red names nothing of main.c.
+want_red   "run_check: a stand-in is red while its gate is red" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/run_check.sh" --bin "$STANDIN_BIN" --min-bytes 1 \
+	--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/rc_ok" --gate-expected "$WORK/rc_gate_no.txt"
+# EVERY RUNNER THAT TAKES A GATE refuses one given in part, as run_check.sh
+# does above: each fails open on a missing piece, so an option describing a
+# gate that is not there was dropped in silence and the run went on ungated.
+# A survive case's valgrind arm and allocation-failure sweep were handed
+# --gate-stdin with no gate at all (tools/defs.bzl), and asan_run.sh, given
+# only --gate-label, said OK and nothing else. (perf_test.sh's are in
+# selftest_slow.sh, beside its other arms.)
+GATE_D="$TOOLS/diff_output.sh"
+want_broken "gates: valgrind_test refuses --gate-stdin with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" --bin "$WORK/rc_ok" --gate-stdin "$WORK/rc_gate_ok.txt"
+want_broken "gates: ...valgrind_test, a gate with no --gate-differ" 'a gate needs' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" --bin "$WORK/rc_ok" --gate-bin "$WORK/rc_ok" \
+	--gate-expected "$WORK/rc_gate_no.txt"
+want_broken "gates: ...valgrind_test, a gate with no --gate-expected" 'a gate needs' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" --bin "$WORK/rc_ok" --gate-differ "$GATE_D" \
+	--gate-bin "$WORK/rc_ok" --gate-labeled
+want_broken "gates: ...valgrind_test, a gate with no --gate-bin" 'a gate needs' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" --bin "$WORK/rc_ok" --gate-differ "$GATE_D" \
+	--gate-expected "$WORK/rc_gate_no.txt" --gate-sanitize
+want_broken "gates: ...valgrind_test, --gate-expected-alt alone" 'a gate needs' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" --bin "$WORK/rc_ok" --gate-expected-alt "$WORK/rc_gate_no.txt"
+want_broken "gates: allocfail_check refuses --gate-stream with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/allocfail_check.sh" --bin "$WORK/rc_ok" --gate-stream stdout
+want_broken "gates: ...allocfail_check, a gate with no --gate-differ" 'a gate needs' -- \
+	"$SH" "$TOOLS/allocfail_check.sh" --bin "$WORK/rc_ok" --gate-bin "$WORK/rc_ok" \
+	--gate-expected "$WORK/rc_gate_no.txt"
+want_broken "gates: asan_run refuses --gate-label with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/asan_run.sh" --bin "$WORK/rc_ok" --gate-label ex00_one_output
+want_broken "gates: ...asan_run, a gate with no --gate-expected" 'a gate needs' -- \
+	"$SH" "$TOOLS/asan_run.sh" --bin "$WORK/rc_ok" --gate-differ "$GATE_D" \
+	--gate-bin "$WORK/rc_ok" --gate-arg one
+want_broken "gates: bsq_check refuses --gate-arg with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/bsq_check.sh" --bin "$WORK/rc_ok" --gate-arg one
+want_broken "gates: ...bsq_check, a gate with no --gate-differ" 'a gate needs' -- \
+	"$SH" "$TOOLS/bsq_check.sh" --bin "$WORK/rc_ok" --gate-bin "$WORK/rc_ok" \
+	--gate-expected "$WORK/rc_gate_no.txt"
+want_broken "gates: cycles_check refuses --gate-labeled with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/cycles_check.sh" --bin "$WORK/rc_ok" --gate-labeled
+want_broken "gates: ...cycles_check, a gate with no --gate-differ" 'a gate needs' -- \
+	"$SH" "$TOOLS/cycles_check.sh" --bin "$WORK/rc_ok" --gate-bin "$WORK/rc_ok" \
+	--gate-expected "$WORK/rc_gate_no.txt"
+want_broken "gates: method_check refuses --gate-sanitize with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/method_check.sh" --gate-sanitize
+want_broken "gates: ...method_check, a gate with no --gate-expected" 'a gate needs' -- \
+	"$SH" "$TOOLS/method_check.sh" --gate-differ "$GATE_D" --gate-bin "$WORK/rc_ok"
+want_broken "gates: ref_compare refuses --gate-labeled with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/ref_compare.sh" --gate-labeled
+want_broken "gates: ...ref_compare, a gate with no --gate-bin" 'a gate needs' -- \
+	"$SH" "$TOOLS/ref_compare.sh" --gate-differ "$GATE_D" --gate-expected "$WORK/rc_gate_no.txt"
+want_broken "gates: rush01_check refuses a gate with no --gate-differ" 'a gate needs' -- \
+	"$SH" "$TOOLS/rush01_check.sh" --bin "$WORK/rc_ok" --gate-bin "$WORK/rc_ok" \
+	--gate-expected "$WORK/rc_gate_no.txt"
+want_broken "gates: ...rush01_check, --gate-label with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/rush01_check.sh" --bin "$WORK/rc_ok" --gate-label ex00_one_output
+want_broken "gates: rush02_check refuses --gate-number with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/rc_ok" --gate-number 42
+want_broken "gates: ...rush02_check, a gate with no --gate-differ" 'a gate needs' -- \
+	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/rc_ok" --gate-bin "$WORK/rc_ok" \
+	--gate-expected "$WORK/rc_gate_no.txt" --gate-number 42
+want_broken "gates: rust_diff refuses --gate-stdin with no gate" 'a gate needs' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --gate-stdin "$WORK/rc_gate_ok.txt"
+want_broken "gates: ...rust_diff, a gate with no --gate-expected" 'a gate needs' -- \
+	"$SH" "$TOOLS/rust_diff.sh" --gate-differ "$GATE_D" --gate-bin "$WORK/rc_ok"
 
 # ----------------------------------------------------------------- norminette
 # The Norm layer decides the verdict for every exercise in the repo, and it is
@@ -10025,8 +10739,10 @@ want_green "reset_headers: ...with the new identity" -- \
 # the `git config` it runs lands in the fixture and nowhere else.
 mkdir -p "$WORK/in/.vscode" "$WORK/in/tools"
 git init -q "$WORK/in"
-# The workspace's own tools/drives.sh, which init reads for its campus check.
+# The workspace's own tools/drives.sh, which init reads for its campus check,
+# and tools/identity.sh, which writes what init is given.
 cp "$TOOLS/drives.sh" "$WORK/in/tools/drives.sh"
+cp "$TOOLS/identity.sh" "$WORK/in/tools/identity.sh"
 printf '{\n  "editor.tabSize": 4\n}\n' > "$WORK/in/.vscode/settings.json"
 chmod 644 "$WORK/in/.vscode/settings.json"
 want_green "init: records the identity" -- \
@@ -10036,16 +10752,87 @@ want_green "init: ...in settings.json" -- \
 	grep -q '"42header.username": "selftest"' "$WORK/in/.vscode/settings.json"
 want_green "init: ...keeping its mode" -- \
 	test -n "$(find "$WORK/in/.vscode/settings.json" -perm 0644)"
-# ...and a settings.json it cannot write is a failure, never "Done.", with
-# what it would have written kept (the same reason as reset_headers above).
+# A value that could not be stored as typed is refused, and the file is left
+# as it was: `a"b` went in between the quotes as it came, and left a
+# settings.json no JSON reader could open. tools/identity.sh is the one
+# writer, `42 config set login|email` writes through it too, and init has it
+# check both values before it writes either.
+want_red "init: a login holding a '\"' is refused" -- \
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/in" GIT_CEILING_DIRECTORIES="$WORK" \
+	"$SH" "$TOOLS/init.sh" --login 'a"b' --email selftest@42.fr
+want_out "init: ...and says what a login holds" "letters, digits, '.', '_' and '-'" -- \
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/in" GIT_CEILING_DIRECTORIES="$WORK" \
+	"$SH" "$TOOLS/init.sh" --login 'a"b' --email selftest@42.fr
+want_broken_none "init: ...leaving settings.json as it was" 'a"b' -- \
+	cat "$WORK/in/.vscode/settings.json"
+want_red "init: an email with a blank is refused" -- \
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/in" GIT_CEILING_DIRECTORIES="$WORK" \
+	"$SH" "$TOOLS/init.sh" --login fresh --email 'fresh @42.fr'
+want_broken_none "init: ...before the login beside it is written" '"fresh"' -- \
+	cat "$WORK/in/.vscode/settings.json"
+want_red "init: a login that is an email is refused" -- \
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/in" GIT_CEILING_DIRECTORIES="$WORK" \
+	"$SH" "$TOOLS/init.sh" --login selftest@42.fr --email selftest@42.fr
+# ...and a settings.json it cannot write is a failure, never "Done.", that
+# changes nothing: the git identity, set before the file, is put back, and no
+# temporary file is left behind.
 mkdir -p "$WORK/in-tmp"
 chmod 444 "$WORK/in/.vscode/settings.json"
 want_red "init: a settings.json it cannot write fails the run" -- \
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/in" GIT_CEILING_DIRECTORIES="$WORK" \
 	TMPDIR="$WORK/in-tmp" "$SH" "$TOOLS/init.sh" --login other --email other@42.fr
-want_green "init: ...keeping what it would have written" -- \
-	grep -rq '"42header.username": "other"' "$WORK/in-tmp"
+want_green "init: ...with the git identity put back" -- \
+	sh -c 'test "$(git -C "$1" config --local --get user.name)" = selftest' _ "$WORK/in"
+want_green "init: ...the email too" -- \
+	sh -c 'test "$(git -C "$1" config --local --get user.email)" = selftest@42.fr' _ "$WORK/in"
+want_green "init: ...and no file left behind" -- \
+	sh -c 'test -z "$(find "$1" -mindepth 1)"' _ "$WORK/in-tmp"
 chmod 644 "$WORK/in/.vscode/settings.json"
+
+# A tool identity.sh needs and does not find is no refused value: the check
+# never ran, so init says 2, as identity.sh does, and never the 1 of a refusal.
+mkdir -p "$WORK/in_noawk"
+for _t in sh "$SH" cat dirname git grep head id mkdir mktemp od rm sed tail tr uname; do
+	ln -sf "$(command -v "$_t")" "$WORK/in_noawk/$_t" 2> /dev/null
+done
+want_broken "init: a tool identity.sh lacks is a 2, never a refusal" \
+	"required command 'awk' is not on PATH" -- \
+	env PATH="$WORK/in_noawk" BUILD_WORKSPACE_DIRECTORY="$WORK/in" GIT_CEILING_DIRECTORIES="$WORK" \
+	"$SH" "$TOOLS/init.sh" --login selftest --email selftest@42.fr
+
+# A file that can take the login and not the email changes neither: the
+# shape was found only when the email was set, after the new login was
+# written beside the old email.
+cp "$WORK/in/.vscode/settings.json" "$WORK/in-settings.keep"
+printf '{\n  "42header.username": "oldl",\n  "42header.email": "old@x.fr", "a": 1\n}\n' \
+	> "$WORK/in/.vscode/settings.json"
+want_red "init: a file that cannot take the email is refused" -- \
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/in" GIT_CEILING_DIRECTORIES="$WORK" \
+	"$SH" "$TOOLS/init.sh" --login newl --email new@x.fr
+want_green "init: ...with the login left as it was" -- \
+	grep -q '"42header.username": "oldl"' "$WORK/in/.vscode/settings.json"
+cp "$WORK/in-settings.keep" "$WORK/in/.vscode/settings.json"
+# ...and so does a git identity it cannot set: behind a stale lock, `git
+# config` failed after settings.json held the new login, beside the old email.
+: > "$WORK/in/.git/config.lock"
+want_red "init: a git identity it cannot set is refused" -- \
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/in" GIT_CEILING_DIRECTORIES="$WORK" \
+	"$SH" "$TOOLS/init.sh" --login lockl --email lock@x.fr
+want_broken_none "init: ...writing neither key" '"lockl"' -- \
+	cat "$WORK/in/.vscode/settings.json"
+rm -f "$WORK/in/.git/config.lock"
+# A git email it cannot set, once the git login is set, puts the login back.
+mkdir -p "$WORK/in_gitfail"
+printf '#!/bin/sh\ncase "$*" in *"user.email gitfail@x.fr") exit 1 ;; esac\nexec "%s" "$@"\n' \
+	"$(command -v git)" > "$WORK/in_gitfail/git"
+chmod +x "$WORK/in_gitfail/git"
+want_red "init: a git email it cannot set is refused" -- \
+	env PATH="$WORK/in_gitfail:$PATH" BUILD_WORKSPACE_DIRECTORY="$WORK/in" GIT_CEILING_DIRECTORIES="$WORK" \
+	"$SH" "$TOOLS/init.sh" --login gitfail --email gitfail@x.fr
+want_green "init: ...with the git login put back" -- \
+	sh -c 'test "$(git -C "$1" config --local --get user.name)" = selftest' _ "$WORK/in"
+want_broken_none "init: ...and settings.json left as it was" '"gitfail"' -- \
+	cat "$WORK/in/.vscode/settings.json"
 
 # Its last words are the next thing a newcomer types. They were `bazel test
 # //...` -- the whole repo, which the README and docs/environment.md both say
@@ -10069,15 +10856,16 @@ want_broken_none "init: ...never a Bazel command to type" \
 # ...and on a campus box, where this checkout's Bazel state is (finding 001),
 # read back from the output base `bazel run` started it in: the one command
 # every newcomer runs is where a shared or quota'd root gets named. Launched
-# the way `bazel run //tools:init` launches it, by env_drift's br_run above:
-# init looked for drives.sh beside $0 too, and the warning silently never
-# fired there.
+# the way `bazel run //tools:init` launches it, by env_drift's br_run above,
+# over a layout br_tree builds for these arms alone (bri): init looked for
+# drives.sh beside $0 too, and the warning silently never fired there.
+br_tree bri
 want_out "init: on campus, a shared Bazel root is warned about" \
-	'which is not yours alone' -- br_run shared init 1 --login selftest --email selftest@42.fr
+	'which is not yours alone' -- br_run bri shared init 1 --login selftest --email selftest@42.fr
 want_broken_none "init: ...a per-user one is not" \
-	'WARNING: Bazel keeps' -- br_run probe/bazel init 1 --login selftest --email selftest@42.fr
+	'WARNING: Bazel keeps' -- br_run bri probe/bazel init 1 --login selftest --email selftest@42.fr
 want_broken_none "init: ...and off campus neither is" \
-	'WARNING: Bazel keeps' -- br_run shared init 0 --login selftest --email selftest@42.fr
+	'WARNING: Bazel keeps' -- br_run bri shared init 0 --login selftest --email selftest@42.fr
 
 # ----------------------------------------------------------------------- ilp32
 # Only what happens BEFORE a 32-bit compiler runs is exercised here: the SKIP
@@ -10097,10 +10885,12 @@ want_broken_none "init: ...and off campus neither is" \
 # lose mktemp and fail for the wrong reason, which would pass a want_red arm
 # while proving nothing.
 mkdir -p "$WORK/nocc"
-# Same rule as $WORK/cyc/novg above: this must cover everything
-# ilp32_test.sh's `require` line names, and what tools/runner_lib.sh and
-# tools/standin.sh probe (it sources both), or the probe refuses before the
-# missing compiler is ever reached.
+# A fixture PATH must cover everything ilp32_test.sh's `require` line names,
+# and what tools/runner_lib.sh and tools/standin.sh probe (it sources both), or
+# the probe refuses before the missing compiler is ever reached. "$SH" is in
+# the list, not just `sh`: under //tools/tests:selftest_bash the runner is
+# launched with bash, which then has to be findable too, or the arm dies at
+# exit 127 and reports the tool it meant to hide as a harness error.
 for _t in sh "$SH" mktemp dirname sed rm cat basename mkdir id awk chmod cp date od grep head readlink; do
 	ln -sf "$(command -v "$_t")" "$WORK/nocc/$_t" 2> /dev/null
 done
@@ -10329,51 +11119,135 @@ printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire git grep\ngit status\ngrep 
 	printf 'echo "cannot read symbols from x (nm failed)"\n'
 	printf 'grep x file\n'
 } > "$WORK/cv/tools/probe_quoted.sh"
+# Names a tool INSIDE a single-quoted awk program: an awk variable after a `;`,
+# and one at the start of a line of a program that spans lines. Both are the
+# program's text, not calls; the scanner once read each as a call to nm (V115).
+# Each declares the awk it calls, so a scanner that saw no call at all is red.
+printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire awk\nawk \047{ a = 1; nm = 2 }\047 file\n' \
+	> "$WORK/cv/tools/probe_awkvar.sh"
+printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire awk\nawk \047\n\tBEGIN { a = 1 }\nnm = 2\n\047 file\n' \
+	> "$WORK/cv/tools/probe_awkvar2.sh"
+# The two shapes the old line scanner split into calls, inside a program
+# spanning lines: a regex literal of alternatives, and an empty string given
+# to a variable named like a tool, after a `;` and at the start of a line.
+{
+	printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire awk\nawk \047\n'
+	printf '\t$0 ~ /(cat|sed|fold|tee)([[:blank:]]|$)/ { a = 1; nm = "" }\n'
+	printf 'nm = ""\n\047 file\n'
+} > "$WORK/cv/tools/probe_awkvar3.sh"
+# ...while what runs from a word is a call all the same: the string sh -c
+# runs, a $( ) inside an arithmetic expansion, a command a helper is handed
+# after `--`, each the only use of its tool. And a tool only a program the
+# script writes runs is a call once declared so, and drift until then.
+{
+	printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire cmp env tail wc\nrun() { "$@"; }\n'
+	printf 'env X=1 /bin/sh -c \047tail -n 1 "$1"\047 _ f\n'
+	printf 'n=$(( $(wc -l < f) + 1 ))\n'
+	printf 'run "name" -- cmp a b\n'
+} > "$WORK/cv/tools/probe_wordrun.sh"
+# The string a shell runs, whatever flags come with -c: in one cluster, apart
+# from it, and a simple double-quoted string.
+{
+	printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire od sort uniq\n'
+	printf 'sh -ec \047sort f\047\n'
+	printf 'sh -e -c \047od f\047\n'
+	printf 'sh -c "uniq f"\n'
+} > "$WORK/cv/tools/probe_wordrun2.sh"
+for _cvp in probe_writes probe_writes_bare; do
+	{
+		printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire fold\n'
+		[ "$_cvp" = probe_writes ] &&
+			printf '# conventions: writes a program that runs fold -- the toy program\n'
+		printf 'gen() { printf "%%s\\n" "$@" > prog; }\ngen \047x | fold -w 3\047\n'
+	} > "$WORK/cv/tools/$_cvp.sh"
+done
+# The marker without its reason declares nothing, and a tool it names goes
+# through what every call does: one declared optional is exempt, and a word
+# no vocabulary holds is no command to probe.
+{
+	printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire fold\n'
+	printf '# conventions: writes a program that runs fold\n'
+	printf 'gen() { printf "%%s\\n" "$@" > prog; }\ngen \047x | fold -w 3\047\n'
+} > "$WORK/cv/tools/probe_writes_bald.sh"
+{
+	printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire grep\n'
+	printf '# conventions: optional fold -- probed; without it the toy program is not written\n'
+	printf '# conventions: writes a program that runs fold -- the toy program\n'
+	printf '# conventions: writes a program that runs frobnicate -- no command of the vocabulary\n'
+	printf 'gen() { printf "%%s\\n" "$@" > prog; }\ngen \047x | fold -w 3 | frobnicate\047\n'
+	printf 'grep x file\n'
+} > "$WORK/cv/tools/probe_writes_opt.sh"
+# What follows `--` is read as a call after any command word no vocabulary
+# holds, a function that never runs it included: an over-count kept on
+# purpose (the require list's comment says why), and pinned here.
+printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire grep\nf() { :; }\nf x -- sort\ngrep x file\n' \
+	> "$WORK/cv/tools/probe_dashdash.sh"
+# A comment pointing at a line of a file by its number, bare and in a code
+# span, is reported; output it quotes (a message in quotes, one quoted over
+# two lines, a diagnostic with a colon after the number) and a line of code
+# are not. In a page: prose is read, a fenced block and a quoted message are
+# not. The numbers are in the format strings, so no comment here holds one.
+# A """ in a shell comment opens no docstring: the line of code after it is
+# not read, and a comment after that is.
+printf '%s\n' '#!/bin/sh' '# see tools/defs.bzl:9999' '# see `tools/defs.bzl:12` for the rest' \
+	'# it printed "patch failed: README.md:16" and stopped' '# deliverable/ex00/a.c:3:1: error: x' \
+	'echo "x.sh:12"' '# it printed "error: patch failed:' '# README.md:16", and stopped' \
+	'# a docstring opens with """' 'echo "x.sh:12"' '# see tools/defs.bzl:7' \
+	> "$WORK/cv/tools/probe_ptr.sh"
+# A docstring is read from the """ that opens it to the one that closes it:
+# on its opening line, on its closing line, and when it is one line long.
+printf '%s\n' 'def f():' '    """See tools/x.sh:4 for it."""' 'def g():' \
+	'    """Opens on tools/y.sh:5, and' '    closes on tools/z.sh:6."""' 'x = "tools/w.sh:7"' \
+	> "$WORK/cv/tools/probe_ptr.py"
+mkdir -p "$WORK/cv/docs"
+# A version, and a host and its port, whose last part is no file kind of
+# the tree, are no file and its line.
+printf '%s\n' '# Probe' 'See tools/x.sh:4 for it.' '```' 'a.sh:3 printed here' '```' \
+	'It printed `error: a.c:5 broke`.' 'The proxy is proxy.example.com:3128.' \
+	'It changed in v1.2:3 of the format.' > "$WORK/cv/docs/probe_ptr.md"
 
 # Probes for a tool and degrades without it, so it must NOT go in require --
 # require exits 2 on absence, which would turn "this layer says less" into "the
 # harness is broken". The marker is what says so, and it is per-tool so that
 # each exemption is a reviewable sentence rather than a word missing from a list.
 #
-# The tool name is passed as a printf ARGUMENT rather than written into the
-# format string, and that is not style: the require scanner has no idea it is
-# reading a line that WRITES shell rather than one that runs it, so
-# `... && git status\n' inside a printf reads as a call in command position and
-# reports selftest.sh itself as taking git from PATH. Keeping the word out of
-# command position is the honest fix -- the alternative is declaring a tool this
-# file does not use, and the scanner staying strict about text it cannot
-# interpret is the behaviour worth having.
-_g="git"
 {
 	printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire grep\n'
-	printf '# conventions: optional %s -- probed; without it this probe does less\n' "$_g"
-	printf 'command -v %s >/dev/null 2>&1 && %s status\n' "$_g" "$_g"
+	printf '# conventions: optional git -- probed; without it this probe does less\n'
+	printf 'command -v git >/dev/null 2>&1 && git status\n'
 	printf 'grep x file\n'
 } > "$WORK/cv/tools/probe_optional.sh"
+# Either exemption without its reason exempts nothing: the tool an optional
+# line names is a call as any other, and a script marked no-require is held
+# to a require list like any other.
+{
+	printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire grep\n'
+	printf '# conventions: optional git\n'
+	printf 'command -v git >/dev/null 2>&1 && git status\n'
+	printf 'grep x file\n'
+} > "$WORK/cv/tools/probe_optional_bald.sh"
+printf '#!/bin/sh\nset -u\n# conventions: no-require\ngrep x file\n' \
+	> "$WORK/cv/tools/probe_norequire_bald.sh"
 
-# THE SHARED RUNNER CONCERNS (tools/runner_lib.sh), one probe each way. The tool
-# and helper names are printf ARGUMENTS for the reason given above: written
-# into a format string they would read as this file's own calls.
+# THE SHARED RUNNER CONCERNS (tools/runner_lib.sh), one probe each way.
 #
 # A signal trap that cleans up and does not exit resumes the script without
 # its files (finding 066). The three-line form is the fix, and is quiet.
-_tr_rm="rm"
-printf '#!/bin/sh\nset -u\nx=$(mktemp)\ntrap %s EXIT INT TERM\n' "'$_tr_rm -f \"\$x\"'" \
+printf '#!/bin/sh\nset -u\nx=$(mktemp)\ntrap %s EXIT INT TERM\n' "'rm -f \"\$x\"'" \
 	> "$WORK/cv/tools/probe_trap.sh"
 printf '#!/bin/sh\nset -u\nx=$(mktemp)\ntrap %s EXIT\ntrap %s TERM\ntrap %s INT\n' \
-	"'$_tr_rm -f \"\$x\"'" "'exit 143'" "'exit 130'" > "$WORK/cv/tools/probe_trap_ok.sh"
+	"'rm -f \"\$x\"'" "'exit 143'" "'exit 130'" > "$WORK/cv/tools/probe_trap_ok.sh"
 # In a runner that sources the library, even that correct form replaces the
 # library's own EXIT trap: there only rl_traps may set one.
 printf '#!/bin/sh\nset -u\n. "$RL_LIB"\nx=$(mktemp)\ntrap %s EXIT\n' \
-	"'$_tr_rm -f \"\$x\"'" > "$WORK/cv/tools/probe_libtrap.sh"
+	"'rm -f \"\$x\"'" > "$WORK/cv/tools/probe_libtrap.sh"
 # A runner that takes the program under test, bounds a run itself and runs it
 # bare -- three findings of the budget rule in one file -- and its fixed form,
 # which sources the library and runs the program with rl_run.
-_tmo="timeout"
 {
 	printf '#!/bin/sh\nset -u\nwhile [ $# -gt 0 ]; do\n\tcase "$1" in\n'
 	printf '\t\t--bin) BIN="$2"; shift 2 ;;\n\t\t*) exit 2 ;;\n\tesac\ndone\n'
-	printf 'RUNNER="%s -s KILL 5"\n"$BIN" x > /dev/null\n' "$_tmo"
+	printf 'RUNNER="timeout -s KILL 5"\n"$BIN" x > /dev/null\n'
 } > "$WORK/cv/tools/probe_budget.sh"
 {
 	printf '#!/bin/sh\nset -u\nwhile [ $# -gt 0 ]; do\n\tcase "$1" in\n'
@@ -10400,21 +11274,19 @@ printf '#!/bin/sh\nset -u\n:\n' > "$WORK/cv/tools/probe_bin.sh"
 # A runner that sources the library and cuts captured output with a bare head;
 # and the three forms that are not an excerpt: a value taken into a variable, a
 # line marked as not being one, and rl_excerpt itself.
-_hd="head"
 {
 	printf '#!/bin/sh\nset -u\n. "$RL_LIB"\n'
-	printf 'sed "s/^/  /" "$ERR" | %s -10\n' "$_hd"
+	printf 'sed "s/^/  /" "$ERR" | head -10\n'
 } > "$WORK/cv/tools/probe_excerpt.sh"
 {
 	printf '#!/bin/sh\nset -u\n. "$RL_LIB"\n'
-	printf 'v=$(%s -5 "$ERR")\n' "$_hd"
+	printf 'v=$(head -5 "$ERR")\n'
 	printf '# conventions: not-an-excerpt -- a source file header, not output\n'
-	printf '%s -20 "$SRC" > /dev/null\n' "$_hd"
+	printf 'head -20 "$SRC" > /dev/null\n'
 	printf 'rl_excerpt "$ERR" 10 err.txt\n'
 } > "$WORK/cv/tools/probe_excerpt_ok.sh"
 # A runner reading clues.tsv itself, and one that only forwards and tests it.
-_ct="cut"
-printf '#!/bin/sh\nset -u\n%s -f1 "$CLUES" > /dev/null\n' "$_ct" > "$WORK/cv/tools/probe_clue.sh"
+printf '#!/bin/sh\nset -u\ncut -f1 "$CLUES" > /dev/null\n' > "$WORK/cv/tools/probe_clue.sh"
 printf '#!/bin/sh\nset -u\n[ -f "$CLUES" ] && set -- --clues "$CLUES"\nrl_clues "$CLUES"\n' \
 	> "$WORK/cv/tools/probe_clue_ok.sh"
 
@@ -10425,15 +11297,14 @@ printf '#!/bin/sh\nset -u\n[ -f "$CLUES" ] && set -- --clues "$CLUES"\nrl_clues 
 # excerpt is any cut of a stream's start; a clue file is whatever an option
 # arm stores it in. Line numbers are asserted exactly, so a rule that starts
 # flagging the forms beside them is caught too.
-_en="env"; _vg="valgrind"; _sa="setarch"; _un="uname"
 {
 	printf '#!/bin/sh\nset -u\n. "$RL_LIB"\n'
 	printf 'while [ $# -gt 0 ]; do\n\tcase "$1" in\n'
 	printf '\t\t--prog) PROG="$2"; shift 2 ;;\n\t\t*) exit 2 ;;\n\tesac\ndone\n'
 	printf '"$PROG" a\n'
-	printf '%s A=1 "$PROG" b\n' "$_en"
-	printf '%s --quiet "$PROG" c\n' "$_vg"
-	printf '%s "$(%s -m)" -R "$PROG" d\n' "$_sa" "$_un"
+	printf 'env A=1 "$PROG" b\n'
+	printf 'valgrind --quiet "$PROG" c\n'
+	printf 'setarch "$(uname -m)" -R "$PROG" d\n'
 	printf '"$WORK/probe" e\n'
 	printf 'x=$("$PROG" f)\n'
 	printf 'rl_run "$PROG" g\n'
@@ -10442,36 +11313,39 @@ _en="env"; _vg="valgrind"; _sa="setarch"; _un="uname"
 	printf '# conventions: harness tool -- a probe this runner wrote\n'
 	printf '"$WORK/model"\n'
 } > "$WORK/cv/tools/probe_shapes.sh"
-_hd="head"; _tl="tail"; _aw="awk"; _cm="cmp"
 {
 	printf '#!/bin/sh\nset -u\n'
 	printf '# conventions: runs no student code -- a probe of the excerpt rule\n'
-	printf 'sed "s/^/  /" "$ERR" | %s -20\n' "$_hd"
-	printf '%s -n 20 "$E"\n' "$_tl"
-	printf '%s -c 400 "$OUT" | sed "s/^/  /"\n' "$_hd"
-	printf '%s %s "$E"\n' "$_aw" "'NR<=5'"
-	printf 'echo "$(%s -20 "$E")"\n' "$_hd"
-	printf 'v=$(%s -5 "$ERR")\n' "$_hd"
-	printf '%s -n +2 "$E"\n' "$_tl"
-	printf '%s -n 5 "$E" > "$T/x"\n' "$_hd"
-	printf '%s -n "$1" a | %s -s - b\n' "$_hd" "$_cm"
-	printf '%s -1 "$E"\n' "$_hd"
+	printf 'sed "s/^/  /" "$ERR" | head -20\n'
+	printf 'tail -n 20 "$E"\n'
+	printf 'head -c 400 "$OUT" | sed "s/^/  /"\n'
+	printf 'awk %s "$E"\n' "'NR<=5'"
+	printf 'echo "$(head -20 "$E")"\n'
+	printf 'v=$(head -5 "$ERR")\n'
+	printf 'tail -n +2 "$E"\n'
+	printf 'head -n 5 "$E" > "$T/x"\n'
+	printf 'head -n "$1" a | cmp -s - b\n'
+	printf 'head -1 "$E"\n'
 	printf '# conventions: not-an-excerpt -- a header comment, not output\n'
-	printf '%s -20 "$SRC"\n' "$_hd"
+	printf 'head -20 "$SRC"\n'
+	# A path that only starts like the terminal's is a file (16); /dev/tty
+	# and a quoted /dev/stderr are the terminal (17, 18).
+	printf 'head -n 3 "$E" > /dev/stderr.log\n'
+	printf 'head -n 3 "$E" > /dev/tty\n'
+	printf 'head -n 3 "$E" > "/dev/stderr"\n'
 } > "$WORK/cv/tools/probe_cut.sh"
-_mk="mktemp"
 {
 	printf '#!/bin/sh\nset -u\n'
-	printf 'T=$(%s -d); trap %s EXIT INT TERM\n' "$_mk" "'$_tr_rm -rf \"\$T\"'"
-	printf 'if true; then trap %s INT; fi\n' "'$_tr_rm -f x'"
-	printf 'trap %s EXIT\ntrap %s TERM\n' "'$_tr_rm -f y'" "'exit 143'"
+	printf 'T=$(mktemp -d); trap %s EXIT INT TERM\n' "'rm -rf \"\$T\"'"
+	printf 'if true; then trap %s INT; fi\n' "'rm -f x'"
+	printf 'trap %s EXIT\ntrap %s TERM\n' "'rm -f y'" "'exit 143'"
 } > "$WORK/cv/tools/probe_trap2.sh"
 _cl_arm='while [ $# -gt 0 ]; do\n\tcase "$1" in\n\t\t%s) %s="$2"; shift 2 ;;\n\t\t*) exit 2 ;;\n\tesac\ndone\n'
 {
 	printf '#!/bin/sh\nset -u\n'
 	# shellcheck disable=SC2059 # the format is the arm, kept in one place
 	printf "$_cl_arm" --clues C
-	printf '%s -f1 "$C"\n' "$_ct"
+	printf 'cut -f1 "$C"\n'
 } > "$WORK/cv/tools/probe_clue2.sh"
 {
 	printf '#!/bin/sh\nset -u\n'
@@ -10483,11 +11357,10 @@ _cl_arm='while [ $# -gt 0 ]; do\n\tcase "$1" in\n\t\t%s) %s="$2"; shift 2 ;;\n\t
 } > "$WORK/cv/tools/probe_clue3.sh"
 # A sourced library declares what it takes from PATH in its own probe loop,
 # checked like a require line: this one says awk and calls sed.
-_sd2="sed"
 {
 	printf '# shellcheck shell=sh\nfor _pl_t in awk; do\n'
 	printf '\tcommand -v "$_pl_t" > /dev/null 2>&1 || exit 2\ndone\n'
-	printf 'pl_x() { %s -n 1p "$1"; }\n' "$_sd2"
+	printf 'pl_x() { sed -n 1p "$1"; }\n'
 } > "$WORK/cv/tools/probe_lib.sh"
 
 # A generated exercise's clues.tsv names its module, exercise and turn-in on
@@ -10604,23 +11477,21 @@ PROBE_RENDER
 # runner is handed, a bare diff, after an `if !` and in a command
 # substitution -- beside the library's rl_udiff, a diff that only answers
 # whether two files differ (-q, stdout to /dev/null), cmp, `git diff`, and
-# the word "diff" as an argument (V51). The words are printf arguments, for
-# the require scanner's sake (above).
-_ud_d="diff"
+# the word "diff" as an argument (V51).
 {
-	printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire cmp %s git\n. "$RL_LIB"\n' "$_ud_d"
+	printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire cmp diff git\n. "$RL_LIB"\n'
 	printf '# conventions: harness tool DIFF -- the pinned diff, which compares two files\n'
 	printf '"$DIFF" -a -u -L want -L got "$1" "$2"\n'
-	printf '%s -u "$1" "$2"\n' "$_ud_d"
-	printf 'if ! %s "$1" "$2"; then :; fi\n' "$_ud_d"
+	printf 'diff -u "$1" "$2"\n'
+	printf 'if ! diff "$1" "$2"; then :; fi\n'
 	printf 'rl_udiff "$DIFF" "$1" "$2" expected got\n'
-	printf '%s -q "$1" "$2" || :\n' "$_ud_d"
+	printf 'diff -q "$1" "$2" || :\n'
 	printf '"$DIFF" "$1" "$2" > /dev/null 2>&1 || :\n'
 	printf 'cmp -s "$1" "$2" || :\n'
-	printf 'git -C "$1" %s --name-only\n' "$_ud_d"
-	printf 'cap "%s" %s --version\n' "$_ud_d" "$_ud_d"
+	printf 'git -C "$1" diff --name-only\n'
+	printf 'cap "diff" diff --version\n'
 	printf 'x=$("$DIFF" -u "$1" "$2" 2> /dev/null)\n'
-	printf '# %s -u "$1" "$2" is how it used to be shown\n' "$_ud_d"
+	printf '# diff -u "$1" "$2" is how it used to be shown\n'
 } > "$WORK/cv/tools/probe_udiff.sh"
 # A legend of the renderer's marks written as fixed text, in a here-document
 # and in a printf, beside the same words in a comment, a message marked as
@@ -10809,6 +11680,46 @@ printf '#!/bin/sh\nset -u\n# conventions: runs no student code -- a probe\n# con
 _sanw="AddressSanitizer"
 printf '#!/bin/sh\nset -u\ngrep -q %s "$1" && echo found\n' "$_sanw" \
 	> "$WORK/cv/$_cv_esc/probe_sanrep_mod.sh"
+# A runner that keeps a scratch input it handed the program (rl_save) and
+# shows a memory report without --as, which named a file gone with the test
+# under lines that keep it by another name: a plain call, and a wrapper
+# passing "$@" with no --as in it. Beside one that passes --as at its call,
+# through a wrapper that adds it, and on a call marked with why not; and a
+# runner that keeps nothing, whose rl_save is only in a comment.
+{
+	printf '#!/bin/sh\nset -u\nrl_save "$WORK/map" case-1.map || :\n'
+	printf 'rl_mem_report\nmr() {\n\trl_mem_report "$@"\n}\n'
+	# A wrapper on one line, and one whose } ends its call's line: each
+	# queued its call, and the next function's header dropped it.
+	printf 'mr1() { rl_mem_report "$@"; }\nmr2() {\n\trl_mem_report "$@"; }\n'
+	printf 'other() {\n\t:\n}\n'
+} > "$WORK/cv/tools/probe_asname_check.sh"
+# The same two last in the file, where the end of the file dropped them.
+{
+	printf '#!/bin/sh\nset -u\nrl_save "$WORK/map" case-1.map || :\n'
+	printf 'mr1() { rl_mem_report "$@"; }\nmr2() {\n\trl_mem_report "$@"; }\n'
+} > "$WORK/cv/tools/probe_asname_last_check.sh"
+# The same two each before a top-level call that passes --as: a one-line
+# wrapper with a comment after its }, and one whose } ends its call's line,
+# stayed open to it, and its --as excused their calls. So did one whose
+# braces do not balance in its own count, a { inside a quoted string, on
+# one line (mr5) and over several (mr6).
+{
+	printf '#!/bin/sh\nset -u\nrl_save "$WORK/map" case-1.map || :\n'
+	printf 'mr1() { rl_mem_report "$@"; } # a wrapper with a note\nrl_mem_report --as "$WORK/map" case-1.map\n'
+	printf 'mr2() {\n\trl_mem_report "$@"; }\nrl_mem_report --as "$WORK/map" case-1.map\n'
+	printf 'mr5() { echo "{"; rl_mem_report "$@"; }\nrl_mem_report --as "$WORK/map" case-1.map\n'
+	printf 'mr6() {\n\techo "{"\n\trl_mem_report "$@"; }\nrl_mem_report --as "$WORK/map" case-1.map\n'
+} > "$WORK/cv/tools/probe_asname_tail_check.sh"
+{
+	printf '#!/bin/sh\nset -u\nif rl_save "$WORK/map" case-1.map; then :; fi\n'
+	printf 'rl_mem_report --as "$WORK/map" case-1.map\n'
+	printf 'mr() {\n\tset -- "$@" --as "$WORK/map" case-1.map\n\trl_mem_report "$@"\n}\n'
+	printf 'mr1() { set -- "$@" --as "$WORK/map" case-1.map; rl_mem_report "$@"; }\n'
+	printf '# conventions: rl_mem_report without --as -- a toy input that was never kept\nrl_mem_report\n'
+} > "$WORK/cv/tools/probe_asname_ok_check.sh"
+printf '#!/bin/sh\nset -u\n# rl_save "$WORK/map" case-1.map is not called here\nrl_mem_report\n' \
+	> "$WORK/cv/tools/probe_asname_nosave_check.sh"
 # A Rust compile that lets rustc's warnings through: they reached a student's
 # first run as "1 warning emitted" in the middle of a cold build (a needless
 # `mut` in the oracle). Two invented packages and a rule file: a rust_binary
@@ -10840,7 +11751,7 @@ printf '_FLAGS = [\n    "-Dwarnings",\n]\n\ndef _r(ctx, tc):\n    ctx.actions.ru
 # or a scheme holds, are not. V40's review added three headings whose ids
 # GitHub makes as the rule now does -- a section sign, an arrow and a
 # multiplication sign dropped, a capital of Latin-1 and of Latin Extended-A
-# lowered (HISTORY.md's "### OPEN — after the restructure (§22) ..." has the
+# lowered (a heading like "OPEN — after the restructure (§22)" has the
 # first shape) -- and a footnote's definition, which is no link.
 mkdir -p "$WORK/cv/docs"
 printf '%s\n' '# Linked' '' '## Part one — the toolkit' '' '## The `_TOY_TABLE` list' '' \
@@ -10913,8 +11824,52 @@ printf '%s\n' '# History' '' '## Before' '' '- **V3, a line of another section**
 	printf '%s\n' "printf 'i\\n' > \"\$_cv99/ex94/out.txt\"" "true 2> \"\$_cv99/ex94/out.txt\"" \
 		"printf 'j\\n' > \"\$_cv99/ex95/out.txt\"" "true &> \"\$_cv99/ex95/out.txt\"" \
 		"_mk96() { mkdir -p \"\$_cv99/ex96\"; }" "mkdir -p \"\$_cv99/ex96\""
+	# ...and a helper on one line continued with a backslash, the shape of
+	# r2_run: read from its first line alone, it was a helper over many
+	# lines, its first line dropped and its body run on to the next } (ex97,
+	# made there and by a statement of its own; ex98's file, written
+	# through its $1 by two calls).
+	printf '%s\n' "_mk97() { mkdir -p \\" "	\"\$_cv99/ex97\"; }" "mkdir -p \"\$_cv99/ex97\"" \
+		"_wr98() { printf 'k\\n' > \"\$_cv99/ex98/\$1\" \\" "	2> /dev/null; }" "_wr98 out.txt" "_wr98 out.txt"
+	# ...and the fixture trees two sections share (V93): tt_shared named
+	# outright in one section and through a loop's variable in the next,
+	# tt_looped through a loop's variable in both, tt_alias through a
+	# variable holding its path. Quiet: tt_own and tt_loop, each one
+	# section's (tt_own named in the other only in a comment), cv and
+	# tt_pre (named before the first section) in both, and tt_file.log, a
+	# file, which is no tree.
+	printf '%s\n' "mkdir -p \"\$WORK/tt_pre\" \"\$WORK/tt_premk\" \"\$WORK/tt_prer\""
 	printf '%s\n' "# ------------------------------------------------------- another section" \
 		"printf 'h\\n' > \"\$_cv99/ex92/check.sh\""
+	printf '%s\n' "mkdir -p \"\$WORK/tt_shared/tools\" \"\$WORK/tt_own\"" ": > \"\$WORK/tt_own/a\"" \
+		"_tt=\"\$WORK/tt_alias\"" "mkdir -p \"\$_tt/d\"" \
+		"for _t in tt_looped; do : > \"\$WORK/\$_t/a\"; done" ": > \"\$WORK/tt_pre/a\"" \
+		": > \"\$WORK/cv/a\"" ": > \"\$WORK/tt_file.log\""
+	printf '%s\n' "# ------------------------------------------------------- a third section" \
+		"# \"\$WORK/tt_own/b\", in a comment" "for _t in tt_loop tt_shared tt_looped; do" \
+		"	: > \"\$WORK/\$_t/b\"" "done" ": > \"\$_tt/b\"" \
+		": > \"\$WORK/tt_pre/b\"" ": > \"\$WORK/cv/b\"" "cat \"\$WORK/tt_file.log\""
+	# ...and V93's review: a variable that held a tree's path in one
+	# section and is a loop's variable, or read's, in another holds a
+	# word there, and names no tree (tt_var, tt_read: quiet).
+	printf '%s\n' "_tv=\"\$WORK/tt_var\"" ": > \"\$_tv/a\"" "_tr=\"\$WORK/tt_read/a\"" ": > \"\$_tr\""
+	printf '%s\n' "# ------------------------------------------------------- a fourth section" \
+		"for _tv in x y; do echo \"\$_tv\"; done" "read -r _tr < /dev/null" "echo \"\$_tr\""
+	# ...and the trees a helper names (V93's review): tt_arg and tt_argl
+	# through its positional parameter (a word the call passes, the loop's
+	# word for "$_a"), tt_body outright in its body, each called in two
+	# sections. Quiet: tt_only, named by a helper of the fourth section the
+	# fifth alone calls, and tt_not, which the fifth passes to printf beside
+	# the helper's name, no call. The other report: tt_pre (above) and
+	# tt_premk are written into from a section, though made before the
+	# first; tt_prer, only read there, and cv are not.
+	printf '%s\n' "_tt_mk() {" "	_d=\$1" "	mkdir -p \"\$WORK/\$_d\"" "	: > \"\$WORK/\$1/f\"" \
+		"	: > \"\$WORK/tt_body/x\"" "}" "_tt_only() { : > \"\$WORK/tt_only/x\"; }" \
+		"_tt_mk tt_arg" "for _a in tt_argl; do _tt_mk \"\$_a\"; done" ": > \"\$WORK/tt_not/a\""
+	printf '%s\n' "# ------------------------------------------------------- a fifth section" \
+		"want_here \"x\" -- _tt_mk tt_arg" "want_here \"y\" -- \\" "	_tt_mk tt_argl" \
+		"_tt_only" "printf '%s\\n' _tt_mk tt_not" "mkdir -p \"\$WORK/tt_premk/d\"" \
+		"cat \"\$WORK/tt_prer/a\""
 } > "$WORK/cv/tools/tests/selftest_toys.sh"
 CONV="env BUILD_WORKSPACE_DIRECTORY=$WORK/cv $SH $TOOLS/conventions.sh"
 
@@ -10948,6 +11903,26 @@ want_broken_none "conventions: 'optional <tool>' exempts a probed tool" \
 	printf "printf '    replay: ./rush-02 x\\\\n'\n"
 	printf 'echo "  The sentence this applies, from the call site:"\n'
 } > "$WORK/cv/tools/probe_quote.sh"
+# A library the runners or the check scripts source is no runner, and what
+# it prints reaches the same logs: shell_check.sh's messages were read by
+# no rule. One that says what "the subject" says, in a function.
+printf '# shellcheck shell=sh\n# A library a check script sources.\nsay_it() {\n\tprintf %s\n}\n' \
+	"'  the subject says so.\\n'" > "$WORK/cv/tools/probe_saylib.sh"
+printf '%s\n' '#!/bin/sh' 'set -u' '. "$RL_LIB"' '# shellcheck source=tools/probe_saylib.sh' \
+	'. "${0%/*}/probe_saylib.sh"' 'say_it' > "$WORK/cv/tools/probe_saysrc.sh"
+# Quiet: the same in a library no runner and no check script sources, which
+# prints to a terminal (drives.sh, sourced by setup.sh), never to a log.
+printf '# shellcheck shell=sh\n# A library setup sources.\nsay_it() {\n\tprintf %s\n}\n' \
+	"'  the subject says so.\\n'" > "$WORK/cv/tools/probe_termlib.sh"
+# A # line of a here-document cat prints is no comment, and it prints: it
+# was skipped unjudged, so a project's name there reached the log (7, and
+# 13: a > inside a quoted program is no redirection, and awk prints the
+# here-document's lines to its standard output). Quiet: one in a
+# here-document written to a file, that file's comment (10).
+printf '%s\n' '#!/bin/sh' 'set -u' '. "$RL_LIB"' 'require() { :; }' 'require cat awk' \
+	'cat <<EOF' '# C 98 says so' 'EOF' 'cat > "$T/x.awk" <<'"'EOF'" \
+	"# C 98's rule, a comment of the program it writes" 'EOF' \
+	"awk '\$1 > 0' <<EOF" '# C 98 says so' 'EOF' > "$WORK/cv/tools/probe_hdquote.sh"
 
 # THE ENVIRONMENT TABLE (finding 167). A runner that reads a knob the table
 # does not list, or lists with another default, and a row nothing reads: the
@@ -10986,16 +11961,17 @@ printf '#!/bin/sh\nx=$(find . -type f -name y)\ny=$(find . \\( -type f -o -type 
 	> "$WORK/cv/tools/conventions.sh"
 # Two memory probes of the toy module: one whose header -- the part
 # asan_check.sh prints under a red -- names where the oracle lives, one whose
-# header names the oracle by no path and keeps the path further down, in a
+# header names the oracle by no path and keeps its label further down, in a
 # comment nobody is shown (the mutation run of 2026-10-03: C 13 ex07's printed
-# oracle/src/c13.rs).
+# the path of the oracle's C 13 file). A file of the oracle's source is named
+# in no comment at all, which the rule after the BUILD one holds.
 printf '/* Probe for ft_a: draws as oracle/src/c98.rs does. */\nint\tmain(void)\n{\n\treturn (0);\n}\n' \
 	> "$WORK/cv/$_cv_esc/ex00/mem_door.c"
 {
 	printf '/* Probe for ft_a: hands it a block of exactly its size. */\n'
 	_cvi=0
 	while [ "$_cvi" -lt 20 ]; do printf '\n'; _cvi=$((_cvi + 1)); done
-	printf '/* The corpus comes from oracle/src/c98.rs, for the maintainer. */\nint\tmain(void)\n{\n\treturn (0);\n}\n'
+	printf '/* The corpus comes from //oracle, for the maintainer. */\nint\tmain(void)\n{\n\treturn (0);\n}\n'
 } > "$WORK/cv/$_cv_esc/ex00/mem_quiet.c"
 # One run of the check for the arms below, read one way each: each run walks
 # the whole fixture tree, and the arms only differ in what they look for.
@@ -11036,6 +12012,29 @@ want_broken_none "conventions: ...nor one that runs through rl_mem_run" 'probe_s
 want_broken_none "conventions: ...nor one marked as showing no report" 'probe_sanask_gate.sh:' -- cv_seen
 want_out "conventions: a module's tests/*.sh looking for a report itself" \
 	"$_cv_esc/probe_sanrep_mod.sh:3:" -- cv_seen
+want_out "conventions: a runner keeping its input shows a report without --as" \
+	'tools/probe_asname_check.sh:4: rl_mem_report' -- cv_seen
+want_out "conventions: ...and through a wrapper with none" \
+	'tools/probe_asname_check.sh:6: rl_mem_report "$@"' -- cv_seen
+want_out "conventions: ...one on a single line, before another function" \
+	'tools/probe_asname_check.sh:8: mr1() { rl_mem_report "$@"; }' -- cv_seen
+want_out "conventions: ...one whose } ends its call's line, before another" \
+	'tools/probe_asname_check.sh:10: rl_mem_report "$@"; }' -- cv_seen
+want_out "conventions: ...one on a single line, last in the file" \
+	'tools/probe_asname_last_check.sh:4: mr1() { rl_mem_report "$@"; }' -- cv_seen
+want_out "conventions: ...one whose } ends its call's line, last in the file" \
+	'tools/probe_asname_last_check.sh:6: rl_mem_report "$@"; }' -- cv_seen
+want_out "conventions: ...one on a single line with a comment, before a call passing --as" \
+	'tools/probe_asname_tail_check.sh:4: mr1() { rl_mem_report "$@"; } # a wrapper with a note' -- cv_seen
+want_out "conventions: ...one whose } ends its call's line, before a call passing --as" \
+	'tools/probe_asname_tail_check.sh:7: rl_mem_report "$@"; }' -- cv_seen
+want_out "conventions: ...one on a single line with a quoted {, before a call passing --as" \
+	'tools/probe_asname_tail_check.sh:9: mr5() { echo "{"; rl_mem_report "$@"; }' -- cv_seen
+want_out "conventions: ...and one over lines with a quoted {, before a call passing --as" \
+	'tools/probe_asname_tail_check.sh:13: rl_mem_report "$@"; }' -- cv_seen
+want_broken_none "conventions: ...not one passing it, by a wrapper, or marked" \
+	'probe_asname_ok_check.sh:' -- cv_seen
+want_broken_none "conventions: ...nor one that keeps no input" 'probe_asname_nosave_check.sh:' -- cv_seen
 want_out "conventions: a rust_binary that does not deny warnings is reported" \
 	'    rustwarn/BUILD.bazel' -- cv_seen
 want_out "conventions: ...and so is a rule that runs rustc without the flag" \
@@ -11113,10 +12112,40 @@ want_out "conventions: ...and by > and by &>" \
 	'"$_cv99/ex95/out.txt", written at lines' -- cv_seen
 want_out "conventions: a toy made in a one-line helper and by a statement is reported" \
 	'"$_cv99/ex96", made at lines' -- cv_seen
+want_out "conventions: ...and in one continued over two lines" \
+	'"$_cv99/ex97", made at lines' -- cv_seen
+want_out "conventions: ...a toy's file written through such a helper's \$1 by two calls" \
+	'"$_cv99/ex98/out.txt", written at lines' -- cv_seen
 want_out "conventions: a fixture tree's TODO.md written twice is reported" \
 	'"$WORK/cv/TODO.md", written at lines' -- cv_seen
 want_broken_none "conventions: ...and a HISTORY.md written once, then appended to, is not" \
 	'"$WORK/cv/HISTORY.md", written' -- cv_seen
+# cv_trees HEADLINE WANT -- the trees the report under HEADLINE lists,
+# sorted, are exactly WANT.
+cv_trees() {
+	[ "$_cv_rc" -lt 2 ] || return 2
+	_tt=$(printf '%s\n' "$_cv_out" | awk -v h="$1" '
+		index($0, h) { on = 1; next }
+		on && /^ +"\$WORK\/[^"]*":/ { t = $1; sub(/^"\$WORK\//, "", t); sub(/":$/, "", t); print t; next }
+		{ on = 0 }' | LC_ALL=C sort | tr '\n' ' ')
+	[ "$_tt" = "$2 " ] && return 0
+	echo "reported trees: $_tt"
+	return 1
+}
+want_out "conventions: a fixture tree named in two sections is reported" \
+	'"$WORK/tt_shared": [another section] (line' -- cv_seen
+# tt_alias, tt_looped and tt_shared, and none of tt_own, tt_loop, tt_pre, cv,
+# tt_file.log, tt_var or tt_read; tt_arg, tt_argl and tt_body through a
+# helper, and neither tt_only nor tt_not.
+want_green "conventions: ...through a loop or a variable too, and no other tree" -- \
+	cv_trees 'selftest_toys.sh names one fixture tree in two sections' \
+	'tt_alias tt_arg tt_argl tt_body tt_looped tt_shared'
+want_out "conventions: ...and through a helper's positional parameter" \
+	'"$WORK/tt_arg": [a fourth section] (line' -- cv_seen
+# tt_pre and tt_premk, and neither tt_prer nor cv.
+want_green "conventions: a write from a section into a tree made before the first is reported" -- \
+	cv_trees 'selftest_toys.sh writes from a section into a fixture tree made before the first' \
+	'tt_pre tt_premk'
 
 # cv_lines FILE "N N ..." -- true when the lines of FILE that the run above
 # reported are exactly those, in any report. Says what it saw when not.
@@ -11133,6 +12162,12 @@ want_out "conventions: a runner's message quoting one subject is reported" \
 	"a runner's message names one project, or cites a page" -- cv_seen
 want_green "conventions: ...its message line, not the comment or a program's name" -- \
 	cv_lines tools/probe_quote.sh "5"
+want_green "conventions: ...and a sourced library's message saying what the subject says" -- \
+	cv_lines tools/probe_saylib.sh "4"
+want_broken_none "conventions: ...but not a library no runner and no check script sources" \
+	'probe_termlib.sh:' -- cv_seen
+want_green "conventions: ...and a # line a here-document prints, not one it writes to a file" -- \
+	cv_lines tools/probe_hdquote.sh "7 13"
 # The project names come from the module table, never from a list kept in the
 # check: one of the Piscine's names let the first Common Core project through.
 # A workspace of its own (cv6) whose table holds a Piscine module the old list
@@ -11155,8 +12190,13 @@ printf 'q = {"wildcards": NORM_NO_WILDCARDS}\n' > "$WORK/cv6/cursus/ft_toy/BUILD
 	printf 'EOF\n'
 	printf 'echo "  replay: ./ft_toy x, or my_ft_toy.c"\n'
 } > "$WORK/cv6/tools/probe_names.sh"
-_cv6_out=$(env BUILD_WORKSPACE_DIRECTORY="$WORK/cv6" "$SH" "$TOOLS/conventions.sh" 2>&1)
-_cv6_rc=$?
+# Run only where its arms run, as cv's is.
+_cv6_out=""
+_cv6_rc=0
+if st_mine; then
+	_cv6_out=$(env BUILD_WORKSPACE_DIRECTORY="$WORK/cv6" "$SH" "$TOOLS/conventions.sh" 2>&1)
+	_cv6_rc=$?
+fi
 cv6_lines() {  # cv6_lines FILE "N N ...": the lines of FILE cv6's run reported
 	[ "$_cv6_rc" -lt 2 ] || { printf '%s\n' "$_cv6_out"; return 2; }
 	_cl=$(printf '%s\n' "$_cv6_out" | sed -n "s|^ *$1:\([0-9][0-9]*\):.*|\1|p" | sort -n -u | tr '\n' ' ')
@@ -11183,6 +12223,15 @@ printf '#!/bin/sh\nset -u\n. "$RL_LIB"\n' > "$WORK/cvr/tools/probe_unlisted.sh"
 printf '#!/bin/sh\nset -u\n:\n' > "$WORK/cvr/tools/probe_silent.sh"
 printf '_LIB_RUNNERS = [\n    "//tools:probe_says.sh",\n    "//tools:probe_silent.sh",\n]\n' \
 	> "$WORK/cvr/tools/defs.bzl"
+# The runners whose gated tests the audit holds to a --gate-label (defs.bzl's
+# _GATE_LABEL_RUNNERS) are exactly those whose option loop takes it and
+# --gate-differ: one listed that takes both, one unlisted that does, and a
+# listed one that takes neither (probe_silent.sh).
+printf '#!/bin/sh\nset -u\ncase $1 in\n\t--gate-differ) shift 2 ;;\n\t--gate-label) shift 2 ;;\nesac\n' \
+	> "$WORK/cvr/tools/probe_glabel.sh"
+cp "$WORK/cvr/tools/probe_glabel.sh" "$WORK/cvr/tools/probe_glabel_unlisted.sh"
+printf '_GATE_LABEL_RUNNERS = [\n    "//tools:probe_glabel.sh",\n    "//tools:probe_silent.sh",\n]\n' \
+	>> "$WORK/cvr/tools/defs.bzl"
 # README.md's worked red is held to the files it shows: its legend kept a
 # sentence diff_output.sh had dropped, under a cell showing a line end the
 # expected file does not have. In cvr: a toy exercise whose one expected
@@ -11235,6 +12284,12 @@ want_out "conventions: ...and one listed that sources nothing" \
 	'listed, and sources nothing: tools/probe_silent.sh' -- cvr_seen
 want_broken_none "conventions: ...but not one listed that sources it" \
 	'tools/probe_says.sh' -- cvr_seen
+want_out "conventions: a runner taking --gate-differ and --gate-label missing from _GATE_LABEL_RUNNERS" \
+	'takes both, not listed: tools/probe_glabel_unlisted.sh' -- cvr_seen
+want_out "conventions: ...and one listed that takes neither" \
+	'listed, and takes not both: tools/probe_silent.sh' -- cvr_seen
+want_broken_none "conventions: ...but not one listed that takes both" \
+	'takes not both: tools/probe_glabel.sh' -- cvr_seen
 want_out "conventions: a signal trap that does not exit is reported" \
 	'tools/probe_trap.sh:4:' -- cv_seen
 want_broken_none "conventions: ...and cleanup on EXIT, exit on TERM, is not" \
@@ -11254,7 +12309,7 @@ want_out "conventions: ...and running the program bare is reported" \
 want_green "conventions: a program run by path, whatever wraps it or names it" -- \
 	cv_lines tools/probe_shapes.sh "10 11 12 13 14 15"
 want_green "conventions: a cut of a stream's start, in any runner" -- \
-	cv_lines tools/probe_cut.sh "4 5 6 7 8"
+	cv_lines tools/probe_cut.sh "4 5 6 7 8 17 18"
 want_green "conventions: a byte renderer of a script's own, in every form" -- \
 	cv_lines tools/probe_render.sh "5 6 7 8 11 12 13 14 15"
 want_green "conventions: a runner looking for a sanitizer's report itself" -- \
@@ -11314,6 +12369,36 @@ want_broken_none "conventions: ...forwarding and testing it are not" \
 	'tools/probe_clue_ok.sh:' -- cv_seen
 want_out "conventions: a library's probe loop is checked like require" \
 	"probe_lib.sh's require list does not match" -- cv_seen
+want_broken_none "conventions: a name in a quoted awk program is not a call" \
+	'probe_awkvar.sh' -- cv_seen
+want_broken_none "conventions: ...nor in one spanning lines" \
+	'probe_awkvar2.sh' -- cv_seen
+want_broken_none "conventions: ...nor an awk regex or an empty string there" \
+	'probe_awkvar3.sh' -- cv_seen
+want_broken_none "conventions: sh -c's string, \$(( \$( ) )), a -- command run" \
+	'probe_wordrun.sh' -- cv_seen
+want_broken_none "conventions: ...sh -ec's, sh -e -c's, a double-quoted one" \
+	'probe_wordrun2.sh' -- cv_seen
+want_broken_none "conventions: a tool a written program runs, declared" \
+	'probe_writes.sh' -- cv_seen
+want_out "conventions: ...and undeclared, is drift" \
+	"probe_writes_bare.sh's require list does not match" -- cv_seen
+want_out "conventions: ...and declared with no reason, is drift too" \
+	"probe_writes_bald.sh's require list does not match" -- cv_seen
+want_broken_none "conventions: ...an optional or unknown one it names is not" \
+	'probe_writes_opt.sh' -- cv_seen
+want_out "conventions: an optional line with no reason exempts nothing" \
+	"probe_optional_bald.sh's require list does not match" -- cv_seen
+want_out "conventions: ...nor does a no-require line with none" \
+	"probe_norequire_bald.sh calls PATH commands and declares none" -- cv_seen
+want_out "conventions: a word after -- counts after any helper (kept)" \
+	"probe_dashdash.sh's require list does not match" -- cv_seen
+want_green "conventions: a comment's line-number pointer is reported" -- \
+	cv_lines tools/probe_ptr.sh "2 3 11"
+want_green "conventions: ...and a docstring's, on every line it spans" -- \
+	cv_lines tools/probe_ptr.py "2 4 5"
+want_green "conventions: ...and a page's, not its fence or quoted output" -- \
+	cv_lines docs/probe_ptr.md "2"
 want_out "conventions: a generated exercise's clue header must say whose" \
 	'c-piscine-c-98/tests/ex00/clues.tsv:1:' -- cv_seen
 want_broken_none "conventions: ...and one naming module, exercise, turn-in is fine" \
@@ -11435,7 +12520,7 @@ printf 'Levels here:\nrobust + widget and norm\n' > "$WORK/cv/AGENTS.md"
 mkdir -p "$WORK/cv/.claude-backup"
 printf 'strict: widget, norm\n' > "$WORK/cv/.claude-backup/notes.md"
 # A page's command that loops `for` over a listing of the tree splits every
-# name at its blanks: a runbook's loop reported a fixture named
+# name at its blanks: a page's loop reported a fixture named
 # `toy_twice copy.c` as `toy_twice`, twice. Its `while read` twin is the form
 # the rule asks for.
 printf '%s\n' '```sh' 'for f in $(git ls-files "*/deliverable/*"); do' '    echo "$f"' 'done' '```' \
@@ -11541,6 +12626,16 @@ printf '%s\n' '_PINNED_CC_RUNNERS = {' '    "//tools:toyrow_check.sh": ("always"
 # it is the answer it was written not to be.
 printf '#include <unistd.h>\n\nvoid\tft_putchar(char c)\n{\n\twrite(1, &c, 1);\n}\n' \
 	> "$WORK/cv/c-piscine-reloaded/c-piscine-reloaded/tests/ft_putchar.c"
+# A layer named at a level, against the fixture's _LAYER_LEVEL (norm 1,
+# widget 3). Reported: the widget at level 1 (line 1), and again with its
+# name capitalised (5). Quiet: norm at basic, in backticks (2), the widget at
+# robust (3), a word that is no layer (4), and the zone's copy of the file.
+mkdir -p "$WORK/cv/c-piscine/c-piscine-c-98/deliverable/ex00"
+printf '%s\n' 'The widget sits at level 1 (basic), so a beginner meets it.' \
+	'Here `norm` stays at basic.' 'The widget is at robust.' 'This toy sits at level 1.' \
+	'Widget sits at Level 1.' \
+	> "$WORK/cv/c-piscine/c-piscine-c-98/levels.txt"
+cp "$WORK/cv/c-piscine/c-piscine-c-98/levels.txt" "$WORK/cv/c-piscine/c-piscine-c-98/deliverable/ex00/"
 ! st_mine || $CONV > "$WORK/cv.ladder" 2>&1
 want_out "conventions: the exempt ft_putchar.c, once it calls write(), is reported" \
 	'c-piscine-reloaded/c-piscine-reloaded/tests/ft_putchar.c:3: defines ft_putchar' -- cat "$WORK/cv.ladder"
@@ -11618,8 +12713,22 @@ want_broken_none "conventions: ...and the pair, each of its commands carrying it
 	'toypair_check.sh' -- cv_rule 'a runner that proves a linker runs its compiler without it'
 want_out "conventions: a URL in the REMOTES table is reported" \
 	'c-piscine/c-piscine-c-99=git@example.invalid:mine' -- cat "$WORK/cv.ladder"
+want_out "conventions: a layer named at a level it does not sit at" \
+	'c-piscine/c-piscine-c-98/levels.txt:1:The widget sits at level 1 (basic), so a beginner meets it. (widget sits at robust)' -- \
+	cv_rule 'a text names a layer at a level it does not sit at'
+want_out "conventions: ...its name capitalised" \
+	'c-piscine/c-piscine-c-98/levels.txt:5:Widget sits at Level 1. (widget sits at robust)' -- \
+	cv_rule 'a text names a layer at a level it does not sit at'
+for _lv in 2 3 4; do
+	want_broken_none "conventions: ...never one at its own level, nor no layer (line $_lv)" \
+		"levels.txt:$_lv:" -- cv_rule 'a text names a layer at a level it does not sit at'
+done
+want_broken_none "conventions: ...nor the zone's copy" \
+	'c-piscine/c-piscine-c-98/deliverable/ex00/levels.txt:1:' -- \
+	cv_rule 'a text names a layer at a level it does not sit at'
 rm -rf "$WORK/cv/c-piscine/c-piscine-c-98/README.md" "$WORK/cv/AGENTS.md" \
-	"$WORK/cv/.claude-backup"
+	"$WORK/cv/.claude-backup" "$WORK/cv/c-piscine/c-piscine-c-98/levels.txt" \
+	"$WORK/cv/c-piscine/c-piscine-c-98/deliverable"
 cat "$WORK/cv/README.md" "$WORK/cv/docs/testing.md" > "$WORK/cv/docs/reference.md"
 rm -f "$WORK/cv/README.md" "$WORK/cv/docs/testing.md" "$WORK/cv/docs/loop.md" "$WORK/cv/docs/readloop.md" \
 	"$WORK/cv/docs/loop.sh" "$WORK/cv/docs/quoted.sh" "$WORK/cv/docs/zlist.sh" \
@@ -12153,6 +13262,33 @@ want_broken_none "conventions: ...whose file is a name, not a label" 'breaks the
 cp "$WORK/cv/b98.orig" "$WORK/cv/c-piscine/c-piscine-c-98/BUILD.bazel"
 printf '%s\n' "$_cv_reg" > "$WORK/cv/tools/resources.tsv"
 
+# The rows' own shape. A path under tests/ was refused as one "the
+# template strip spares", which it does not, since it strips the exact name
+# wherever it sits; a path whose last name is not the file's was accepted,
+# and the strip and the ignore rule, which go by the name, would miss it.
+# One run over both rows.
+{
+	printf '%s\n' "$_cv_reg"
+	printf 'c-piscine/c-piscine-c-98\tfix.bin\tc-piscine/c-piscine-c-98/tests/ex08/fix.bin\tharness\t*fix.bin\t-\tdocs/where.md\tthe intranet\n'
+	printf 'c-piscine/c-piscine-c-98\todd.bin\tc-piscine/c-piscine-c-98/odd-copy.bin\tharness\t*odd.bin\t-\tdocs/where.md\tthe intranet\n'
+} > "$WORK/cv/tools/resources.tsv"
+if st_mine; then
+	$CONV > "$WORK/cvrg.out" 2>&1
+fi
+# That run's report of malformed rows, and its status (cvi_rule's reading;
+# cvi_rule itself is defined further down).
+cvrg_rule() {
+	awk '/^  FAIL: / { on = index($0, "tools/resources.tsv has malformed rows") > 0 } on' "$WORK/cvrg.out"
+	grep -q '^conventions: FAIL' "$WORK/cvrg.out" && return 1
+	grep -q '^conventions: OK' "$WORK/cvrg.out" && return 0
+	return 2
+}
+want_broken_none "conventions: a registered path under tests/ is a row like any other" \
+	'fix.bin' -- cvrg_rule
+want_out "conventions: ...but one whose last name is not the file's is reported" \
+	'odd.bin: path c-piscine/c-piscine-c-98/odd-copy.bin does not end in /odd.bin' -- cvrg_rule
+printf '%s\n' "$_cv_reg" > "$WORK/cv/tools/resources.tsv"
+
 # A CR that `* text=auto eol=lf` strips on commit: Rush 02's crlf.dict was
 # committed with LF only, so every clone's case tested nothing while the
 # checkout that wrote it was green. A file holding a CR must match a -text
@@ -12203,6 +13339,86 @@ want_broken_none "conventions: ...and a dated one is not" \
 	"CHANGELOG.md has entries" -- \
 	$CONV
 rm -f "$WORK/cv/CHANGELOG.md"
+
+# --------------------------- conventions: a built program, kept out of commits
+# A program a project builds that no .gitignore names: C 10's four, C 11's
+# do-op and Rush 01's rush01 were in none, so a hand-run of make or cc in the
+# turn-in left a binary the next `git add -A` committed. A workspace of its
+# own (cvgi), one module whose calls are each one way of naming a program: a
+# c_make's artifact nothing ignores; a c_program beside a c_make of the same
+# exercise (the artifact is what is built); one laid out over lines, with a
+# case and a call inside it whose "name" is no program's; one an extension
+# rule keeps (*.a); one the project's own .gitignore keeps, and one it takes
+# back with a "!" line after the root's names it; a turn-in at the folder's
+# root (dir = None); a num that is no string; and one only a .gitignore in
+# the course's folder keeps, which `bazel test` never sees (no
+# conventions_srcs declares one there), so it keeps nothing, and is said,
+# as one in the project's tests/ is. And a toy under tools/, which is the
+# harness's own.
+mkdir -p "$WORK/cvgi/tools/tests/macro_fixtures" "$WORK/cvgi/c-piscine/c-piscine-c-93"
+cv_submit "c-piscine/c-piscine-c-93" > "$WORK/cvgi/tools/submit.sh"
+{
+	printf 'subject(\n    exercises = {\n'
+	for _n in 00 01 02 03 04; do
+		printf '        "%s": exercise(dir = "ex%s/", files = ["a.c"]),\n' "$_n" "$_n"
+	done
+	printf '        "05": exercise(dir = None, files = ["a.c"]),\n    },\n)\n\n'
+	printf 'c_make(num = "00", artifact = "toy-made")\n\n'
+	printf 'c_program(num = "00", name = "toy_made")\n\n'
+	printf 'c_program(\n    num = "01",\n    name = "toy_bare",\n'
+	printf '    model = toy_model(name = "toy_nested"),\n'
+	printf '    cases = [{"name": "toy_case", "args": ["x"]}],\n)\n\n'
+	printf 'c_make(num = "02", artifact = "libtoy.a")\n\n'
+	printf 'c_program(num = "03", name = "toy_kept")\n\n'
+	printf 'c_program(num = "04", name = "toy_again")\n\n'
+	printf 'c_make(num = "05", artifact = "toy_root")\n\n'
+	printf 'c_program(num = NUM, name = "toy_loop")\n\n'
+	printf 'c_program(num = "03", name = "toy_course")\n'
+} > "$WORK/cvgi/c-piscine/c-piscine-c-93/BUILD.bazel"
+printf 'c-piscine-c-93/deliverable/ex03/toy_course\n' > "$WORK/cvgi/c-piscine/.gitignore"
+mkdir -p "$WORK/cvgi/c-piscine/c-piscine-c-93/tests"
+printf '*.log\n' > "$WORK/cvgi/c-piscine/c-piscine-c-93/tests/.gitignore"
+printf '*.a\nc-piscine/c-piscine-c-93/deliverable/ex04/toy_again\nc-piscine/c-piscine-c-93/deliverable/toy_root\n' \
+	> "$WORK/cvgi/.gitignore"
+# The project's own is a symbolic link, as every file of a runfiles tree is
+# under `bazel test`: a find for -type f alone sees none there.
+mkdir -p "$WORK/cvgi_src"
+printf '/deliverable/ex03/toy_kept\n!toy_again\n' > "$WORK/cvgi_src/gitignore"
+ln -s "$WORK/cvgi_src/gitignore" "$WORK/cvgi/c-piscine/c-piscine-c-93/.gitignore"
+printf 'subject(\n    exercises = {\n        "00": exercise(dir = "ex00/", files = ["a.c"]),\n    },\n)\n\nc_program(num = "00", name = "toy_fixture")\n' \
+	> "$WORK/cvgi/tools/tests/macro_fixtures/BUILD.bazel"
+_cvg_out=""
+_cvg_rc=0
+if st_mine; then
+	_cvg_out=$(env BUILD_WORKSPACE_DIRECTORY="$WORK/cvgi" "$SH" "$TOOLS/conventions.sh" 2>&1)
+	_cvg_rc=$?
+fi
+cvg_seen() { printf '%s\n' "$_cvg_out"; return "$_cvg_rc"; }
+want_out "conventions: a c_make's program no .gitignore names" \
+	'c-piscine/c-piscine-c-93/deliverable/ex00/toy-made (c-piscine/c-piscine-c-93/BUILD.bazel:' -- cvg_seen
+want_broken_none "conventions: ...not a c_program's name beside a c_make" \
+	'deliverable/ex00/toy_made' -- cvg_seen
+want_out "conventions: ...a c_program's, laid out over lines" \
+	'c-piscine/c-piscine-c-93/deliverable/ex01/toy_bare (' -- cvg_seen
+want_broken_none "conventions: ...not a name in one of its cases" 'toy_case' -- cvg_seen
+want_broken_none "conventions: ...nor one a call inside it takes" 'toy_nested' -- cvg_seen
+want_broken_none "conventions: ...not one a rule with no slash keeps" 'libtoy.a' -- cvg_seen
+want_broken_none "conventions: ...nor one the project's .gitignore keeps" 'toy_kept' -- cvg_seen
+want_out "conventions: ...but one it takes back with a ! line" \
+	'c-piscine/c-piscine-c-93/deliverable/ex04/toy_again (' -- cvg_seen
+want_broken_none "conventions: ...a turn-in at the folder's root, kept" 'toy_root' -- cvg_seen
+# The line is the one the toy's call opens on, read from it: a toy call added
+# above it moves it.
+_cvg_loop=$(grep -n '^c_program(num = NUM' "$WORK/cvgi/c-piscine/c-piscine-c-93/BUILD.bazel" | cut -d: -f1)
+want_out "conventions: ...a call it cannot read is said" \
+	"c-piscine/c-piscine-c-93/BUILD.bazel:$_cvg_loop: a c_program call whose num or program name is not one string" -- cvg_seen
+want_broken_none "conventions: ...and a toy under tools/ is the harness's" 'toy_fixture' -- cvg_seen
+want_out "conventions: ...a course folder's .gitignore keeps nothing" \
+	'c-piscine/c-piscine-c-93/deliverable/ex03/toy_course (' -- cvg_seen
+want_out "conventions: ...and is said" \
+	'            c-piscine/.gitignore' -- cvg_seen
+want_out "conventions: ...as one in a project's tests/ is" \
+	'            c-piscine/c-piscine-c-93/tests/.gitignore' -- cvg_seen
 
 # ------------------------------------ conventions: bazel run, first-red hints
 # A script `bazel run` starts must find its files in the workspace: under
@@ -12374,6 +13590,8 @@ cv_unread() { grep -A3 -F -- "passes --case a value this check cannot read" "$WO
 want_out "conventions: a --case value on the next line that is no literal is reported" \
 	'        WHICH,' -- cv_unread
 want_out "conventions: ...and one on its line" 'args = ["--case", WHICH_TOO' -- cv_unread
+want_broken_none "conventions: a dead-label check that compared one has no floor to report" \
+	'the dead-label check compared none' -- cat "$WORK/cv.keyed"
 mv "$WORK/cv_ex10_keyed.tsv" "$_cv98/ex10/clues.tsv"
 mv "$WORK/cv_b98_keyed" "$WORK/cv/c-piscine/c-piscine-c-98/BUILD.bazel"
 rm -f "$WORK/cv.keyed"
@@ -12390,7 +13608,9 @@ want_broken_none "conventions: ...but not in a file that is no program's" \
 # at all, beside a long string, which is no type (quiet). A diff hint wraps,
 # so the phrase is found across a line end, in a readings target's legend
 # too (ex35, reported, at the line it starts on); the question about every
-# platform, wrapped the same way, is not (ex36).
+# platform, wrapped the same way, is not (ex36). A report cuts its excerpt
+# at 70 bytes, never inside a character: a clue whose 69th to 71st bytes
+# are one dash ends before it (ex71's second row).
 mkdir -p "$_cv99/ex70" "$_cv99/ex71" "$_cv99/ex72" "$_cv99/ex35" "$_cv99/ex36"
 printf '  The input is text.\n    * only long inputs  -> the accumulator%ss\n                           type\n' "'" \
 	> "$_cv99/ex35/diff_clues_readings.txt"
@@ -12398,7 +13618,8 @@ printf '  The input is text.\n    * only long inputs  -> does every type the val
 	> "$_cv99/ex36/diff_clues.txt"
 printf '  Text in, a number out.\n    * only long inputs  -> the accumulator%ss type\n' "'" \
 	> "$_cv99/ex70/diff_clues.txt"
-printf 'Which wider type holds the sum?\n' > "$_cv99/ex71/clues.tsv"
+printf 'Which wider type holds the sum?\nWhich wider type holds the sum so that it never overflows on the way\342\200\224 there?\n' \
+	> "$_cv99/ex71/clues.tsv"
 {
 	printf '  Text in, a number out.\n'
 	printf '    * only long inputs  -> every value fits an int: does anything computed on the\n'
@@ -12411,6 +13632,10 @@ want_out "conventions: ...and a clue asking for a wider type" \
 	'c-99/tests/ex71/clues.tsv:1:' -- cat "$WORK/cv.widen"
 want_broken_none "conventions: ...not one asking whether it has to be formed" \
 	'c-99/tests/ex72/diff_clues.txt' -- cat "$WORK/cv.widen"
+# The report line, with its end made visible, read byte by byte.
+cv_line_end() { LC_ALL=C grep -F -- "$1" "$2" | LC_ALL=C sed 's/$/|end/'; }
+want_out "conventions: ...its excerpt cut before a character, never inside one" \
+	'never overflows on the way|end' -- cv_line_end 'c-99/tests/ex71/clues.tsv:2:' "$WORK/cv.widen"
 want_out "conventions: ...and a legend's phrase wrapped across a line end, in a readings legend" \
 	'c-99/tests/ex35/diff_clues_readings.txt:2:' -- cat "$WORK/cv.widen"
 want_out "conventions: ...named at the line it starts on, and the line it ends on" \
@@ -12418,6 +13643,95 @@ want_out "conventions: ...named at the line it starts on, and the line it ends o
 want_broken_none "conventions: ...but not the question about every platform, wrapped" \
 	'c-99/tests/ex36/diff_clues.txt' -- cat "$WORK/cv.widen"
 rm -f "$WORK/cv.widen"
+
+# A hint that names a loop's inner workings or a step of a known method
+# (AGENTS.md section 2): a legend row naming the outer scan, wrapped across a
+# line end (reported at the line it starts on), beside "a loop that cannot
+# run zero times" (quiet) and a row whose '#' line above it says why it names
+# one (quiet, its wrapped line too); a clue that would advance the candidate
+# (reported) beside one marked the same way (quiet); "the base case" in an
+# exercise whose BUILD call declares method = "recursive" (quiet) and in one
+# that declares nothing (reported); and a harness whose "Line:" paragraph
+# names the inner loop (reported at its own line of the file) beside one
+# whose header carries the marker below the paragraph (quiet) and one whose
+# marker sits inside the paragraph, where print_columns would show it to the
+# student (reported). A report cuts its excerpt at 70 bytes, never inside a
+# character: a clue whose 69th to 71st bytes are one dash ends before it.
+# Two orders of steps once got past it, an index that moves before the byte
+# at it is printed and a negative number made positive first: a legend row
+# of the first shape and a clue row of the second (reported), beside a clue
+# asking what a value is before it is written, and one saying the most
+# negative int has no positive counterpart (quiet).
+mkdir -p "$_cv98/ex66" "$_cv98/ex67" "$_cv98/ex68" "$_cv98/ex69"
+{
+	printf '  The input is a list of numbers.\n'
+	printf '    * only long inputs  -> where the outer\n'
+	printf '                           scan stops\n'
+	printf '    * the empty input   -> a loop that cannot run zero times\n'
+	printf '  # conventions: method named -- the toy subject names this method\n'
+	printf '    * only primes       -> the bound on the trial\n'
+	printf '                           division loop\n'
+	printf '    * shifted by one    -> the index moves before the\n'
+	printf '                           character at it is printed\n'
+} > "$_cv98/ex66/diff_clues.txt"
+printf '/* Toy harness.\n * Line: <n>\\t<out>. Reads n, then runs the inner\n * loop on it.\n *\n * Not read. */\n' \
+	> "$_cv98/ex66/diff_toy.c"
+printf '/* Toy harness.\n * Line: <n>\\t<out>. Reads n, then runs the inner\n * loop on it.\n *\n * conventions: method named -- the toy subject names it */\n' \
+	> "$_cv98/ex69/diff_toy.c"
+printf '/* Toy harness.\n * Line: <n>\\t<out>. Reads n, then runs the inner\n * loop on it.\n * conventions: method named -- the toy subject names it */\n' \
+	> "$_cv98/ex68/diff_toy.c"
+{
+	printf 'Could you advance the candidate until it passes?\n'
+	printf '# conventions: method named -- the toy subject asks for this one\n'
+	printf 'Could you square the divisor to test it?\n'
+	printf 'Could you advance the candidate until it passes, and ask again, each\342\200\224 time?\n'
+	printf 'What does a printer that makes a negative number positive do with the smallest one?\n'
+	printf 'What is n before it is written in the base?\n'
+	printf 'The most negative int has no positive counterpart. Which rows fail?\n'
+} > "$_cv98/ex67/clues.tsv"
+printf 'What does the base case return?\n' > "$_cv98/ex68/clues.tsv"
+printf 'What does the base case return?\n' > "$_cv98/ex69/clues.tsv"
+cp "$WORK/cv/c-piscine/c-piscine-c-98/BUILD.bazel" "$WORK/cv.method.keep"
+printf '\nc_function(\n    num = "68",\n    method = "recursive",\n)\n' \
+	>> "$WORK/cv/c-piscine/c-piscine-c-98/BUILD.bazel"
+! st_mine || $CONV > "$WORK/cv.method" 2>&1
+mv "$WORK/cv.method.keep" "$WORK/cv/c-piscine/c-piscine-c-98/BUILD.bazel"
+rm -rf "$_cv98/ex66" "$_cv98/ex67" "$_cv98/ex68" "$_cv98/ex69"
+want_out "conventions: a legend naming the outer scan, wrapped, is reported" \
+	'c-98/tests/ex66/diff_clues.txt:2:     * only long inputs  -> where the outer (wrapped onto line 3)' -- \
+	cat "$WORK/cv.method"
+want_broken_none "conventions: ...not a loop that cannot run zero times" \
+	'c-98/tests/ex66/diff_clues.txt:4:' -- cat "$WORK/cv.method"
+want_broken_none "conventions: ...nor a legend row marked as naming one, wrapped" \
+	'c-98/tests/ex66/diff_clues.txt:6:' -- cat "$WORK/cv.method"
+want_out "conventions: a clue that advances the candidate is reported" \
+	'c-98/tests/ex67/clues.tsv:1:' -- cat "$WORK/cv.method"
+want_broken_none "conventions: ...not one marked as naming one" \
+	'c-98/tests/ex67/clues.tsv:3:' -- cat "$WORK/cv.method"
+want_broken_none "conventions: the base case of an exercise the subject makes recursive is quiet" \
+	'c-98/tests/ex68/clues.tsv:1:' -- cat "$WORK/cv.method"
+want_out "conventions: ...and reported in one it does not" \
+	'c-98/tests/ex69/clues.tsv:1:' -- cat "$WORK/cv.method"
+want_out "conventions: a harness's Line: paragraph naming the inner loop is reported" \
+	'c-98/tests/ex66/diff_toy.c:2: Line: <n>\t<out>. Reads n, then runs the inner (wrapped onto line 3)' -- \
+	cat "$WORK/cv.method"
+want_broken_none "conventions: ...not one whose header carries the marker" \
+	'c-98/tests/ex69/diff_toy.c:2:' -- cat "$WORK/cv.method"
+want_out "conventions: ...but a marker inside the paragraph the student sees exempts nothing" \
+	'c-98/tests/ex68/diff_toy.c:2: Line: <n>\t<out>. Reads n, then runs the inner (wrapped onto line 3)' -- \
+	cat "$WORK/cv.method"
+want_out "conventions: ...its excerpt cut before a character, never inside one" \
+	'and ask again, each|end' -- cv_line_end 'c-98/tests/ex67/clues.tsv:4:' "$WORK/cv.method"
+want_out "conventions: a legend row on the index moving before the byte is printed is reported" \
+	'c-98/tests/ex66/diff_clues.txt:8:     * shifted by one    -> the index moves before the (wrapped onto line 9)' -- \
+	cat "$WORK/cv.method"
+want_out "conventions: ...and a clue that makes a negative number positive" \
+	'c-98/tests/ex67/clues.tsv:5:' -- cat "$WORK/cv.method"
+want_broken_none "conventions: ...never one asking what a value is before it is written" \
+	'c-98/tests/ex67/clues.tsv:6:' -- cat "$WORK/cv.method"
+want_broken_none "conventions: ...nor one saying the smallest int has no positive counterpart" \
+	'c-98/tests/ex67/clues.tsv:7:' -- cat "$WORK/cv.method"
+rm -f "$WORK/cv.method"
 
 # A case's own hint file (clues_<x>.tsv) is held to the labels of the .txt
 # files beside it, as clues.tsv is to expected.txt: a label no case has is a
@@ -12500,6 +13814,36 @@ printf '/* Harness for ft_x.\n * Columns. Line: <hexA>\\t<n>. */\nint x;\n' \
 want_out "conventions: a Line: sentence after other words is reported" \
 	'c-99/tests/ex43/diff_x.c: its "Line:" sentence does not begin its comment line' -- \
 	$CONV
+
+# A c_cycles unit read off those columns: length() of a <hex...> column not
+# halved (ex84, the shape of C 04 ex04's), and a halved column that is no
+# hex (ex86, the shape C 07 ex03's once had), are reported; the written column
+# itself (ex85) and a sum of two hex columns halved once (ex87) are not.
+mkdir -p "$_cv99/ex84" "$_cv99/ex85" "$_cv99/ex86" "$_cv99/ex87"
+for _e in ex84 ex85; do
+	printf '/* Harness for ft_x.\n * Line: <n>\\t<hexBase>\\t<what it wrote>. The int, the base, then\n * what it wrote. */\nint x;\n' \
+		> "$_cv99/$_e/diff_x.c"
+done
+printf '/* Harness for ft_x.\n * Line: <size>\\t<hexStr0>...\\t<hexResult>. The size, then the strings. */\nint x;\n' \
+	> "$_cv99/ex86/diff_x.c"
+printf '/* Harness for ft_x.\n * Line: <hexA>\\t<hexB>\\t<returned int>. Two strings, then the result. */\nint x;\n' \
+	> "$_cv99/ex87/diff_x.c"
+cp "$WORK/cv/c-piscine/c-piscine-c-99/BUILD.bazel" "$WORK/cv.cyc.keep"
+for _c in '84:length($2)' '85:length($3)' '86:length($1)/2' '87:(length($1)+length($2))/2'; do
+	printf '\nc_cycles(\n    num = "%s",\n    fn = "ft_x",\n    oracle_fn = "x",\n    harness = "diff_x.c",\n    unit_expr = "%s",\n    unit_name = "byte",\n)\n' \
+		"${_c%%:*}" "${_c#*:}"
+done >> "$WORK/cv/c-piscine/c-piscine-c-99/BUILD.bazel"
+! st_mine || $CONV > "$WORK/cv.cyc" 2>&1
+mv "$WORK/cv.cyc.keep" "$WORK/cv/c-piscine/c-piscine-c-99/BUILD.bazel"
+want_out "conventions: a unit counting a hex column whole is reported" \
+	'length($2) counts <hexBase>, two hex digits a byte, and is not halved' -- cat "$WORK/cv.cyc"
+want_out "conventions: ...and one halving a column of no hex" \
+	'length($1)/2 halves <size>, which is no hex column' -- cat "$WORK/cv.cyc"
+want_broken_none "conventions: ...but not a column counted as it is" \
+	'c_cycles(num = "85")'"'"'s unit_expr' -- cat "$WORK/cv.cyc"
+want_broken_none "conventions: ...nor a sum of hex columns halved once" \
+	'c_cycles(num = "87")'"'"'s unit_expr' -- cat "$WORK/cv.cyc"
+rm -rf "$_cv99/ex84" "$_cv99/ex85" "$_cv99/ex86" "$_cv99/ex87"
 
 # A string harness's legend has a family line for the bytes above 0x7f
 # (finding 061), or says why none reaches the code: one with neither
@@ -12852,11 +14196,12 @@ want_broken_none "conventions: ...nor when its ck_sh_parses is tab-indented" \
 # What a run wrote reaches the log through the library's renderer (ck_eq,
 # ck_detail), never printed by the check itself: a variable taken from
 # ck_run's file, the file, its .err, and a variable taken from such a
-# variable (reported); the same piped on, redirected, handed to ck_eq or
-# ck_detail, or counted, and a header naming the file checked (quiet).
+# variable (reported), the file read past ck_run's options (-C DIR, --crlf);
+# the same piped on, redirected, handed to ck_eq or ck_detail, or counted,
+# and a header naming the file checked (quiet).
 mkdir -p "$_cv99/ex77" "$_cv98/ex14"
 printf '%s\n' '#!/bin/sh' '. "${SHELL_CHECK_LIB:?}"' 'ck_require "w exists" test -f "$1"' \
-	'ck_sh_parses "$1"' 'raw=$(mktemp)' 'ck_run -C /tmp "$raw" sh "$1"' 'out=$(cat "$raw")' \
+	'ck_sh_parses "$1"' 'raw=$(mktemp)' 'ck_run -C /tmp --crlf "$raw" sh "$1"' 'out=$(cat "$raw")' \
 	'first=$(printf "%s" "$out" | head -n 1)' "printf '  got: %s\\n' \"\$out\"" \
 	'head -3 "$raw"' 'cat "$raw.err"' 'echo "$first"' 'ck_report' > "$_cv99/ex77/check.sh"
 printf '%s\n' '#!/bin/sh' '. "${SHELL_CHECK_LIB:?}"' 'ck_require "w exists" test -f "$1"' \
@@ -13113,8 +14458,8 @@ printf '%s\n' '#!/bin/sh' '. "${SHELL_CHECK_LIB:?}"' 'ck_require "n exists" test
 # first two and not XDG_CONFIG_HOME, whose git/ignore git reads whatever
 # HOME says (reported, naming it); ex30 unsets it instead (quiet); and ex31
 # names git in a check's label and a grep pattern, which run no git (quiet).
-# ex32 runs git through ck_run past its --no-redirect option, which
-# ck_run's -C was once the only option read past (reported).
+# ex32 runs git through ck_run past its --crlf and --no-redirect options,
+# which ck_run's -C was once the only option read past (reported).
 mkdir -p "$_cv99/ex22" "$_cv99/ex23" "$_cv99/ex24" "$_cv99/ex25" "$_cv99/ex26" \
 	"$_cv99/ex27" "$_cv99/ex28" "$_cv99/ex29" "$_cv99/ex30" "$_cv99/ex31" "$_cv99/ex32"
 printf '%s\n' '#!/bin/sh' '. "${SHELL_CHECK_LIB:?}"' 'ck_require "g exists" test -f "$1"' \
@@ -13148,7 +14493,7 @@ printf '%s\n' '#!/bin/sh' '. "${SHELL_CHECK_LIB:?}"' 'ck_require "g exists" test
 printf '%s\n' '#!/bin/sh' '. "${SHELL_CHECK_LIB:?}"' 'ck_require "g exists" test -f "$1"' \
 	'ck "g says git init" grep -q "git init" "$1"' 'ck_report' > "$_cv99/ex31/check.sh"
 printf '%s\n' '#!/bin/sh' '. "${SHELL_CHECK_LIB:?}"' 'ck_require "g exists" test -f "$1"' \
-	'raw=$(mktemp)' 'ck_run --no-redirect "$raw" git log' 'ck "g logs" test -s "$raw"' \
+	'raw=$(mktemp)' 'ck_run --crlf --no-redirect "$raw" git log' 'ck "g logs" test -s "$raw"' \
 	'ck_report' > "$_cv99/ex32/check.sh"
 # ex34 sets and exports all three, and unsets only some of what a run outside
 # Bazel's cleared environment inherits about git (reported, naming the rest).
@@ -13185,7 +14530,7 @@ want_out "conventions: ...naming what it did not unset" \
 	'Not unset before it: GIT_CONFIG_GLOBAL GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT.' -- cv_calls
 want_broken_none "conventions: ...nor git in a label or a pattern" \
 	'c-piscine/c-piscine-c-99/tests/ex31/check.sh runs git' -- cv_calls
-want_out "conventions: ...and git run by ck_run past --no-redirect is a git command" \
+want_out "conventions: ...and git run by ck_run past its options is a git command" \
 	'c-piscine/c-piscine-c-99/tests/ex32/check.sh runs git (line 5)' -- cv_calls
 want_out "conventions: stable = True over a check that never compares is reported" \
 	"c-piscine/c-piscine-c-99's ex13 says stable = True" -- cv_calls
@@ -13245,6 +14590,41 @@ want_broken "conventions: a REMOTES table with no module is refused" \
 	"found no modules" -- \
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/cv3" "$SH" "$TOOLS/conventions.sh"
 
+# The third way to be starved: a single file a check reads only where it
+# exists (`if [ -f tools/pins.tsv ]`) that nobody declared to the test. Under
+# `bazel test` that check stood down in silence on every run, and the pins it
+# compares went uncompared. cvrf is a runfiles tree, reached through
+# TEST_SRCDIR as a real test reaches its own, holding a module and nothing
+# else: refused, naming the file. Every file the refusal names, made, and it
+# is not refused -- so what it names is what it needs, the maintainer's two
+# files (which a fresh clone lacks) never among them. Under `bazel run` the
+# same absence is only a tree without the file, which is how every arm above
+# runs, unrefused.
+mkdir -p "$WORK/cvrf/_main/tools" "$WORK/cvrf/_main/c-piscine/c-piscine-c-98"
+: > "$WORK/cvrf/_main/c-piscine/c-piscine-c-98/BUILD.bazel"
+cv_submit "c-piscine/c-piscine-c-98" > "$WORK/cvrf/_main/tools/submit.sh"
+cvrf() {
+	env BUILD_WORKSPACE_DIRECTORY= TEST_SRCDIR="$WORK/cvrf" TEST_WORKSPACE=_main \
+		"$SH" "$TOOLS/conventions.sh" 2>&1
+}
+# The files a refusal names, one per line; a refusal that names none is not
+# one, and says so with 2, so the arm reading it cannot pass on nothing.
+cvrf_named() {
+	_n=$(cvrf | sed -n 's/^    \([A-Za-z0-9_./-]*\)$/\1/p')
+	[ -n "$_n" ] || return 2
+	printf '%s\n' "$_n"
+}
+want_broken "conventions: a guarded file missing from a test's runfiles is refused" \
+	"    tools/pins.tsv" -- cvrf
+want_broken_none "conventions: ...never for the maintainer's own files" \
+	"TODO.md" -- cvrf_named
+cvrf_named > "$WORK/cvrf.need"
+while IFS= read -r _f; do
+	mkdir -p "$WORK/cvrf/_main/$(dirname "$_f")" && : > "$WORK/cvrf/_main/$_f"
+done < "$WORK/cvrf.need"
+want_broken_none "conventions: ...and each file it names, there, ends the refusal" \
+	"missing from the test's runfiles" -- cvrf
+
 # Commenting a row out stops a module being PUSHED; it does not stop it being a
 # module. The same two fixture modules, with c-99's row commented out: its
 # ungated sanitize pair must still be found.
@@ -13261,10 +14641,12 @@ want_out "conventions: a commented-out row's module is still scanned" \
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/cv4" "$SH" "$TOOLS/conventions.sh"
 
 # PERF'S FAILING LINES, said once (finding 043): the runner's defaults, c_perf's
-# and the two docs that state them. cv6 disagrees in one place -- the memory
+# and the two docs that state them. cv8 disagrees in one place -- the memory
 # multiple the docs give -- and only inside the section that counts: the right
-# number further down the file must not satisfy the rule. cv7 agrees.
-for _cv in cv6 cv7; do
+# number further down the file must not satisfy the rule. cv7 agrees. Each is
+# a tree of its own: cv6, which this loop once reused, is the first
+# conventions section's, so this run read that section's modules too.
+for _cv in cv8 cv7; do
 	mkdir -p "$WORK/$_cv/tools" "$WORK/$_cv/docs" "$WORK/$_cv/c-piscine/c-piscine-c-98"
 	: > "$WORK/$_cv/c-piscine/c-piscine-c-98/BUILD.bazel"
 	cv_submit "c-piscine/c-piscine-c-98" > "$WORK/$_cv/tools/submit.sh"
@@ -13274,12 +14656,12 @@ for _cv in cv6 cv7; do
 		> "$WORK/$_cv/docs/reference.md"
 done
 printf '## The two cost layers\n\nn^2.6, 5000 times its time, 300 times its memory.\n\n## Next\n\n200 times\n' \
-	> "$WORK/cv6/docs/testing.md"
+	> "$WORK/cv8/docs/testing.md"
 printf '## The two cost layers\n\nn^2.6, 5000 times its time, 200 times its memory.\n' \
 	> "$WORK/cv7/docs/testing.md"
 want_out "conventions: perf's lines and its docs disagreeing is named" \
 	'does not say "200 times"' -- \
-	env BUILD_WORKSPACE_DIRECTORY="$WORK/cv6" "$SH" "$TOOLS/conventions.sh"
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/cv8" "$SH" "$TOOLS/conventions.sh"
 want_broken_none "conventions: ...and agreeing is quiet" \
 	"perf's failing lines" -- \
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/cv7" "$SH" "$TOOLS/conventions.sh"
@@ -13327,11 +14709,136 @@ printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
 	> "$WORK/cvt/c-piscine-reloaded/c-piscine-reloaded/BUILD.bazel"
 want_broken_none "conventions: ...the same list laid out otherwise is not" \
 	"c_program(num = \"27\") differ" -- cvt
+# The two c_diff calls' size and the two c_cycles calls' budget: Reloaded's
+# ex14 replays C 05 ex05's corpus, and when C 05's was raised to "large" the
+# twin stayed "medium", a time limit a correct answer had come near on that
+# very corpus, with nothing to say so. Each drift is its own run, then the
+# same values laid out otherwise, a comment among them, are quiet.
+_cvt_rl=$WORK/cvt/c-piscine-reloaded/c-piscine-reloaded/BUILD.bazel
+printf '%s\n' 'c_program(num = "00", name = "t", cases = [{"name": "a", "args": ["x"]}])' \
+	'c_diff(num = "00", fn = "ft_toy", harness = "diff_toy.c", oracle_fn = "toy", size = "large")' \
+	'c_cycles(num = "00", fn = "ft_toy", oracle_fn = "toy", harness = "diff_toy.c", budget = 90)' \
+	> "$WORK/cvt/c-piscine/c-piscine-c-91/BUILD.bazel"
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
+	'c_program(num = "27", name = "t", cases = [{"name": "a", "args": ["x"]}])' \
+	'c_diff(num = "27", fn = "ft_toy", harness = "diff_toy.c", oracle_fn = "toy", size = "medium")' \
+	'c_cycles(num = "27", fn = "ft_toy", oracle_fn = "toy", harness = "diff_toy.c", budget = 90)' \
+	> "$_cvt_rl"
+want_out "conventions: ...and a c_diff whose size drifted is reported" \
+	"the size of c-piscine-reloaded/c-piscine-reloaded's c_diff(num = \"27\") differs" -- cvt
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
+	'c_program(num = "27", name = "t", cases = [{"name": "a", "args": ["x"]}])' \
+	'c_diff(num = "27", fn = "ft_toy", harness = "diff_toy.c", oracle_fn = "toy", size = "large")' \
+	'c_cycles(num = "27", fn = "ft_toy", oracle_fn = "toy", harness = "diff_toy.c", budget = 60)' \
+	> "$_cvt_rl"
+want_out "conventions: ...and so is a c_cycles whose budget drifted" \
+	"the budget of c-piscine-reloaded/c-piscine-reloaded's c_cycles(num = \"27\") differs" -- cvt
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
+	'c_program(num = "27", name = "t", cases = [{"name": "a", "args": ["x"]}])' \
+	'c_diff(num = "27", fn = "ft_toy", harness = "diff_toy.c", oracle_fn = "toy", size = "large")' \
+	> "$_cvt_rl"
+want_out "conventions: ...and a twin with no c_cycles where its exercise has one" \
+	"the budget of c-piscine-reloaded/c-piscine-reloaded's c_cycles(num = \"27\") differs" -- cvt
+# The counts and the syscall budget, in one run: a twin whose c_diff replays
+# fewer cases than its exercise's, and whose c_cycles allows a syscall more.
+# Both lines are asked of the one report (cvt_kept keeps it for the second).
+cvt_kept() { cvt > "$WORK/cvt.out" 2>&1; _r=$?; cat "$WORK/cvt.out"; return "$_r"; }
+printf '%s\n' 'c_program(num = "00", name = "t", cases = [{"name": "a", "args": ["x"]}])' \
+	'c_diff(num = "00", fn = "ft_toy", harness = "diff_toy.c", oracle_fn = "toy", size = "large", count = 400000)' \
+	'c_cycles(num = "00", fn = "ft_toy", oracle_fn = "toy", harness = "diff_toy.c", budget = 90, syscall_budget = 0)' \
+	> "$WORK/cvt/c-piscine/c-piscine-c-91/BUILD.bazel"
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
+	'c_program(num = "27", name = "t", cases = [{"name": "a", "args": ["x"]}])' \
+	'c_diff(num = "27", fn = "ft_toy", harness = "diff_toy.c", oracle_fn = "toy", size = "large", count = 200000)' \
+	'c_cycles(num = "27", fn = "ft_toy", oracle_fn = "toy", harness = "diff_toy.c", budget = 90, syscall_budget = 1)' \
+	> "$_cvt_rl"
+want_out "conventions: ...and so is a c_diff whose count drifted" \
+	"the count of c-piscine-reloaded/c-piscine-reloaded's c_diff(num = \"27\") differs" -- cvt_kept
+want_out "conventions: ...and, in the same run, a c_cycles's syscall_budget" \
+	"the syscall_budget of c-piscine-reloaded/c-piscine-reloaded's c_cycles(num = \"27\") differs" -- \
+	cat "$WORK/cvt.out"
+# The seed, which picks the corpus a count is a count of: two equal counts
+# of two seeds replay two corpora, and the seed was not compared.
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
+	'c_program(num = "27", name = "t", cases = [{"name": "a", "args": ["x"]}])' \
+	'c_diff(num = "27", fn = "ft_toy", harness = "diff_toy.c", oracle_fn = "toy", size = "large", count = 400000, seed = 7)' \
+	'c_cycles(num = "27", fn = "ft_toy", oracle_fn = "toy", harness = "diff_toy.c", budget = 90, syscall_budget = 0)' \
+	> "$_cvt_rl"
+want_out "conventions: ...and so is a c_diff whose seed drifted" \
+	"the seed of c-piscine-reloaded/c-piscine-reloaded's c_diff(num = \"27\") differs" -- cvt
+printf '%s\n' 'c_program(num = "00", name = "t", cases = [{"name": "a", "args": ["x"]}])' \
+	'c_diff(num = "00", fn = "ft_toy", harness = "diff_toy.c", oracle_fn = "toy", size = "large")' \
+	'c_cycles(num = "00", fn = "ft_toy", oracle_fn = "toy", harness = "diff_toy.c", budget = 90)' \
+	> "$WORK/cvt/c-piscine/c-piscine-c-91/BUILD.bazel"
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
+	'c_program(num = "27", name = "t", cases = [{"name": "a", "args": ["x"]}])' \
+	'c_diff(' '    num = "27",' '    fn = "ft_toy",' '    harness = "diff_toy.c",' \
+	'    oracle_fn = "toy",' '    # the same size, laid out' '    size = "large",' ')' \
+	'c_cycles(' '    num = "27",' '    fn = "ft_toy",' '    oracle_fn = "toy",' \
+	'    harness = "diff_toy.c",' '    budget = 90,' ')' \
+	> "$_cvt_rl"
+want_broken_none "conventions: ...the same size and budget laid out otherwise are not" \
+	"differs from //c-piscine/c-piscine-c-91:ex00's" -- cvt
 printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
 	'[c_program(num = n, name = "t", cases = [{"name": "a", "args": ["x"]}]) for n in ["27"]]' \
 	> "$WORK/cvt/c-piscine-reloaded/c-piscine-reloaded/BUILD.bazel"
 want_out "conventions: ...and a call it cannot match is named" \
 	"cannot be compared" -- cvt
+# The layers that replay a generated corpus, which no macro with a num
+# emits: Reloaded's ex18 and ex19 had none of the argument corpora C 06 runs
+# on the programs they repeat. The toy exercise replays one from a table of
+# rows; a twin with none is reported, one that writes the same layer out
+# call by call is quiet, and one whose count drifted is reported.
+printf '_CORPUS_RUNNERS = [\n    "//tools:argv_check.sh",\n]\n' > "$WORK/cvt/tools/defs.bzl"
+printf '%s\n' 'TOY_CORPORA = [' '    ("ex00_argv", "00", "toy_params", "200", ["--expect-reordering"]),' ']' \
+	'[' '    hand_test(' '        name = stem + "_diff",' '        layer = "diff",' \
+	'        srcs = ["//tools:argv_check.sh"],' \
+	'        args = ["--bin", "$(location :ex%s_bin)" % num, "--fn", fn, "--count", count] + judging,' \
+	'    )' '    for stem, num, fn, count, judging in TOY_CORPORA' ']' \
+	> "$WORK/cvt/c-piscine/c-piscine-c-91/BUILD.bazel"
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' > "$_cvt_rl"
+want_out "conventions: ...and a twin with none of its corpus layers" \
+	"c-piscine-reloaded/c-piscine-reloaded ex27 lacks a corpus layer //c-piscine/c-piscine-c-91:ex00 has" -- cvt
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
+	'hand_test(' '    name = "ex27_argv_diff",' '    layer = "diff",' '    srcs = ["//tools:argv_check.sh"],' \
+	'    args = ["--bin", "$(location :ex27_bin)", "--fn", "toy_params", "--count", "200", "--expect-reordering"],' ')' \
+	> "$_cvt_rl"
+# "corpus layer", which each of the three reports says ("lacks a corpus
+# layer", "has a corpus layer", "the corpus layers of ... cannot be
+# compared"): "a corpus layer" let a pair that could not be read pass.
+want_broken_none "conventions: ...the same layer written out call by call is not" \
+	"corpus layer" -- cvt
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' \
+	'hand_test(' '    name = "ex27_argv_diff",' '    layer = "diff",' '    srcs = ["//tools:argv_check.sh"],' \
+	'    args = ["--bin", "$(location :ex27_bin)", "--fn", "toy_params", "--count", "100", "--expect-reordering"],' ')' \
+	> "$_cvt_rl"
+want_out "conventions: ...and one whose corpus count drifted is" \
+	"c-piscine-reloaded/c-piscine-reloaded ex27 has a corpus layer //c-piscine/c-piscine-c-91:ex00 has not" -- cvt
+# A layer is found by the runner it names as a string: one that names it
+# through a name -- a row of its table here, for the plain replay and its
+# memory twins alike -- was passed over, so a twin with no layer at all
+# compared equal to it, on two empty readings. Each call is named, and a
+# hand_test whose srcs are all written out, none a corpus runner, is not.
+printf '%s\n' 'TOY_CORPORA = [' '    ("ex00_argv", "00", "//tools:argv_check.sh", "toy_params", "200"),' ']' \
+	'[' '    hand_test(' '        name = stem + "_diff",' '        layer = "diff",' \
+	'        srcs = [run],' \
+	'        args = ["--bin", "$(location :ex%s_bin)" % num, "--fn", fn, "--count", count],' \
+	'    )' '    for stem, num, run, fn, count in TOY_CORPORA' ']' \
+	'[' '    corpus_memory(' '        stem = stem,' '        runner = run,' \
+	'        args = ["--fn", fn, "--count", count],' '        data = [],' \
+	'    )' '    for stem, num, run, fn, count in TOY_CORPORA' ']' \
+	> "$WORK/cvt/c-piscine/c-piscine-c-91/BUILD.bazel"
+printf '%s\n' 'c_twin(num = "27", of = "//c-piscine/c-piscine-c-91:ex00")' > "$_cvt_rl"
+want_out "conventions: ...a runner named through a name is reported" \
+	"a hand_test call whose srcs" -- cvt_kept
+want_out "conventions: ...and so is a corpus_memory's runner" \
+	"a corpus_memory call whose runner" -- cat "$WORK/cvt.out"
+printf '%s\n' 'hand_test(' '    name = "ex00_toy_check",' '    layer = "output",' \
+	'    srcs = ["//tools:toy_check.sh"],' '    args = ["--bin", "$(location :ex00_bin)"],' ')' \
+	> "$WORK/cvt/c-piscine/c-piscine-c-91/BUILD.bazel"
+want_broken_none "conventions: ...and a hand_test whose srcs are written out is not" \
+	"corpus layer" -- cvt
+rm -f "$WORK/cvt/tools/defs.bzl"
 # A copy but for the name of its prototype.h's include guard, which every
 # module spells after itself: ten of Reloaded's folders were, and none was
 # seen as a copy, so C 01 ex03's fix had nothing to make it reach ex11.
@@ -13372,6 +14879,18 @@ printf '| `cycles` | complete | some cases left out (`c_cycles`'"'"' `max_unit`:
 want_out "conventions: a cycles row that misses a max_unit call is named" \
 	"BUILD: C 89 ex05" -- env BUILD_WORKSPACE_DIRECTORY="$WORK/cvm" "$SH" "$TOOLS/conventions.sh"
 printf '| `cycles` | complete | some cases left out (`c_cycles`'"'"' `max_unit`: C 89 ex05), and said |\n' \
+	> "$WORK/cvm/docs/reference.md"
+want_broken_none "conventions: ...and one that names it is not" \
+	"max_unit disagree" -- env BUILD_WORKSPACE_DIRECTORY="$WORK/cvm" "$SH" "$TOOLS/conventions.sh"
+# Piscine Reloaded's calls are held too: its corpora are C 01's, C 03's and
+# C 07's, capacity cases included, and the rule read the C modules alone.
+mkdir -p "$WORK/cvm/c-piscine-reloaded/c-piscine-reloaded"
+cv_submit "c-piscine/c-piscine-c-89 c-piscine-reloaded/c-piscine-reloaded" > "$WORK/cvm/tools/submit.sh"
+printf 'c_cycles(\n    num = "16",\n    fn = "ft_toy",\n    max_unit = 1000,\n)\n' \
+	> "$WORK/cvm/c-piscine-reloaded/c-piscine-reloaded/BUILD.bazel"
+want_out "conventions: a cycles row that misses Piscine Reloaded's max_unit call is named" \
+	"BUILD: Piscine Reloaded ex16" -- env BUILD_WORKSPACE_DIRECTORY="$WORK/cvm" "$SH" "$TOOLS/conventions.sh"
+printf '| `cycles` | complete | some cases left out (`c_cycles`'"'"' `max_unit`: C 89 ex05, Piscine Reloaded ex16), and said |\n' \
 	> "$WORK/cvm/docs/reference.md"
 want_broken_none "conventions: ...and one that names it is not" \
 	"max_unit disagree" -- env BUILD_WORKSPACE_DIRECTORY="$WORK/cvm" "$SH" "$TOOLS/conventions.sh"
@@ -13501,8 +15020,12 @@ printf '#!/bin/sh\n# Usage: probe\nset -u\n' > "$WORK/cv5/tools/probe_quotes_non
 # checked nothing more. cv5_report replays the run's exit status with its
 # output, so a run that broke (2) is still a harness error to every arm, never
 # a report that merely lacked a line.
-env BUILD_WORKSPACE_DIRECTORY="$WORK/cv5" "$SH" "$TOOLS/conventions.sh" > "$WORK/cv5.out" 2>&1
-CV5_RC=$?
+# Run only where its arms run, as cv's is.
+CV5_RC=0
+if st_mine; then
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/cv5" "$SH" "$TOOLS/conventions.sh" > "$WORK/cv5.out" 2>&1
+	CV5_RC=$?
+fi
 cv5_report() { cat "$WORK/cv5.out"; return "$CV5_RC"; }
 # cv5_rule HEADING: only the report of the rule whose FAIL line holds HEADING
 # -- where two rules can name the same line, an arm about one of them.
@@ -13621,9 +15144,38 @@ printf '/*\n * as the Moulinette compiles it\n */\nint g_x; // the Moulinette to
 	> "$WORK/cvg/tools/probe_grader_ok.h"
 printf '"""Named after the Moulinette."""\nprint("a KO at the Moulinette")\n' \
 	> "$WORK/cvg/tools/probe_grader.py"
-# One run, read by every arm below (see cv5 above for why).
-env BUILD_WORKSPACE_DIRECTORY="$WORK/cvg" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvg.out" 2>&1
-CVG_RC=$?
+# A FILE THAT IS A SYMBOLIC LINK, as every file of a runfiles tree is under
+# `bazel test`: a rule that reads one through a recursive grep that skips
+# links (GNU grep -r does not follow a link it meets on the way down) sees
+# nothing there and passes. c-94 is graded at a defense, and its clues.tsv,
+# naming the Moulinette, is a link to a file outside the module; its
+# ex00_x_output is raised to strict, and two texts name it at robust: one a
+# file, one a link -- and a third names it in capitals, once at a level it
+# does not sit at, reported, and once at its own, not. And the fixture's
+# tools/conventions.sh, read in place of the real one by the rule that
+# refuses such a grep there, holds four greps: a recursive one, in two
+# spellings, reported; one that follows links, and a sort -r after one,
+# not. It is gone before any later run.
+mkdir -p "$WORK/cvg/c-piscine/c-piscine-c-94/tests/ex00" "$WORK/cvg_link"
+printf 'subject(grader = "defense", group = True, exercises = {})\n' \
+	> "$WORK/cvg/c-piscine/c-piscine-c-94/BUILD.bazel"
+printf 'Would the Moulinette take this?\n' > "$WORK/cvg_link/clues.tsv"
+ln -s "$WORK/cvg_link/clues.tsv" "$WORK/cvg/c-piscine/c-piscine-c-94/tests/ex00/clues.tsv"
+printf '_RAISED = {\n    "c-piscine/c-piscine-c-94:ex00_x_output": 2,\n}\n' > "$WORK/cvg/tools/defs.bzl"
+printf 'A case of ex00_x_output, at robust.\n' > "$WORK/cvg/c-piscine/c-piscine-c-94/tests/ex00/plain.txt"
+printf 'A case of ex00_x_output, at robust.\n' > "$WORK/cvg_link/linked.txt"
+ln -s "$WORK/cvg_link/linked.txt" "$WORK/cvg/c-piscine/c-piscine-c-94/tests/ex00/linked.txt"
+printf 'Ex00_X_output, at Robust.\nEX00_x_output, at Strict.\n' > "$WORK/cvg/c-piscine/c-piscine-c-94/tests/ex00/cased.txt"
+printf '#!/bin/sh\na=$(grep -rn x .)\nb=$(grep -l --recursive x .)\nc=$(grep -Rn x .)\nd=$(grep -n x f | sort -r)\n' \
+	> "$WORK/cvg/tools/conventions.sh"
+# One run, read by every arm below (see cv5 above for why), and made only
+# where they run: unguarded, every shard paid for it.
+CVG_RC=0
+if st_mine; then
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/cvg" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvg.out" 2>&1
+	CVG_RC=$?
+fi
+rm -f "$WORK/cvg/tools/conventions.sh"
 cvg_report() { cat "$WORK/cvg.out"; return "$CVG_RC"; }
 cvg_rule() {
 	awk -v h="$1" '/^  FAIL: / { on = index($0, h) > 0 } on' "$WORK/cvg.out"
@@ -13647,12 +15199,33 @@ want_broken_none "conventions: ...never one whose comment quotes a defense contr
 	'c-piscine-c-92 is graded' -- cvg_report
 want_out "conventions: a grader that is not a literal is reported" \
 	"c-piscine/c-piscine-c-91/BUILD.bazel's subject() gives no grader this check can read" -- cvg_report
+want_out "conventions: ...and one whose tests/ says it in a file that is a link" \
+	'c-piscine/c-piscine-c-94 is graded at a defense' -- cvg_report
+want_out "conventions: a raised target named at another level is reported" \
+	'c-piscine/c-piscine-c-94/tests/ex00/plain.txt:1:ex00_x_output, at robust (ex00_x_output sits at strict)' -- \
+	cvg_rule 'a text names a raised target at a level it does not sit at'
+want_out "conventions: ...in a file that is a link too" \
+	'c-piscine/c-piscine-c-94/tests/ex00/linked.txt:1:ex00_x_output, at robust' -- \
+	cvg_rule 'a text names a raised target at a level it does not sit at'
+want_out "conventions: ...and named in capitals" \
+	'c-piscine/c-piscine-c-94/tests/ex00/cased.txt:1:Ex00_X_output, at Robust (ex00_x_output sits at strict)' -- \
+	cvg_rule 'a text names a raised target at a level it does not sit at'
+want_broken_none "conventions: ...never in capitals at its own level" \
+	'cased.txt:2:' -- cvg_rule 'a text names a raised target at a level it does not sit at'
+want_out "conventions: a grep of its own that skips symlinks is reported" \
+	'tools/conventions.sh:2:' -- cvg_rule 'tools/conventions.sh walks a tree with a grep that skips symlinks'
+want_out "conventions: ...spelt long too" \
+	'tools/conventions.sh:3:' -- cvg_rule 'tools/conventions.sh walks a tree with a grep that skips symlinks'
+for _cvg_l in 4 5; do
+	want_broken_none "conventions: ...never one that follows them, nor a sort -r (line $_cvg_l)" \
+		"tools/conventions.sh:$_cvg_l:" -- cvg_rule 'tools/conventions.sh walks a tree with a grep that skips symlinks'
+done
 
 # An //oracle arm that writes a project's fixtures is passed as --fn by a test
 # running oracle_fixtures.sh, or the files it writes are compared by nothing.
-# An arm is the name as a string literal in oracle/src/*.rs; a comment naming
-# one is none. A tree whose oracle/src names no such arm at all is the search
-# itself broken, reported as such.
+# An arm is the name as a string literal in a file of the oracle's source; a
+# comment naming one is none. A tree whose oracle source names no such arm at
+# all is the search itself broken, reported as such.
 mkdir -p "$WORK/cvo/tools" "$WORK/cvo/oracle/src" "$WORK/cvo/c-piscine/c-piscine-c-89" \
 	"$WORK/cvo2/tools" "$WORK/cvo2/oracle/src" "$WORK/cvo2/c-piscine/c-piscine-c-89"
 cv_submit "c-piscine/c-piscine-c-89" > "$WORK/cvo/tools/submit.sh"
@@ -13669,10 +15242,15 @@ printf 'pub fn generate() {}\n' > "$WORK/cvo2/oracle/src/toy.rs"
 printf 'hand_test(\n    name = "ex00_oracle_fixtures",\n    srcs = ["//tools:oracle_fixtures.sh"],\n    args = ["--fn", "held_fixtures"],\n)\n' \
 	> "$WORK/cvo/c-piscine/c-piscine-c-89/BUILD.bazel"
 : > "$WORK/cvo2/c-piscine/c-piscine-c-89/BUILD.bazel"
-env BUILD_WORKSPACE_DIRECTORY="$WORK/cvo" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvo.out" 2>&1
-CVO_RC=$?
-env BUILD_WORKSPACE_DIRECTORY="$WORK/cvo2" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvo2.out" 2>&1
-CVO2_RC=$?
+# Run only where their arms run, as cv's is.
+CVO_RC=0
+CVO2_RC=0
+if st_mine; then
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/cvo" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvo.out" 2>&1
+	CVO_RC=$?
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/cvo2" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvo2.out" 2>&1
+	CVO2_RC=$?
+fi
 cvo_rule() {
 	awk -v h="$1" '/^  FAIL: / { on = index($0, h) > 0 } on' "$WORK/$2.out"
 	[ "$2" = cvo ] && return "$CVO_RC"
@@ -13750,11 +15328,18 @@ printf 'exercise(page = 1, dir = "ex00/", files = ["ft_strlcpy.c"], allowed = []
 printf 'while [ $# -gt 0 ]; do case "$1" in --cc) CC=$2; shift 2 ;; esac; done\nCC="${P_CC:-toycc-8}"\n' \
 	> "$WORK/cvi/tools/toy_pinned.sh"
 # A runner's SKIP text showing a whole-repo test (line 2, reported), beside
-# one in a comment and one that says it needs memory (both quiet).
+# one in a comment (3) and one whose printed line before says it needs
+# memory (5), both quiet. Reported: one that says so only in a '#' note on
+# its own line (6), which zsh runs as words of the command, and one whose
+# line before says so in a comment, which is never printed (8).
 {
 	printf 'echo "  (bazel test //... --test_env=NO_SKIP=1)"\n'
 	printf '# bazel test //... in a comment\n'
+	printf 'echo "The whole repo needs memory to spare:"\n'
+	printf 'echo "  bazel test //..."\n'
 	printf 'echo "bazel test //...   # the whole repo: needs memory to spare"\n'
+	printf '# the whole repo needs memory to spare\n'
+	printf 'echo "  bazel test //..."\n'
 } >> "$WORK/cvi/tools/toy_check.sh"
 {
 	printf '# Environment\n\n### What the docs ask you to run by hand\n\n'
@@ -13764,21 +15349,100 @@ printf 'while [ $# -gt 0 ]; do case "$1" in --cc) CC=$2; shift 2 ;; esac; done\n
 	printf '## Next\n\n| `libbsd-dev` | outside the list |\n'
 } > "$WORK/cvi/docs/environment.md"
 # And the first commands a newcomer copies (finding 006): a whole-repo test in
-# a code block, unmarked (reported) and marked (quiet), with its flag before
-# the pattern; the same words in prose and in TODO.md, a record (quiet); a
-# module's /... (quiet). An editor whose default test task runs the whole
-# repo, beside a task that does and whose label does not say so (both
-# reported); cvj's default runs one module and its whole-repo task says it
-# needs memory to spare (quiet).
+# a code block whose paragraph does not say it needs memory (lines 4 and 5,
+# reported), with its flag before the pattern (5); one that says so only in
+# a '#' note on its own line (6, reported: zsh runs the note); one whose
+# paragraph says it (14, quiet); the same words in prose (1) and in TODO.md,
+# a record (quiet); a module's /... (7, quiet). An editor whose default
+# test task runs the whole repo, beside a task that does and whose label
+# does not say so (both reported); cvj's default runs one module and its
+# whole-repo task says it needs memory to spare (quiet).
 {
 	printf 'Run `bazel test //...` when you can.\n\n```sh\n'
 	printf 'bazel test //... 2>&1 | sh tools/first_red.sh\n'
 	printf 'bazel test --test_output=errors //...\n'
 	printf 'bazel test //... --test_env=NO_SKIP=1   # the whole repo: needs memory to spare\n'
-	printf 'bazel test //c-piscine/c-piscine-c-88/... --test_env=NO_SKIP=1\n```\n'
+	printf 'bazel test //c-piscine/c-piscine-c-88/... --test_env=NO_SKIP=1\n```\n\n'
+	printf 'The whole repo, which needs\nmemory to spare:\n\n```sh\n'
+	printf 'bazel test //... --nocache_test_results\n```\n'
 } > "$WORK/cvi/README.md"
 printf '```\nbazel test //...   1742 targets\n```\n' > "$WORK/cvi/TODO.md"
-printf '```sh\nbazel test //...   # needs memory to spare\n```\n' > "$WORK/cvj/README.md"
+printf 'The whole repo needs memory to spare:\n\n```sh\nbazel test //...\n```\n' > "$WORK/cvj/README.md"
+# And a page's shell blocks pasted into zsh, which runs a '#' note as words
+# of the command (62 such lines when the rule came). Reported: a note after
+# a command (line 5), a line that is only a note (9, in a bash block), a
+# console block indented inside a list (15) and one fenced with tildes (19).
+# Quiet: a script's '#!' line (4), a '#' inside quotes (23, and 25 inside a
+# quote opened on the line before), after an escaped blank (26), not at a
+# word's start (27), a heredoc's body (29 and 30), a C block's '#include'
+# (35), an unmarked block's note (39) and a heading in prose (42). cvj's
+# page has none.
+{
+	printf 'Run:\n\n```sh\n#!/bin/sh\nmake && make   # the second run does nothing\n```\n\n'
+	printf '```bash\n# a note alone\n```\n\n'
+	printf -- '- in a list:\n\n  ```console\n  $ ls   # a note\n  ```\n\n'
+	printf '~~~zsh\nls  # a note\n~~~\n\n'
+	printf '```sh\ngrep -c " # x" f\necho "a\n # b"\necho a\\ #b\ncut -d# -f1 f\n'
+	printf 'cat > a.c <<EOF\n#include <unistd.h>\n #x\nEOF\n```\n\n'
+	printf '```c\n #include <unistd.h>\n```\n\n'
+	printf '```\nls  # a note\n```\n\n'
+	printf '# A heading\n'
+} > "$WORK/cvi/docs/paste.md"
+# And a block that sets a variable to several words and expands it bare,
+# which zsh hands on as one word (docs/split.md). Reported: `$m` (line 3)
+# and `${m}` (8). Quiet: the same variable quoted (4 and 5) or inside single
+# quotes (9), a variable of one word (7), an unmarked block (13) and a block
+# that never set it (17).
+{
+	printf '```sh\nm='"'"'//a/... //b/...'"'"'\nbazel test $m\nbazel test "$m"\necho "${m}"\n'
+	printf 'one=//a/...\nbazel test $one\nbazel test ${m} -k\necho '"'"'$m'"'"'\n```\n\n'
+	printf '```\nbazel test $m\n```\n\n```sh\nbazel test $m\n```\n'
+} > "$WORK/cvi/docs/split.md"
+# And a script that shows a command to type with a '#' note
+# (tools/paste_note.sh). Reported: a usage line of its header (4), one
+# naming the script alone with one blank before its note (5), an echo (11)
+# and a printf (12). Quiet: a usage line with its note on the line before
+# (7), prose in the header (8), a comment below the header (10), a '#
+# define' an echo quotes (13), a quoted '#' (14), a report's heading (15)
+# and the script's own comment (16).
+printf '%s\n' '#!/bin/sh' '# paste_note.sh -- a toy.' '#' \
+	'#   sh tools/paste_note.sh --all   # a note on a usage line' \
+	'#   paste_note.sh -n # dry-run' \
+	'# Usage: a note before the command,' \
+	'#   sh tools/paste_note.sh' \
+	'# A count of the # signs  # in prose' \
+	'' \
+	'# bazel test //m:x   # below the header' \
+	'echo "      rm -rf dir   # re-detects just this"' \
+	'printf "  %s  # a note\n" bazel' \
+	'echo "  not wrapped in #ifndef X_H / # define X_H"' \
+	'echo "  grep -c '"'"'#'"'"' f"' \
+	'echo "   # A heading"' \
+	'x=1  # a comment' > "$WORK/cvi/tools/paste_note.sh"
+# And a script's '# Usage:' block, whose indented lines are commands to type
+# whatever word they start with (tools/usage_note.sh). Reported: a usage line
+# starting with make (5), with cc and one blank before its note (6), and a
+# continuation of the one before it (8). Quiet: a usage line with no note
+# (7), and an option's description past the bare '#' that ends the block
+# (10), as the harness's runners lay theirs out.
+printf '%s\n' '#!/bin/sh' '# usage_note.sh -- a toy.' '#' '# Usage:' \
+	'#   make -C toy   # builds it' \
+	'#   cc -Wall a.c # one blank' \
+	'#   norminette a.c' \
+	'#       [-R CheckDefine]   # a continuation' \
+	'#' \
+	'#   --all   every case, # by number' \
+	'' \
+	'echo hi' > "$WORK/cvi/tools/usage_note.sh"
+# And a session in an unmarked block (docs/session.md). Reported: a note
+# after a shell's prompt (2), gdb's (3) and lldb's (4). Quiet: a quoted '#'
+# (5), one inside a word (6), a debugger's output line (7) and a marked
+# block, which the rule for those reads (11).
+{
+	printf '```\n$ ls   # a note\n(gdb) bt   # a note\n(lldb) run # a note\n'
+	printf '$ grep -c " #" f\n$ cut -d# -f1 f\n#0  main () at a.c:3\n```\n\n'
+	printf '```sh\n$ ls  # x\n```\n'
+} > "$WORK/cvi/docs/session.md"
 printf '\n**Your own Linux works without Docker too:** install `toycc-9`.\n' >> "$WORK/cvj/README.md"
 mkdir -p "$WORK/cvi/.vscode" "$WORK/cvj/.vscode"
 cv_task() {  # cv_task LABEL COMMAND DEFAULT -- one task object, as tasks.json lays it out
@@ -13811,6 +15475,62 @@ printf '\nRun Task, then `Toy: test it all`; or `Toy: test everything`.\n' >> "$
 	printf '  ]\n}\n'
 } > "$WORK/cvj/.vscode/tasks.json"
 printf '\nRun Test Task: `Toy: test this module`.\n' >> "$WORK/cvj/README.md"
+# And a shipped file that cites a section or an item of the maintainer's
+# backlog or record, which the template ships without: by section (line 1),
+# wrapped after the file's name (line 2), by lead (4), an item of the old
+# board by number (5) and wrapped (6) -- all reported. A mention that cites
+# nothing (8), a tag named bare (9), and the same citation in TODO.md stay
+# quiet. Each file name is put together by printf, so this file cites
+# nothing itself.
+{
+	printf '# the reason is recorded (TODO%s §23, WP-92).\n# rigour (TODO%s\n# section 23).\n' .md .md
+	printf '# see HISTORY%s, V25.\n# not a substitute (see TODO %s 1)\n' .md item
+	printf '# not manual (board\n# item 9): it passes.\n'
+	printf '# a lead goes to the TO VERIFY list of TODO%s, which a clone lacks.\n' .md
+	printf '# V111, WP-92 and finding 041 are names, and cite nothing.\n'
+} > "$WORK/cvi/tools/cite.sh"
+printf 'See HISTORY%s §21.\n' .md >> "$WORK/cvi/TODO.md"
+# And a shipped file that says a CI runs the checks, while the repo has none
+# (V118): reported in cvi, which has no workflow (ci.sh 1 on one line, 2
+# wrapped before its last word); a sentence saying there is none (4) stays
+# quiet. cvj has a workflow under .github, so there the same lines are true.
+for _t in cvi cvj; do
+	printf '# NO_SKIP=1 (set in %s) forces it open.\n# the repo checking in\n# %s runs the same.\n# there is no %s in this repo.\n' \
+		CI CI CI > "$WORK/$_t/tools/ci.sh"
+done
+mkdir -p "$WORK/cvj/.github/workflows"
+printf 'on: push\n' > "$WORK/cvj/.github/workflows/check.yml"
+# And a full run's size quoted outside tools/drives.sh: reported beside a full
+# run (size.sh 1) and a build tree written with no space (3); quiet beside
+# anything else (2), in tools/drives.sh, which keeps the figure, and in
+# TODO.md, which quotes what it records. The unit is put in by printf, so
+# this file quotes no size the rule reads.
+printf '# A full run of this repo is 9 %s.\n# The download cache is 2.1 %s.\n# an 8.5%s build tree in RAM\n' \
+	GB GB GB > "$WORK/cvi/tools/size.sh"
+printf '# A full run takes 9 %s.\nDRIVES_FULL_GB=9\n' GB > "$WORK/cvi/tools/drives.sh"
+printf 'A full run measured at 9 %s.\n' GB >> "$WORK/cvi/TODO.md"
+# A macro's docstring that counts call sites, which the knobs fixture makes
+# wrong. Reported: "nothing in the repo" (line 5), "no call site" wrapped
+# before its verb (6), and "every existing call site" wrapped inside its
+# words (10). Quiet: the second line of each wrapped phrase (7, 11), "no
+# project" (8) and "nearly every call site" (9).
+{
+	printf 'def toy(srcs = None, hdrs = None, deps = None, outs = None):\n    """A toy.\n\n    Args:\n'
+	printf '        srcs: the sources. Nothing in the repo overrides it.\n'
+	printf '        hdrs: more headers. No call site\n            passes one today.\n'
+	printf '        deps: more deps. No project passes one, and nearly every call site\n'
+	printf '            passes labeled.\n'
+	printf '        outs: the outputs. Name them -- every existing\n            call site does.\n    """\n'
+} > "$WORK/cvi/tools/toy.bzl"
+# And a C file whose header sends its reader to tools/diffio.h: reported
+# without the #include (toy_rush.c), quiet with it (toy_line.c) and in the
+# zone.
+mkdir -p "$WORK/cvi/c-piscine/c-piscine-c-88/deliverable/ex00"
+printf '/* A toy.\n * Line: <x>\\t<y>. See tools/diffio.h. */\nint\tmain(void)\n{\n\treturn (0);\n}\n' \
+	> "$WORK/cvi/c-piscine/c-piscine-c-88/tests/ex00/toy_rush.c"
+cp "$WORK/cvi/c-piscine/c-piscine-c-88/tests/ex00/toy_rush.c" "$WORK/cvi/c-piscine/c-piscine-c-88/deliverable/ex00/"
+printf '/* A toy.\n * Line: <x>. See tools/diffio.h. */\n#include "diffio.h"\n\nint\tmain(void)\n{\n\treturn (0);\n}\n' \
+	> "$WORK/cvi/c-piscine/c-piscine-c-88/tests/ex00/toy_line.c"
 if st_mine; then
 	for _t in cvi cvj; do
 		env BUILD_WORKSPACE_DIRECTORY="$WORK/$_t" "$SH" "$TOOLS/conventions.sh" > "$WORK/$_t.out" 2>&1
@@ -13825,7 +15545,7 @@ cvi_rule() {  # cvi_rule TOY HEADLINE -- that rule's report, and the run's statu
 	return 2
 }
 # The shellcheck sweep reads what text_files() reads (V113): a dot folder the
-# repo does not track (the owner's gitignored .research/ held a peer's script
+# repo does not track (a gitignored one of the owner's held a peer's script
 # it reported) and a student's generators/, which its own lint layer reads,
 # are not the harness's code. .devcontainer is, and so is a module's folder.
 # So is .github: its issue forms and pages ship with the template, and
@@ -13849,6 +15569,23 @@ printf '# Toy\n\nSee [the guide](missing.md).\n' > "$WORK/cvsc/.github/toy.md"
 for _f in .scratch/tilde.sh .devcontainer/tilde.sh .github/tilde.sh m/generators/ex00.sh m/tilde.sh; do
 	printf '#!/bin/sh\necho "~/x"\n' > "$WORK/cvsc/$_f"
 done
+# A source directive tells shellcheck which file a `. "$VAR"` loads, and it
+# opens that file from where it runs, the repository root. Written
+# relative to the script's own folder it names nothing there: shellcheck
+# follows nothing, says so in a note -S warning hides, and goes on (25 check
+# scripts did). ex00's directive is the script's own relative path (reported);
+# ex01's is the root's, ex02's is /dev/null, and a generator's is the
+# student's (all three quiet).
+mkdir -p "$WORK/cvsc/m/tests/ex00" "$WORK/cvsc/m/tests/ex01" "$WORK/cvsc/m/tests/ex02"
+printf '# shellcheck shell=sh\ntoy() { :; }\n' > "$WORK/cvsc/tools/toy_lib.sh"
+printf '#!/bin/sh\n# shellcheck source=../../../tools/toy_lib.sh\n. "${TOY_LIB:?}"\n' \
+	> "$WORK/cvsc/m/tests/ex00/check.sh"
+printf '#!/bin/sh\n# shellcheck source=tools/toy_lib.sh\n. "${TOY_LIB:?}"\n' \
+	> "$WORK/cvsc/m/tests/ex01/check.sh"
+printf '#!/bin/sh\n# shellcheck source=/dev/null\n. "${TOY_LIB:?}"\n' \
+	> "$WORK/cvsc/m/tests/ex02/check.sh"
+printf '#!/bin/sh\n# shellcheck source=../toy_lib.sh\n. "${TOY_LIB:?}"\n' \
+	> "$WORK/cvsc/m/generators/ex01.sh"
 if st_mine; then
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/cvsc" "$SH" "$TOOLS/conventions.sh" \
 		--shellcheck "$SHELLCHECK" > "$WORK/cvsc.out" 2>&1
@@ -13871,12 +15608,32 @@ want_out "conventions: ...in a list item, whose next item is its own" \
 	'    docs/toy.md:3' -- cvi_rule cvsc 'a page says to re-run on a still tree'
 want_broken_none "conventions: ...never a paragraph that names it" \
 	'docs/toy.md:6' -- cvi_rule cvsc 'a page says to re-run on a still tree'
+# cvsc has a project with generators/ and no tools/BUILD.bazel: no
+# generate target to hold to it, so nothing to say.
+want_broken_none "conventions: no generate target, no word about its args" \
+	'm: has a generators/ folder' -- cvi_rule cvsc "//tools:generate's args"
+want_out "conventions: a source directive shellcheck cannot open from the root" \
+	'    m/tests/ex00/check.sh:2: ../../../tools/toy_lib.sh' -- \
+	cvi_rule cvsc 'a shellcheck source directive names a file'
+want_broken_none "conventions: ...never one it can" \
+	'ex01' -- cvi_rule cvsc 'a shellcheck source directive names a file'
+want_broken_none "conventions: ...nor /dev/null" \
+	'ex02' -- cvi_rule cvsc 'a shellcheck source directive names a file'
+want_broken_none "conventions: ...nor one in a student's generator" \
+	'generators/' -- cvi_rule cvsc 'a shellcheck source directive names a file'
+# cvsc's module m has three folders under tests/ and no clues.tsv in any:
+# the dead-label check's floor counted the clues.tsv it found, so a run
+# that found none -- a glob that stopped matching, or files the run cannot
+# see -- passed having compared nothing, and said nothing.
+want_out "conventions: a dead-label check that found no clues.tsv at all" \
+	'found no clues.tsv in the 3 folders' -- \
+	cvi_rule cvsc 'the dead-label check found no clues.tsv'
 # A runner one project calls restates its subject without naming it (V90):
 # Rush 01's printed "the subject prints it verbatim", BSQ's restated its tie
 # rule. Three runners in a tree of their own: probe_own.sh, which one module
-# runs; probe_two.sh, which two do; probe_shared.sh, which a macro emits. Only
-# the first is held to "the subject <verb>": the others speak to every project
-# that calls them, and read the call site's contract back.
+# runs; probe_two.sh, which two do; probe_shared.sh, which a macro emits. All
+# three are held to "the subject <verb>": a line that reads the call site's
+# contract back says which option brings it.
 mkdir -p "$WORK/cvq/tools" "$WORK/cvq/c-piscine/c-piscine-q1" "$WORK/cvq/c-piscine/c-piscine-q2"
 cv_submit "c-piscine/c-piscine-q1 c-piscine/c-piscine-q2" > "$WORK/cvq/tools/submit.sh"
 printf 'def m():\n    native.sh_test(name = "s", srcs = ["//tools:probe_shared.sh"])\n' \
@@ -13888,10 +15645,12 @@ printf 'corpus_memory(\n    stem = "a",\n    runner = "//tools:probe_two.sh",\n)
 printf 'hand_test(\n    name = "b",\n    srcs = ["//tools:probe_two.sh"],\n)\n' \
 	> "$WORK/cvq/c-piscine/c-piscine-q2/BUILD.bazel"
 # Reported: an awk print (6), a message continued over two lines (7), a
-# verdict( (9) and a here-document's line (14). Quiet: a comment, in the
-# script (4) and in the here-document (13), a sentence quoting nothing (10,
-# 16), and a printf inside a $( ) whose next line continues another command
-# (17).
+# verdict( (9) and a here-document's lines (14, and 13, a # line it prints,
+# no comment). Quiet: a comment in the script (4), a sentence quoting nothing
+# (10, 16), and a printf inside a $( ) whose next line continues another
+# command (17). Reported too: a line under a marker naming an option it parses
+# (23), which allows nothing in a runner one project calls: its sentence comes
+# from the call site's quote. The same line in probe_shared.sh (11) is quiet.
 cat > "$WORK/cvq/tools/probe_own.sh" <<'PROBE_OWN'
 #!/bin/sh
 set -u
@@ -13911,15 +15670,54 @@ EOT
 echo "  The sentence, quoted from the call site:"
 x=$(printf '%s' "the" \
 	"subject says")
+case "${1:-}" in
+	--required) shift 2 ;;
+esac
+# conventions: the call site's --required -- the files its contract lists
+echo "  the files the subject asks for"
 PROBE_OWN
-for _q in two shared; do
-	printf '#!/bin/sh\nset -u\n. "$RL_LIB"\necho "  the files the subject asks for"\n' \
-		> "$WORK/cvq/tools/probe_$_q.sh"
+printf '#!/bin/sh\nset -u\n. "$RL_LIB"\necho "  the files the subject asks for"\n' \
+	> "$WORK/cvq/tools/probe_two.sh"
+# A runner every project calls is held to it too (V122): diff_output.sh's
+# address-dump note said "as the subject asks" where only --sanitize, one
+# exercise's option, reaches it. Reported: a branch one flag opens (13), and
+# a marker naming an option the runner does not parse (16). Quiet: a line
+# under a marker naming one it does (11), which reads the call site back.
+# Reported too: a line a here-document prints below a marker-shaped line of
+# its own (19), which prints and is no comment, so it allows nothing; and
+# the subject that names, leaves, specifies, lets or allows (21 to 25), the
+# verbs a runner's claims about a subject were found in after the first list.
+cat > "$WORK/cvq/tools/probe_shared.sh" <<'PROBE_SHARED'
+#!/bin/sh
+set -u
+. "$RL_LIB"
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--required) shift 2 ;;
+		--dump) DUMP=1; shift ;;
+	esac
 done
+# conventions: the call site's --required -- the files its contract lists
+echo "  the files the subject asks for"
+if [ "${DUMP:-0}" = 1 ]; then
+	echo "  print each address, as the subject asks."
+fi
+# conventions: the call site's --quotes -- an option this runner never reads
+echo "  the subject says so."
+cat <<EOT
+# conventions: the call site's --required -- printed, not a comment
+  the subject says so, in a here-document.
+EOT
+echo "  The subject names no exit status."
+echo "  the subject leaves it open."
+echo "  the subject specifies a newline."
+echo "  the subject lets it exit 1."
+echo "  the subject allows malloc."
+PROBE_SHARED
 # A project's BUILD comment ships (V94): it names neither the oracle's
 # source nor a reading. q2's BUILD file, after its four lines of code:
-# reported as the source, a path of oracle/src (5) and a .rs file in the
-# comment after code (9); as the label, wrapped over two comment lines (6)
+# reported as the source, a path of the oracle's source (5) and a Rust file
+# in the comment after code (9); as the label, wrapped over two comment lines (6)
 # and with a typographic apostrophe (10); quiet, a string that holds a path
 # and a # (8), the package //oracle (11). And a module's .bzl file is read
 # as its BUILD file is.
@@ -13933,22 +15731,108 @@ done
 	echo '# //oracle answers it, and the README says so.'
 } >> "$WORK/cvq/c-piscine/c-piscine-q2/BUILD.bazel"
 echo '# from oracle/src/team.rs' > "$WORK/cvq/c-piscine/c-piscine-q1/team.bzl"
+# Nor does any other shipped file name the reference's source (V123), a
+# test file's comment and a runner's included. Reported: a comment line of a
+# runner (probe_ref.sh 2) and one after its code (5), a selftest's comment
+# (st.sh 1), a C file's block comment (toy_shape.c 2) and its // comment
+# (5), a generated fixture's header (cases.tsv 1), a module's README (1), a
+# page of docs/ (page.md 1), and a comment after a word holding an apostrophe
+# (probe_ref.sh 7). Quiet: a runner's code and a string it echoes into
+# /dev/null (probe_ref.sh 3, 4), a # inside a word of shell (6: ${f#...} and
+# $#), the zone, the oracle's own folder, the maintainer's backlog (TODO.md),
+# and the BUILD file the rule above reads.
+mkdir -p "$WORK/cvq/tools/tests" "$WORK/cvq/c-piscine/c-piscine-q1/tests/ex00" \
+	"$WORK/cvq/c-piscine/c-piscine-q1/deliverable/ex00" "$WORK/cvq/c-piscine/c-piscine-q1/generators" \
+	"$WORK/cvq/oracle/src" "$WORK/cvq/docs"
+printf '#!/bin/sh\n# The rule lives in oracle/src/q.rs.\nls oracle/src > /dev/null\n' > "$WORK/cvq/tools/probe_ref.sh"
+printf 'echo "# oracle/src, in a string" > /dev/null\necho x  # as q_bonus.rs does\n' >> "$WORK/cvq/tools/probe_ref.sh"
+printf 'x=${f#oracle/src/}; n=$#\necho it'"'"'s # as q_lone.rs does\n' >> "$WORK/cvq/tools/probe_ref.sh"
+# What a runner prints is read too: UNOWNED's message once sent the student
+# to the reference's source, and only its comments were read. Reported: an
+# echo (probe_ref.sh 8), a printf to stderr (9), a printf's argument on the
+# line it continues onto (16), a here-document cat prints (18), and an echo in
+# a loop nothing redirects (27). Quiet: a printf into a file (10), one whose
+# output is captured (11), an echo in a group written to a file (13), a
+# here-document cat writes to a file (21), one a loop reads (24), and the
+# argument of the command an echo pipes into (29). Reported too: an echo in
+# a case arm (30), one sent to /dev/stderr (31), and a here-document sed
+# prints (33). Quiet: an echo in a loop a $( captures from its first line
+# (36), and one in a loop whose pipeline ends in a file (39). Reported: an
+# echo sent to a quoted "/dev/stderr" (41) and a printf to a quoted
+# '/dev/tty' (42). Quiet: one into a file whose quoted name only starts
+# with /dev/stderr (43), and one whose name, unquoted, does (44).
+cat >> "$WORK/cvq/tools/probe_ref.sh" <<'PROBE_PRINTS'
+echo "  none of them: edit oracle/src/x.rs, then --write."
+printf 'from %s\n' "q_print.rs" >&2
+printf '%s\n' oracle/src/q.rs > "$WORK/list"
+x=$(printf '%s' oracle/src/q.rs)
+{
+	echo "oracle/src/q_group.rs"
+} > "$WORK/group"
+printf '%s %s\n' "a" \
+	"oracle/src/q_cont.rs"
+cat <<EOF
+run oracle/src/q_doc.rs
+EOF
+cat > "$WORK/doc" <<'EOF'
+oracle/src/q_file.rs
+EOF
+while IFS= read -r l; do :; done <<EOF
+oracle/src/q_in.rs
+EOF
+for _f in a; do
+	echo "$_f" "q_loop.rs"
+done
+echo "$x" | grep -q oracle/src
+case x in *) echo "oracle/src/q_case.rs" >&2 ;; esac
+echo "oracle/src/q_err.rs" > /dev/stderr
+sed 's/^/  /' <<EOF
+oracle/src/q_sed.rs
+EOF
+_n=$(for _f in a; do
+	echo "oracle/src/q_cap.rs"
+done)
+for _f in a; do
+	echo "oracle/src/q_sorted.rs"
+done | sort > "$WORK/sorted"
+echo "oracle/src/q_quoted.rs" > "/dev/stderr"
+printf '%s\n' oracle/src/q_tty.rs >>'/dev/tty'
+echo "oracle/src/q_log.rs" > "/dev/stderr.log"
+echo oracle/src/q_ulog.rs > /dev/stderr.log
+PROBE_PRINTS
+printf 'The shape is in oracle/src/q1.rs.\n' > "$WORK/cvq/docs/page.md"
+printf 'oracle/src/q1.rs holds the shape.\n' > "$WORK/cvq/TODO.md"
+printf '# the oracle'"'"'s main.rs, broken\n' > "$WORK/cvq/tools/tests/st.sh"
+printf '/* The shape is the reference'"'"'s\n * (oracle/src/q1.rs). */\nint\tmain(void)\n{\n\treturn (0); // as q1_bonus.rs does\n}\n' \
+	> "$WORK/cvq/c-piscine/c-piscine-q1/tests/ex00/toy_shape.c"
+printf '# GENERATED from oracle/src/q1.rs\na\t1\t1\n' > "$WORK/cvq/c-piscine/c-piscine-q1/tests/ex00/cases.tsv"
+printf 'The rule is in oracle/src/q1.rs.\n' > "$WORK/cvq/c-piscine/c-piscine-q1/README.md"
+printf '/* oracle/src/q1.rs */\n' > "$WORK/cvq/c-piscine/c-piscine-q1/deliverable/ex00/q.c"
+printf '#!/bin/sh\n# oracle/src/q1.rs\n' > "$WORK/cvq/c-piscine/c-piscine-q1/generators/ex00.sh"
+printf '// see oracle/src/q.rs\n' > "$WORK/cvq/oracle/src/q.rs"
 if st_mine; then
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/cvq" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvq.out" 2>&1
 fi
 cvq_lines() {
 	_cl=$(cvi_rule cvq 'names one project' |
 		sed -n 's|^ *tools/probe_own\.sh:\([0-9][0-9]*\):.*|\1|p' | tr '\n' ' ')
-	[ "$_cl" = "6 7 9 14 " ] && return 0
-	echo "reported lines: $_cl (want: 6 7 9 14)"
+	[ "$_cl" = "6 7 9 13 14 23 " ] && return 0
+	echo "reported lines: $_cl (want: 6 7 9 13 14 23)"
 	return 1
 }
-want_green "conventions: a one-project runner's \"the subject <verb>\" is reported, in awk and continued" -- \
+want_green "conventions: a one-project runner's \"the subject <verb>\" is reported, in awk, continued and marked" -- \
 	cvq_lines
-want_broken_none "conventions: ...not in a runner two projects run" \
-	'probe_two.sh' -- cvi_rule cvq 'names one project'
-want_broken_none "conventions: ...nor in one a macro emits" \
-	'probe_shared.sh' -- cvi_rule cvq 'names one project'
+want_out "conventions: ...and in a runner two projects run" \
+	'tools/probe_two.sh:4:' -- cvi_rule cvq 'names one project'
+cvq_shared() {
+	_cl=$(cvi_rule cvq 'names one project' |
+		sed -n 's|^ *tools/probe_shared\.sh:\([0-9][0-9]*\):.*|\1|p' | tr '\n' ' ')
+	[ "$_cl" = "13 16 19 21 22 23 24 25 " ] && return 0
+	echo "reported lines: $_cl (want: 13 16 19 21 22 23 24 25)"
+	return 1
+}
+want_green "conventions: ...and in one a macro emits, in a branch one flag opens or a here-document" -- \
+	cvq_shared
 cvb_lines() {  # cvb_lines HEADLINE WANT
 	_cl=$(cvi_rule cvq "$1" |
 		sed -n 's|^ *c-piscine/c-piscine-q2/BUILD\.bazel:\([0-9][0-9]*\):.*|\1|p' | tr '\n' ' ')
@@ -13962,6 +15846,23 @@ want_green "conventions: ...and one carrying this harness's label, wrapped or ty
 	cvb_lines 'BUILD comment carries this harness' '6 10 '
 want_out "conventions: ...in a module's .bzl file too" \
 	'c-piscine/c-piscine-q1/team.bzl:1:' -- cvi_rule cvq 'BUILD comment names the oracle'
+cvr_lines() {
+	_cl=$(cvi_rule cvq 'a shipped file names the oracle' |
+		sed -n 's|^ *\([^ :][^ :]*\):\([0-9][0-9]*\):.*|\1:\2|p' | tr '\n' ' ')
+	_cw="c-piscine/c-piscine-q1/README.md:1 c-piscine/c-piscine-q1/tests/ex00/cases.tsv:1"
+	_cw="$_cw c-piscine/c-piscine-q1/tests/ex00/toy_shape.c:2 c-piscine/c-piscine-q1/tests/ex00/toy_shape.c:5"
+	_cw="$_cw docs/page.md:1 tools/probe_ref.sh:2 tools/probe_ref.sh:5 tools/probe_ref.sh:7"
+	_cw="$_cw tools/probe_ref.sh:8 tools/probe_ref.sh:9 tools/probe_ref.sh:16 tools/probe_ref.sh:18"
+	_cw="$_cw tools/probe_ref.sh:27 tools/probe_ref.sh:30 tools/probe_ref.sh:31 tools/probe_ref.sh:33"
+	_cw="$_cw tools/probe_ref.sh:41 tools/probe_ref.sh:42"
+	_cw="$_cw tools/tests/st.sh:1 "
+	[ "$_cl" = "$_cw" ] && return 0
+	echo "reported: $_cl"
+	echo "want:     $_cw"
+	return 1
+}
+want_green "conventions: a test file's or a runner's comment or printed string naming the oracle's source is reported, and nothing else" -- \
+	cvr_lines
 want_out "conventions: libbsd-dev pinned apart from the image's ARG" \
 	"pins libbsd-dev at '1.0-1', but .devcontainer/Dockerfile (ARG LIBBSD_DEV_VERSION) says '1.0-2'" -- \
 	cvi_rule cvi 'pins libbsd-dev'
@@ -14018,12 +15919,118 @@ want_out "conventions: ...with a flag before the pattern too" \
 	cvi_rule cvi 'a doc shows a whole-repo test run'
 want_broken_none "conventions: ...never one in prose" \
 	'README.md:1:' -- cvi_rule cvi 'a doc shows a whole-repo test run'
-want_broken_none "conventions: ...nor one marked as needing memory" \
-	'README.md:6:' -- cvi_rule cvi 'a doc shows a whole-repo test run'
+want_out "conventions: ...and one that says so only in a note on its line" \
+	'README.md:6: bazel test //...' -- cvi_rule cvi 'a doc shows a whole-repo test run'
+want_broken_none "conventions: ...nor one its paragraph says needs memory" \
+	'README.md:14:' -- cvi_rule cvi 'a doc shows a whole-repo test run'
 want_broken_none "conventions: ...nor a module's /..." \
 	'README.md:7:' -- cvi_rule cvi 'a doc shows a whole-repo test run'
 want_broken_none "conventions: ...nor TODO.md's, a record" \
 	'TODO.md' -- cvi_rule cvi 'a doc shows a whole-repo test run'
+want_out "conventions: a '#' note in a page's shell block is reported" \
+	'docs/paste.md:5: make && make' -- cvi_rule cvi "a shell block in a page holds a '#' note"
+want_out "conventions: ...and a line that is only a note" \
+	'docs/paste.md:9: # a note alone' -- cvi_rule cvi "a shell block in a page holds a '#' note"
+want_out "conventions: ...and one in a console block inside a list" \
+	'docs/paste.md:15:   $ ls   # a note' -- cvi_rule cvi "a shell block in a page holds a '#' note"
+want_out "conventions: ...and one in a block fenced with tildes" \
+	'docs/paste.md:19: ls  # a note' -- cvi_rule cvi "a shell block in a page holds a '#' note"
+want_out "conventions: ...and the whole-repo test's note in README.md" \
+	'README.md:6: bazel test //...' -- cvi_rule cvi "a shell block in a page holds a '#' note"
+want_broken_none "conventions: ...never a script's #! line" \
+	'docs/paste.md:4:' -- cvi_rule cvi "a shell block in a page holds a '#' note"
+for _zl in 23 25 26 27 29 30; do
+	want_broken_none "conventions: ...nor a quoted, escaped, inner or heredoc '#' (line $_zl)" \
+		"docs/paste.md:$_zl:" -- cvi_rule cvi "a shell block in a page holds a '#' note"
+done
+want_broken_none "conventions: ...nor a C block's #include" \
+	'docs/paste.md:35:' -- cvi_rule cvi "a shell block in a page holds a '#' note"
+want_broken_none "conventions: ...nor an unmarked block's note" \
+	'docs/paste.md:39:' -- cvi_rule cvi "a shell block in a page holds a '#' note"
+want_broken_none "conventions: ...nor a heading in prose" \
+	'docs/paste.md:42:' -- cvi_rule cvi "a shell block in a page holds a '#' note"
+want_broken_none "conventions: ...nor any line of a page with none" \
+	'README.md' -- cvi_rule cvj "a shell block in a page holds a '#' note"
+want_out "conventions: a block's bare \$m set to several words is reported" \
+	'docs/split.md:3: bazel test $m' -- cvi_rule cvi 'a shell block expands a variable it set to several words'
+want_out "conventions: ...and its \${m}" \
+	'docs/split.md:8: bazel test ${m} -k' -- cvi_rule cvi 'a shell block expands a variable it set to several words'
+for _zl in 4 5 7 9 13 17; do
+	want_broken_none "conventions: ...never quoted, one word or unset (line $_zl)" \
+		"docs/split.md:$_zl:" -- cvi_rule cvi 'a shell block expands a variable it set to several words'
+done
+want_broken_none "conventions: ...nor any line of a tree with none" \
+	'.md:' -- cvi_rule cvj 'a shell block expands a variable it set to several words'
+want_out "conventions: a usage line's '#' note in a script is reported" \
+	'tools/paste_note.sh:4: #   sh tools/paste_note.sh --all' -- cvi_rule cvi "a script shows a command to type with a '#' note"
+want_out "conventions: ...and one naming the script alone" \
+	'tools/paste_note.sh:5: #   paste_note.sh -n' -- cvi_rule cvi "a script shows a command to type with a '#' note"
+want_out "conventions: ...and an echoed command's" \
+	'tools/paste_note.sh:11: echo "      rm -rf dir' -- cvi_rule cvi "a script shows a command to type with a '#' note"
+want_out "conventions: ...and a printf's" \
+	'tools/paste_note.sh:12: printf "  %s  # a note' -- cvi_rule cvi "a script shows a command to type with a '#' note"
+for _zl in 7 8 10 13 14 15 16; do
+	want_broken_none "conventions: ...never a note before, prose, # define or a comment (line $_zl)" \
+		"tools/paste_note.sh:$_zl:" -- cvi_rule cvi "a script shows a command to type with a '#' note"
+done
+want_out "conventions: ...and a '# Usage:' block's line, whatever its first word" \
+	'tools/usage_note.sh:5: #   make -C toy' -- cvi_rule cvi "a script shows a command to type with a '#' note"
+want_out "conventions: ...with one blank before its note" \
+	'tools/usage_note.sh:6: #   cc -Wall a.c' -- cvi_rule cvi "a script shows a command to type with a '#' note"
+want_out "conventions: ...and a usage line's continuation" \
+	'tools/usage_note.sh:8: #       [-R CheckDefine]' -- cvi_rule cvi "a script shows a command to type with a '#' note"
+for _zl in 7 10; do
+	want_broken_none "conventions: ...never a usage line with no note, nor past the block (line $_zl)" \
+		"tools/usage_note.sh:$_zl:" -- cvi_rule cvi "a script shows a command to type with a '#' note"
+done
+want_broken_none "conventions: ...nor any line of a tree with none" \
+	'.sh:' -- cvi_rule cvj "a script shows a command to type with a '#' note"
+want_out "conventions: a '#' note after a session's prompt is reported" \
+	'docs/session.md:2: $ ls' -- cvi_rule cvi "a session in a page's block holds a '#' note"
+want_out "conventions: ...and after gdb's" \
+	'docs/session.md:3: (gdb) bt' -- cvi_rule cvi "a session in a page's block holds a '#' note"
+want_out "conventions: ...and after lldb's" \
+	'docs/session.md:4: (lldb) run' -- cvi_rule cvi "a session in a page's block holds a '#' note"
+for _zl in 5 6 7 11; do
+	want_broken_none "conventions: ...never quoted, inside a word, output or marked (line $_zl)" \
+		"docs/session.md:$_zl:" -- cvi_rule cvi "a session in a page's block holds a '#' note"
+done
+want_broken_none "conventions: ...nor any line of a tree with none" \
+	'.md:' -- cvi_rule cvj "a session in a page's block holds a '#' note"
+want_out "conventions: a shipped file citing a backlog section is named" \
+	'tools/cite.sh:1:' -- cvi_rule cvi 'cites a section or an item of TODO.md'
+want_out "conventions: ...and one wrapped after the file's name" \
+	'tools/cite.sh:2:' -- cvi_rule cvi 'cites a section or an item of TODO.md'
+want_out "conventions: ...and the record's, by lead" \
+	'tools/cite.sh:4:' -- cvi_rule cvi 'cites a section or an item of TODO.md'
+want_out "conventions: ...and an item of the old board" \
+	'tools/cite.sh:5:' -- cvi_rule cvi 'cites a section or an item of TODO.md'
+want_out "conventions: ...and one wrapped before its number" \
+	'tools/cite.sh:6:' -- cvi_rule cvi 'cites a section or an item of TODO.md'
+want_broken_none "conventions: ...never a mention that cites nothing" \
+	'tools/cite.sh:8:' -- cvi_rule cvi 'cites a section or an item of TODO.md'
+want_broken_none "conventions: ...nor a tag named bare" \
+	'tools/cite.sh:9:' -- cvi_rule cvi 'cites a section or an item of TODO.md'
+want_broken_none "conventions: ...nor TODO.md's own" \
+	'TODO.md:' -- cvi_rule cvi 'cites a section or an item of TODO.md'
+want_out "conventions: a comment saying a CI runs the checks, with none" \
+	'tools/ci.sh:1:' -- cvi_rule cvi 'says a CI runs the checks'
+want_out "conventions: ...and one wrapped before its last word" \
+	'tools/ci.sh:2:' -- cvi_rule cvi 'says a CI runs the checks'
+want_broken_none "conventions: ...never one saying there is none" \
+	'tools/ci.sh:4:' -- cvi_rule cvi 'says a CI runs the checks'
+want_broken_none "conventions: ...nor any, once a workflow is there" \
+	'tools/ci.sh' -- cvi_rule cvj 'says a CI runs the checks'
+want_out "conventions: a full run's size quoted outside drives.sh" \
+	'tools/size.sh:1:' -- cvi_rule cvi "quotes a full run's size"
+want_out "conventions: ...and a build tree's, with no space" \
+	'tools/size.sh:3:' -- cvi_rule cvi "quotes a full run's size"
+want_broken_none "conventions: ...never another size" \
+	'tools/size.sh:2:' -- cvi_rule cvi "quotes a full run's size"
+want_broken_none "conventions: ...nor drives.sh's, which keeps it" \
+	'tools/drives.sh:' -- cvi_rule cvi "quotes a full run's size"
+want_broken_none "conventions: ...nor TODO.md's" \
+	'TODO.md:' -- cvi_rule cvi "quotes a full run's size"
 want_out "conventions: an editor whose default test runs the whole repo, in its args" \
 	'the default test task runs the whole repo: "Toy: test all"' -- \
 	cvi_rule cvi 'tasks.json sends a newcomer to the whole repo'
@@ -14036,15 +16043,43 @@ want_out "conventions: a runner printing a whole-repo test" \
 	'tools/toy_check.sh:2:' -- cvi_rule cvi 'a runner prints a whole-repo test'
 want_broken_none "conventions: ...never in a comment" \
 	'toy_check.sh:3:' -- cvi_rule cvi 'a runner prints a whole-repo test'
-want_broken_none "conventions: ...nor one saying it needs memory" \
-	'toy_check.sh:4:' -- cvi_rule cvi 'a runner prints a whole-repo test'
+want_broken_none "conventions: ...nor one whose printed line before says it needs memory" \
+	'toy_check.sh:5:' -- cvi_rule cvi 'a runner prints a whole-repo test'
+want_out "conventions: ...but one saying so only in a '#' note on its line" \
+	'tools/toy_check.sh:6:' -- cvi_rule cvi 'a runner prints a whole-repo test'
+want_out "conventions: ...or in a comment before it, which is never printed" \
+	'tools/toy_check.sh:8:' -- cvi_rule cvi 'a runner prints a whole-repo test'
+want_broken_none "conventions: ...and the quiet one's command shows no '#' note to zsh" \
+	'toy_check.sh:5:' -- cvi_rule cvi "a script shows a command to type with a '#' note"
 want_out "conventions: a doc naming an editor task the file does not have" \
-	'README.md:10: `Toy: test it all`' -- \
+	'README.md:17: `Toy: test it all`' -- \
 	cvi_rule cvi 'a doc names an editor task'
 want_broken_none "conventions: ...never one it has" \
 	'`Toy: test everything`' -- cvi_rule cvi 'a doc names an editor task'
 want_broken_none "conventions: ...nor, in a repo whose docs name its labels, any" \
 	'Toy' -- cvi_rule cvj 'a doc names an editor task'
+want_out "conventions: a docstring saying nothing in the repo does it" \
+	'tools/toy.bzl:5:' -- cvi_rule cvi "a macro's docstring says what no call site does"
+want_out "conventions: ...and no call site, wrapped before its verb" \
+	'tools/toy.bzl:6:' -- cvi_rule cvi "a macro's docstring says what no call site does"
+want_out "conventions: ...and every existing call site, wrapped" \
+	'tools/toy.bzl:10:' -- cvi_rule cvi "a macro's docstring says what no call site does"
+for _cs in 8 9; do
+	want_broken_none "conventions: ...never no project, nor nearly every call site (line $_cs)" \
+		"tools/toy.bzl:$_cs:" -- cvi_rule cvi "a macro's docstring says what no call site does"
+done
+for _cs in 7 11; do
+	want_broken_none "conventions: ...nor a wrapped phrase's second line (line $_cs)" \
+		"tools/toy.bzl:$_cs:" -- cvi_rule cvi "a macro's docstring says what no call site does"
+done
+want_out "conventions: a C file pointing at diffio.h without including it" \
+	'c-piscine/c-piscine-c-88/tests/ex00/toy_rush.c:2' -- \
+	cvi_rule cvi 'a C file sends its reader to tools/diffio.h and does not include it'
+want_broken_none "conventions: ...never one that includes it" \
+	'toy_line.c' -- cvi_rule cvi 'a C file sends its reader to tools/diffio.h and does not include it'
+want_broken_none "conventions: ...nor the zone's copy" \
+	'c-piscine/c-piscine-c-88/deliverable/ex00/toy_rush.c:2' -- \
+	cvi_rule cvi 'a C file sends its reader to tools/diffio.h and does not include it'
 
 # ------------------------------------- conventions: a project's own page, docs
 # A group project and a Common Core one each have a page of their own
@@ -14071,6 +16106,37 @@ printf 'subject(\n    grader = "moulinette",\n    group = False,\n    exercises 
 : > "$WORK/cvp/cursus/toyproj/BUILD.bazel"
 printf '# c-piscine-c-86\n' > "$WORK/cvp/c-piscine/c-piscine-c-86/README.md"
 printf '# The rushes\n\n## rush-87 — a toy\n' > "$WORK/cvp/docs/rushes.md"
+# A project in a course folder that no module of the table lives in yet
+# (c-piscine-toy/c-piscine-toy-00, its BUILD file opening with its
+# contract): the rule walked the course folders of the table's modules and
+# cursus/, so a new course's first project was seen by none of the rules
+# that walk those folders until someone put it in the table, the very step
+# the rule exists to ask for.
+mkdir -p "$WORK/cvp/c-piscine-toy/c-piscine-toy-00"
+printf 'subject(\n    grader = "moulinette",\n    group = False,\n    exercises = {},\n)\n' \
+	> "$WORK/cvp/c-piscine-toy/c-piscine-toy-00/BUILD.bazel"
+# And //tools:generate, whose args are the projects it regenerates, written
+# by hand: C 85 and C 87 have a generators/ folder, and the args name C 85
+# and C 86, which has none. Another target before it names C 87, so a
+# reading that ran past the generate target's own call would find it.
+for _m in c-piscine/c-piscine-c-85 c-piscine/c-piscine-c-87; do
+	mkdir -p "$WORK/cvp/$_m/generators"
+	printf '#!/bin/sh\n# ex00: a toy.\n:\n' > "$WORK/cvp/$_m/generators/ex00.sh"
+done
+{
+	printf 'sh_binary(\n    name = "other",\n    srcs = ["other.sh"],\n    args = ["c-piscine/c-piscine-c-87"],\n)\n\n'
+	printf 'sh_binary(\n    name = "generate",\n    srcs = ["generate.sh"],\n    args = [\n'
+	printf '        "c-piscine/c-piscine-c-85",\n        "c-piscine/c-piscine-c-86",\n    ],\n)\n'
+} > "$WORK/cvp/tools/BUILD.bazel"
+# And two checks with nothing to read: C 85's BUILD file names a test main
+# that is not there to read, and its one clues.tsv has neither an
+# expected.txt nor a program case to give it labels. Each check passed
+# having read nothing, as the dead-label one did under `bazel test` until
+# the expected outputs were declared to it.
+printf 'c_test(\n    num = "00",\n    test = "test_toy.c",\n)\n' \
+	>> "$WORK/cvp/c-piscine/c-piscine-c-85/BUILD.bazel"
+mkdir -p "$WORK/cvp/c-piscine/c-piscine-c-85/tests/ex00"
+printf 'What does line 1 print?\tline 1\n' > "$WORK/cvp/c-piscine/c-piscine-c-85/tests/ex00/clues.tsv"
 # And the checklist for a new project (WP-74), which says what holds each of
 # its items, by name. Line 3, a load-time check tools/defs.bzl defines, and
 # a table it assigns; line 5, one it does not define and one it does not
@@ -14116,6 +16182,16 @@ printf '\n- **Retro-audit, today.** The rows.\n\n| # | item | held by |\n|---|--
 # exception AGENTS.md says does not exist.
 printf '# AGENTS.md\n\nRead the docs. A raise goes in `_TOY_TABLE`, a manual test in\n`_GONE_LIST`. `toy_problem` refuses it, `gone_problem` too.\n' \
 	> "$WORK/cvp/AGENTS.md"
+# And three scripts that walk the course folders by name, as the header
+# re-stamp and the stub check do: one whose COURSE_NAMES leaves out
+# c-piscine-toy, the course folder above (reported, by name); one that
+# lists it (quiet); and a reset_headers.sh whose loop hand-lists the
+# folders, with no COURSE_NAMES line to hold to the tree (reported). Only
+# conventions' own list of course folders discovered the tree; these lists
+# were each written by hand, and a new course went unwalked by all of them.
+printf '#!/bin/sh\nCOURSE_NAMES="c-piscine cursus"\n' > "$WORK/cvp/tools/walk_some.sh"
+printf '#!/bin/sh\nCOURSE_NAMES="c-piscine c-piscine-toy cursus"\n' > "$WORK/cvp/tools/walk_all.sh"
+printf '#!/bin/sh\nfor _c in c-piscine cursus; do\n\t:\ndone\n' > "$WORK/cvp/tools/reset_headers.sh"
 if st_mine; then
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/cvp" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvp.out" 2>&1
 fi
@@ -14135,6 +16211,28 @@ want_out "conventions: a project folder missing from the REMOTES table" \
 	'    cursus/newproj' -- cvi_rule cvp 'has no row in tools/submit.sh'
 want_broken_none "conventions: ...never one the table lists" \
 	'toyproj' -- cvi_rule cvp 'has no row in tools/submit.sh'
+want_out "conventions: ...and one in a course folder the table does not name" \
+	'    c-piscine-toy/c-piscine-toy-00' -- cvi_rule cvp 'has no row in tools/submit.sh'
+want_out "conventions: a project with generators/ that //tools:generate skips" \
+	'c-piscine/c-piscine-c-87: has a generators/ folder' -- \
+	cvi_rule cvp "//tools:generate's args"
+want_out "conventions: ...and one it names that has none" \
+	'c-piscine/c-piscine-c-86: named by //tools:generate' -- \
+	cvi_rule cvp "//tools:generate's args"
+want_broken_none "conventions: ...never one it names that has one" \
+	'c-piscine-c-85' -- cvi_rule cvp "//tools:generate's args"
+want_out "conventions: a test-main check that read none of the mains named" \
+	'name one on 1 line(s)' -- cvi_rule cvp 'the test-main check read no test_*.c'
+want_out "conventions: a dead-label check that compared no clues.tsv" \
+	'compared none of the 1 clues.tsv' -- cvi_rule cvp 'the dead-label check compared none'
+want_broken_none "conventions: ...never one that found some" \
+	'found no clues.tsv' -- cvi_rule cvp 'the dead-label check'
+want_out "conventions: a script's COURSE_NAMES without a course folder of the tree" \
+	'    tools/walk_some.sh: c-piscine-toy' -- cvi_rule cvp 'COURSE_NAMES misses a course folder'
+want_broken_none "conventions: ...never one that lists them all" \
+	'walk_all' -- cvi_rule cvp 'COURSE_NAMES misses a course folder'
+want_out "conventions: ...and a course walker with no COURSE_NAMES to read" \
+	'    tools/reset_headers.sh' -- cvi_rule cvp 'walks the course folders by a list'
 want_out "conventions: a checklist item that says nothing holds it" \
 	'docs/new-project.md:7: item 3 says neither' -- \
 	cvi_rule cvp 'docs/new-project.md promises a check'
@@ -14329,6 +16427,10 @@ printf 'Which sentence decides? %s, at strict: either way counts.\n' "$_cvr_l" \
 	> "$_cvr/ex03/clues_shared.tsv"
 printf 'case\tz\n' > "$_cvr/ex01/either.txt"
 printf 'Which sentence decides? %s is that a toy counts.\n' "$_cvr_l" > "$_cvr/ex01/clues.tsv"
+# Its second row's 69th to 71st bytes are one dash: a report cuts its
+# excerpt at 70 bytes, and before the dash, never inside it.
+printf 'Which sentence decides? %s is that a toy counts,\342\200\224 every one.\n' "$_cvr_l" \
+	>> "$_cvr/ex01/clues.tsv"
 printf 'Which sentence decides? %s, at strict: either way counts.\tcase\n' "$_cvr_l" \
 	> "$_cvr/ex01/clues_either.tsv"
 {
@@ -14400,7 +16502,26 @@ printf '#!/bin/sh\nset -u\necho "it expects 0, which is this repo'"'"'s reading.
 	printf 'reading is that a toy counts.\n'
 	printf 'Its hints say which, as %s and never the subject'"'"'s.\n' "$_cvr_l"
 	printf '| Toy ex00 | either way | `exNN_literal`, %s: a toy counts |\n' "$_cvr_l"
+	# Two lines whose 79th to 81st bytes are one dash (the excerpt is 80):
+	# a reading stated on one line, and over two.
+	_cvr_p='A toy counted twice is a toy all the same, and the rest goes on as it went, so'
+	printf '%s\342\200\224 %s is that a toy counts.\n' "$_cvr_p" "$_cvr_l"
+	printf '%s\342\200\224 and so this harness'"'"'s\nreading is that a toy counts.\n' "$_cvr_p"
 } > "$WORK/cvn/README.md"
+# The same dash at the same bytes in what a runner prints: another name for
+# a reading (3, and 5 over two lines), and a reading stated after its label
+# (8, and 10 over two lines). A comment line parts them.
+_cvr_e='echo "  A toy counted twice is a toy all the same, and the rest goes on as it,'
+{
+	printf '#!/bin/sh\nset -u\n'
+	printf '%s\342\200\224 this repo'"'"'s reading."\n#\n' "$_cvr_e"
+	printf '%s\342\200\224 is this"\necho "  repo'"'"'s reading, checked above basic."\n#\n' "$_cvr_e"
+	printf '%s\342\200\224 under %s: the values are digits."\n#\n' "$_cvr_e" "$_cvr_l"
+	printf '%s\342\200\224 under this harness'"'"'s"\necho "  reading: the values are digits."\n' "$_cvr_e"
+} > "$WORK/cvn/tools/probe_cut.sh"
+# A first-red row whose 59th to 61st bytes are one dash (the excerpt is 60).
+printf 'A toy is counted once, whatever its size or colour may be,\342\200\224 every one.\n' \
+	>> "$_cvr/ex01/clues.tsv"
 if st_mine; then
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/cvn" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvn.out" 2>&1
 fi
@@ -14459,7 +16580,7 @@ want_out "conventions: ...and on another page, over two lines" \
 	cvi_rule cvn 'a page states a reading outside'
 want_broken_none "conventions: ...never a page saying whose a reading is" \
 	'README.md:8:' -- cvi_rule cvn 'a page states a reading outside'
-want_out "conventions: ...nor a target's row on any page but reference.md" \
+want_out "conventions: ...while a target's row on a page other than reference.md is" \
 	'README.md:9:' -- cvi_rule cvn 'a page states a reading outside'
 want_broken_none "conventions: ...nor a legend's line that says the label" \
 	"$_cvr_m/tests/ex01/diff_clues.txt:2:" -- cvi_rule cvn 'a reading is named in other words'
@@ -14469,6 +16590,24 @@ want_out "conventions: ...and in a row keyed to nothing" \
 	'(keyed to no case, so every case)' -- cvi_rule cvn 'a hint a basic test prints names'
 want_out "conventions: ...and in a basic function's clue file" \
 	"$_cvr_m/tests/ex01/clues.tsv:1:" -- cvi_rule cvn 'a hint a basic test prints names'
+# The report line, with its end made visible, read byte by byte.
+cvn_line_end() { LC_ALL=C grep -F -- "$1" "$WORK/cvn.out" | LC_ALL=C sed 's/$/|end/'; }
+want_out "conventions: ...its excerpt cut before a character, never inside one" \
+	'is that a toy counts,|end' -- cvn_line_end "$_cvr_m/tests/ex01/clues.tsv:2:"
+want_out "conventions: ...as every report of a reading cuts it: a runner's line" \
+	'goes on as it,|end' -- cvn_line_end 'tools/probe_cut.sh:3:'
+want_out "conventions: ...a runner's line wrapped onto the next" \
+	'goes on as it, (wrapped onto line 6)|end' -- cvn_line_end 'tools/probe_cut.sh:5:'
+want_out "conventions: ...a runner's line stating it after its label" \
+	'goes on as it,|end' -- cvn_line_end 'tools/probe_cut.sh:8:'
+want_out "conventions: ...and that line wrapped onto the next" \
+	'goes on as it, (wrapped onto line 11)|end' -- cvn_line_end 'tools/probe_cut.sh:10:'
+want_out "conventions: ...a page's line stating it" \
+	'goes on as it went, so|end' -- cvn_line_end 'README.md:10:'
+want_out "conventions: ...and that line wrapped onto the next" \
+	'goes on as it went, so (wrapped onto line 12)|end' -- cvn_line_end 'README.md:11:'
+want_out "conventions: a first-red row's excerpt is cut before a character too" \
+	'or colour may be,...|end' -- cvn_line_end 'line 3 (no question): A toy is counted once'
 want_out "conventions: ...and in the check.sh a basic output test runs" \
 	"$_cvr_m/tests/ex02/check.sh:3:" -- cvi_rule cvn 'a hint a basic test prints names'
 want_broken_none "conventions: ...never in a row keyed to strict cases alone" \
@@ -14507,56 +16646,195 @@ want_broken_none "conventions: ...never its readings corpus's legend" \
 # ------------------------------------------- conventions: 42's command registry
 # Every run target of a BUILD file is named in tools/fortytwo/commands.tsv,
 # and every label a row names is declared (conventions.sh, "EVERY RUN TARGET
-# IS A 42 COMMAND"). cvq is a toy checkout with 42 in it: a tools target, a
+# IS A 42 COMMAND"). cvk is a toy checkout with 42 in it: a tools target, a
 # shell project's :generate, and the registry, taken through each state in
-# plain code, so every shard sees the same tree.
-mkdir -p "$WORK/cvq/tools/fortytwo" "$WORK/cvq/c-piscine/c-piscine-shell-90"
-cv_submit "c-piscine/c-piscine-shell-90" > "$WORK/cvq/tools/submit.sh"
-: > "$WORK/cvq/tools/42.sh"
+# plain code, so every shard sees the same tree. It is this section's own:
+# built in cvq, another section's tree, its runs read that section's modules.
+mkdir -p "$WORK/cvk/tools/fortytwo" "$WORK/cvk/c-piscine/c-piscine-shell-90"
+cv_submit "c-piscine/c-piscine-shell-90" > "$WORK/cvk/tools/submit.sh"
+: > "$WORK/cvk/tools/42.sh"
 printf '%s\n' 'sh_binary(name = "init", srcs = ["init.sh"])' \
-	'sh_binary(name = "planted", srcs = ["planted.sh"])' > "$WORK/cvq/tools/BUILD.bazel"
+	'sh_binary(name = "planted", srcs = ["planted.sh"])' > "$WORK/cvk/tools/BUILD.bazel"
 printf '%s\n' 'sh_binary(' '    name = "generate",' '    srcs = ["//tools:generate.sh"],' ')' \
-	> "$WORK/cvq/c-piscine/c-piscine-shell-90/BUILD.bazel"
-CONVQ="env BUILD_WORKSPACE_DIRECTORY=$WORK/cvq $SH $TOOLS/conventions.sh"
+	> "$WORK/cvk/c-piscine/c-piscine-shell-90/BUILD.bazel"
+CONVK="env BUILD_WORKSPACE_DIRECTORY=$WORK/cvk $SH $TOOLS/conventions.sh"
 want_out "conventions: a checkout with 42 and no registry is reported" \
-	"tools/fortytwo/commands.tsv is missing" -- $CONVQ
-cvq_rows() {
+	"tools/fortytwo/commands.tsv is missing" -- $CONVK
+cvk_rows() {
 	printf 'init\t\t//tools:init\tstudent\tSet your login.\n'
 	printf 'generate\t[project]\t//<project>:generate\tstudent\tWrite the deliverables.\n'
 	printf '%s' "$1"
 }
-cvq_rows "" > "$WORK/cvq/tools/fortytwo/commands.tsv"
+cvk_rows "" > "$WORK/cvk/tools/fortytwo/commands.tsv"
 want_out "conventions: a run target no row names is reported" \
-	"//tools:planted is a run target no row names" -- $CONVQ
-cvq_rows "$(printf -- '-\t\t//tools:planted\tinternal\tNo command runs it, and this says why.')
-" > "$WORK/cvq/tools/fortytwo/commands.tsv"
+	"//tools:planted is a run target no row names" -- $CONVK
+cvk_rows "$(printf -- '-\t\t//tools:planted\tinternal\tNo command runs it, and this says why.')
+" > "$WORK/cvk/tools/fortytwo/commands.tsv"
 want_broken_none "conventions: ...and with an internal row, nothing is" \
-	"commands.tsv and the BUILD files disagree" -- $CONVQ
-cvq_rows "$(printf -- '-\t\t//tools:planted\tinternal\tWhy.\ngone\t\t//tools:gone\tstudent\tA renamed target.')
-" > "$WORK/cvq/tools/fortytwo/commands.tsv"
+	"commands.tsv and the BUILD files disagree" -- $CONVK
+cvk_rows "$(printf -- '-\t\t//tools:planted\tinternal\tWhy.\ngone\t\t//tools:gone\tstudent\tA renamed target.')
+" > "$WORK/cvk/tools/fortytwo/commands.tsv"
 want_out "conventions: a row naming a target nobody declares is reported" \
-	"names //tools:gone, which tools/BUILD.bazel does not declare" -- $CONVQ
-cvq_rows "$(printf -- '-\t\t//tools:planted\tinternal\tWhy.\nfmt\t\t//<project>:format\tstudent\tNo project has it.')
-" > "$WORK/cvq/tools/fortytwo/commands.tsv"
+	"names //tools:gone, which tools/BUILD.bazel does not declare" -- $CONVK
+cvk_rows "$(printf -- '-\t\t//tools:planted\tinternal\tWhy.\nfmt\t\t//<project>:format\tstudent\tNo project has it.')
+" > "$WORK/cvk/tools/fortytwo/commands.tsv"
 want_out "conventions: ...and so is a project target no project declares" \
-	"names //<project>:format, and no project declares :format" -- $CONVQ
-cvq_rows "$(printf -- '-\t\t//tools:planted\tinternal\tWhy.\naudit\t\tsh tools/gone.sh\tstudent\tA script that moved.')
-" > "$WORK/cvq/tools/fortytwo/commands.tsv"
+	"names //<project>:format, and no project declares :format" -- $CONVK
+cvk_rows "$(printf -- '-\t\t//tools:planted\tinternal\tWhy.\naudit\t\tsh tools/gone.sh\tstudent\tA script that moved.')
+" > "$WORK/cvk/tools/fortytwo/commands.tsv"
 want_out "conventions: ...and a script a row runs that is not there" \
-	"runs sh tools/gone.sh, which is not there" -- $CONVQ
+	"runs sh tools/gone.sh, which is not there" -- $CONVK
 # 42 never passes Bazel a flag that costs a cache or an answer (conventions.sh,
 # "42 NEVER PASSES BAZEL A FLAG"): one in code, the same word in a docstring,
 # which may name it, and a row that runs bazel coverage.
 printf '%s\n' 'ARGV = ["bazel", "test", "--watchfs"]' '"""--watchfs is never passed."""' \
-	> "$WORK/cvq/tools/fortytwo/planted.py"
+	> "$WORK/cvk/tools/fortytwo/planted.py"
 want_out "conventions: 42 passing Bazel a banned flag is reported" \
-	'tools/fortytwo/planted.py:1: "--watchfs' -- $CONVQ
+	'tools/fortytwo/planted.py:1: "--watchfs' -- $CONVK
 want_broken_none "conventions: ...a docstring naming it is not" \
-	"tools/fortytwo/planted.py:2" -- $CONVQ
-cvq_rows "$(printf -- '-\t\t//tools:planted\tinternal\tWhy.\ncov\t\tbazel coverage\tstudent\tNo.')
-" > "$WORK/cvq/tools/fortytwo/commands.tsv"
+	"tools/fortytwo/planted.py:2" -- $CONVK
+cvk_rows "$(printf -- '-\t\t//tools:planted\tinternal\tWhy.\ncov\t\tbazel coverage\tstudent\tNo.')
+" > "$WORK/cvk/tools/fortytwo/commands.tsv"
 want_out "conventions: ...and a row that runs bazel coverage is" \
-	"tools/fortytwo/commands.tsv:4: bazel coverage" -- $CONVQ
+	"tools/fortytwo/commands.tsv:4: bazel coverage" -- $CONVK
+
+# ------------------------------------------ conventions: a test's scratch files
+# A test's program points TMPDIR at TEST_TMPDIR before its first mktemp, and
+# every valgrind runs with --vgdb=no (conventions.sh, "A test's scratch files
+# go under TEST_TMPDIR"). cvtmp is a toy checkout whose BUILD file and .bzl
+# files name test programs every way the rule reads one -- a hand_test's srcs,
+# a macro's kwargs["srcs"], a .bzl test rule's script default -- beside a
+# sh_binary's and a build rule's, which are no test; one run of conventions.sh,
+# read by every arm.
+mkdir -p "$WORK/cvtmp/tools/tests" "$WORK/cvtmp/c-piscine/c-piscine-c-90"
+cv_submit "c-piscine/c-piscine-c-90" > "$WORK/cvtmp/tools/submit.sh"
+: > "$WORK/cvtmp/c-piscine/c-piscine-c-90/BUILD.bazel"
+{
+	printf '%s\n' 'hand_test(' '    name = "bare",' '    srcs = ["tmp_bare.sh"],' ')'
+	for _t in late ok lib nomk gone; do
+		printf 'hand_test(name = "%s", srcs = ["tmp_%s.sh"])\n' "$_t" "$_t"
+	done
+	printf '%s\n' 'py_test(name = "py", srcs = ["tmp_py.py"])' \
+		'py_test(name = "py_ok", srcs = ["tmp_py_ok.py"])' \
+		'py_test(name = "py_str", srcs = ["tmp_py_str.py"])' \
+		'py_test(name = "py_late", srcs = ["tmp_py_late.py"])' \
+		'py_test(name = "py_imp", srcs = ["tmp_py_imp.py"])' \
+		'sh_binary(name = "bin", srcs = ["tmp_bin.sh"])'
+	# A srcs list as buildifier writes it, one element a line; one built
+	# in Starlark, which this check cannot read; and one that names the
+	# list its value is one of, read from there.
+	printf '%s\n' 'TOY_RUNNERS = [' '    "tmp_one.sh",' ']' \
+		'hand_test(' '    name = "multi",' '    srcs = [' '        "tmp_multi.sh",' '    ],' ')' \
+		'[hand_test(' '    name = "var_" + p,' '    srcs = [p],' ') for p in ["tmp_bare.sh"]]' \
+		'[hand_test(' '    name = "one_" + p,' '    srcs = [p],  # one of TOY_RUNNERS' ') for p in TOY_RUNNERS]' \
+		'hand_test(name = "nowhere", srcs = [q],  # one of NOWHERE' ')'
+	# A comment after the list that quotes a word, and a test whose srcs
+	# is no script, which this check does not hold; and one whose script
+	# ends in neither .sh nor .py, which it cannot read.
+	printf '%s\n' 'hand_test(name = "q", srcs = ["tmp_q.sh"],  # the "runner" one' ')' \
+		'cc_test(name = "c", srcs = ["tmp_c.c"])' \
+		'hand_test(name = "bash", srcs = ["tmp_bash.bash"])'
+} > "$WORK/cvtmp/tools/tests/BUILD.bazel"
+printf '%s\n' 'def toy(**kwargs):' '    kwargs["srcs"] = ["//tools:tmp_kw.sh"]' \
+	'toy_test = rule(' '    attrs = {"_runner": attr.label(default = ":tmp_rule.sh")},' \
+	'    test = True,' ')' > "$WORK/cvtmp/tools/tests/toy_test.bzl"
+printf '%s\n' 'toy_build = rule(' '    attrs = {"_script": attr.label(default = ":tmp_build.sh")},' ')' \
+	> "$WORK/cvtmp/tools/tests/toy_build.bzl"
+# The library, without the line: sourcing it is then no answer of its own.
+printf '#!/bin/sh\nRL_NAME=${RL_NAME:-x}\n' > "$WORK/cvtmp/tools/runner_lib.sh"
+_cvt_mk='d=$(mktemp -d) || exit 2'
+_cvt_tl='case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac'
+for _t in bare bin build rule multi one q; do
+	printf '#!/bin/sh\nset -u\n%s\n' "$_cvt_mk" > "$WORK/cvtmp/tools/tests/tmp_$_t.sh"
+done
+printf '#!/bin/sh\nset -u\n%s\n' "$_cvt_mk" > "$WORK/cvtmp/tools/tmp_kw.sh"
+printf '#!/bin/sh\nset -u\n%s\n%s\n' "$_cvt_mk" "$_cvt_tl" > "$WORK/cvtmp/tools/tests/tmp_late.sh"
+# The word in a require line and in a message is no mktemp it runs.
+printf '#!/bin/sh\nset -u\nrequire() { :; }\nrequire mktemp\necho "mktemp failed"\n%s\n%s\n' \
+	"$_cvt_tl" "$_cvt_mk" > "$WORK/cvtmp/tools/tests/tmp_ok.sh"
+printf '#!/bin/sh\nset -u\n. "$RL_LIB"\n%s\n' "$_cvt_mk" > "$WORK/cvtmp/tools/tests/tmp_lib.sh"
+printf '#!/bin/sh\nset -u\necho nothing to keep\n' > "$WORK/cvtmp/tools/tests/tmp_nomk.sh"
+printf 'import tempfile\nprint(tempfile.mkdtemp())\n' > "$WORK/cvtmp/tools/tests/tmp_py.py"
+printf 'import os\nif os.environ.get("TEST_TMPDIR"):\n    os.environ["TMPDIR"] = os.environ["TEST_TMPDIR"]\n' \
+	> "$WORK/cvtmp/tools/tests/tmp_py_ok.py"
+# A line that only names both is no assignment; one made after the first
+# scratch file is too late; an import of tempfile makes no file yet.
+printf 'import os\nprint("TMPDIR comes from TEST_TMPDIR")\n' > "$WORK/cvtmp/tools/tests/tmp_py_str.py"
+printf 'import os, tempfile\nd = tempfile.mkdtemp()\nos.environ["TMPDIR"] = os.environ["TEST_TMPDIR"]\n' \
+	> "$WORK/cvtmp/tools/tests/tmp_py_late.py"
+printf 'import os\nfrom tempfile import mkdtemp\nos.environ["TMPDIR"] = os.environ["TEST_TMPDIR"]\nd = mkdtemp()\n' \
+	> "$WORK/cvtmp/tools/tests/tmp_py_imp.py"
+# A valgrind as a runner starts one: through rl_run over two lines (3), with
+# the option (5), asking only its version (6), under env (7), and named in a
+# message (8).
+cat > "$WORK/cvtmp/tools/tmp_vg.sh" <<'CVT_VG'
+#!/bin/sh
+set -u
+rl_run "$VALGRIND" --tool=callgrind \
+	./a.out
+rl_run "$VALGRIND" --vgdb=no --tool=callgrind ./a.out
+"$VALGRIND" --version
+env A=1 valgrind ./a.out
+echo "valgrind ./a.out"
+CVT_VG
+CONVT="env BUILD_WORKSPACE_DIRECTORY=$WORK/cvtmp $SH $TOOLS/conventions.sh"
+_cvt_out=""
+_cvt_rc=0
+if st_mine; then
+	_cvt_out=$($CONVT 2>&1)
+	_cvt_rc=$?
+fi
+cvt_rule() {  # this rule's report of the run above, alone
+	printf '%s\n' "$_cvt_out" |
+		awk '/^  FAIL: / { on = index($0, "outside TEST_TMPDIR") > 0 } on'
+	return "$_cvt_rc"
+}
+want_out "conventions: a test program's mktemp with TMPDIR left unset" \
+	'tools/tests/tmp_bare.sh:3: mktemp, and TMPDIR never points at TEST_TMPDIR' -- cvt_rule
+want_out "conventions: ...and one that sets it only after" \
+	'tools/tests/tmp_late.sh:3: mktemp, before line 4 points TMPDIR' -- cvt_rule
+want_broken_none "conventions: ...not one that sets it first" 'tmp_ok.sh' -- cvt_rule
+want_broken_none "conventions: ...nor one that sources the library" 'tmp_lib.sh' -- cvt_rule
+want_out "conventions: ...but a library without the line is reported" \
+	'tools/runner_lib.sh: its prologue never points TMPDIR' -- cvt_rule
+want_broken_none "conventions: ...nor one that makes no scratch file" 'tmp_nomk.sh' -- cvt_rule
+want_broken_none "conventions: ...nor a sh_binary's script" 'tmp_bin.sh' -- cvt_rule
+want_out "conventions: a macro's kwargs[\"srcs\"] is a test program" \
+	'tools/tmp_kw.sh:3: mktemp' -- cvt_rule
+want_out "conventions: ...and a .bzl test rule's script default" \
+	'tools/tests/tmp_rule.sh:3: mktemp' -- cvt_rule
+want_broken_none "conventions: ...not a build rule's" 'tmp_build.sh' -- cvt_rule
+want_out "conventions: a test program that is not there is reported" \
+	'tools/tests/BUILD.bazel:' -- cvt_rule
+want_out "conventions: ...naming it" 'tmp_gone.sh (a test program this check cannot find)' -- cvt_rule
+want_out "conventions: a test's srcs over several lines is read" \
+	'tools/tests/tmp_multi.sh:3: mktemp, and TMPDIR never points' -- cvt_rule
+want_out "conventions: ...and one built in Starlark is reported, not skipped" \
+	"tools/tests/BUILD.bazel:27: srcs = [p] (a test's srcs this check cannot read)" -- cvt_rule
+want_out "conventions: ...unless it names the list its value is one of" \
+	'tools/tests/tmp_one.sh:3: mktemp, and TMPDIR never points' -- cvt_rule
+want_out "conventions: ...which must be a list of strings somewhere" \
+	'tools/tests/BUILD.bazel:33: one of NOWHERE, which no BUILD file or .bzl' -- cvt_rule
+want_out "conventions: a srcs whose comment quotes a word is read" \
+	'tools/tests/tmp_q.sh:3: mktemp, and TMPDIR never points' -- cvt_rule
+want_broken_none "conventions: ...and is no srcs it cannot read" 'tmp_q.sh"]' -- cvt_rule
+want_broken_none "conventions: ...nor is one that holds no script" 'tmp_c.c' -- cvt_rule
+want_out "conventions: ...while one whose script is no .sh or .py is reported" \
+	'tools/tests/BUILD.bazel:38: "tmp_bash.bash" (a test'"'"'s srcs this check cannot read' -- cvt_rule
+want_out "conventions: a Python test program that leaves TMPDIR unset" \
+	'tools/tests/tmp_py.py: a Python test program' -- cvt_rule
+want_broken_none "conventions: ...not one that sets it" 'tmp_py_ok.py' -- cvt_rule
+want_out "conventions: ...but one whose line only names TMPDIR and TEST_TMPDIR is" \
+	'tools/tests/tmp_py_str.py: a Python test program' -- cvt_rule
+want_out "conventions: ...and one that sets it after its first scratch file" \
+	'tools/tests/tmp_py_late.py:2: tempfile, before line 3 sets TMPDIR' -- cvt_rule
+want_broken_none "conventions: ...not one that imports tempfile before it" 'tmp_py_imp.py' -- cvt_rule
+want_out "conventions: a valgrind without --vgdb=no, over two lines" \
+	'tools/tmp_vg.sh:3: valgrind without --vgdb=no' -- cvt_rule
+want_out "conventions: ...and one under env" 'tools/tmp_vg.sh:7: valgrind without' -- cvt_rule
+want_broken_none "conventions: ...not one with it" 'tools/tmp_vg.sh:5:' -- cvt_rule
+want_broken_none "conventions: ...nor one asking its version" 'tools/tmp_vg.sh:6:' -- cvt_rule
+want_broken_none "conventions: ...nor a message naming it" 'tools/tmp_vg.sh:8:' -- cvt_rule
 
 # ------------------------------------------------------ 42's entry and installer
 # tools/42.sh hands over to python3 -I and the checkout's main.py, or, with no
@@ -14629,6 +16907,200 @@ want_green "install.sh: ...untouched" -- \
 env HOME="$FT42/q" $SH "$FT42/it's ws/tools/fortytwo/install.sh" > /dev/null 2>&1
 want_out "shim: a checkout with a quote in its path falls back intact" \
 	"FT_WS=$FT42/it's ws" -- ft42_in / "$FT42/q/.local/bin/42"
+
+# ------------------------------------------------------------------ postcreate
+# .devcontainer/postcreate.sh, which the dev container runs once when it is
+# created, gives the container's Bazel a disk cache: two build lines in the
+# container's own ~/.bazelrc, the cache where tools/drives.sh puts setup.sh's
+# and the same 4G cap, and no startup option. Run here in a toy checkout (the
+# script, the drive list it reads, 42's installer, which it runs first) with a
+# HOME of its own, so no arm reads or writes the home of whoever runs it.
+# XDG_CACHE_HOME and C_PISCINE_SCRATCH are cleared and /goinfre named absent,
+# so the drive list's answer is the sandbox's cache folder on any machine.
+PCR="$WORK/pcr"
+mkdir -p "$PCR/ws/.devcontainer" "$PCR/ws/tools/fortytwo" "$PCR/ws/inside" \
+	"$PCR/home" "$PCR/own" "$PCR/named" "$PCR/other"
+: > "$PCR/ws/MODULE.bazel"
+cp "$TOOLS/../.devcontainer/postcreate.sh" "$PCR/ws/.devcontainer/postcreate.sh"
+cp "$TOOLS/drives.sh" "$PCR/ws/tools/drives.sh"
+cp "$TOOLS/42.sh" "$PCR/ws/tools/42.sh"
+cp "$TOOLS/fortytwo/install.sh" "$PCR/ws/tools/fortytwo/install.sh"
+pcr_run() {  # pcr_run HOME [VAR=VALUE...] -- postcreate.sh in the toy checkout
+	_pcr_home=$1
+	shift
+	env -u XDG_CACHE_HOME -u C_PISCINE_SCRATCH HOME="$_pcr_home" USER=probe \
+		C_PISCINE_GOINFRE="$PCR/no-goinfre" "$@" "$SH" "$PCR/ws/.devcontainer/postcreate.sh"
+}
+PCR_GC="build --experimental_disk_cache_gc_max_size=4G"
+pcr_run "$PCR/home" > "$PCR/first.out" 2>&1
+want_green "postcreate: writes ~/.bazelrc, with the disk cache" -- \
+	grep -qxF "build --disk_cache=$PCR/home/.cache/42-piscine/bazel-disk" "$PCR/home/.bazelrc"
+want_green "postcreate: ...and its 4G cap" -- grep -qxF "$PCR_GC" "$PCR/home/.bazelrc"
+# Two lines and nothing else: a startup option there would be read after every
+# checkout's .bazelrc.local and win over it.
+want_green "postcreate: ...and no other option, startup or build" -- \
+	sh -c '[ "$(grep -v "^[[:blank:]]*#" "$1" | grep -c "[^[:blank:]]")" = 2 ]' _ "$PCR/home/.bazelrc"
+want_out "postcreate: ...and says where the cache is" \
+	"$PCR/home/.cache/42-piscine/bazel-disk" -- cat "$PCR/first.out"
+cp "$PCR/home/.bazelrc" "$PCR/first.rc" 2> /dev/null
+pcr_run "$PCR/home" > /dev/null 2>&1
+want_green "postcreate: run again, ~/.bazelrc is unchanged" -- \
+	cmp -s "$PCR/first.rc" "$PCR/home/.bazelrc"
+# The drive list's own answer, not a path of the script's: C_PISCINE_SCRATCH
+# overrules every candidate there, so it has to here.
+pcr_run "$PCR/named" C_PISCINE_SCRATCH="$PCR/scratch" > /dev/null 2>&1
+want_green "postcreate: the cache is where tools/drives.sh says" -- \
+	grep -qxF "build --disk_cache=$PCR/scratch/bazel-disk" "$PCR/named/.bazelrc"
+# A ~/.bazelrc of yours: kept, line for line, and a disk cache it already names
+# stays the only one (a line appended after it would win). Its last line has no
+# newline, which an append must not run into.
+printf '# mine\nbuild --jobs=2\nbuild --disk_cache=%s/elsewhere' "$PCR" > "$PCR/own/.bazelrc"
+cp "$PCR/own/.bazelrc" "$PCR/own.before"
+pcr_run "$PCR/own" > /dev/null 2>&1
+want_green "postcreate: a ~/.bazelrc of yours keeps its lines" -- \
+	sh -c '[ "$(head -n 3 "$1")" = "$(cat "$2")" ]' _ "$PCR/own/.bazelrc" "$PCR/own.before"
+want_green "postcreate: ...its disk cache stays the only one" -- \
+	sh -c '[ "$(grep -c -- "--disk_cache=" "$1")" = 1 ]' _ "$PCR/own/.bazelrc"
+want_green "postcreate: ...and gets the cap" -- grep -qxF "$PCR_GC" "$PCR/own/.bazelrc"
+# Only the cap went in, so the note over it is one that fits a cap alone: it
+# used to say "this container's disk cache", over no cache line at all.
+want_green "postcreate: ...under a note that fits the cap alone" -- \
+	grep -qxF "# added by .devcontainer/postcreate.sh, for Bazel's disk cache" "$PCR/own/.bazelrc"
+cp "$PCR/own/.bazelrc" "$PCR/own.after" 2> /dev/null
+pcr_run "$PCR/own" > /dev/null 2>&1
+want_green "postcreate: ...and a second run changes nothing" -- \
+	cmp -s "$PCR/own.after" "$PCR/own/.bazelrc"
+# The workspace is bind-mounted from the host, so nothing of this goes into
+# it: neither the rc file (a home inside the checkout) nor the cache.
+want_out "postcreate: a home inside the workspace gets no ~/.bazelrc, and says so" \
+	"inside the workspace" -- pcr_run "$PCR/ws/inside"
+want_green "postcreate: ...none" -- test ! -e "$PCR/ws/inside/.bazelrc"
+want_out "postcreate: a cache inside the workspace is refused, and says so" \
+	"inside the workspace" -- pcr_run "$PCR/other" C_PISCINE_SCRATCH="$PCR/ws/cache"
+want_green "postcreate: ...and nothing is made there" -- test ! -e "$PCR/ws/cache"
+want_green "postcreate: ...nor a ~/.bazelrc naming it" -- test ! -e "$PCR/other/.bazelrc"
+# The prediction is only that: the real choice probes each candidate for
+# real, and one the prediction took can fail there, so the drive list goes on
+# to the next. Here /goinfre's folder for you is a plain file (its parent is
+# writable, so the prediction takes it, and mkdir refuses it) and the cache
+# dir is inside the workspace, where the real choice lands.
+mkdir -p "$PCR/goinfre" "$PCR/fall" "$PCR/rel"
+: > "$PCR/goinfre/probe"
+want_out "postcreate: a cache the real choice puts in the workspace is refused" \
+	"inside the workspace" -- \
+	pcr_run "$PCR/fall" C_PISCINE_GOINFRE="$PCR/goinfre" XDG_CACHE_HOME="$PCR/ws/xdg"
+want_green "postcreate: ...and no ~/.bazelrc names it" -- test ! -e "$PCR/fall/.bazelrc"
+# The real probe made that folder, and its parent, to write a byte in it: an
+# empty folder left in the checkout the host shares. What it made goes, and
+# nothing else: a folder that was there before stays, empty or not.
+want_green "postcreate: ...and the folders its probe made there are gone" -- \
+	test ! -e "$PCR/ws/xdg"
+mkdir -p "$PCR/ws/had" "$PCR/ws/hadall/42-piscine"
+pcr_run "$PCR/fall" C_PISCINE_GOINFRE="$PCR/goinfre" XDG_CACHE_HOME="$PCR/ws/had" > /dev/null 2>&1
+want_green "postcreate: ...a folder that was there before stays" -- test -d "$PCR/ws/had"
+want_green "postcreate: ...and the one made in it goes" -- test ! -e "$PCR/ws/had/42-piscine"
+want_out "postcreate: ...a cache folder that was there before is refused too" \
+	"inside the workspace" -- \
+	pcr_run "$PCR/fall" C_PISCINE_GOINFRE="$PCR/goinfre" XDG_CACHE_HOME="$PCR/ws/hadall"
+want_green "postcreate: ...and stays" -- test -d "$PCR/ws/hadall/42-piscine"
+# A trailing slash puts one folder in the walk twice, as b/ and then b: the
+# second rmdir finds it gone, which is not a folder that stays.
+pcr_run "$PCR/fall" C_PISCINE_GOINFRE="$PCR/goinfre" XDG_CACHE_HOME="$PCR/ws/deep/a/b/" > /dev/null 2>&1
+want_green "postcreate: ...and a cache dir with a trailing slash leaves no folder it made" -- \
+	test ! -e "$PCR/ws/deep"
+# The drive list refusing outright, as it does a relative C_PISCINE_SCRATCH:
+# its reason, a green exit, and no ~/.bazelrc.
+want_out "postcreate: a drive list that refuses is named, with its reason" \
+	"Bazel gets no disk cache here: C_PISCINE_SCRATCH is set to 'rel'" -- \
+	pcr_run "$PCR/rel" C_PISCINE_SCRATCH=rel
+want_green "postcreate: ...exits 0" -- pcr_run "$PCR/rel" C_PISCINE_SCRATCH=rel
+want_green "postcreate: ...and writes no ~/.bazelrc" -- test ! -e "$PCR/rel/.bazelrc"
+# --------------------------------------------------------------- editor tasks
+# .vscode/tasks.json's default task, Run Test Task, runs the :basic suite of
+# the module the open file is in, from the file's folder relative to the
+# workspace (the editor's ${relativeFileDirname}). Its command is read out of
+# the real file here -- the "-c" script of the default task, unescaped from
+# JSON -- and run in a toy checkout with a bazel on PATH that prints what it
+# was asked. It used to take the first two parts of the folder as the module,
+# and a grouped project, cursus/<group>/<project>, got "Open a file of the
+# module" from every folder of its own: the module is the nearest folder
+# whose BUILD.bazel calls c_levels(, which is what declares :basic.
+VT="$WORK/vt"
+mkdir -p "$VT/bin" "$VT/ws/c-piscine/c-piscine-c-00/deliverable/ex00" \
+	"$VT/ws/c-piscine/c-piscine-c-00/tests/ex00" \
+	"$VT/ws/c-piscine-reloaded/c-piscine-reloaded/generators" \
+	"$VT/ws/cursus/g/p/deliverable/src" "$VT/ws/cursus/g/p/tests/ex00" \
+	"$VT/ws/tools"
+printf '#!/bin/sh\necho "bazel $*"\n' > "$VT/bin/bazel"
+chmod +x "$VT/bin/bazel"
+for _vt_m in c-piscine/c-piscine-c-00 c-piscine-reloaded/c-piscine-reloaded cursus/g/p; do
+	printf 'subject(\n)\n\nc_levels(\n    name = "levels",\n)\n' > "$VT/ws/$_vt_m/BUILD.bazel"
+done
+# A package inside a module, and a workspace root and a folder above it that
+# declare no module of their own -- above the workspace is never a module,
+# whatever BUILD.bazel it holds. So the folder above, and one beside the
+# workspace, both call c_levels( here: a folder outside is refused by the
+# task's guard and not because its BUILD.bazel is missing, each of '..' and
+# '../*' by its own arm below.
+printf 'filegroup(\n    name = "cases",\n)\n' > "$VT/ws/cursus/g/p/tests/BUILD.bazel"
+printf 'filegroup(\n    name = "conventions_srcs",\n)\n' > "$VT/ws/BUILD.bazel"
+printf 'c_levels(\n)\n' > "$VT/BUILD.bazel"
+mkdir -p "$VT/elsewhere"
+printf 'c_levels(\n)\n' > "$VT/elsewhere/BUILD.bazel"
+awk '
+	/^[[:blank:]]*\{[[:blank:]]*$/ { depth++; if (depth == 2) { def = 0; scr = ""; next_is = 0 } }
+	depth == 2 && next_is { scr = $0; next_is = 0 }
+	depth == 2 && /^[[:blank:]]*"-c",[[:blank:]]*$/ { next_is = 1 }
+	/"isDefault"[[:blank:]]*:[[:blank:]]*true/ { def = 1 }
+	/^[[:blank:]]*\}[[:blank:]]*,?[[:blank:]]*$/ {
+		if (depth == 2 && def && scr != "") found = scr
+		depth--
+	}
+	END {
+		if (found == "") exit 1
+		sub(/^[[:blank:]]*"/, "", found)
+		sub(/",?[[:blank:]]*$/, "", found)
+		out = ""
+		for (i = 1; i <= length(found); i++) {
+			c = substr(found, i, 1)
+			if (c == "\\") { i++; c = substr(found, i, 1); if (c == "n") c = "\n"; else if (c == "t") c = "\t" }
+			out = out c
+		}
+		print out
+	}' "$TOOLS/../.vscode/tasks.json" > "$VT/script" 2> /dev/null || : > "$VT/script"
+vt_run() {  # vt_run FOLDER -- the default task, from FOLDER of the toy workspace
+	[ -s "$VT/script" ] || { echo "vt_run: no default task with an sh -c script" >&2; return 2; }
+	( cd "$VT/ws" && PATH="$VT/bin:$PATH" "$SH" -c "$(cat "$VT/script")" sh "$1" )
+}
+want_out "editor task: a grouped project runs its own :basic" \
+	"bazel test //cursus/g/p:basic --test_output=errors" -- vt_run cursus/g/p/deliverable/src
+want_out "editor task: ...from any folder of it, a package's too" \
+	"bazel test //cursus/g/p:basic " -- vt_run cursus/g/p/tests/ex00
+want_out "editor task: ...and from the module's own folder" \
+	"bazel test //cursus/g/p:basic " -- vt_run cursus/g/p
+want_out "editor task: a Piscine module runs its :basic" \
+	"bazel test //c-piscine/c-piscine-c-00:basic " -- vt_run c-piscine/c-piscine-c-00/deliverable/ex00
+want_out "editor task: ...and its tests' folder too" \
+	"bazel test //c-piscine/c-piscine-c-00:basic " -- vt_run c-piscine/c-piscine-c-00/tests/ex00
+want_out "editor task: ...and Reloaded's generators" \
+	"bazel test //c-piscine-reloaded/c-piscine-reloaded:basic " -- \
+	vt_run c-piscine-reloaded/c-piscine-reloaded/generators
+want_broken "editor task: a folder in no module is refused" \
+	"Open a file of the module" -- vt_run tools
+want_broken "editor task: ...the group's folder, which is none" \
+	"Open a file of the module" -- vt_run cursus/g
+want_broken "editor task: ...the workspace's root" \
+	"Open a file of the module" -- vt_run .
+want_broken "editor task: ...a folder outside the workspace" \
+	"Open a file of the module" -- vt_run ../elsewhere
+want_broken "editor task: ...the folder just above it" \
+	"Open a file of the module" -- vt_run ..
+# An absolute folder, even a module's: "//" before it is no label, and
+# without the guard the walk up from one in no module never ends -- the
+# parent of / is /. The arm points into a real module, so a missing guard
+# makes it run bazel and go red rather than hang.
+want_broken "editor task: ...and an absolute one, a module's too" \
+	"Open a file of the module" -- vt_run "$VT/ws/cursus/g/p/deliverable/src"
 
 # ------------------------------------------------------------------ allocfail
 # The layer that makes malloc say no, one allocation at a time. Both directions
@@ -15123,8 +17595,19 @@ want_broken "allocfail --bin: a program and a function probe at once is refused"
 # `git ls-files`, and a self-test that needs a populated git repository is one
 # that will not run hermetically.
 mkdir -p "$WORK/sc"
+# The 42 header every .c and .h stub opens with: eleven lines, a border on the
+# first and the last. A stub without one is refused (below), so every stub
+# fixture here carries it.
 SC_H='/* ************************************************************************** */
+/*                                                                            */
 /*                                        stub_check selftest fixture           */
+/*                                                                            */
+/*                                                                            */
+/*                                                                            */
+/*                                                                            */
+/*                                                                            */
+/*                                                                            */
+/*                                                                            */
 /* ************************************************************************** */'
 printf '%s\n\n#ifndef FT_ABS_H\n# define FT_ABS_H\n\n#endif\n' "$SC_H" > "$WORK/sc/guards.h"
 printf '%s\n\n#ifndef SC_MACRO_H\n# define SC_MACRO_H\n# define SQUARE(n) ((n) * (n))\n#endif\n' \
@@ -15135,14 +17618,16 @@ printf '%s\n\n#ifndef SC_PROTO_H\n# define SC_PROTO_H\n\nint\tft_selftest_len(ch
 # selftest ships in the public template, and a known-bad fixture copied from a
 # deliverable is an answer in a file anyone can open. A made-up function, a
 # made-up program name and a made-up command do the same job.
-cat > "$WORK/sc/stub.c" <<'SC_STUB'
+printf '%s\n\n' "$SC_H" > "$WORK/sc/stub.c"
+cat >> "$WORK/sc/stub.c" <<'SC_STUB'
 int	ft_selftest_twice(int n)
 {
 	(void)n;
 	return (0);
 }
 SC_STUB
-cat > "$WORK/sc/answer.c" <<'SC_REAL'
+printf '%s\n\n' "$SC_H" > "$WORK/sc/answer.c"
+cat >> "$WORK/sc/answer.c" <<'SC_REAL'
 int	ft_selftest_twice(int n)
 {
 	return (n + n);
@@ -15176,6 +17661,57 @@ want_green "stub_check: a generator reduced to ':' passes" -- \
 want_red   "stub_check: a generator that still runs commands fails" -- \
 	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/real_ex04.sh"
 
+# NEITHER A STUB NOR AN ANSWER. An empty file holds no code, and a .c with a
+# stub's body and no 42 header holds none either, so both read as stubs: "OK
+# -- all 1 deliverable(s) are stubs". Neither is what the template ships, and
+# a file with no header is one the template build never re-stamps. Each is
+# refused, exit 2, with a reason of its own. Their twins: a file that defines
+# nothing but keeps its header is still a stub (the template ships one, a
+# header and a comment), and an answer with no header is still an answer.
+# The empty one's reason names a #! line only for a script, the one kind
+# whose #! line it skips: a .c or a Makefile has none to leave out.
+mkdir -p "$WORK/sc/bare"
+: > "$WORK/sc/bare/empty.c"
+: > "$WORK/sc/bare/ex05.sh"
+printf 'int\tft_selftest_twice(int n)\n{\n\t(void)n;\n\treturn (0);\n}\n' \
+	> "$WORK/sc/bare/nohdr.c"
+printf '#ifndef SC_BARE_H\n# define SC_BARE_H\n\n#endif\n' > "$WORK/sc/bare/nohdr.h"
+printf 'int\tft_selftest_twice(int n)\n{\n\treturn (n + n);\n}\n' \
+	> "$WORK/sc/bare/answer.c"
+printf '%s\n\n/*\n** Nothing is defined here.\n*/\n' "$SC_H" > "$WORK/sc/bare/comment.c"
+want_broken "stub_check: an empty .c is refused, and says so" \
+	'is empty: no line in it but blanks. It holds no' -- \
+	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/bare/empty.c"
+want_broken "stub_check: ...and so is an empty generator" \
+	"is empty: no line in it but blanks (and a script's #! line). It holds no" -- \
+	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/bare/ex05.sh"
+want_broken "stub_check: a .c stub with no 42 header is refused" \
+	'has no 42 header' -- "$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/bare/nohdr.c"
+want_broken "stub_check: ...and so is a .h with no 42 header" \
+	'has no 42 header' -- "$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/bare/nohdr.h"
+want_green "stub_check: a header and a comment, defining nothing, pass" -- \
+	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/bare/comment.c"
+want_red   "stub_check: an answer with no 42 header is still an answer" -- \
+	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/bare/answer.c"
+# Empty is no line but blanks, not zero bytes: a generator holding one
+# newline, or nothing but its #! line, and a Makefile holding one newline
+# keep as little as a zero-byte file, and they passed as stubs because the
+# test was `[ ! -s ]`. The twin: a #! line and a `:` is still a stub.
+mkdir -p "$WORK/sc/blankonly"
+printf '\n' > "$WORK/sc/blankonly/ex06.sh"
+printf '#!/bin/sh\n\n' > "$WORK/sc/blankonly/ex07.sh"
+printf '\n' > "$WORK/sc/blankonly/Makefile"
+printf '#!/bin/sh\n:\n' > "$WORK/sc/blankonly/ex08.sh"
+want_broken "stub_check: a generator holding one newline is empty" \
+	'is empty' -- "$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/blankonly/ex06.sh"
+want_broken "stub_check: ...and so is one holding only its #! line" \
+	'is empty' -- "$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/blankonly/ex07.sh"
+want_broken "stub_check: ...and a Makefile holding one newline" \
+	'is empty: no line in it but blanks. It holds no' -- \
+	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/blankonly/Makefile"
+want_green "stub_check: a #! line and a ':' is still a stub" -- \
+	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/blankonly/ex08.sh"
+
 # ---- REPO MODE, which is the mode that decides whether answers get published --
 #
 # Everything above drives --file mode, and --file mode reads the path it is
@@ -15183,9 +17719,9 @@ want_red   "stub_check: a generator that still runs commands fails" -- \
 # (git ls-files) and used to read the CONTENT from disk. Those are two different
 # trees, and `git commit` publishes the first one.
 #
-# docs/publishing.md tells the maintainer to run this twice -- after stubbing,
-# then "again, over the staged tree". Both runs read the same working-tree
-# files, so the second proved nothing the first had not, and an answer left in
+# A template publish ran this twice -- after stubbing, then again, over the
+# staged tree. Both runs read the same working-tree files, so the second
+# proved nothing the first had not, and an answer left in
 # the index behind a stubbed file on disk was reported as a stub. That is the
 # whole publish gate reporting OK on the one input it exists to reject.
 #
@@ -15207,7 +17743,7 @@ mkdir -p "$WORK/screpo/c-piscine-c-99/deliverable/ex00"
 	git add -A && git commit -q -m answer
 	# Stub it ON DISK ONLY. The index still holds the answer -- exactly what a
 	# forgotten or partial `git add -A` leaves behind.
-	printf 'int\tft_x(int n)\n{\n\t(void)n;\n\treturn (0);\n}\n' \
+	printf '%s\n\nint\tft_x(int n)\n{\n\t(void)n;\n\treturn (0);\n}\n' "$SC_H" \
 		> c-piscine-c-99/deliverable/ex00/ft_x.c
 ) >/dev/null 2>&1
 
@@ -15219,6 +17755,32 @@ want_red   "stub_check: an answer STAGED behind a stubbed file is caught" -- \
 ( cd "$WORK/screpo" && git add -A && git commit -q -m stubbed ) >/dev/null 2>&1
 want_green "stub_check: ... and passes once the stub is the staged content" -- \
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/screpo" "$SH" "$TOOLS/stub_check.sh"
+
+# Repo mode refuses an empty file and a header-less one too, and names every
+# one before it stops: two of them staged beside the stub, two reasons, exit 2.
+# Unstaged again after, so the arms below see the tree they were written for.
+(
+	cd "$WORK/screpo" || exit 1
+	mkdir -p c-piscine-c-99/deliverable/ex01
+	: > c-piscine-c-99/deliverable/ex01/ft_y.c
+	printf 'int\tft_z(int n)\n{\n\t(void)n;\n\treturn (0);\n}\n' \
+		> c-piscine-c-99/deliverable/ex01/ft_z.c
+	git add -A
+) >/dev/null 2>&1
+# Each by its own reason: the arms asked only for the path and exit 2, so a
+# run that gave both files the same reason, or swapped them, passed. The
+# output joined, each path to the line after it, says which reason is whose.
+sc_reasons() {
+	_scr=$(env BUILD_WORKSPACE_DIRECTORY="$1" "$SH" "$TOOLS/stub_check.sh" 2>&1)
+	_scs=$?
+	printf '%s\n' "$_scr" | awk '{ l = $0; sub(/^ +/, "", l); if (p != "") print p ": " l; p = l }'
+	return "$_scs"
+}
+want_broken "stub_check: a staged empty file is refused" \
+	'ex01/ft_y.c: is empty' -- sc_reasons "$WORK/screpo"
+want_broken "stub_check: ...and a header-less one beside it" \
+	'ex01/ft_z.c: has no 42 header' -- sc_reasons "$WORK/screpo"
+( cd "$WORK/screpo" && git rm -rqf c-piscine-c-99/deliverable/ex01 ) >/dev/null 2>&1
 
 # A tracked deliverable of a kind no checker knows must be REPORTED, not
 # dropped. --file mode has always exited 2 on one; repo mode silently skipped
@@ -15245,6 +17807,28 @@ want_broken_none "stub_check: ...and never as an implementation" \
 	"still contain an implementation" -- \
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/screpo" "$SH" "$TOOLS/stub_check.sh"
 
+# Where git refuses the folder, the refusal carries git's reason. It used to be
+# "git could not list the index" and nothing more, with git's own line thrown
+# away: in a checkout owned by another user -- a container, a shared machine --
+# that line is the only one saying what to fix. A folder that is no repository
+# is one refusal; a repository git calls of dubious ownership is the other,
+# made with git's own test switch where this git has it.
+mkdir -p "$WORK/scnorepo/c-piscine-c-99/deliverable/ex00"
+want_broken "stub_check: where git refuses the folder, it says why" \
+	'not a git repository' -- \
+	env GIT_CEILING_DIRECTORIES="$WORK" BUILD_WORKSPACE_DIRECTORY="$WORK/scnorepo" \
+		"$SH" "$TOOLS/stub_check.sh"
+if env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+	git -C "$WORK/screpo" ls-files 2>&1 | grep -q 'dubious ownership'; then
+	want_broken "stub_check: ...and a dubious-ownership refusal too" \
+		'dubious ownership' -- \
+		env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+			BUILD_WORKSPACE_DIRECTORY="$WORK/screpo" "$SH" "$TOOLS/stub_check.sh"
+else
+	printf '  %-52s %s\n' "stub_check: ...and a dubious-ownership refusal too" \
+		"skipped (this git cannot be made to refuse a folder)"
+fi
+
 # AGENTS.md §0's zone is everything under deliverable/ AND everything under
 # generators/, with no third place -- and a zone the checker does not read is a
 # zone that ships. Two holes, one fixture: a helper beside a generator, and work
@@ -15258,7 +17842,7 @@ mkdir -p "$WORK/screpo2/c-piscine/c-piscine-c-99/deliverable/ex00" \
 	git init -q .
 	git config user.email selftest@example.invalid
 	git config user.name selftest
-	printf 'int\tft_x(int n)\n{\n\t(void)n;\n\treturn (0);\n}\n' \
+	printf '%s\n\nint\tft_x(int n)\n{\n\t(void)n;\n\treturn (0);\n}\n' "$SC_H" \
 		> c-piscine/c-piscine-c-99/deliverable/ex00/ft_x.c
 	printf '#!/bin/sh\n# Create z.\n# TODO: write the commands.\n:\n' \
 		> c-piscine/c-piscine-c-99/generators/ex00.sh
@@ -15353,6 +17937,26 @@ want_red   "stub_check: identical bytes, first path" -- \
 want_red   "stub_check: identical bytes, second path" -- \
 	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/ft_list_elsewhere.h"
 
+# ...and its path is the path however it is spelled. answer_scan.sh hands each
+# file over as ./<path>, and the glob was matched against the spelling, so an
+# approved header there was "an implementation" (`--file ./c-piscine/...
+# /ft_list.h` gave 1, the same path without ./ gave 0). No approved header can
+# be a fixture here, so the arms run a copy of stub_check.sh whose list holds
+# one more entry: a made-up header at a made-up path. Its first arm is what
+# proves the copy approves it.
+mkdir -p "$WORK/scapp/tree/c-piscine/c-piscine-c-98/deliverable/ex00"
+printf '%s\n\n#ifndef SC_KEPT_H\n# define SC_KEPT_H\n\ntypedef struct s_sc_kept\n{\n\tint\tn;\n}\tt_sc_kept;\n\n#endif\n' \
+	"$SC_H" > "$WORK/scapp/tree/c-piscine/c-piscine-c-98/deliverable/ex00/sc_kept.h"
+_sck=$("$SH" "$TOOLS/stub_check.sh" --hash \
+	"$WORK/scapp/tree/c-piscine/c-piscine-c-98/deliverable/ex00/sc_kept.h" | cut -d' ' -f1)
+awk -v e="$_sck c-piscine/c-piscine-c-98/deliverable/*/sc_kept.h selftest-fixture" \
+	'{ print } /^APPROVED_HEADERS=.$/ { print e }' "$TOOLS/stub_check.sh" > "$WORK/scapp/stub_check.sh"
+sc_app() { ( cd "$WORK/scapp/tree" && "$SH" "$WORK/scapp/stub_check.sh" --file "$1" ); }
+want_green "stub_check: an approved header at its path passes" -- \
+	sc_app c-piscine/c-piscine-c-98/deliverable/ex00/sc_kept.h
+want_green "stub_check: ...and so it does spelled ./<path>" -- \
+	sc_app ./c-piscine/c-piscine-c-98/deliverable/ex00/sc_kept.h
+
 # And the hash itself must ignore the 42 header, or every re-stamp would revoke
 # every approval. Same bytes below the block, two different identities in it.
 printf '/* By: marvin <marvin@42.fr> */\n#ifndef X_H\n# define X_H\n#endif\n' > "$WORK/sc/h1.h"
@@ -15408,7 +18012,8 @@ want_red   "stub_check: a declaration on the brace line is examined" -- \
 	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/braceline.c"
 # ...and the forms a real stub is written in must still pass, on one line too:
 # the fix must not turn `{ return (0); }` into a finding.
-printf 'int\tft_f(void) { return (0); }\n\nvoid\tft_g(int n) { (void)n; }\n' > "$WORK/sc/onelinestub.c"
+printf '%s\n\nint\tft_f(void) { return (0); }\n\nvoid\tft_g(int n) { (void)n; }\n' "$SC_H" \
+	> "$WORK/sc/onelinestub.c"
 want_green "stub_check: a one-line stub body still passes" -- \
 	"$SH" "$TOOLS/stub_check.sh" --file "$WORK/sc/onelinestub.c"
 
@@ -15473,6 +18078,10 @@ want_green "stub_check: a name git would quote is read as it is" -- sc_repo "$WO
 ) > /dev/null 2>&1
 want_broken "stub_check: a blob the index cannot give ends the run" \
 	"Refusing to score it, and so the whole run" -- sc_repo "$WORK/screpo3"
+# ...with git's reason, which went to /dev/null: the refusal named the file
+# and not what git found wrong with it.
+want_broken "stub_check: ...and says git's reason" \
+	"not at stage 0" -- sc_repo "$WORK/screpo3"
 # A bare name shaped like an awk assignment -- `ft_a=b.c`, relative, in the
 # directory the run starts from -- was taken by awk for one: awk then read its
 # standard input, /dev/null, and an answer under that name was "OK -- all 1
@@ -15546,6 +18155,51 @@ want_broken "placeholder_pdf: ... and so is text outside printable ASCII" \
 	"printable ASCII" -- \
 	"$SH" "$TOOLS/placeholder_pdf.sh" "$WORK/pp/z.pdf" c-piscine-shell-00 "$(printf 'caf\303\251')"
 
+# --------------------------------------------------------------- exam_guide
+# The study guide ships its Markdown with two renderings, and each rendering
+# carries a stamp of what it was built from; --check, which the template build
+# runs, refuses one whose stamp is not what the inputs give now. A stamp of the
+# Markdown alone let a change to the build itself -- a template, a stylesheet,
+# the post-processing, the script -- ship beside renderings nobody rebuilt.
+# One toy guide per arm, stamped as a build stamps it (--stamp), then one file
+# changed in it; no pandoc runs here.
+eg_case() {  # eg_case NAME [COMMAND...]: a current toy, COMMAND run in it, --check
+	_eg_d=$WORK/eg/$1
+	shift
+	_eg_g=$_eg_d/c-piscine/c-piscine-exam-prep
+	mkdir -p "$_eg_d/tools" "$_eg_g/build" || return 2
+	cp "$TOOLS/exam_guide.sh" "$_eg_d/tools/exam_guide.sh" || return 2
+	printf '# A toy guide\n' > "$_eg_g/FINAL_EXAM_GUIDE.md"
+	printf 'body { margin: 0; }\n' > "$_eg_g/build/print.css"
+	printf '<html></html>\n' > "$_eg_g/build/page.html5"
+	_eg_sum=$("$SH" "$_eg_d/tools/exam_guide.sh" --stamp) || return 2
+	printf '<meta name="keywords" content="guide-source-sha256:%s">\n' \
+		"$_eg_sum" > "$_eg_g/The C Piscine Final Exam Guide.html"
+	printf '/Keywords (guide-source-sha256:%s)\n' "$_eg_sum" \
+		> "$_eg_g/FINAL_EXAM_GUIDE.pdf"
+	if [ "$#" -gt 0 ]; then
+		(cd "$_eg_d" && "$@") || return 2
+	fi
+	"$SH" "$_eg_d/tools/exam_guide.sh" --check
+}
+EG=c-piscine/c-piscine-exam-prep
+want_green "exam_guide: renderings of the inputs as they are pass" -- \
+	eg_case fresh
+want_red "exam_guide: ... not once the Markdown changes" -- \
+	eg_case md sh -c "echo more >> $EG/FINAL_EXAM_GUIDE.md"
+want_red "exam_guide: ... nor once a file in build/ changes" -- \
+	eg_case css sh -c "echo 'p { margin: 0; }' >> $EG/build/print.css"
+want_red "exam_guide: ... nor once a file is added to build/" -- \
+	eg_case added sh -c ": > $EG/build/extra.py"
+want_red "exam_guide: ... nor once the script changes" -- \
+	eg_case script sh -c "echo '# edited' >> tools/exam_guide.sh"
+want_red "exam_guide: ... nor once a rendering is missing" -- \
+	eg_case gone rm "$EG/FINAL_EXAM_GUIDE.pdf"
+want_green "exam_guide: a file outside the inputs does not count" -- \
+	eg_case other sh -c "echo x > README.md"
+want_green "exam_guide: ... nor does Python's bytecode in build/" -- \
+	eg_case pyc sh -c "mkdir $EG/build/__pycache__ && : > $EG/build/__pycache__/x.pyc"
+
 # -------------------------------------------------------------- answer_scan
 # The scan for an answer copied OUT of the zone, which is how four shell checks,
 # a selftest fixture and env-audit.sh came to ship answers in a published
@@ -15601,6 +18255,23 @@ want_out   "answer_scan: ...a deleted generator's line, from the index" \
 	"tests/ex00/check.sh:2: an answer line" -- \
 	env BUILD_WORKSPACE_DIRECTORY="$WORK/as" "$SH" "$TOOLS/answer_scan.sh"
 ( cd "$WORK/as" && git checkout -q -- . ) > /dev/null 2>&1
+# ...and a path the index cannot give either is refused with git's own line
+# saying why: the scan threw git's stderr away, so a blob missing from the
+# object store read as "could not be read" and nothing more. Its own repo,
+# staged and not on disk, its blob deleted after the add.
+mkdir -p "$WORK/asgone/c-piscine/c-piscine-c-99/deliverable/ex00"
+(
+	cd "$WORK/asgone" || exit 1
+	git init -q .
+	printf 'int\tft_selftest_gone(int a)\n{\n\treturn (a * 7 + 3);\n}\n' \
+		> c-piscine/c-piscine-c-99/deliverable/ex00/ft_selftest_gone.c
+	git add -A
+	_asg=$(git rev-parse :c-piscine/c-piscine-c-99/deliverable/ex00/ft_selftest_gone.c)
+	rm -f ".git/objects/${_asg%"${_asg#??}"}/${_asg#??}" \
+		c-piscine/c-piscine-c-99/deliverable/ex00/ft_selftest_gone.c
+) > /dev/null 2>&1
+want_broken "answer_scan: a blob the index cannot give, with git's reason" \
+	'fatal: ' -- env BUILD_WORKSPACE_DIRECTORY="$WORK/asgone" "$SH" "$TOOLS/answer_scan.sh"
 # Header macros and Makefile lines: the whole answer to C 08's exercises, and to
 # Reloaded ex24, is one of those, and the scan used to look at neither. Compared
 # with every blank removed, so a re-spaced copy is still one.
@@ -15706,6 +18377,50 @@ cp "$TOOLS/answer_scan.sh" "$WORK/aslink/scan.sh"
 want_broken "answer_scan --worktree: ...and a copy that is no checkout's file" \
 	"not to a checkout's tools/answer_scan.sh" -- \
 	env -u BUILD_WORKSPACE_DIRECTORY "$SH" "$WORK/aslink/scan.sh" --worktree
+# ...and the refusal carries git's own reason, which is the only line saying
+# what to fix where git refuses a checkout another user owns.
+want_broken "answer_scan --worktree: ...saying git's reason" \
+	'not a git repository' -- \
+	env -u BUILD_WORKSPACE_DIRECTORY GIT_CEILING_DIRECTORIES="$WORK" \
+		"$SH" "$WORK/aslink/nogit" --worktree
+# A zone file stub_check refuses -- an empty one here -- ends the scan with
+# stub_check's reason, not with "could not be read" over a file read whole.
+( cd "$WORK/as" && : > c-piscine/c-piscine-c-99/deliverable/ex00/ft_selftest_empty.c &&
+	git add -A && git commit -qm empty ) > /dev/null 2>&1
+want_broken "answer_scan: a zone file stub_check refuses, with its reason" \
+	'is empty' -- env BUILD_WORKSPACE_DIRECTORY="$WORK/as" "$SH" "$TOOLS/answer_scan.sh"
+( cd "$WORK/as" && git rm -q c-piscine/c-piscine-c-99/deliverable/ex00/ft_selftest_empty.c &&
+	git commit -qm unempty ) > /dev/null 2>&1
+# An approved header ships as it stands, so the names it defines are no
+# answer's. The scan hands stub_check ./<path>, or the absolute path of the
+# index's copy when the file is not on disk, and stub_check matched its
+# approved paths against that spelling: the header was "an implementation",
+# and a README naming its type was a leak. The arms run copies of the two
+# scripts side by side (answer_scan.sh finds stub_check.sh beside itself),
+# the stub_check one approving a made-up header, as in stub_check's section.
+mkdir -p "$WORK/asap/bin" "$WORK/asap/tree/c-piscine/c-piscine-c-98/deliverable/ex00"
+printf '%s\n\n#ifndef SC_KEPT_H\n# define SC_KEPT_H\n\ntypedef struct s_sc_kept\n{\n\tint\tn;\n}\tt_sc_kept;\n\n#endif\n' \
+	"$SC_H" > "$WORK/asap/tree/c-piscine/c-piscine-c-98/deliverable/ex00/sc_kept.h"
+_asak=$("$SH" "$TOOLS/stub_check.sh" --hash \
+	"$WORK/asap/tree/c-piscine/c-piscine-c-98/deliverable/ex00/sc_kept.h" | cut -d' ' -f1)
+awk -v e="$_asak c-piscine/c-piscine-c-98/deliverable/*/sc_kept.h selftest-fixture" \
+	'{ print } /^APPROVED_HEADERS=.$/ { print e }' "$TOOLS/stub_check.sh" > "$WORK/asap/bin/stub_check.sh"
+cp "$TOOLS/answer_scan.sh" "$WORK/asap/bin/answer_scan.sh"
+(
+	cd "$WORK/asap/tree" || exit 1
+	git init -q .
+	git config user.email selftest@example.invalid
+	git config user.name selftest
+	printf 'int\tft_sc_mix(int a, int b)\n{\n\tif (a > b)\n\t\ta = a - b;\n\telse\n\t\ta = b - a;\n\treturn (a * 5);\n}\n' \
+		> c-piscine/c-piscine-c-98/deliverable/ex00/ft_sc_mix.c
+	printf 'Build on t_sc_kept.\n' > README.md
+	git add -A && git commit -q -m approved
+) > /dev/null 2>&1
+want_green "answer_scan: an approved header's names are no answer's" -- \
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/asap/tree" "$SH" "$WORK/asap/bin/answer_scan.sh"
+rm -f "$WORK/asap/tree/c-piscine/c-piscine-c-98/deliverable/ex00/sc_kept.h"
+want_green "answer_scan: ...nor are they read from the index" -- \
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/asap/tree" "$SH" "$WORK/asap/bin/answer_scan.sh"
 rm -rf "$WORK/as/tools"
 ( cd "$WORK/as" && git checkout -q names -- . &&
 	printf 'Then selftest_twice.\n' >> c-piscine/c-piscine-c-99/README.md &&
@@ -15804,7 +18519,7 @@ mkdir -p "$WORK/as2/c-piscine/c-piscine-c-99/deliverable/ex00"
 (
 	cd "$WORK/as2" || exit 1
 	git init -q .
-	printf 'int\tft_x(int n)\n{\n\t(void)n;\n\treturn (0);\n}\n' \
+	printf '%s\n\nint\tft_x(int n)\n{\n\t(void)n;\n\treturn (0);\n}\n' "$SC_H" \
 		> c-piscine/c-piscine-c-99/deliverable/ex00/ft_x.c
 	git add -A
 ) > /dev/null 2>&1
@@ -15831,6 +18546,7 @@ cp "$TOOLS/setup.sh" "$WORK/su/repo/tools/setup.sh"
 # The drive list setup.sh chooses from, which it sources from the checkout it
 # sets up: the same file tools/bazel and env-audit read (tools/drives.sh).
 cp "$TOOLS/drives.sh" "$WORK/su/repo/tools/drives.sh"
+cp "$TOOLS/identity.sh" "$WORK/su/repo/tools/identity.sh"
 # 42's installer, which step 2 runs, and the entry it will not install without.
 mkdir -p "$WORK/su/repo/tools/fortytwo"
 cp "$TOOLS/42.sh" "$WORK/su/repo/tools/42.sh"
@@ -15838,11 +18554,10 @@ cp "$TOOLS/fortytwo/install.sh" "$WORK/su/repo/tools/fortytwo/install.sh"
 : > "$WORK/su/repo/.bazelversion"
 printf '# pre-existing line\n' > "$WORK/su/home/.bashrc"
 
-# "$SH", not a literal `sh`. These five arms are the only coverage setup.sh has,
-# and with `sh` hard-coded :selftest_bash replayed every OTHER arm under bash
-# while silently re-running these under dash -- so the one script that runs
-# before Bazel exists, on a machine whose shell nobody chose, was the one the
-# cross-shell target never reached.
+# "$SH", not a literal `sh`. With `sh` hard-coded, :selftest_bash replayed every
+# OTHER arm under bash while silently re-running these setup arms under dash --
+# so the one script that runs before Bazel exists, on a machine whose shell
+# nobody chose, was the one the cross-shell target never reached.
 # C_PISCINE_GOINFRE names a /goinfre that does not exist, so the arms mean the
 # same thing on a campus box, where the real one does.
 # C_PISCINE_LEGACY_ROOT likewise names an old shared root that does not exist:
@@ -15861,11 +18576,16 @@ want_green "setup: running it twice is idempotent" -- su_run "$SU_SHA"
 want_green "setup: ...and puts the 42 shim beside bazelisk" -- \
 	grep -qF "# 42 shim, written by tools/fortytwo/install.sh" "$WORK/su/home/.local/bin/42"
 # A 42 the installer did not write: it is left alone, and the setup goes on.
-mv "$WORK/su/home/.local/bin/42" "$WORK/su/shim42"
-printf '#!/bin/sh\necho mine\n' > "$WORK/su/home/.local/bin/42"
+# The swap is under st_mine: the folder it writes in is made by su_run, an
+# arm, so in a shard that skips this section it does not exist, and the swap
+# printed "cannot create" and "cannot stat" into that shard's log.
+if st_mine; then
+	mv "$WORK/su/home/.local/bin/42" "$WORK/su/shim42"
+	printf '#!/bin/sh\necho mine\n' > "$WORK/su/home/.local/bin/42"
+fi
 want_green "setup: a 42 it did not write costs only the name" -- su_run "$SU_SHA"
 want_green "setup: ...and is left as it was" -- grep -qx 'echo mine' "$WORK/su/home/.local/bin/42"
-mv "$WORK/su/shim42" "$WORK/su/home/.local/bin/42"
+! st_mine || mv "$WORK/su/shim42" "$WORK/su/home/.local/bin/42"
 
 if [ "$(grep -c '>>> 42 c-piscine setup >>>' "$WORK/su/home/.bashrc")" = "1" ] &&
    [ "$(grep -c 'pre-existing line' "$WORK/su/home/.bashrc")" = "1" ]; then
@@ -15923,7 +18643,7 @@ want_green "setup: ...the sandbox it ran in is" -- test -s "$WORK/su/repo/.bazel
 # first version chose on `[ -d /goinfre ]` alone, falling back to /tmp. Two
 # things were wrong with that away from campus: a /goinfre that exists but is
 # not writable killed the run outright, and /tmp is a RAM-backed tmpfs on many
-# Linux desktops, where an 8.9 GB build tree is 8.9 GB of memory.
+# Linux desktops, where a full build tree is that much memory.
 #
 # The sandbox has no /goinfre, so these pin the off-campus path: it lands in the
 # cache directory (which survives a reboot, unlike /tmp), and it says so.
@@ -15986,6 +18706,36 @@ mkdir -p "$WORK/su/hand"
 printf 'startup --output_user_root=%s\n' "$WORK/su/hand" > "$WORK/su/repo/.bazelrc.local"
 want_out "setup: a hand-written output_user_root is honoured" \
 	"$WORK/su/hand  -- already chosen" -- su_run "$SU_SHA"
+
+# HOW MUCH ROOM A FULL RUN TAKES is tools/drives.sh's DRIVES_FULL_GB, and both
+# scratch warnings print it; the free-space one fires below twice that figure.
+# A df that puts the scratch on tmpfs with exactly that many gigabytes free
+# gets both warnings, each with the figure; twice as many, on a disk, gets
+# neither. The df is a toy: the sandbox cannot make a filesystem of a given
+# size.
+_su_gb=$("$SH" -c '. "$1" && printf %s "$DRIVES_FULL_GB"' _ "$TOOLS/drives.sh")
+mkdir -p "$WORK/su/df"
+{
+	printf '#!/bin/sh\ncase "$*" in\n'
+	printf '*-T*) echo "Filesystem Type 1024-blocks Used Available Capacity Mounted"\n'
+	printf '\techo "/dev/toy $SU_DF_FS 999999999 0 $SU_DF_KB 0%% /" ;;\n'
+	printf '*) echo "Filesystem 1024-blocks Used Available Capacity Mounted"\n'
+	printf '\techo "/dev/toy 999999999 0 $SU_DF_KB 0%% /" ;;\nesac\n'
+} > "$WORK/su/df/df"
+chmod +x "$WORK/su/df/df"
+su_df() {  # su_df FS GB -- setup.sh, its scratch on FS with GB gigabytes free
+	( PATH="$WORK/su/df:$PATH" SU_DF_FS=$1 SU_DF_KB=$(($2 * 1048576))
+	  export PATH SU_DF_FS SU_DF_KB
+	  su_run "$SU_SHA" )
+}
+want_out "setup: a scratch in RAM is warned of, with the figure" \
+	"A full run of this repo is ~$_su_gb GB and would be held in memory." -- \
+	su_df tmpfs "$_su_gb"
+want_out "setup: ...and a full run's room, with the figure" \
+	"A full run of this repo is ~$_su_gb GB. Testing one module at a" -- \
+	su_df tmpfs "$_su_gb"
+want_broken_none "setup: ...never twice that, on a disk" \
+	"A full run of this repo is" -- su_df ext4 "$((_su_gb * 2))"
 
 # AND IT REPAIRS A CACHED TOOLCHAIN THAT POINTS AT A TOOL THAT IS GONE.
 #
@@ -16097,6 +18847,18 @@ want_green "setup: ...keeping the old line as a comment" -- \
 	grep -qF "# replaced by tools/setup.sh: startup --output_user_root=$WORK/su/keep/bazel" \
 	"$WORK/su/repo/.bazelrc.local"
 
+# A .bazelrc.local with the cap and no disk cache gets the disk cache. The
+# line was looked for by the bare word disk_cache, which the cap's flag
+# holds too, so that file never got one.
+printf 'startup --output_user_root=%s/keep/bazel\nbuild --experimental_disk_cache_gc_max_size=4G\n' \
+	"$WORK/su" > "$WORK/su/repo/.bazelrc.local"
+su_run "$SU_SHA" > /dev/null 2>&1
+want_green "setup: a cap with no disk cache gets the disk cache" -- \
+	grep -q '^build --disk_cache=' "$WORK/su/repo/.bazelrc.local"
+want_green "setup: ...and the cap stays the only one" -- \
+	sh -c '[ "$(grep -c -- "--experimental_disk_cache_gc_max_size=" "$1")" = 1 ]' _ \
+	"$WORK/su/repo/.bazelrc.local"
+
 # A ROOT ~/.bazelrc SETS is read after .bazelrc.local and wins over whatever
 # this script records there. It said nothing, and Bazel went on using the other
 # root; it reads the root back now and names the file that won.
@@ -16113,12 +18875,16 @@ rm -f "$WORK/su/home/.bazelrc"
 # fetched again, and the server on the old root left running. Now it records no
 # root while the wrapper keeps one, and says so.
 rm -f "$WORK/su/repo/.bazelrc.local"
-mkdir -p "$WORK/su/legacy"
+# The old root holds this checkout's output base: the folder Bazel writes
+# DO_NOT_BUILD_HERE in, naming its workspace (an empty one is not kept, the
+# wrapper's arms below).
+mkdir -p "$WORK/su/legacy/base"
+printf '%s' "$WORK/su/repo" > "$WORK/su/legacy/base/DO_NOT_BUILD_HERE"
 want_out "setup: off campus, the old root it already uses is kept" \
 	"tools/bazel keeps $WORK/su/legacy" -- \
 	su_env env C_PISCINE_CAMPUS=0 C_PISCINE_LEGACY_ROOT="$WORK/su/legacy" "$SH" tools/setup.sh
 want_green "setup: ...and no root is recorded over it" -- su_is ""
-rmdir "$WORK/su/legacy"
+rm -rf "$WORK/su/legacy"
 
 # FOLLOWING THE CAMPUS WARNING MOVES THE ROOT, end to end. init (and env_drift)
 # warn on a campus box whose checkout keeps its state in the quota'd home. The
@@ -16139,6 +18905,8 @@ su_init() {
 }
 want_out "setup: the campus warning names the command that moves it" \
 	"C_PISCINE_SCRATCH=$WORK/su/goinfre2/probe sh tools/setup.sh" -- su_init
+want_out "setup: ...and how big a full build is, from drives.sh" \
+	"a full build alone is about $_su_gb GB" -- su_init
 _su_to=$(su_init 2>&1 | sed -n 's/^ *C_PISCINE_SCRATCH=\([^ ]*\) sh tools\/setup\.sh$/\1/p' | tail -n 1)
 su_env env C_PISCINE_CAMPUS=1 C_PISCINE_GOINFRE="$WORK/su/goinfre2" \
 	C_PISCINE_SCRATCH="${_su_to:-$WORK/su/nothing-printed}" "$SH" tools/setup.sh > /dev/null 2>&1
@@ -16214,14 +18982,53 @@ want_out "bazel wrapper: ...but not under --noworkspace_rc" \
 	"ARG:--output_user_root=$WORK/bw/home/.cache" -- bw_run 0 --noworkspace_rc info
 rm -f "$WORK/bw/ws/.bazelrc.local"
 # The one exception, so that the change relocated nobody: off campus, a legacy
-# root that is already yours is kept. On campus it never is -- that is where it
-# was shared.
-mkdir -p "$WORK/bw/legacy"
+# root that is already yours, and already holds this checkout's output base, is
+# kept. On campus it never is -- that is where it was shared. An output base is
+# the folder Bazel writes DO_NOT_BUILD_HERE in, naming its workspace.
+bw_base() {  # bw_base ROOT -- plant the fixture checkout's output base there
+	mkdir -p "$1/base"
+	printf '%s' "$WORK/bw/ws" > "$1/base/DO_NOT_BUILD_HERE"
+}
+bw_base "$WORK/bw/legacy"
 want_out "bazel wrapper: off campus, your old shared-path root is kept" \
 	"ARG:--output_user_root=$WORK/bw/legacy" -- bw_run 0 info
 want_out "bazel wrapper: ...and on campus it is not" \
 	"ARG:--output_user_root=$WORK/bw/goinfre/probe/bazel" -- bw_run 1 info
-rmdir "$WORK/bw/legacy"
+rm -rf "$WORK/bw/legacy"
+# ...but only a root that holds THIS checkout's state, which is what keeping it
+# is for. Any old copy run once on the machine (an old clone, an old template
+# checked out to compare) creates the old root, and every current checkout
+# without a .bazelrc.local then moved there: a second server on a cold output
+# base, the warm one in the per-user root left running, orphaned.
+bw_root() {  # what drives_bazel_root answers for the fixture checkout, off campus
+	env HOME="$WORK/bw/home" USER=probe XDG_CACHE_HOME="$WORK/bw/home/.cache" \
+		C_PISCINE_CAMPUS=0 C_PISCINE_GOINFRE="$WORK/bw/no-goinfre" \
+		C_PISCINE_LEGACY_ROOT="$WORK/bw/legacy" \
+		"$SH" -c '. "$1/tools/drives.sh" && drives_bazel_root "$1"' _ "$WORK/bw/ws"
+}
+mkdir -p "$WORK/bw/legacy/other"
+printf '%s' "$WORK/bw/elsewhere" > "$WORK/bw/legacy/other/DO_NOT_BUILD_HERE"
+want_out "bazel wrapper: an old root holding none of this checkout is not kept" \
+	"ARG:--output_user_root=$WORK/bw/home/.cache/42-piscine/bazel" -- bw_run 0 info
+bw_base "$WORK/bw/home/.cache/42-piscine/bazel"
+bw_base "$WORK/bw/legacy"
+want_out "drives: a per-user root holding this checkout wins over the old one" \
+	"$WORK/bw/home/.cache/42-piscine/bazel" -- bw_root
+want_broken_none "drives: ...and the old root is not named" "$WORK/bw/legacy" -- bw_root
+rm -rf "$WORK/bw/legacy" "$WORK/bw/home/.cache/42-piscine/bazel"
+# A base names its workspace by the path Bazel saw, which may be the physical
+# one: a checkout reached through a symbolic link is still found in it.
+mkdir -p "$WORK/bw/legacy/base"
+( cd "$WORK/bw/ws" && pwd -P | tr -d '\n' ) > "$WORK/bw/legacy/base/DO_NOT_BUILD_HERE"
+ln -s "$WORK/bw/ws" "$WORK/bw/ws-link"
+bw_link() {
+	env HOME="$WORK/bw/home" USER=probe XDG_CACHE_HOME="$WORK/bw/home/.cache" \
+		C_PISCINE_CAMPUS=0 C_PISCINE_GOINFRE="$WORK/bw/no-goinfre" \
+		C_PISCINE_LEGACY_ROOT="$WORK/bw/legacy" \
+		"$SH" -c '. "$1/tools/drives.sh" && drives_bazel_root "$1"' _ "$WORK/bw/ws-link"
+}
+want_out "drives: ...and is found through a symbolic link" "$WORK/bw/legacy" -- bw_link
+rm -rf "$WORK/bw/legacy" "$WORK/bw/ws-link"
 # A C_PISCINE_SCRATCH it cannot use is never passed on, and it says so. A
 # relative one was: the probe made the directory in whatever folder `bazel`
 # was typed in, and Bazel was handed a relative root. Now it adds nothing,
@@ -16274,7 +19081,7 @@ want_green "prime: --background is a no-op the second time" -- pr_run
 # -- and the one that was wrong. setup.sh probes four candidates and records the
 # winner in .bazelrc.local; prime.sh guessed again from three unprobed ones, so
 # on any machine where setup.sh had a REASON to move (an unwritable /goinfre, a
-# /tmp too small for 8.9 GB) the two disagreed and prime.sh wrote gigabytes to
+# /tmp too small for a full run) the two disagreed and prime.sh wrote gigabytes to
 # the directory setup.sh had rejected.
 #
 # The assertion is positive: the path prime.sh announces its log at IS the
@@ -16327,10 +19134,10 @@ pr_scratch > /dev/null 2>&1
 #
 # The first version spun a bounded counter with no sleep. That is not a wait: it
 # completes in milliseconds, so under any load -- another test on the same box,
-# a busy CI -- it reaches its assertion before the subshell has run and reports
-# a correct prime.sh as broken. It did exactly that, intermittently, which is
-# worse than failing every time. One second per turn, breaking on the first,
-# costs nothing when things are healthy.
+# a second suite on the machine -- it reaches its assertion before the subshell
+# has run and reports a correct prime.sh as broken. It did exactly that,
+# intermittently, which is worse than failing every time. One second per turn,
+# breaking on the first, costs nothing when things are healthy.
 # Done means the SUBSHELL is done, not that it reached the shutdown: prime.sh
 # removes the tree AFTER the shutdown line, and the lock directory is the last
 # thing it removes. Waiting on the shutdown line alone raced the rm, and on a
@@ -16408,7 +19215,7 @@ pr_scratch > /dev/null 2>&1
 pr_wait
 if [ -e "$_pb/marker" ]; then
 	printf '  %-52s %s\n' "prime: deletes its disposable output base" \
-		"FAIL < (9 GB of scratch left behind)"
+		"FAIL < (gigabytes of scratch left behind)"
 	FAIL=$((FAIL + 1))
 else
 	printf '  %-52s %s\n' "prime: deletes its disposable output base" "ok (green, as required)"
@@ -16436,9 +19243,9 @@ want_out "prime: ...and ends it with the prime's status" 'END rc=0' -- pr_trace
 
 # ...but a FAILED prime must KEEP it. Deleting the tree unconditionally was
 # strictly worse than never deleting it: the sentinel is written only when both
-# halves succeed, so the next attempt would rebuild 9 GB from nothing instead of
-# resuming incrementally -- and prime.sh re-fires from every interactive shell,
-# so "the next attempt" can mean every terminal you open.
+# halves succeed, so the next attempt would rebuild gigabytes from nothing
+# instead of resuming incrementally -- and prime.sh re-fires from every
+# interactive shell, so "the next attempt" can mean every terminal you open.
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\ncase "$*" in *shutdown*) exit 0 ;; esac\nexit 1\n' \
 	"$WORK/pr/rec/argv.log" > "$WORK/pr/bin/bazelisk"
 chmod +x "$WORK/pr/bin/bazelisk"
@@ -16453,7 +19260,7 @@ if [ -e "$_pb/marker" ]; then
 	PASS=$((PASS + 1))
 else
 	printf '  %-52s %s\n' "prime: a FAILED prime keeps the tree to resume from" \
-		"FAIL < (deleted it, so the retry rebuilds 9 GB from nothing)"
+		"FAIL < (deleted it, so the retry rebuilds gigabytes from nothing)"
 	FAIL=$((FAIL + 1))
 fi
 want_out "prime: ...and its trace ends with the failure's status" 'END rc=1' -- pr_trace
@@ -16915,6 +19722,8 @@ want_red   "rush01 --sanitized: a sanitizer report is red" -- r1_san san
 want_out   "rush01 --sanitized: ...naming the vector" 'argv: "4 1 1 2 1 4 1 2 1 2 3 4 2 1 3 2"' -- \
 	r1_san san
 want_out   "rush01 --sanitized: ...with the report" 'heap-use-after-free' -- r1_san san
+want_out   "rush01 --sanitized: ...headed by what it was, in words" \
+	'the sanitizer stopped it at its first finding: it used a block after freeing it (heap-use-after-free)' -- r1_san san
 want_broken_none "rush01 --sanitized: ...not headed by SIGABRT's other causes (V50)" \
 	'stack smashing' -- r1_san san
 want_green "rush01 --sanitized: a clean solver passes" -- r1_san good
@@ -16949,6 +19758,16 @@ want_out   "rush01 --sanitized: ...two arguments, each the vector accepted alone
 want_red   "rush01 --sanitized: ...and so are the shape probes" -- r1_probes san_tab --probe-shape
 want_out   "rush01 --sanitized: ...the tab among them" '-- a tab between two values  [sanitizer]' -- \
 	r1_probes san_tab --probe-shape
+# The gate (runner_lib.sh's rl_gate): while the subject's own example is
+# red, the probes wait, and the SKIP line names the output test they wait
+# for (--gate-label). san_tab answers Error, never the example's grid.
+printf 'a grid\n' > "$WORK/r1/gate_grid.txt"
+want_out   "rush01: a red gate SKIPs, naming the test it waits for" \
+	'SKIP — ex00_subject_output, this exercise' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/rush01_check.sh" --quotes "$R1_QUOTES" --stderr-ignored "$R1_WHY" \
+		--bin "$WORK/r1/san_tab.sh" --label "selftest-probes" --gate-arg "4 3 2 1 1 2 2 2 4 3 2 1 1 2 2 2" --probes-only \
+		--probe-shape --gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/r1/san_tab.sh" \
+		--gate-expected "$WORK/r1/gate_grid.txt" --gate-label ex00_subject_output
 want_out   "rush01 --sanitized: ...every one run" 'all 6 case(s) of the corpus ran under ASan/UBSan' -- \
 	r1_probes good --probe-shape
 
@@ -17165,6 +19984,18 @@ want_out   "rush01: ...and on a 4x4, that it never finished" \
 	env RUSH01_MAX_TIMEOUTS=1 "$SH" "$TOOLS/rush01_check.sh" --quotes "$R1_QUOTES" --stderr-ignored "$R1_WHY" --bin "$WORK/r1/slow4.sh" \
 		--corpus "$WORK/r1/five.tsv" --max-size 9 --timeout 1 --label selftest-slow4-stop
 
+# ...and when the sweep did NOT stop (V85), the one 4x4 run past its own
+# limit was counted among the cases "judged wrong" ("1 of 10"). It did not
+# finish, so it is said apart, red, and never judged (ruling R4).
+r1_slow4() { "$SH" "$TOOLS/rush01_check.sh" --quotes "$R1_QUOTES" --stderr-ignored "$R1_WHY" \
+	--bin "$WORK/r1/slow4.sh" --corpus "$WORK/r1/corpus.tsv" --timeout 2 --label selftest-slow4-dnf; }
+later_red_out "rush01: a run past its own limit is counted apart" \
+	'and 1 did not finish within 2s each' -- r1_slow4
+later_red_none "rush01: ...never as judged wrong" '1 of 10 case(s) judged wrong' -- r1_slow4
+# ...and its note is indented as the verdict's other lines are (14), not 2.
+later_red_out "rush01: ...said in line with the verdict above it" \
+	'              An infinite loop, or a program too slow for these inputs.' -- r1_slow4
+
 # A solver that never built is not 438 wrong grids.
 cp "$STANDIN_BIN" "$WORK/r1/built_nothing.sh"
 want_red   "rush01: a stand-in is red"                         -- r1_run built_nothing
@@ -17290,8 +20121,51 @@ chmod +x "$WORK/r2"/*.sh
 # Every call says what stderr is held to (rush02_check.sh refuses one that
 # does not, exit 2 -- which would pass a floor arm for the wrong reason).
 R2_WHY="the selftest corpus is about stdout"
-r2_run() { "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
+# WHAT A REFUSAL SAID. An arm reads the runner's status, and exit 2 is the
+# harness's own fault, never a verdict: one run on a loaded machine failed 22
+# of these arms with "exit 2 = harness error" and nothing else, the next run
+# passed, and no log said what had refused. r2_said COMMAND... runs the
+# runner with its two streams passed through as they were written to each,
+# and on exit 2 also writes what it said where want_*'s silence does not
+# reach: descriptor 8, this file's log, opened here and closed at the end of
+# the section (the runner never holds it). What an arm asserts is unchanged.
+# Every arm of this section calls the runner through it, save those that
+# expect exit 2 (want_broken, and the empty corpus by hand).
+exec 8>&1
+r2_said() {
+	_r2s=$(mktemp "$WORK/r2/said.XXXXXX") || return 2
+	"$@" > "$_r2s.out" 2> "$_r2s.err" 8>&-
+	_r2s_rc=$?
+	cat "$_r2s.out"
+	cat "$_r2s.err" >&2
+	if [ "$_r2s_rc" -eq 2 ]; then
+		# Named by its --bin, so a deferred arm's words, which reach the log
+		# before its verdict does, can be matched to it.
+		_r2s_bin=""
+		_r2s_prev=""
+		for _r2s_a in "$@"; do
+			[ "$_r2s_prev" != --bin ] || _r2s_bin=${_r2s_a##*/}
+			_r2s_prev=$_r2s_a
+		done
+		{
+			printf '    the runner exited 2 (a harness error) on --bin %s, and said:\n' \
+				"${_r2s_bin:-(none)}"
+			sed -n '1,20s/^/    | /p' "$_r2s.err" "$_r2s.out"
+		} >&8
+	fi
+	rm -f "$_r2s" "$_r2s.out" "$_r2s.err"
+	return "$_r2s_rc"
+}
+r2_run() { r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
 	--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/$2.sh"; }
+# Proven on a flag the runner refuses: its words reach the log.
+r2_said_refusal() {
+	r2_said "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/agree.sh" --toy-flag \
+		8> "$WORK/r2/said.log" > /dev/null 2>&1
+	grep -qF 'unknown option: --toy-flag' "$WORK/r2/said.log" &&
+		grep -qF 'on --bin agree.sh,' "$WORK/r2/said.log"
+}
+want_green "rush02: a runner that refuses says why in the log" -- r2_said_refusal
 
 want_green "rush02: a converter matching the reference passes" -- r2_run agree oracle_full
 want_red   "rush02: one that disagrees everywhere fails"        -- r2_run disagree oracle_full
@@ -17329,7 +20203,7 @@ want_green "rush02: the right answer and a return of 255 is agreement" -- \
 # it away on every run. Now the call says what it is held to.
 printf '#!/bin/sh\nprintf "n%%s\\n" "$2"\necho "a note" >&2\n' > "$WORK/r2/chatty.sh"
 chmod +x "$WORK/r2/chatty.sh"
-r2_err() { "$SH" "$TOOLS/rush02_check.sh" --stderr-empty --show 2 --bin "$WORK/r2/$1.sh" \
+r2_err() { r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-empty --show 2 --bin "$WORK/r2/$1.sh" \
 	--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh"; }
 want_broken "rush02: a call that says nothing of stderr refuses" \
 	'say what standard error is held to' -- \
@@ -17348,7 +20222,7 @@ want_green "rush02: --stderr-empty passes a quiet converter" -- r2_err agree
 printf '#!/bin/sh\nexec sleep 20\n' > "$WORK/r2/hangs.sh"; chmod +x "$WORK/r2/hangs.sh"
 later_red_out "rush02: a converter that never ends is stopped, and said to be" \
 	's: an infinite loop, or too slow on' -- \
-	$SHORT "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/hangs.sh" \
+	r2_said $SHORT "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/hangs.sh" \
 		--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh"
 # A RUN PAST ITS OWN LIMIT, THEN A STOP BETWEEN CASES (V84). The stop said
 # "Each of the first 9 of 30 cases ended within its own limit" and "Either
@@ -17359,7 +20233,7 @@ later_red_out "rush02: a converter that never ends is stopped, and said to be" \
 printf '#!/bin/sh\ncase "$2" in\n  0) exec sleep 30 ;;\n  *) sleep 0.4; printf "n%%s\\n" "$2" ;;\nesac\n' \
 	> "$WORK/r2/hang_first.sh"
 chmod +x "$WORK/r2/hang_first.sh"
-r2_hang_first() { env -u RL_DEADLINE -u RL_BUDGET TEST_TIMEOUT=8 RL_MARGIN=1 RUSH02_TIMEOUT=2 \
+r2_hang_first() { r2_said env -u RL_DEADLINE -u RL_BUDGET TEST_TIMEOUT=8 RL_MARGIN=1 RUSH02_TIMEOUT=2 \
 	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/hang_first.sh" --dict "$WORK/r2/dict.txt" \
 	--oracle "$WORK/r2/oracle_full.sh" "$@"; }
 later_red_out "rush02 --sanitized: a stop after a run past its own limit names it" \
@@ -17368,6 +20242,34 @@ later_red_none "rush02 --sanitized: ...never that every case ended within its ow
 	'ended within its own limit' -- r2_hang_first --sanitized
 later_red_none "rush02: ...nor, in the plain replay, that it was judged wrong" \
 	'judged wrong before that' -- r2_hang_first --stderr-ignored "$R2_WHY"
+# ...and the stop names the marks of the lines it showed, as every other end
+# of the report does: case 1's expected: line holds a \n, and the stop said
+# what $ is and nothing of the \n.
+later_red_out "rush02: ...and names the marks of the lines it showed" \
+	'(byte for byte: \n a newline)' -- r2_hang_first --stderr-ignored "$R2_WHY"
+later_red_out "rush02 --settled: ...as its stop does" \
+	'(byte for byte: \n a newline)' -- r2_hang_first --stderr-ignored "$R2_WHY" --settled
+# A RUN PAST ITS OWN LIMIT, AND NO STOP (V85). Every case ran, and the verdict
+# counted the one that did not finish as a difference -- "29/30 agree, 1
+# differ", then "a difference here is one of two things" -- while --settled
+# listed it among the rules every reading agrees on. A run that did not
+# finish is said, and red, and never judged (ruling R4). The number 0 prints
+# "n0 " with no newline, then waits past its own 2 s: what it printed is
+# shown to its end (V71).
+printf '#!/bin/sh\ncase "$2" in\n  0) printf "n0 "; exec sleep 30 ;;\n  *) printf "n%%s\\n" "$2" ;;\nesac\n' \
+	> "$WORK/r2/hang0.sh"
+chmod +x "$WORK/r2/hang0.sh"
+r2_hang0() { r2_said env RUSH02_TIMEOUT=2 "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" \
+	--bin "$WORK/r2/hang0.sh" --dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh" "$@"; }
+later_red_out "rush02: a run past its own limit is counted apart" \
+	'29/30 agree, and 1 did not finish within 2s each' -- r2_hang0
+later_red_none "rush02: ...never as a difference" '1 differ' -- r2_hang0
+later_red_out "rush02: ...and what it printed is shown to its end" \
+	'having printed: n0 $' -- r2_hang0
+later_red_out "rush02 --settled: ...counted apart there too" \
+	'and 1 did not finish within 2s each' -- r2_hang0 --settled
+later_red_none "rush02 --settled: ...never as a rule every reading agrees on" \
+	'a run ends by itself under every reading' -- r2_hang0 --settled
 
 # EVERY BYTE OF A SHOWN CASE (finding 158). The report was a table that cut
 # the number at 24 characters and both strings at 34 without a mark, in the
@@ -17388,7 +20290,7 @@ cat > "$WORK/r2/long_wrong.sh" <<'R2_LONG'
 printf 'one two three four five six seven eight nine TEN\001\n'
 R2_LONG
 chmod +x "$WORK/r2/oracle_long.sh" "$WORK/r2/long_wrong.sh"
-r2_long() { env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/out" TEST_TARGET=//mod:ex00_diff \
+r2_long() { r2_said env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/out" TEST_TARGET=//mod:ex00_diff \
 	"$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/long_wrong.sh" \
 	--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_long.sh"; }
 want_out "rush02: a long number is shown whole" \
@@ -17417,7 +20319,7 @@ want_broken_none "rush02: ...and none they do not" 'backslash' -- r2_long
 } > "$WORK/r2/oracle_quote.sh"
 printf '#!/bin/sh\nprintf "one\\001twO\\n"\n' > "$WORK/r2/quote_wrong.sh"
 chmod +x "$WORK/r2/oracle_quote.sh" "$WORK/r2/quote_wrong.sh"
-r2_quote() { env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/outq" TEST_TARGET=//mod:ex00_diff \
+r2_quote() { r2_said env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/outq" TEST_TARGET=//mod:ex00_diff \
 	"$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/quote_wrong.sh" \
 	--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_quote.sh"; }
 r2_quote_caret() { r2_quote | grep -qx -- "$(printf '%23s' '')^ first difference: byte 7"; }
@@ -17441,7 +20343,7 @@ want_out "rush02: ...and its generated dictionary is kept to replay" \
 # The FIXED dictionary is kept too, so its replay line also runs from
 # test.outputs/: it named the dictionary's workspace path, which reached
 # nothing from there.
-r2_fixed() { env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/outf" TEST_TARGET=//mod:ex00_diff \
+r2_fixed() { r2_said env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/outf" TEST_TARGET=//mod:ex00_diff \
 	"$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/disagree.sh" \
 	--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh" --show 1; }
 want_out "rush02: a case on the fixed dictionary replays from test.outputs" \
@@ -17450,6 +20352,64 @@ want_green "rush02: ...where that dictionary is kept" -- \
 	grep -qx '0: zero' "$WORK/r2/outf/dict.txt"
 want_green "rush02: ...holding that case's dictionary" -- \
 	grep -qx '1: one' "$WORK/r2/out/case-1.dict"
+# A LONG NUMBER IS SHOWN CUT. The corpora hold numbers of about a thousand
+# digits, and a failing case printed each whole, its words too: the number:
+# line, both outputs and the replay line, a thousand bytes or more each, and
+# a ^ thousands of columns to the right. A corpus of such numbers, the first
+# on a dictionary of its own and the rest on the fixed one, and a converter
+# wrong at the last word of each: the number and both outputs are cut to
+# their first 300 bytes, the rest counted, where they part is shown around
+# that byte, and the replay line, which cannot be cut and still run, is kept
+# as a file. Only what is shown is cut: every case ran on all its bytes.
+_r2_num=$(LC_ALL=C awk 'BEGIN { s = "9"; for (i = 1; i < 1000; i++) s = s (i % 10); print s }')
+_r2_words=$(LC_ALL=C awk 'BEGIN { s = "nine"; for (i = 1; i < 600; i++) s = s " nine"; print s }')
+{
+	printf '#!/bin/sh\ncat <<%sEOF%s\n' "'" "'"
+	printf '0: zero\\n9: nine\t%s\t%s\n' "$_r2_num" "$_r2_words"
+	_i=1
+	while [ "$_i" -lt 20 ]; do printf '%s\t%s\n' "$_r2_num" "$_r2_words"; _i=$((_i + 1)); done
+	printf 'EOF\n'
+} > "$WORK/r2/oracle_huge.sh"
+printf '#!/bin/sh\nprintf "%%s\\n" "%s NINE"\n' "${_r2_words% nine}" > "$WORK/r2/huge_wrong.sh"
+chmod +x "$WORK/r2/oracle_huge.sh" "$WORK/r2/huge_wrong.sh"
+r2_huge() { r2_said env -u TEST_UNDECLARED_OUTPUTS_DIR "$@" "$SH" "$TOOLS/rush02_check.sh" \
+	--stderr-ignored "$R2_WHY" --bin "$WORK/r2/huge_wrong.sh" --dict "$WORK/r2/dict.txt" \
+	--oracle "$WORK/r2/oracle_huge.sh" --show 2; }
+r2_hugek() { r2_huge TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/outh" TEST_TARGET=//mod:ex00_diff; }
+want_broken_none "rush02: a 1000-digit number is not printed whole" \
+	"$(printf '%s' "$_r2_num" | cut -c 1-400)" -- r2_hugek
+want_out "rush02: ...its rendering says how much was left out" \
+	"number:   $(printf '%s' "$_r2_num" | cut -c 1-300) ... (700 more bytes)" -- r2_hugek
+want_out "rush02: ...and its outputs, each to its first 300 bytes" \
+	' ... (2700 more bytes)' -- r2_hugek
+want_out "rush02: ...where they part shown around that byte" \
+	'expected, from byte 2988: ' -- r2_hugek
+r2_widest() {  # r2_widest: no line of the report is longer than a cut one
+	_r2w=$(r2_hugek | LC_ALL=C awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')
+	[ "$_r2w" -le 400 ] && return 0
+	echo "a line of $_r2w bytes"
+	return 1
+}
+want_green "rush02: ...and no line is longer than a cut one" -- r2_widest
+want_out "rush02: ...a long replay line is kept as a file" \
+	'replay:   sh replay-case-1.sh (a command line of 1024 bytes, kept in bazel-testlogs/mod/ex00_diff/test.outputs/' -- \
+	r2_hugek
+want_out "rush02: ...on the fixed dictionary too" \
+	'replay:   sh replay-case-2.sh (a command line of 1021 bytes' -- r2_hugek
+# The kept line runs, from where it is kept, that very number on that case's
+# dictionary: a ./rush-02 there that prints its arguments.
+r2_huge_back() {
+	printf '#!/bin/sh\nprintf "%%s %%s\\n" "$1" "$2"\n' > "$WORK/r2/outh/rush-02"
+	chmod +x "$WORK/r2/outh/rush-02"
+	_r2b=$(cd "$WORK/r2/outh" && sh replay-case-1.sh)
+	[ "$_r2b" = "case-1.dict $_r2_num" ] && return 0
+	echo "it ran: $(printf '%s' "$_r2b" | cut -c 1-80)"
+	return 1
+}
+want_green "rush02: ...and runs that very case" -- r2_huge_back
+want_out "rush02: ...by hand, it is said not kept" \
+	'bytes, too long to show; only a run under bazel test keeps it)' -- \
+	r2_huge
 
 # ONE KNOB FOR HOW MANY CASES A REPORT SHOWS (finding 167). This runner showed
 # ten, hard-coded, while the knob the docs named -- DIFF_MAX_ROWS -- reached
@@ -17459,7 +20419,7 @@ want_green "rush02: ...holding that case's dictionary" -- \
 r2_rows() {
 	_rr_k=$1
 	shift
-	env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/rows$_rr_k$#" TEST_TARGET=//mod:ex00_diff \
+	r2_said env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/rows$_rr_k$#" TEST_TARGET=//mod:ex00_diff \
 		DIFF_MAX_ROWS="$_rr_k" "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" \
 		--bin "$WORK/r2/disagree.sh" --dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh" "$@"
 }
@@ -17488,6 +20448,37 @@ chmod +x "$WORK/r2/nonl.sh" "$WORK/r2/twonl.sh"
 want_red "rush02: the right words with no final newline disagree" -- r2_run nonl oracle_full
 want_red "rush02: ...and with two of them" -- r2_run twonl oracle_full
 want_out "rush02: ...shown as the \\n that is missing" 'expected: n0\n' -- r2_run nonl oracle_full
+# ...and the report says what that \n is, in words a reader can parse, and
+# as the two characters its lines show (echo, under dash, would print a
+# line break).
+want_out "rush02: ...and says the reference prints it" \
+	'after the words: the \n at the end' -- r2_run nonl oracle_full
+# ...broken where no line of it reads as a case's field: its second line
+# began "expected: line.", the label a case's expected output is shown under.
+want_broken_none "rush02: ...in no line that starts as a case's field" \
+	'  expected: line.' -- r2_run nonl oracle_full
+# AN OUTPUT THAT ENDS IN A SPACE (V71). rl_vis shows a space as a space, so
+# "n0 " at the end of a got: line read exactly as "n0". Each output's end is
+# marked with $, as rust_diff's and BSQ's lines are, and the report says so
+# once -- in the plain replay and under --settled, whose got: line this
+# converter's words fail too.
+printf '#!/bin/sh\nprintf "n%%s " "$2"\n' > "$WORK/r2/endspace.sh"
+chmod +x "$WORK/r2/endspace.sh"
+r2_end() { r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/endspace.sh" \
+	--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh" "$@"; }
+want_out "rush02: an output ending in a space shows the space" 'got:      n0 $' -- r2_end
+want_out "rush02 --settled: ...there too" 'got:      n0 $' -- r2_end --settled
+r2_end_legend() {  # r2_end_legend [--settled]: the mark is named once
+	_r2e_n=$(r2_end "$@" | grep -cF 'In the lines above, $ is where an output ended')
+	[ "$_r2e_n" = 1 ] && return 0
+	echo "named $_r2e_n times"
+	return 1
+}
+want_green "rush02: ...and the report says once what the mark is" -- r2_end_legend
+want_green "rush02 --settled: ...as its report does" -- r2_end_legend --settled
+# ...and gives $ no other meaning: a line above it once said \`| cat -e\`
+# marks the newline with $, one line before $ was where an output ended.
+want_broken_none "rush02: ...and gives \$ no other meaning" 'marks it' -- r2_end
 
 # STANDARD ERROR IS SHOWN, NEVER GRADED (finding 156). A debug line on stderr
 # was discarded here, so it was green and in no log at all, while anyone who
@@ -17543,11 +20534,11 @@ if [ "$SAN" = 1 ] &&
 		-o "$WORK/r2/ovf_asan" "$WORK/r2/ovf.c" 2> /dev/null &&
 	"$CC" -w -g -fsanitize=address,undefined -fno-sanitize-recover=all -fuse-ld=bfd \
 		-o "$WORK/r2/clean_asan" "$WORK/r2/clean.c" 2> /dev/null; then
-	r2_san() { env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/san" TEST_TARGET=//mod:ex00_diff_asan \
+	r2_san() { r2_said env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/san" TEST_TARGET=//mod:ex00_diff_asan \
 		"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/$1" --dict "$WORK/r2/dict.txt" \
 		--oracle "$WORK/r2/oracle_full.sh" --sanitized; }
 	want_green "rush02: the overflow prints the right words on the plain build" -- \
-		"$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/ovf_plain" --dict "$WORK/r2/dict.txt" \
+		r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/ovf_plain" --dict "$WORK/r2/dict.txt" \
 			--oracle "$WORK/r2/oracle_full.sh"
 	want_red "rush02 --sanitized: ...and the ASan build is red" -- r2_san ovf_asan
 	want_out "rush02 --sanitized: ...naming the first case it hit" \
@@ -17567,18 +20558,61 @@ fi
 printf '#!/bin/sh\nprintf "wrong\\n"\n' > "$WORK/r2/wrong_clean.sh"
 chmod +x "$WORK/r2/wrong_clean.sh"
 want_green "rush02 --sanitized: wrong words are not this arm's finding" -- \
-	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/wrong_clean.sh" --dict "$WORK/r2/dict.txt" \
+	r2_said "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/wrong_clean.sh" --dict "$WORK/r2/dict.txt" \
 		--oracle "$WORK/r2/oracle_full.sh" --sanitized
 # ...and its verdict says the number, an argument, was unwatched (finding
 # 071's class; it said nothing before the wave 6 review).
 want_out "rush02 --sanitized: ...saying its argument was unwatched" \
 	'Reads inside the argument strings, or past argv'"'"'s end, are invisible' -- \
-	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/wrong_clean.sh" --dict "$WORK/r2/dict.txt" \
+	r2_said "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/wrong_clean.sh" --dict "$WORK/r2/dict.txt" \
 		--oracle "$WORK/r2/oracle_full.sh" --sanitized
 # ...but a signal is, whatever it printed.
 want_red "rush02 --sanitized: a crash is" -- \
-	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/crasher.sh" --dict "$WORK/r2/dict.txt" \
+	r2_said "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/crasher.sh" --dict "$WORK/r2/dict.txt" \
 		--oracle "$WORK/r2/oracle_full.sh" --sanitized
+# A report that names a generated dictionary names the scratch file the
+# program was given; the case keeps it as case-N.dict, which the report
+# shows -- where it was kept. Run by hand there is nowhere to keep it, and
+# the report named a file that exists nowhere. A corpus of three fields,
+# each line's own dictionary, and a fake that reports on the number 14.
+{
+	printf '#!/bin/sh\ncat <<%sEOF%s\n' "'" "'"
+	_i=0
+	while [ "$_i" -lt 30 ]; do printf '0: zero\\n\t%s\tn%s\n' "$_i" "$_i"; _i=$((_i + 1)); done
+	printf 'EOF\n'
+} > "$WORK/r2/oracle_gen.sh"
+printf '#!/bin/sh\n[ "$2" != 14 ] || { echo "==1==ERROR: AddressSanitizer: heap-buffer-overflow while reading $1" >&2; kill -ABRT $$; }\nprintf "n%%s\\n" "$2"\n' \
+	> "$WORK/r2/sanpath.sh"
+chmod +x "$WORK/r2/oracle_gen.sh" "$WORK/r2/sanpath.sh"
+r2_sank() { r2_said env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/outs" TEST_TARGET=//mod:ex00_diff_asan \
+	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/sanpath.sh" --dict "$WORK/r2/dict.txt" \
+	--oracle "$WORK/r2/oracle_gen.sh" --sanitized; }
+r2_sanh() { r2_said env -u TEST_UNDECLARED_OUTPUTS_DIR "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/sanpath.sh" \
+	--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_gen.sh" --sanitized; }
+want_out "rush02 --sanitized: a report naming the dictionary shows the kept name" \
+	'heap-buffer-overflow while reading case-15.dict' -- r2_sank
+want_out "rush02 --sanitized: ...and says it did" \
+	'shown by the name it is kept under: case-15.dict)' -- r2_sank
+want_out "rush02 --sanitized: by hand the dictionary is said not kept" \
+	'generated for this case (a run under bazel test keeps it)' -- r2_sanh
+want_broken_none "rush02 --sanitized: ...and the report names no kept one" 'case-15.dict' -- r2_sanh
+# ...and so a report that names the fixed dictionary: the case keeps it
+# beside the generated ones and replays it by that name, and its report
+# named the path the runner was given, which no student has. Run by hand,
+# where it is not kept, the report names that path, the one the replay
+# line names.
+r2_sanf() { r2_said env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/r2/outsf" TEST_TARGET=//mod:ex00_diff_asan \
+	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/sanpath.sh" --dict "$WORK/r2/dict.txt" \
+	--oracle "$WORK/r2/oracle_full.sh" --sanitized; }
+r2_sanfh() { r2_said env -u TEST_UNDECLARED_OUTPUTS_DIR "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/sanpath.sh" \
+	--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh" --sanitized; }
+want_out "rush02 --sanitized: a report naming the fixed dictionary shows the kept name" \
+	'heap-buffer-overflow while reading dict.txt' -- r2_sanf
+want_out "rush02 --sanitized: ...and says it did" \
+	'shown by the name it is kept under: dict.txt)' -- r2_sanf
+want_out "rush02 --sanitized: by hand it names the dictionary's own path" \
+	"heap-buffer-overflow while reading $WORK/r2/dict.txt" -- r2_sanfh
+want_broken_none "rush02 --sanitized: ...and no kept name" 'name it is kept under' -- r2_sanfh
 # The checker's options, refused when they cannot mean one thing
 # (tools/runner_lib.sh, rl_mem_opt and rl_mem_ready): every corpus runner
 # takes them through the same two functions.
@@ -17598,7 +20632,8 @@ want_broken "corpus memory: --valgrind needs its tool directory" 'needs --valgri
 		--oracle "$WORK/r2/oracle_full.sh" --valgrind /nonexistent
 
 
-r2_run agree oracle_empty >/dev/null 2>&1
+"$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/agree.sh" \
+	--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_empty.sh" >/dev/null 2>&1
 _r2rc=$?
 if [ "$_r2rc" -eq 2 ]; then
 	printf '  %-52s %s\n' "rush02: an EMPTY corpus is a harness error, not 0/0" \
@@ -17621,19 +20656,19 @@ want_broken_none "rush02: ...and never calls it a convention" 'convention' -- \
 # RL_STANDIN); NO_SKIP=1 turns it red. These are the arms that were red at
 # strict and robust on Rush 02's unwritten stub.
 want_green "rush02 --sanitized: a stand-in is a SKIP" -- \
-	env -u NO_SKIP "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/built_nothing.sh" \
+	r2_said env -u NO_SKIP "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/built_nothing.sh" \
 		--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh" --sanitized
 want_out   "rush02 --sanitized: ...saying it was never built" 'was never built' -- \
-	env -u NO_SKIP "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/built_nothing.sh" \
+	r2_said env -u NO_SKIP "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/built_nothing.sh" \
 		--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh" --sanitized
 want_broken_none "rush02 --sanitized: ...and never that it ran clean" 'PASS' -- \
-	env -u NO_SKIP "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/built_nothing.sh" \
+	r2_said env -u NO_SKIP "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/built_nothing.sh" \
 		--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh" --sanitized
 want_red   "rush02 --sanitized: ...and NO_SKIP=1 turns it red" -- \
-	env NO_SKIP=1 "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/built_nothing.sh" \
+	r2_said env NO_SKIP=1 "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/r2/built_nothing.sh" \
 		--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh" --sanitized
 want_red   "rush02: ...while the plain replay stays red without it" -- \
-	env -u NO_SKIP "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/built_nothing.sh" \
+	r2_said env -u NO_SKIP "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/built_nothing.sh" \
 		--dict "$WORK/r2/dict.txt" --oracle "$WORK/r2/oracle_full.sh"
 
 # --settled (finding 160): the corpus gates at strict on what every reading
@@ -17665,7 +20700,7 @@ r2_conv s_error 'one two\n' 'Error\n'
 r2_conv s_dicterr 'Dict Error\n' 'Dict Error\n'
 r2_conv s_english 'one twenty\n' 'Dict Error\n'
 r2_conv s_silent '' 'Dict Error\n'
-r2_settled() { "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
+r2_settled() { r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
 	--dict "$WORK/r2/settled.dict" --oracle "$WORK/r2/oracle_settled.sh" --settled; }
 want_green "rush02 --settled: the reference's answers pass" -- r2_settled s_agree
 want_red   "rush02: \"and\" fails the whole comparison" -- r2_run s_and oracle_settled
@@ -17677,6 +20712,17 @@ want_green "rush02 --settled: -, \",\", a spaced value, combined scales" -- \
 	r2_settled s_bonus
 want_red   "rush02 --settled: Error for a valid number fails" -- r2_settled s_error
 want_out   "rush02 --settled: ...and says why" 'Error is for a number that is not a valid' -- r2_settled s_error
+# Its RESULT lists what fails: a run cut at its time limit is not among
+# them (counted apart, never judged), so the list names what is.
+want_out   "rush02 --settled: ...under a list of what fails" \
+	'nothing at all, a crash, or output without end' -- r2_settled s_error
+# The marks its shown lines hold are named, as the plain replay names them:
+# --settled printed no byte legend, on a fail or on an OK that showed a
+# composition.
+want_out   "rush02 --settled: ...whose marks are named" '(byte for byte: \n a newline' -- \
+	r2_settled s_error
+want_out   "rush02 --settled: ...as a composition's are" '(byte for byte: \n a newline' -- \
+	r2_settled s_and
 want_red   "rush02 --settled: Dict Error where it spells, fails" -- r2_settled s_dicterr
 want_out   "rush02 --settled: ...and says why" 'has every key of the reference dictionary' -- r2_settled s_dicterr
 want_red   "rush02 --settled: words not the dictionary's fail" -- r2_settled s_english
@@ -17711,21 +20757,27 @@ r2_shape sh_agree "$_r2_ok"
 r2_shape sh_teen "13) echo \"ten thr ee\" ;; ${_r2_ok#*;; }"
 r2_shape sh_round "3000000) echo \"thr ee mega k\" ;; $_r2_ok"
 r2_shape sh_bonus "13000) echo \"thir teen-k\" ;; $_r2_ok"
-r2_shapes() { "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
+r2_shapes() { r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
 	--dict "$WORK/r2/shapes.dict" --oracle "$WORK/r2/oracle_shapes.sh" --settled; }
 want_green "rush02 --settled: the shapes, spelled by their keys, pass" -- r2_shapes sh_agree
 want_red   "rush02 --settled: a teen spelled as two keys fails" -- r2_shapes sh_teen
 want_out   "rush02 --settled: ...and says what every reading spells" \
 	'every reading spells this number with its own keys'"'"' values, and only those: thir teen' -- \
 	r2_shapes sh_teen
+# ...cut where it is shown, as the expected: and got: lines above it are
+# (SHOW_W): a dictionary's value can be as long as the outputs it spells.
+r2_shapes_cut() { r2_said env RL_EXCERPT_WIDTH=5 "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" \
+	--bin "$WORK/r2/$1.sh" --dict "$WORK/r2/shapes.dict" --oracle "$WORK/r2/oracle_shapes.sh" --settled; }
+want_out   "rush02 --settled: ...cut to the width of the lines it sits under" \
+	'and only those: thir  ... (4 more bytes)' -- r2_shapes_cut sh_teen
 want_red   "rush02 --settled: a round number with a scale too many fails" -- r2_shapes sh_round
 want_red   "rush02 --settled: ...and so does another separator in a shape" -- r2_shapes sh_bonus
 # A KEY A DICTIONARY ADDS IS NO SHAPE (the wave 6 review). The subject lets a
 # dictionary hold keys the reference dictionary lacks, and the reference
-# composes without them (oracle/src/rush02.rs, compose_with): 45 beside 40
-# and 5 is "forty five" there, and the value of 45 under the reading that
-# uses the key -- a question the subject leaves open, which the shape rule
-# settled the other way, failing the reference's own composition. The shapes
+# composes without them: 45 beside 40 and 5 is "forty five" there, and the
+# value of 45 under the reading that uses the key -- a question the subject
+# leaves open, which the shape rule settled the other way, failing the
+# reference's own composition. The shapes
 # hold only the keys --dict, the reference dictionary, holds; 40 is one, and
 # a generated dictionary's 40 spelled with other values still fails.
 printf '5: five\n40: forty\n' > "$WORK/r2/added.dict"
@@ -17742,7 +20794,7 @@ printf '5: five\n40: forty\n' > "$WORK/r2/added.dict"
 chmod +x "$WORK/r2/oracle_added.sh"
 r2_shape ad_hyphen '45) echo "forty-five" ;; 40) echo "forty" ;;'
 r2_shape ad_forty '45) echo "forty five" ;; 40) echo "five forty" ;;'
-r2_added() { "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
+r2_added() { r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
 	--dict "$WORK/r2/added.dict" --oracle "$WORK/r2/oracle_added.sh" --settled; }
 want_green "rush02 --settled: a key the dictionary adds settles nothing" -- r2_added ad_hyphen
 want_broken_none "rush02 --settled: ...and is never called the spelling" 'only those: xyz' -- \
@@ -17756,7 +20808,7 @@ want_out   "rush02 --settled: ...and says what every reading spells" \
 printf '#!/bin/sh\nif [ "$2" -lt 100 ]; then echo "one two"; else echo "Dict Error"; fi\necho "a note" >&2\n' \
 	> "$WORK/r2/s_chatty.sh"
 chmod +x "$WORK/r2/s_chatty.sh"
-r2_settled_quiet() { "$SH" "$TOOLS/rush02_check.sh" --stderr-empty --bin "$WORK/r2/$1.sh" \
+r2_settled_quiet() { r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-empty --bin "$WORK/r2/$1.sh" \
 	--dict "$WORK/r2/settled.dict" --oracle "$WORK/r2/oracle_settled.sh" --settled; }
 want_green "rush02 --settled: a message on stderr is not judged unless asked" -- r2_settled s_chatty
 want_red   "rush02 --settled: --stderr-empty fails it" -- r2_settled_quiet s_chatty
@@ -17775,10 +20827,10 @@ chmod +x "$WORK/r2/oracle_gen.sh"
 r2_conv s_gen_own 'six cinq\n' ''
 r2_conv s_gen_english 'five\n' ''
 want_green "rush02 --settled: a generated dict's values pass" -- \
-	"$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/s_gen_own.sh" --dict "$WORK/r2/settled.dict" \
+	r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/s_gen_own.sh" --dict "$WORK/r2/settled.dict" \
 	--oracle "$WORK/r2/oracle_gen.sh" --settled
 want_red   "rush02 --settled: ...and words from elsewhere do not" -- \
-	"$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/s_gen_english.sh" --dict "$WORK/r2/settled.dict" \
+	r2_said "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/s_gen_english.sh" --dict "$WORK/r2/settled.dict" \
 	--oracle "$WORK/r2/oracle_gen.sh" --settled
 # The gate (runner_lib.sh's rl_gate), as every diff layer has one: while the
 # subject's own example (`BIN DICT 42`) is red, a judging run says SKIP and
@@ -17793,7 +20845,7 @@ if [ "$2" = 42 ]; then echo "forty two"; elif [ "$2" -lt 100 ]; then echo "one t
 R2_GATE
 chmod +x "$WORK/r2/differ_broken.sh" "$WORK/r2/s_gate_ok.sh"
 r2_gated() { # CONVERTER DIFFER [NO_SKIP]
-	env NO_SKIP="${3:-0}" "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
+	r2_said env NO_SKIP="${3:-0}" "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/$1.sh" \
 		--dict "$WORK/r2/settled.dict" --oracle "$WORK/r2/oracle_settled.sh" --settled \
 		--gate-differ "$2" --gate-bin "$WORK/r2/$1.sh" \
 		--gate-expected "$WORK/r2/forty_two.txt" --gate-number 42
@@ -17802,6 +20854,11 @@ want_green "rush02 --settled: waits while the example is red" -- \
 	r2_gated s_english "$TOOLS/diff_output.sh"
 want_out   "rush02 --settled: ...and says so" "SKIP — this exercise's own output fixture" -- \
 	r2_gated s_english "$TOOLS/diff_output.sh"
+want_out   "rush02 --settled: ...naming the test it waits for" 'SKIP — ex00_dict_arg_42_output, this exercise' -- \
+	env NO_SKIP=0 "$SH" "$TOOLS/rush02_check.sh" --stderr-ignored "$R2_WHY" --bin "$WORK/r2/s_english.sh" \
+		--dict "$WORK/r2/settled.dict" --oracle "$WORK/r2/oracle_settled.sh" --settled \
+		--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/r2/s_english.sh" \
+		--gate-expected "$WORK/r2/forty_two.txt" --gate-number 42 --gate-label ex00_dict_arg_42_output
 want_red   "rush02 --settled: ...which NO_SKIP=1 forces open" -- \
 	r2_gated s_english "$TOOLS/diff_output.sh" 1
 want_red   "rush02 --settled: ...and runs once the example passes" -- \
@@ -17825,6 +20882,7 @@ want_out   "rush02 --settled: ...naming this test to force it open" \
 want_out   "rush02 --settled: ...and run by hand, a module's tests" \
 	'(bazel test //<course>/<project>/... --test_env=NO_SKIP=1 runs it anyway.)' -- \
 	r2_gated_as "" s_english "$TOOLS/diff_output.sh"
+exec 8>&-
 
 # ------------------------------------------------------------------- submit
 # The tool that pushes to 42, which had no arm of any kind -- and the defects
@@ -17840,12 +20898,12 @@ want_out   "rush02 --settled: ...and run by hand, a module's tests" \
 # Two project folders, one at the root and one under a course folder, because a
 # module id is a PATH and the nested form is the one the repo actually uses.
 # Each has a BUILD.bazel: a row with a live remote must name a project folder.
-mkdir -p "$WORK/sb/ws/c-piscine-c-00/deliverable" "$WORK/sb/ws/.vscode" \
-	"$WORK/sb/ws/c-piscine/c-piscine-c-00/deliverable"
-: > "$WORK/sb/ws/c-piscine-c-00/BUILD.bazel"
-: > "$WORK/sb/ws/c-piscine/c-piscine-c-00/BUILD.bazel"
+mkdir -p "$WORK/subm/ws/c-piscine-c-00/deliverable" "$WORK/subm/ws/.vscode" \
+	"$WORK/subm/ws/c-piscine/c-piscine-c-00/deliverable"
+: > "$WORK/subm/ws/c-piscine-c-00/BUILD.bazel"
+: > "$WORK/subm/ws/c-piscine/c-piscine-c-00/BUILD.bazel"
 printf '{ "42header.username": "marvin", "42header.email": "marvin@42.fr" }\n' \
-	> "$WORK/sb/ws/.vscode/settings.json"
+	> "$WORK/subm/ws/.vscode/settings.json"
 
 # A copy of the real script with its FIRST table row replaced per fixture.
 #
@@ -17857,16 +20915,16 @@ printf '{ "42header.username": "marvin", "42header.email": "marvin@42.fr" }\n' \
 sb_make() {
 	awk -v row="$1" '
 		!d && $0 == "REMOTES='"'"'" { print; getline; print row; d = 1; next }
-		{ print }' "$TOOLS/submit.sh" > "$WORK/sb/$2.sh"
-	if ! grep -qxF -- "$1" "$WORK/sb/$2.sh"; then
+		{ print }' "$TOOLS/submit.sh" > "$WORK/subm/$2.sh"
+	if ! grep -qxF -- "$1" "$WORK/subm/$2.sh"; then
 		printf '  %-52s %s\n' "submit: fixture '$2' holds its row" \
 			"FAIL < (the row was not written; every arm on it is vacuous)"
 		FAIL=$((FAIL + 1))
 	fi
 }
 sb_run() {
-	env BUILD_WORKSPACE_DIRECTORY="$WORK/sb/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
-		"$SH" "$WORK/sb/$1.sh" -n --no-gate ${2:+"$2"}
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/subm/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
+		"$SH" "$WORK/subm/$1.sh" -n --no-gate ${2:+"$2"}
 }
 
 # 1. A COMMENTED-OUT ROW MUST NOT BE PUSHED. `for entry in $REMOTES` word-split
@@ -17919,8 +20977,8 @@ want_out "submit: ... named by its project name alone" \
 want_out "submit: ... and with tab completion's trailing /" \
 	"==>  c-piscine/c-piscine-c-00 " -- sb_run nest c-piscine/c-piscine-c-00/
 want_green "submit: ... and named both ways, it is one module" -- \
-	env BUILD_WORKSPACE_DIRECTORY="$WORK/sb/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
-	"$SH" "$WORK/sb/nest.sh" -n --no-gate c-piscine-c-00 c-piscine/c-piscine-c-00
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/subm/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
+	"$SH" "$WORK/subm/nest.sh" -n --no-gate c-piscine-c-00 c-piscine/c-piscine-c-00
 want_broken "submit: a name that normalises to nothing is refused" \
 	"empty module name" -- sb_run nest /
 sb_make 'c-piscine/c-piscine-c-00/ = git@example.invalid:tslash' ts
@@ -17975,6 +21033,121 @@ printf 'c-piscine/c-piscine-c-00=git@example.invalid:one\nc-piscine-c-00=git@exa
 	> "$WORK/sr/ws/.submit-remotes"
 want_red "submit: ... two URLs for one module fail the run" -- sr_run
 want_broken_none "submit: ... and neither is used" "==>  c-piscine/c-piscine-c-00" -- sr_run
+#    The short name `42` takes everywhere else (c-00) is a key too, by the
+#    rule `42` and first_red name a project with. It used to name no module:
+#    the module was skipped as having no URL, and the key reported.
+printf 'c-00=git@example.invalid:short\n' > "$WORK/sr/ws/.submit-remotes"
+want_out "submit: ... a short-name key gives the module its URL" \
+	"->  git@example.invalid:short" -- sr_run
+want_green "submit: ... and is not reported as naming no module" -- sr_run
+#    Reading the keys costs the same per key whatever the table holds. When
+#    short names came in, every key read the whole table again, one sed per
+#    half-row, and a .submit-remotes with a key for each module made a dry run
+#    ten times slower. Counted rather than timed, so a loaded machine cannot
+#    fail it: the sed runs one dry run makes with a key for every row of the
+#    real table, less those it makes with one key, at most eight per key.
+#    That counts sed runs and nothing else. The other half of the slowdown,
+#    a $(short_name ...) subshell for each key and row, runs no sed, and a
+#    fork is not something a stand-in on PATH can count; sr_nofork, below,
+#    holds that half.
+mkdir -p "$WORK/sr/bin"
+printf '#!/bin/sh\necho sed >> "$SR_SEDS"\nexec %s "$@"\n' "$(command -v sed)" > "$WORK/sr/bin/sed"
+chmod +x "$WORK/sr/bin/sed"
+sed -n "/^REMOTES='\$/,/^'\$/s/^\([^=]*\)=.*/\1/p" "$TOOLS/submit.sh" |
+	sed -e '/^REMOTES$/d' -e 's:.*/c-piscine-:c-piscine-:' -e 's/^c-piscine-//' \
+		-e 's/$/=git@example.invalid:k/' \
+	> "$WORK/sr/every.keys"
+sr_seds() {  # sr_seds KEYS-FILE: how many seds one dry run of c-piscine-c-00 runs
+	cp "$1" "$WORK/sr/ws/.submit-remotes"
+	: > "$WORK/sr/seds"
+	env PATH="$WORK/sr/bin:$PATH" SR_SEDS="$WORK/sr/seds" \
+		BUILD_WORKSPACE_DIRECTORY="$WORK/sr/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
+		"$SH" "$TOOLS/submit.sh" -n --no-gate c-piscine-c-00 > /dev/null 2>&1 || return 1
+	grep -c . "$WORK/sr/seds"
+}
+sr_per_key() {
+	printf 'c-00=git@example.invalid:k\n' > "$WORK/sr/one.keys"
+	_srn=$(grep -c . "$WORK/sr/every.keys")
+	_sr1=$(sr_seds "$WORK/sr/one.keys") && _srall=$(sr_seds "$WORK/sr/every.keys") || return 1
+	echo "$_srn keys: $_srall seds; one key: $_sr1"
+	[ "$_srn" -gt 10 ] && [ "$((_srall - _sr1))" -le "$((8 * (_srn - 1)))" ]
+}
+want_green "submit: ... and a key costs the same however long the table" -- sr_per_key
+#    The code a key runs once for every row -- key_names, ovr_lookup, and the
+#    loop that looks for a key naming two modules -- makes no command
+#    substitution, $(...) or `...`: each is a subshell, forked once per key
+#    and row. Read from the script's text, so it holds those three blocks as
+#    written, not a function they call that is not one of them, and not
+#    what a run costs; a mutated copy, key_names forking for its third
+#    comparison, shows the check tells.
+sr_nofork() {  # sr_nofork SCRIPT: SCRIPT's per-key code makes no command substitution
+	awk '
+		/^(key_names|ovr_lookup)\(\) \{$/ || /^AMBIGUOUS=0$/ { on = 1; seen++ }
+		on && !/^[ \t]*#/ && (/\$\([^(]/ || /`/) { print FNR ": " $0; bad = 1 }
+		on && (/^\}$/ || /^OVERRIDES$/) { on = 0 }
+		END {
+			if (seen != 3) { print "found " seen + 0 " of the 3 blocks"; exit 1 }
+			exit bad
+		}' "$1"
+}
+want_green "submit: ... and forks no subshell per key and row" -- sr_nofork "$TOOLS/submit.sh"
+sed 's/|| \[ "\$1" = "\$3" \]$/|| [ "$1" = "$(printf %s "$3")" ]/' "$TOOLS/submit.sh" > "$WORK/sr/forks.sh"
+want_red "submit: ... which a key_names that forks fails" -- sr_nofork "$WORK/sr/forks.sh"
+#    A key that names two modules is a guess about which one, so it is
+#    refused before anything is pushed. A second row whose folder has the
+#    same name as a real module's, under another course folder, makes one.
+sb_make 'c-piscine-c-01=REPLACE_ME' amb
+mkdir -p "$WORK/subm/ws/c-piscine/c-piscine-c-01"
+: > "$WORK/subm/ws/c-piscine/c-piscine-c-01/BUILD.bazel"
+printf 'c-01=git@example.invalid:amb\n' > "$WORK/subm/ws/.submit-remotes"
+want_red "submit: ... a key that names two modules fails the run" -- sb_run amb
+want_out "submit: ... and says which modules it names" \
+	"c-01 names more than one module: c-piscine-c-01 c-piscine/c-piscine-c-01" -- sb_run amb
+want_broken_none "submit: ... and nothing is submitted" "==>  " -- sb_run amb
+#    --url gives the one module named its repository on the command line
+#    (`42 submit c-00 URL` passes it), and no line of the file has a say in
+#    where that push goes: neither a key naming two modules nor, below, two
+#    URLs for the one named. Every other module stays out of the run.
+sb_url() {
+	_sbf=$1; shift
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/subm/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
+		"$SH" "$WORK/subm/$_sbf.sh" -n --no-gate "$@"
+}
+want_out "submit: --url pushes past a key that names two modules" \
+	"->  git@example.invalid:given" -- \
+	sb_url amb c-piscine/c-piscine-c-01 --url git@example.invalid:given
+want_broken_none "submit: ... and to no URL of the file" "example.invalid:amb" -- \
+	sb_url amb c-piscine/c-piscine-c-01 --url git@example.invalid:given
+rm -rf "$WORK/subm/ws/.submit-remotes" "$WORK/subm/ws/c-piscine/c-piscine-c-01"
+sr_url() {
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/sr/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
+		"$SH" "$TOOLS/submit.sh" -n --no-gate "$@"
+}
+printf 'c-piscine/c-piscine-c-00=git@example.invalid:one\nc-00=git@example.invalid:two\n' \
+	> "$WORK/sr/ws/.submit-remotes"
+want_out "submit: --url wins over two URLs for the module" \
+	"->  git@example.invalid:given" -- sr_url c-piscine-c-00 --url git@example.invalid:given
+want_broken "submit: --url with two modules is refused" "name exactly one module" -- \
+	sr_url c-piscine-c-00 c-piscine-c-01 --url git@example.invalid:given
+want_broken "submit: --url with no module is refused" "name exactly one module" -- \
+	sr_url --url git@example.invalid:given
+want_broken "submit: an empty --url is refused" "needs a repository URL" -- \
+	sr_url c-piscine-c-00 --url ""
+want_broken "submit: a --url holding a blank is refused" "needs a repository URL" -- \
+	sr_url c-piscine-c-00 --url "git@example.invalid: x"
+want_red "submit: --url for a module not in the table fails" -- \
+	sr_url c-piscine-c-77 --url git@example.invalid:given
+want_broken_none "submit: ... and pushes nothing" "==>  " -- \
+	sr_url c-piscine-c-77 --url git@example.invalid:given
+
+#    A '=' in a line's comment alone makes no KEY=URL of it: asked before the
+#    comment was cut, `c-piscine-c-00 # note=x` was the module pushed to the
+#    "URL" c-piscine-c-00.
+printf 'c-piscine-c-00 # note=x\n' > "$WORK/sr/ws/.submit-remotes"
+want_broken_none "submit: ... a '=' in a comment alone is no URL" \
+	"->  c-piscine-c-00" -- sr_run
+want_out "submit: ... and the line is called malformed" \
+	'malformed .submit-remotes line (no "=" before any comment)' -- sr_run
 
 # 10. WHAT GETS PUSHED IS WRITTEN DOWN, and -n lists it: the deliverable as it
 #     is on disk, ignored files included, build products out. The list comes
@@ -18164,6 +21337,17 @@ want_green "submit: with it gone, the module is pushed" -- se_run c-piscine-c-00
 want_green "submit: ... and the push carries no program" -- \
 	sh -c '! git --git-dir="$1" ls-tree -r --name-only master | grep -q prog' _ "$WORK/se/remote.git"
 : > "$WORK/se/ws/c-piscine/c-piscine-c-00/BUILD.bazel"
+# --url pushes to the repository it names, and the one .submit-remotes names
+# is left where it was.
+git init -q --bare "$WORK/se/given.git"
+_se_kept=$(git --git-dir="$WORK/se/remote.git" rev-parse master 2>/dev/null)
+want_green "submit: --url pushes to the repository it names" -- \
+	se_run c-piscine-c-00 --url "$WORK/se/given.git"
+want_green "submit: ... the deliverable as it is on disk" -- \
+	sh -c 'git --git-dir="$1" show master:ex00/a.txt | cmp -s - "$2"' _ \
+	"$WORK/se/given.git" "$_sed/ex00/a.txt"
+want_green "submit: ... and not to the one .submit-remotes names" -- \
+	test "$(git --git-dir="$WORK/se/remote.git" rev-parse master 2>/dev/null)" = "$_se_kept"
 
 # An unknown --gate-level lists the levels and the layers each adds, read from
 # docs/reference.md's layer table -- the one written copy of the ladder -- so
@@ -18182,25 +21366,40 @@ want_broken "submit: ... and the level names with no table" 'basic, strict, robu
 #    is most often the student's own code: a syntax error, a leftover main() or
 #    a missing turn-in file. The gate used to call exit 1 "NOT a verdict on
 #    your code". A stand-in bazel on PATH replays the stderr FAKE_BAZEL_ERR
-#    names with the status FAKE_BAZEL_RC asks for; `shutdown` succeeds. It
+#    names with the status FAKE_BAZEL_RC asks for, and the stdout
+#    FAKE_BAZEL_OUT names when that is set; `shutdown` succeeds. It
 #    writes each command line it is given to FAKE_BAZEL_ARGV, one per line,
 #    and the advisory run (the one filtered on -manual) exits with
-#    FAKE_BAZEL_ADV_RC when that is set (section 14). The row's remote is
+#    FAKE_BAZEL_ADV_RC when that is set, after the stdout FAKE_BAZEL_ADV_OUT
+#    and the stderr FAKE_BAZEL_ADV_ERR name (section 14). The row's remote is
 #    example.invalid, and a blocked gate never reaches the push anyway.
+#
+#    Each fixture puts a line on the stream real Bazel prints it on
+#    (measured on 9.2.0, with both streams sent to files as the gate sends
+#    them): the build's errors, its INFO lines and each "FAIL: //t (see
+#    LOG)" on stderr; the summary, one "//t  FAILED in" line per red test
+#    with its log under it, and "Executed N out of M tests", on stdout, as
+#    is --test_output=errors' "Test output for" block. So a reader of the
+#    gate's output that reads the wrong stream finds nothing here, as it
+#    would in a real run.
 #
 #    build.err is the stderr of a real capture (C 11 ex00, a semicolon dropped
 #    from its stub): the compiler line comes early and more than fifteen lines
 #    follow it, as they do in a real run, so only the filter that looks for it
 #    can quote it -- the old branch printed the last fifteen lines, and an arm
 #    over a four-line stderr could not tell the two apart.
-mkdir -p "$WORK/sb/bin"
+mkdir -p "$WORK/subm/bin"
 {
 	printf '#!/bin/sh\n[ -z "${FAKE_BAZEL_ARGV:-}" ] || printf "argv: %%s\\n" "$*" >> "$FAKE_BAZEL_ARGV"\n'
 	printf 'for a; do [ "$a" = shutdown ] && exit 0; done\n'
-	printf 'case " $* " in *" --test_tag_filters=-manual "*) [ -z "${FAKE_BAZEL_ADV_RC:-}" ] || exit "$FAKE_BAZEL_ADV_RC" ;; esac\n'
+	printf 'case " $* " in *" --test_tag_filters=-manual "*)\n'
+	printf '\t[ -z "${FAKE_BAZEL_ADV_OUT:-}" ] || cat "$FAKE_BAZEL_ADV_OUT"\n'
+	printf '\t[ -z "${FAKE_BAZEL_ADV_ERR:-}" ] || cat "$FAKE_BAZEL_ADV_ERR" >&2\n'
+	printf '\t[ -z "${FAKE_BAZEL_ADV_RC:-}" ] || exit "$FAKE_BAZEL_ADV_RC" ;;\nesac\n'
+	printf '[ -z "${FAKE_BAZEL_OUT:-}" ] || cat "$FAKE_BAZEL_OUT"\n'
 	printf 'cat "$FAKE_BAZEL_ERR" >&2\nexit "${FAKE_BAZEL_RC:-1}"\n'
-} > "$WORK/sb/bin/bazel"
-chmod +x "$WORK/sb/bin/bazel"
+} > "$WORK/subm/bin/bazel"
+chmod +x "$WORK/subm/bin/bazel"
 {
 	printf '%s\n' \
 		"INFO: Analyzed 162 targets (0 packages loaded, 0 targets configured)." \
@@ -18220,11 +21419,24 @@ chmod +x "$WORK/sb/bin/bazel"
 		"INFO: Build succeeded for only 153 of 162 top-level targets" \
 		"INFO: Found 23 targets and 139 test targets..." \
 		"ERROR: Build did NOT complete successfully"
-} > "$WORK/sb/build.err"
-#    harness.err is the stderr of the oracle's main.rs broken under answers
+} > "$WORK/subm/build.err"
+#    ...and a summary on stdout, one line per FAIL above. This one is
+#    modelled, not captured: it is not the stdout of the run build.err comes
+#    from, but written from that run's FAIL lines in the layout a real run's
+#    summary was measured to have (above). A captured exit-1 summary may
+#    hold lines this one does not.
+{
+	for _t in ex01_output ex01_diff ex02_output ex02_diff ex03_output ex03_diff \
+		ex04_output ex04_diff ex05_output ex05_unknownword_output ex06_output \
+		ex06_diff ex07_output ex07_diff; do
+		printf '//c-piscine/c-piscine-c-11:%-40s FAILED in 0.1s\n' "$_t"
+		printf '  /tmp/bazelcache/x/execroot/_main/bazel-out/k8-fastbuild/testlogs/c-piscine/c-piscine-c-11/%s/test.log\n' "$_t"
+	done
+} > "$WORK/subm/build.out"
+#    harness.err is the stderr of the oracle's entry point broken under answers
 #    that pass (the capture first_red's harness arm keeps): exit 1 as well, and
 #    no line names a file of the student's.
-cat > "$WORK/sb/harness.err" <<'SB_HARNESS'
+cat > "$WORK/subm/harness.err" <<'SB_HARNESS'
 INFO: Analyzed 143 targets (0 packages loaded, 160 targets configured).
 ERROR: /home/you/42/oracle/BUILD.bazel:9:12: Compiling Rust bin oracle (24 files) failed: (Exit 1): process_wrapper failed: error executing Rustc command (from rust_binary rule target //oracle:oracle) bazel-out/k8-opt-exec/bin/external/rules_rust+/util/process_wrapper/process_wrapper --subst 'pwd=${pwd}' --subst 'exec_root=${exec_root}' --subst 'output_base=${output_base}' -- ... (remaining 2 arguments skipped)
 
@@ -18247,11 +21459,13 @@ INFO: 96 processes: 586 action cache hit, 2 internal, 188 processwrapper-sandbox
 ERROR: Build did NOT complete successfully
 SB_HARNESS
 sb_make 'c-piscine-c-00=git@example.invalid:gate' gate
-sb_gate() {  # sb_gate STATUS STDERR-FIXTURE
-	env PATH="$WORK/sb/bin:$PATH" FAKE_BAZEL_RC="$1" FAKE_BAZEL_ERR="$WORK/sb/$2.err" \
-		FAKE_BAZEL_ARGV="$WORK/sb/argv" \
-		BUILD_WORKSPACE_DIRECTORY="$WORK/sb/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
-		"$SH" "$WORK/sb/gate.sh" c-piscine-c-00
+sb_gate() {  # sb_gate STATUS FIXTURE: FIXTURE.err on stderr, FIXTURE.out (if any) on stdout
+	_sbo=/dev/null
+	[ ! -f "$WORK/subm/$2.out" ] || _sbo="$WORK/subm/$2.out"
+	env PATH="$WORK/subm/bin:$PATH" FAKE_BAZEL_RC="$1" FAKE_BAZEL_ERR="$WORK/subm/$2.err" \
+		FAKE_BAZEL_OUT="$_sbo" FAKE_BAZEL_ARGV="$WORK/subm/argv" \
+		BUILD_WORKSPACE_DIRECTORY="$WORK/subm/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
+		"$SH" "$WORK/subm/gate.sh" c-piscine-c-00
 }
 want_out "submit: a gate that does not build says so" \
 	"the module does NOT BUILD" -- sb_gate 1 build
@@ -18260,10 +21474,17 @@ want_out "submit: ... quotes the compiler's own line" \
 want_broken_none "submit: ... and never calls it no verdict on the code" \
 	"NOT a verdict" -- sb_gate 1 build
 want_red "submit: ... and fails the run" -- sb_gate 1 build
-#    link.err: a leftover main() in C 01 ex06 (the capture first_red's link arm
-#    keeps). The linker names object files only, so what ties it to the student
-#    is the exercise target whose link failed.
-sed -n '/^ERROR: .*Linking/,/^clang: error/p' "$WORK/fr/link_nok.log" > "$WORK/sb/link.err"
+#    link.err: a leftover main() in C 01 ex06 (the error lines of the capture
+#    first_red's link arm keeps, written again here: that capture is another
+#    section's fixture). The linker names object files only, so what ties it
+#    to the student is the exercise target whose link failed.
+cat > "$WORK/subm/link.err" <<'SB_LINK'
+ERROR: /home/you/42/c-piscine/c-piscine-c-01/BUILD.bazel:49:11: Linking c-piscine/c-piscine-c-01/ex06_bin failed: (Exit 1): clang.sh failed: error executing CppLink command (from cc_binary rule target //c-piscine/c-piscine-c-01:ex06_bin) tools/cc_toolchain/clang.sh @bazel-out/k8-fastbuild/bin/c-piscine/c-piscine-c-01/ex06_bin-0.params
+Use --sandbox_debug to see verbose messages from the sandbox and retain the sandbox build root for debugging
+external/+deb_archive+binutils_x86_64_linux_gnu/usr/bin/x86_64-linux-gnu-ld.gold: error: bazel-out/k8-fastbuild/bin/c-piscine/c-piscine-c-01/_objs/ft_strlen/ft_strlen.pic.o: multiple definition of 'main'
+external/+deb_archive+binutils_x86_64_linux_gnu/usr/bin/x86_64-linux-gnu-ld.gold: bazel-out/k8-fastbuild/bin/c-piscine/c-piscine-c-01/_objs/ex06_bin/test_strlen.pic.o: previous definition here
+clang: error: linker command failed with exit code 1 (use -v to see invocation)
+SB_LINK
 want_out "submit: a leftover main() does not build either" \
 	"the module does NOT BUILD" -- sb_gate 1 link
 # The negative premise: exit 1 with no line naming a file of the student's is
@@ -18282,13 +21503,15 @@ want_out "submit: a gate that could not run is still no verdict" \
 #    submit only shows its report -- the file that would be pushed and
 #    should not be -- from the log the gate's stderr names, instead of
 #    leaving it behind a command to run (finding 052).
-mkdir -p "$WORK/sb/logs/deliverable_files"
+mkdir -p "$WORK/subm/logs/deliverable_files"
 printf '%s\n' 'files_test: c-piscine/c-piscine-c-00/deliverable' '' \
 	"  THESE ARE IN NO EXERCISE'S FOLDER. This subject gives each exercise a" \
 	'    notes.txt' '' '  RESULT: FAIL — the subject asks for its exercises'"'"' folders and' \
-	> "$WORK/sb/logs/deliverable_files/test.log"
+	> "$WORK/subm/logs/deliverable_files/test.log"
 printf 'FAIL: //c-piscine-c-00:deliverable_files (Exit 1) (see %s)\n' \
-	"$WORK/sb/logs/deliverable_files/test.log" > "$WORK/sb/files.err"
+	"$WORK/subm/logs/deliverable_files/test.log" > "$WORK/subm/files.err"
+printf '//c-piscine-c-00:deliverable_files  FAILED in 0.1s\n  %s\n\nExecuted 1 out of 1 test: 1 fails locally.\n' \
+	"$WORK/subm/logs/deliverable_files/test.log" > "$WORK/subm/files.out"
 want_out "submit: a gate stopped by a files test shows its report" \
 	"notes.txt" -- sb_gate 3 files
 want_red "submit: ... and fails the run" -- sb_gate 3 files
@@ -18309,10 +21532,10 @@ want_broken_none "submit: a gate stopped by another test shows none" \
 #    own tests fail. So it shuts the server down once, before its first
 #    module, and runs with both flags. The command it prints to re-run is the
 #    command it ran.
-sb_argv() {  # sb_argv STATUS STDERR-FIXTURE: the gate's bazel command lines
-	: > "$WORK/sb/argv"
+sb_argv() {  # sb_argv STATUS FIXTURE: the gate's bazel command lines
+	: > "$WORK/subm/argv"
 	sb_gate "$@" > /dev/null 2>&1
-	cat "$WORK/sb/argv"
+	cat "$WORK/subm/argv"
 }
 want_out "submit: the gate runs bazel test as a student types it" \
 	"argv: test //" -- sb_argv 3 files
@@ -18336,19 +21559,329 @@ want_broken_none "submit: ... and the command it prints names no base" \
 #    A gate that passes runs the advisory pass, the module's tests above the
 #    level, and on a red one prints the command to read it with: the same,
 #    over the fixture with a real push (the se workspace and its local remote).
+#    The advisory pass's red test is named in its summary, on stdout, as real
+#    Bazel prints it, and its FAIL line is on stderr.
+mkdir -p "$WORK/subm/logs/ex00_asan"
+printf 'FAIL: //c-piscine/c-piscine-c-00:ex00_asan (Exit 1) (see %s)\n' \
+	"$WORK/subm/logs/ex00_asan/test.log" > "$WORK/subm/adv.err"
+printf '//c-piscine/c-piscine-c-00:ex00_asan  FAILED in 0.1s\n  %s\n\nExecuted 1 out of 1 test: 1 fails locally.\n' \
+	"$WORK/subm/logs/ex00_asan/test.log" > "$WORK/subm/adv.out"
 se_gated() {
-	: > "$WORK/sb/argv"
-	env PATH="$WORK/sb/bin:$PATH" FAKE_BAZEL_RC=0 FAKE_BAZEL_ADV_RC=3 \
-		FAKE_BAZEL_ERR=/dev/null FAKE_BAZEL_ARGV="$WORK/sb/argv" \
+	: > "$WORK/subm/argv"
+	env PATH="$WORK/subm/bin:$PATH" FAKE_BAZEL_RC=0 FAKE_BAZEL_ADV_RC=3 \
+		FAKE_BAZEL_ADV_OUT="$WORK/subm/adv.out" FAKE_BAZEL_ADV_ERR="$WORK/subm/adv.err" \
+		FAKE_BAZEL_ERR=/dev/null FAKE_BAZEL_ARGV="$WORK/subm/argv" \
 		BUILD_WORKSPACE_DIRECTORY="$WORK/se/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
 		GIT_CEILING_DIRECTORIES="$WORK" \
 		"$SH" "$TOOLS/submit.sh" c-piscine-c-00
 }
-se_gated_argv() { se_gated > /dev/null 2>&1; cat "$WORK/sb/argv"; }
+se_gated_argv() { se_gated > /dev/null 2>&1; cat "$WORK/subm/argv"; }
 want_out "submit: the advisory pass runs bazel test as typed too" \
 	"argv: test //c-piscine/c-piscine-c-00/... --test_tag_filters=-manual --keep_going" -- se_gated_argv
 want_out "submit: ... and prints that command to read it with" \
 	"             bazel test //c-piscine/c-piscine-c-00/... --test_tag_filters=-manual --keep_going" -- se_gated
+want_out "submit: ... counting the red test above the gate" \
+	'NOTE: 1 test(s) above the' -- se_gated
+want_out "submit: ... and naming it" \
+	"             //c-piscine/c-piscine-c-00:ex00_asan" -- se_gated
+
+# 15. .submit-level IS THE WORKSPACE'S, at its root, and no other. The level
+#    was looked up beside the script first ($0/../.submit-level), so a copy of
+#    submit.sh in another tree, or one run as `sh submit.sh` from inside
+#    tools/, read the level of the folder above it and gated on that. Here a
+#    copy whose parent holds `complete` gates a workspace with none: basic.
+mkdir -p "$WORK/slv/tools"
+cp "$TOOLS/submit.sh" "$WORK/slv/tools/submit.sh"
+printf 'complete\n' > "$WORK/slv/.submit-level"
+rm -f "$WORK/se/ws/.submit-level"
+slv_run() {
+	env SUBMIT_GATE= BUILD_WORKSPACE_DIRECTORY="$WORK/se/ws" LOGIN42=marvin EMAIL42=marvin@42.fr \
+		"$SH" "$WORK/slv/tools/submit.sh" -n c-piscine-c-00
+}
+want_out "submit: no .submit-level in the workspace is basic" \
+	"--test_tag_filters=lvl_basic,-manual" -- slv_run
+want_broken_none "submit: ... whatever the folder above the script holds" \
+	"(level: complete" -- slv_run
+printf 'strict\n' > "$WORK/se/ws/.submit-level"
+want_out "submit: ... and the workspace's own file is the one read" \
+	"(level: strict" -- slv_run
+rm -f "$WORK/se/ws/.submit-level"
+
+# 16. --written-only, AN OPT-IN GATE FOR A PROJECT HALF DONE. The gate runs
+#    every test of the module, so one exercise not started yet blocks the
+#    exercises that are finished, and the only way past it was --no-gate,
+#    which gates nothing. --written-only lets through each exercise that
+#    first_red's triage calls not written yet -- the same verdict its report
+#    prints -- gates the rest, and names what it let through. The workspace
+#    holds first_red and what it reads beside it, since the script runs the
+#    workspace's copy. The stand-in bazel above replays one red output as
+#    Bazel prints it: the FAIL line on stderr, and the summary, the line that
+#    says FAILED, on stdout -- which the gate used to throw away.
+_wo="$WORK/wo/ws"
+_wom="$_wo/c-piscine/c-piscine-c-00"
+mkdir -p "$_wo/tools" "$_wom/deliverable/ex00" "$_wom/deliverable/ex01"
+for _wof in first_red.sh stub_check.sh standin.sh defs.bzl runner_lib.sh; do
+	cp "$TOOLS/$_wof" "$_wo/tools/$_wof"
+done
+fr_contract "$_wom" 00=ex00/ 01=ex01/
+printf 'int\tf(int a)\n{\n\treturn (a + 1);\n}\n' > "$_wom/deliverable/ex00/f.c"
+printf 'int\tg(int a)\n{\n\t(void)a;\n\treturn (0);\n}\n' > "$_wom/deliverable/ex01/g.c"
+git init -q --bare "$WORK/wo/remote.git"
+printf 'c-piscine/c-piscine-c-00=%s\n' "$WORK/wo/remote.git" > "$_wo/.submit-remotes"
+mkdir -p "$WORK/wo/logs/ex01_output"
+printf 'ex01_output: its test log\n' > "$WORK/wo/logs/ex01_output/test.log"
+printf 'FAIL: //c-piscine/c-piscine-c-00:ex01_output (Exit 1) (see %s)\n' \
+	"$WORK/wo/logs/ex01_output/test.log" > "$WORK/wo/stub.err"
+printf '//c-piscine/c-piscine-c-00:ex00_output  PASSED in 0.1s\n' > "$WORK/wo/stub.out"
+printf '//c-piscine/c-piscine-c-00:ex01_output  FAILED in 0.1s\n  %s\n' \
+	"$WORK/wo/logs/ex01_output/test.log" >> "$WORK/wo/stub.out"
+wo_run() {  # wo_run FIXTURE [OPTION...]: FIXTURE.err and .out; the log is in $WORK/wo/log
+	# $WORK/wo/bin comes first on PATH: an arm that needs a stand-in puts it there.
+	_woe=$1
+	shift
+	env PATH="$WORK/wo/bin:$WORK/subm/bin:$PATH" FAKE_BAZEL_RC=3 FAKE_BAZEL_ADV_RC=0 \
+		FAKE_BAZEL_ERR="$WORK/wo/$_woe.err" FAKE_BAZEL_OUT="$WORK/wo/$_woe.out" SUBMIT_GATE= \
+		BUILD_WORKSPACE_DIRECTORY="$_wo" LOGIN42=marvin EMAIL42=marvin@42.fr \
+		GIT_CEILING_DIRECTORIES="$WORK" \
+		"$SH" "$TOOLS/submit.sh" "$@" c-piscine-c-00 > "$WORK/wo/log" 2>&1
+}
+wo_pushed() { git --git-dir="$WORK/wo/remote.git" rev-parse -q --verify master 2> /dev/null; }
+want_red "submit: one exercise not started blocks the module" -- wo_run stub
+want_green "submit: ... and nothing is pushed" -- sh -c '! git --git-dir="$1" rev-parse -q --verify master' \
+	_ "$WORK/wo/remote.git"
+want_out "submit: -n --written-only says what it would let through" \
+	"an exercise not written yet does not block" -- \
+	env SUBMIT_GATE= BUILD_WORKSPACE_DIRECTORY="$_wo" LOGIN42=marvin EMAIL42=marvin@42.fr \
+	"$SH" "$TOOLS/submit.sh" -n --written-only c-piscine-c-00
+want_broken "submit: --written-only with --no-gate is refused" \
+	"--written-only narrows the gate and --no-gate skips it" -- \
+	env BUILD_WORKSPACE_DIRECTORY="$_wo" LOGIN42=marvin EMAIL42=marvin@42.fr \
+	"$SH" "$TOOLS/submit.sh" --written-only --no-gate c-piscine-c-00
+want_green "submit: --written-only pushes it" -- wo_run stub --written-only
+want_green "submit: ... the written exercise in the push" -- \
+	sh -c 'git --git-dir="$1" ls-tree -r --name-only master | grep -qx ex00/f.c' _ "$WORK/wo/remote.git"
+want_out "submit: ... and names the exercise it let through" \
+	"not written yet, let through by --written-only: ex01" -- cat "$WORK/wo/log"
+want_out "submit: ... again in the summary" \
+	"c-piscine/c-piscine-c-00: ex01" -- sh -c 'sed -n "/^----/,\$p" "$1"' _ "$WORK/wo/log"
+_wo_tip=$(wo_pushed)
+#    What it lets through is first_red's verdict, not a red output: a written
+#    exercise whose output is red still blocks, as does a red test of the
+#    whole module, and a run that did not complete is not triaged at all.
+printf 'int\tg(int a)\n{\n\treturn (a - 1);\n}\n' > "$_wom/deliverable/ex01/g.c"
+want_red "submit: --written-only still blocks a written exercise" -- wo_run stub --written-only
+want_broken_none "submit: ... and lets nothing through" "let through by" -- cat "$WORK/wo/log"
+printf 'int\tg(int a)\n{\n\t(void)a;\n\treturn (0);\n}\n' > "$_wom/deliverable/ex01/g.c"
+mkdir -p "$WORK/wo/logs/deliverable_files"
+printf '%s\n' 'files_test: c-piscine/c-piscine-c-00/deliverable' '' \
+	"  THESE ARE IN NO EXERCISE'S FOLDER." '    notes.txt' '' '  RESULT: FAIL' \
+	> "$WORK/wo/logs/deliverable_files/test.log"
+{
+	cat "$WORK/wo/stub.err"
+	printf 'FAIL: //c-piscine/c-piscine-c-00:deliverable_files (Exit 1) (see %s)\n' \
+		"$WORK/wo/logs/deliverable_files/test.log"
+} > "$WORK/wo/whole.err"
+{
+	cat "$WORK/wo/stub.out"
+	printf '//c-piscine/c-piscine-c-00:deliverable_files  FAILED in 0.1s\n  %s\n' \
+		"$WORK/wo/logs/deliverable_files/test.log"
+} > "$WORK/wo/whole.out"
+want_red "submit: ... and a red test of the whole module" -- wo_run whole --written-only
+want_out "submit: ... showing that test's report" "notes.txt" -- cat "$WORK/wo/log"
+{
+	cat "$WORK/wo/stub.err"
+	printf 'ERROR: Build did NOT complete successfully\n'
+} > "$WORK/wo/stopped.err"
+cp "$WORK/wo/stub.out" "$WORK/wo/stopped.out"
+want_red "submit: ... and a run that did not complete" -- wo_run stopped --written-only
+want_green "submit: ... none of which pushed anything" -- \
+	sh -c '[ "$(git --git-dir="$1" rev-parse master)" = "$2" ]' _ "$WORK/wo/remote.git" "$_wo_tip"
+#    A triage that never ran is no verdict on the code. With first_red.sh
+#    missing, or stopping before its report (a file it reads is not beside
+#    it), or reading nothing red in a red run, the student was told that
+#    something they wrote is red: sent to their code for a report that never
+#    ran. Blocked still, and saying the report could not be read, with the
+#    command that shows it (wo_piped) wherever that command can run.
+wo_unread() {  # wo_unread FIXTURE: blocked, and the run says why
+	wo_run "$1" --written-only && return 1
+	grep -q "the gate's report" "$WORK/wo/log" && grep -q "could not be read" "$WORK/wo/log" &&
+		! grep -q "an exercise you have" "$WORK/wo/log"
+}
+wo_piped() { grep -qF -- "--use_action_cache=false 2>&1 | sh tools/first_red.sh" "$WORK/wo/log"; }
+#    With first_red.sh gone, piping the gate into it fails the same way, so
+#    the run hands over the plain gate command alone and says what is missing.
+#    The plain command is the BLOCKED line's, which every blocked run prints
+#    (the gate's arms above pin it): what this branch decides is that no
+#    piped one follows it, and that is the arm to hold.
+mv "$_wo/tools/first_red.sh" "$WORK/wo/first_red.aside"
+want_green "submit: --written-only with no first_red says so" -- wo_unread stub
+want_out "submit: ... that it is missing from the checkout" \
+	"tools/first_red.sh, which reads that report, is missing" -- cat "$WORK/wo/log"
+want_out "submit: ... and how to restore it" "git checkout HEAD -- tools/first_red.sh" -- cat "$WORK/wo/log"
+want_broken_none "submit: ... and no pipe into the missing script" "| sh tools/first_red.sh" -- \
+	cat "$WORK/wo/log"
+want_broken_none "submit: ... nor the shell's error as first_red's" "tools/first_red.sh, which reads it," -- \
+	cat "$WORK/wo/log"
+mv "$WORK/wo/first_red.aside" "$_wo/tools/first_red.sh"
+mv "$_wo/tools/defs.bzl" "$WORK/wo/defs.aside"
+want_green "submit: ... nor with first_red stopping before its report" -- wo_unread stub
+want_green "submit: ... with the command that shows the report" -- wo_piped
+want_out "submit: ... and quotes why it stopped" "defs.bzl is not beside it" -- cat "$WORK/wo/log"
+want_out "submit: ... under first_red's own heading" "tools/first_red.sh, which reads it, stopped (exit 2) and said:" -- \
+	cat "$WORK/wo/log"
+mv "$WORK/wo/defs.aside" "$_wo/tools/defs.bzl"
+#    ...and for any other reason it stops: a stand-in first_red.sh that says
+#    one line on stderr and exits 2 has that line quoted, and nothing else.
+mv "$_wo/tools/first_red.sh" "$WORK/wo/first_red.aside"
+printf '#!/bin/sh
+echo "first_red.sh: the selftest stand-in stops here" >&2
+exit 2
+' \
+	> "$_wo/tools/first_red.sh"
+want_green "submit: ... nor with first_red stopping for another reason" -- wo_unread stub
+want_green "submit: ... with the command that shows the report" -- wo_piped
+want_out "submit: ... under first_red's own heading" "tools/first_red.sh, which reads it, stopped (exit 2) and said:" -- \
+	cat "$WORK/wo/log"
+want_green "submit: ... quoting the one line it said" -- \
+	grep -qx "              | first_red.sh: the selftest stand-in stops here" "$WORK/wo/log"
+want_green "submit: ... and no other line under its heading" -- \
+	sh -c '[ "$(grep -c "^              | " "$1")" -eq 1 ]' _ "$WORK/wo/log"
+mv "$WORK/wo/first_red.aside" "$_wo/tools/first_red.sh"
+: > "$WORK/wo/silent.err"
+: > "$WORK/wo/silent.out"
+want_green "submit: ... nor with nothing red in a red run's output" -- wo_unread silent
+want_green "submit: ... with the command that shows the report" -- wo_piped
+#    Only first_red's own words go under that heading. The two cases that
+#    are submit's own finding used to be printed there as if first_red had
+#    said them; they are said in the run's own words instead.
+want_out "submit: ... and says so in its own words" \
+	"Bazel said tests failed, but tools/first_red.sh found no" -- cat "$WORK/wo/log"
+want_broken_none "submit: ... not as something first_red said" "tools/first_red.sh, which reads it," -- \
+	cat "$WORK/wo/log"
+#    A temporary file it could not make: a stand-in mktemp, earlier on PATH,
+#    that fails once the stand-in bazel has run, which is after the gate
+#    made its own two and before the triage makes any.
+mkdir -p "$WORK/wo/bin"
+printf '#!/bin/sh\n[ ! -e "%s" ] || exit 1\nexec %s "$@"\n' "$WORK/wo/gated" "$(command -v mktemp)" \
+	> "$WORK/wo/bin/mktemp"
+printf '#!/bin/sh\n: > "%s"\nexec "%s" "$@"\n' "$WORK/wo/gated" "$WORK/subm/bin/bazel" \
+	> "$WORK/wo/bin/bazel"
+chmod +x "$WORK/wo/bin/mktemp" "$WORK/wo/bin/bazel"
+want_green "submit: ... nor with no temporary file to read it into" -- wo_unread stub
+want_green "submit: ... with the command that shows the report" -- wo_piped
+want_out "submit: ... and says so in its own words" \
+	"could not create a temporary file to read it" -- cat "$WORK/wo/log"
+want_broken_none "submit: ... not as something first_red said" "tools/first_red.sh, which reads it," -- \
+	cat "$WORK/wo/log"
+rm -rf "$WORK/wo/bin" "$WORK/wo/gated"
+want_green "submit: ... and none of those pushed" -- \
+	sh -c '[ "$(git --git-dir="$1" rev-parse master)" = "$2" ]' _ "$WORK/wo/remote.git" "$_wo_tip"
+#    The gate's own two temporary files, which hold what Bazel says. With
+#    mktemp failing, both names were empty, Bazel's output went to a file the
+#    shell could not open, and the gate's status was the shell's redirection
+#    error read as Bazel's: "Bazel exited 2" under dash, "the build STOPPED"
+#    under bash. The gate could not run, and it says why.
+mkdir -p "$WORK/wo/bin"
+printf '#!/bin/sh\nexit 1\n' > "$WORK/wo/bin/mktemp"
+chmod +x "$WORK/wo/bin/mktemp"
+want_red "submit: a gate with no temporary file blocks" -- wo_run stub
+want_out "submit: ... as a gate that could not run" \
+	"BLOCKED: the gate could not RUN" -- cat "$WORK/wo/log"
+want_out "submit: ... saying mktemp failed" \
+	"create a temporary file for Bazel's output (mktemp failed)" -- cat "$WORK/wo/log"
+want_broken_none "submit: ... not as Bazel's verdict" "Bazel exited" -- cat "$WORK/wo/log"
+rm -rf "$WORK/wo/bin"
+want_green "submit: ... and nothing is pushed" -- \
+	sh -c '[ "$(git --git-dir="$1" rev-parse master)" = "$2" ]' _ "$WORK/wo/remote.git" "$_wo_tip"
+#    No bazel on PATH at all. The gate said so, then the could-not-RUN block
+#    under it read its status as Bazel's: "Bazel exited 2", glossed as a bad
+#    command line, "Bazel's last words" and a bazel command to reproduce it
+#    with. The PATH holds the tools submit.sh requires (its own require
+#    line) and nothing else, so no bazel of this machine's is found either.
+mkdir -p "$WORK/wo/nobz"
+for _b in sh "$SH" $(sed -n 's/^require //p' "$TOOLS/submit.sh"); do
+	_p=$(command -v "$_b" 2> /dev/null) || continue
+	case $_p in /*) ln -sf "$_p" "$WORK/wo/nobz/${_b##*/}" ;; esac
+done
+wo_nobz() {
+	env PATH="$WORK/wo/nobz" SUBMIT_GATE= BUILD_WORKSPACE_DIRECTORY="$_wo" \
+		LOGIN42=marvin EMAIL42=marvin@42.fr GIT_CEILING_DIRECTORIES="$WORK" \
+		"$SH" "$TOOLS/submit.sh" c-piscine-c-00 > "$WORK/wo/log" 2>&1
+}
+want_red "submit: a gate with no bazel on PATH blocks" -- wo_nobz
+want_out "submit: ... as a gate that could not run" \
+	"BLOCKED: the gate could not RUN" -- cat "$WORK/wo/log"
+want_out "submit: ... saying bazel is not on PATH" \
+	"bazel is not on PATH, so the gate never ran" -- cat "$WORK/wo/log"
+want_broken_none "submit: ... not as Bazel's exit status" "Bazel exited" -- cat "$WORK/wo/log"
+want_broken_none "submit: ... nor as Bazel's last words" "last words" -- cat "$WORK/wo/log"
+rm -rf "$WORK/wo/nobz"
+want_green "submit: ... and nothing is pushed" -- \
+	sh -c '[ "$(git --git-dir="$1" rev-parse master)" = "$2" ]' _ "$WORK/wo/remote.git" "$_wo_tip"
+#    THE FLOOR. --written-only pushes what is written, and never nothing: with
+#    every exercise still a stub it let every red through and pushed the
+#    stubs as they were. Now it refuses, before any test runs, and -n says
+#    so; without the flag, the blocked gate says nothing is written.
+printf 'int\tf(int a)\n{\n\t(void)a;\n\treturn (0);\n}\n' > "$_wom/deliverable/ex00/f.c"
+want_red "submit: --written-only with nothing written is refused" -- wo_run stub --written-only
+want_out "submit: ... as nothing written to push" \
+	"BLOCKED by --written-only -- not pushed: nothing written to push." -- cat "$WORK/wo/log"
+want_broken_none "submit: ... before any test runs" "gate: bazel test" -- cat "$WORK/wo/log"
+want_out "submit: ... and -n says it would be" \
+	"would be BLOCKED by --written-only -- nothing written to push." -- \
+	env SUBMIT_GATE= BUILD_WORKSPACE_DIRECTORY="$_wo" LOGIN42=marvin EMAIL42=marvin@42.fr \
+	"$SH" "$TOOLS/submit.sh" -n --written-only c-piscine-c-00
+want_red "submit: without it, a gate over nothing written blocks" -- wo_run stub
+want_out "submit: ... and says nothing is written" \
+	"Nothing of it is written yet: every exercise is still the" -- cat "$WORK/wo/log"
+want_green "submit: ... none of which pushed anything" -- \
+	sh -c '[ "$(git --git-dir="$1" rev-parse master)" = "$2" ]' _ "$WORK/wo/remote.git" "$_wo_tip"
+#    A SUBJECT'S MANDATORY PART, where the contract names one (subject()'s
+#    `mandatory`, written here over lines, as buildifier spreads a list):
+#    --written-only does not push the project while one of it is a stub, and
+#    says which before any test runs. Without the flag, the blocked gate says
+#    the same; and with only the rest unwritten, it is the warning that
+#    --written-only pushes without them.
+wo_mandatory() {  # wo_mandatory KEY...: the toy's contract, KEYs its mandatory part
+	fr_contract "$_wom" 00=ex00/ 01=ex01/
+	{
+		sed '$d' "$_wom/BUILD.bazel"
+		printf '    mandatory = [\n'
+		for _wmk in "$@"; do printf '        "%s",\n' "$_wmk"; done
+		printf '    ],\n    mandatory_quote = "Toy, p.1: \\"These are the mandatory exercises.\\"",\n)\n'
+	} > "$WORK/wo/BUILD.new" && mv "$WORK/wo/BUILD.new" "$_wom/BUILD.bazel"
+}
+wo_mandatory 00
+printf 'int\tg(int a)\n{\n\treturn (a - 1);\n}\n' > "$_wom/deliverable/ex01/g.c"
+want_red "submit: --written-only refuses a mandatory exercise not written" -- wo_run stub --written-only
+want_out "submit: ... naming it" "not written yet: ex00" -- cat "$WORK/wo/log"
+want_broken_none "submit: ... before any test runs" "gate: bazel test" -- cat "$WORK/wo/log"
+want_red "submit: without it, the blocked gate names it too" -- wo_run stub
+want_out "submit: ... as mandatory" "A mandatory exercise is not written yet:" -- cat "$WORK/wo/log"
+want_green "submit: ... none of which pushed anything" -- \
+	sh -c '[ "$(git --git-dir="$1" rev-parse master)" = "$2" ]' _ "$WORK/wo/remote.git" "$_wo_tip"
+printf 'int\tf(int a)\n{\n\treturn (a + 1);\n}\n' > "$_wom/deliverable/ex00/f.c"
+printf 'int\tg(int a)\n{\n\t(void)a;\n\treturn (0);\n}\n' > "$_wom/deliverable/ex01/g.c"
+want_red "submit: the mandatory part written and the rest not blocks" -- wo_run stub
+want_out "submit: ... and warns that only the mandatory part is" \
+	"Every mandatory exercise is written, and" -- cat "$WORK/wo/log"
+want_out "submit: ... naming the rest" "these are not: ex01. To push without them, add" -- cat "$WORK/wo/log"
+want_green "submit: ... which --written-only pushes without" -- wo_run stub --written-only
+want_out "submit: ... letting it through" \
+	"not written yet, let through by --written-only: ex01" -- cat "$WORK/wo/log"
+_wo_tip=$(wo_pushed)
+#    A floor that could not be read lets nothing through: which exercises are
+#    mandatory is not known. A contract first_red cannot read (no subject()
+#    in the BUILD file) leaves the triage its verdict, and the push refused.
+printf '# the selftest: no contract here\n' > "$_wom/BUILD.bazel"
+want_red "submit: --written-only over a floor it cannot read" -- wo_run stub --written-only
+want_out "submit: ... lets nothing through" \
+	"which exercises this" -- cat "$WORK/wo/log"
+want_out "submit: ... quoting first_red" "| first_red.sh: no subject() contract" -- cat "$WORK/wo/log"
+want_broken_none "submit: ... not as a let-through" "let through by" -- cat "$WORK/wo/log"
+want_green "submit: ... and pushed nothing" -- \
+	sh -c '[ "$(git --git-dir="$1" rev-parse master)" = "$2" ]' _ "$WORK/wo/remote.git" "$_wo_tip"
+fr_contract "$_wom" 00=ex00/ 01=ex01/
 
 # --------------------------------------------------------------------- bsq
 # c-piscine-bsq's differential runner. Unlike rush02_check.sh this one GATES --
@@ -18389,25 +21922,18 @@ mkdir -p "$WORK/bs"
 } > "$WORK/bs/oracle_mixed.sh"
 printf '#!/bin/sh\nexit 0\n' > "$WORK/bs/oracle_empty.sh"
 
-# The fake students below are WRITTEN, not run, and the tool names in them are
-# passed as printf arguments rather than spelled into the format string. The
-# require scanner reads a format string as shell -- it has no way to tell a
-# printf that emits a script from one that runs commands -- so `| sed ...`
-# inside these would be reported as selftest.sh itself taking sed from PATH.
-_sd="sed"
-_tr="tr"
-_gp="grep"
+# The fake students below are WRITTEN, not run.
 # Correct: drop the header line, fill every empty cell.
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f" | %s "s/[.]/x/g"; done\n' "$_sd" "$_sd" \
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f" | sed "s/[.]/x/g"; done\n' \
 	> "$WORK/bs/good.sh"
 # Prints the file back untouched -- header and all.
-printf '#!/bin/sh\nfor f in "$@"; do %s "$f"; done\n' cat > "$WORK/bs/catty.sh"
+printf '#!/bin/sh\nfor f in "$@"; do cat "$f"; done\n' > "$WORK/bs/catty.sh"
 # Always claims the file is invalid.
 printf '#!/bin/sh\nprintf "map error\\n"\n' > "$WORK/bs/allerr.sh"
 # Right bytes, no final newline -- a real Moulinette failure that a
 # command-substitution comparison would not see.
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f" | %s "s/[.]/x/g" | %s -d "\\n"; done\n' \
-	"$_sd" "$_sd" "$_tr" > "$WORK/bs/nonl.sh"
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f" | sed "s/[.]/x/g" | tr -d "\\n"; done\n' \
+	> "$WORK/bs/nonl.sh"
 chmod +x "$WORK/bs"/*.sh
 
 # Every call says what stderr is held to (bsq_check.sh refuses one that does
@@ -18442,13 +21968,13 @@ want_red   "bsq: a missing final newline fails"           -- bs_run nonl oracle_
 # one of them, was FAULT [not-a-map], whose words ask the reader to count the
 # lines -- which the case line had just counted right. Its own fault now,
 # naming the bytes after the row; a missing final newline stays its own.
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f" | %s "s/[.]/x/g" | %s "2s/\\$/ /"; done\n' \
-	"$_sd" "$_sd" "$_sd" > "$WORK/bs/rowspace.sh"
-printf '#!/bin/sh\nfor f in "$@"; do if %s -q "^2[.]oo" "$f"; then printf "map error \\n"; else %s 1d "$f" | %s "s/[.]/x/g"; fi; done\n' \
-	"$_gp" "$_sd" "$_sd" > "$WORK/bs/errspace.sh"
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f" | sed "s/[.]/x/g" | sed "2s/\\$/ /"; done\n' \
+	> "$WORK/bs/rowspace.sh"
+printf '#!/bin/sh\nfor f in "$@"; do if grep -q "^2[.]oo" "$f"; then printf "map error \\n"; else sed 1d "$f" | sed "s/[.]/x/g"; fi; done\n' \
+	> "$WORK/bs/errspace.sh"
 # ...and the answer whole, but for its last newline.
-printf '#!/bin/sh\nfor f in "$@"; do printf %%s "$(%s 1d "$f" | %s "s/[.]/x/g")"; done\n' \
-	"$_sd" "$_sd" > "$WORK/bs/lastnl.sh"
+printf '#!/bin/sh\nfor f in "$@"; do printf %%s "$(sed 1d "$f" | sed "s/[.]/x/g")"; done\n' \
+	> "$WORK/bs/lastnl.sh"
 chmod +x "$WORK/bs/rowspace.sh" "$WORK/bs/errspace.sh" "$WORK/bs/lastnl.sh"
 want_out   "bsq: a byte after a right row is its own fault" 'FAULT [line-end]' -- bs_run rowspace oracle_ok
 want_out   "bsq: ...naming the byte" 'line 2 has 1 byte(s) more: " "' -- bs_run rowspace oracle_ok
@@ -18460,8 +21986,8 @@ want_broken_none "bsq: ...not a line-end" 'line-end' -- bs_run lastnl oracle_ok
 # ...and where the line-end message is not printed, the want and got lines
 # still show where each line ended (V83): the same space, with a blank line
 # after the answer, is FAULT [not-a-map], and "got  | xx " read as "xx".
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f" | %s "s/[.]/x/g" | %s "2s/\\$/ /"; echo; done\n' \
-	"$_sd" "$_sd" "$_sd" > "$WORK/bs/rowsplus.sh"
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f" | sed "s/[.]/x/g" | sed "2s/\\$/ /"; echo; done\n' \
+	> "$WORK/bs/rowsplus.sh"
 chmod +x "$WORK/bs/rowsplus.sh"
 want_out   "bsq: a want or got line ends in \$ where the line did" 'got  | xx $' -- \
 	bs_run rowsplus oracle_ok
@@ -18469,8 +21995,8 @@ want_out   "bsq: ...and the legend says what the \$ is" '$ is where a line ended
 	bs_run rowsplus oracle_ok
 # ...and a line the output does not have ends in nothing: a $ there said a
 # line ended that never began, on every case of an empty program.
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f" | %s "s/[.]/x/g" | %s "\\$d"; done\n' \
-	"$_sd" "$_sd" "$_sd" > "$WORK/bs/lastrow.sh"
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f" | sed "s/[.]/x/g" | sed "\\$d"; done\n' \
+	> "$WORK/bs/lastrow.sh"
 printf '#!/bin/sh\nexit 0\n' > "$WORK/bs/silent.sh"
 chmod +x "$WORK/bs/lastrow.sh" "$WORK/bs/silent.sh"
 want_broken_none "bsq: a line the output does not have ends in no \$" 'got  | $' -- \
@@ -18479,14 +22005,14 @@ want_broken_none "bsq: ...nor does one an empty output does not have" 'got  | $'
 	bs_run silent oracle_ok
 # ...and the same status blindness this runner shared with its two siblings: a
 # solver that draws the square correctly and then dies is not a solver.
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f" | %s "s/[.]/x/g"; done\nkill -SEGV $$\n' \
-	"$_sd" "$_sd" > "$WORK/bs/crashes.sh"
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f" | sed "s/[.]/x/g"; done\nkill -SEGV $$\n' \
+	> "$WORK/bs/crashes.sh"
 chmod +x "$WORK/bs/crashes.sh"
 want_red   "bsq: right bytes then a SEGV is not a pass"   -- bs_run crashes oracle_ok
 # ...but right bytes then `return (-1);` (status 255) is: it returned, which
 # waitpid() tells from a death by "signal 127" (tools/exit_status).
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f" | %s "s/[.]/x/g"; done\nexit 255\n' \
-	"$_sd" "$_sd" > "$WORK/bs/ret255.sh"
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f" | sed "s/[.]/x/g"; done\nexit 255\n' \
+	> "$WORK/bs/ret255.sh"
 chmod +x "$WORK/bs/ret255.sh"
 want_green "bsq: right bytes then a return of 255 passes"  -- bs_run ret255 oracle_ok
 # THE GATE IS THE EXAMPLE'S RUN: the map --gate-arg names, handed to the
@@ -18509,6 +22035,8 @@ want_broken_none "bsq: ...not skipped, as with no map it was" 'SKIP' -- \
 	bs_gate good --gate-arg "$WORK/bs/gate.map"
 want_out   "bsq: a solver that fails the gate's map is skipped" 'SKIP' -- \
 	bs_gate catty --gate-arg "$WORK/bs/gate.map"
+want_out   "bsq: ...naming the test it waits for" 'SKIP — ex00_subject_example_output, this exercise' -- \
+	bs_gate catty --gate-arg "$WORK/bs/gate.map" --gate-label ex00_subject_example_output
 # THE GATE'S SETTINGS ARE THE CALL'S (V36). runner_lib.sh reset RL_GATE_WHY
 # when sourced and not RL_GATE_LABEL or RL_GATE_PASS, which this runner never
 # sets, so a value in the environment reached its gate: a label turned the
@@ -18526,8 +22054,8 @@ want_broken_none "bsq: ...nor are differ options in the environment" \
 	'could not be evaluated' -- bs_gate_env good RL_GATE_PASS=--stdin
 # STANDARD ERROR, A CHOICE AT EVERY CALL (review of WP-50): this runner kept it
 # only to show beside a crash. Now the call says what it is held to.
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f" | %s "s/[.]/x/g"; done\necho "a note" >&2\n' \
-	"$_sd" "$_sd" > "$WORK/bs/chatty.sh"
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f" | sed "s/[.]/x/g"; done\necho "a note" >&2\n' \
+	> "$WORK/bs/chatty.sh"
 chmod +x "$WORK/bs/chatty.sh"
 bs_err() { "$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --stderr-empty --bin "$WORK/bs/$1.sh" \
 	--oracle "$WORK/bs/oracle_ok.sh" --show 1; }
@@ -18587,10 +22115,10 @@ want_green "bsq: ...and keeps the map it ran on" -- \
 # "not-a-map", and the tally counted maps on one side and runs on the other.
 # Now the output is split at its blank lines, the member that differs is named
 # and diagnosed alone, every map of the run is kept, and the tally is in runs.
-printf '#!/bin/sh\nn=0\nfor f in "$@"; do\n\t[ "$n" = 0 ] || echo\n\tn=1\n\t%s 1d "$f" | %s "s/[.]/x/g"\ndone\n' \
-	"$_sd" "$_sd" > "$WORK/bs/multi_accept.sh"
-printf '#!/bin/sh\nn=0\nfor f in "$@"; do\n\t[ "$n" = 0 ] || echo\n\tn=1\n\tif %s -n 1p "$f" | %s -q "oo$"; then echo "map error"; else %s 1d "$f" | %s "s/[.]/x/g"; fi\ndone\n' \
-	"$_sd" "$_gp" "$_sd" "$_sd" > "$WORK/bs/multi_good.sh"
+printf '#!/bin/sh\nn=0\nfor f in "$@"; do\n\t[ "$n" = 0 ] || echo\n\tn=1\n\tsed 1d "$f" | sed "s/[.]/x/g"\ndone\n' \
+	> "$WORK/bs/multi_accept.sh"
+printf '#!/bin/sh\nn=0\nfor f in "$@"; do\n\t[ "$n" = 0 ] || echo\n\tn=1\n\tif sed -n 1p "$f" | grep -q "oo$"; then echo "map error"; else sed 1d "$f" | sed "s/[.]/x/g"; fi\ndone\n' \
+	> "$WORK/bs/multi_good.sh"
 # ...and one that writes a line to stderr on every run, which is never graded.
 printf '#!/bin/sh\necho "debug: %%s maps" "$#" >&2\nexec "%s" "%s" "$@"\n' "$SH" "$WORK/bs/multi_good.sh" \
 	> "$WORK/bs/multi_noisy.sh"
@@ -18636,7 +22164,7 @@ want_out   "bsq multi: ...but said" '10 case(s) also wrote to standard error (no
 	printf 'ok\t0\t-1\t-1\t1.o\\001\\no\\n\to\\n\n'
 	printf 'EOF\n'
 } > "$WORK/bs/oracle_ctl.sh"
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f"; done\n' "$_sd" > "$WORK/bs/ctl_catty.sh"
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f"; done\n' > "$WORK/bs/ctl_catty.sh"
 chmod +x "$WORK/bs/oracle_ctl.sh" "$WORK/bs/ctl_catty.sh"
 bs_ctl() { "$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --stderr-ignored "$BS_WHY" --bin "$WORK/bs/ctl_catty.sh" \
 	--oracle "$WORK/bs/oracle_ctl.sh" --show 1; }
@@ -18658,8 +22186,8 @@ want_out "bsq: DIFF_MAX_ROWS caps the cases it prints" \
 # UNDER A MEMORY CHECKER (finding 113): memory and endings only, never the map.
 # The fakes write what a sanitizer writes, and end the way abort_on_error ends
 # a run; catty prints every map back wrong and is memory-clean.
-printf '#!/bin/sh\nfor f in "$@"; do %s -q "^9[.]" "$f" && { echo "==1==ERROR: AddressSanitizer: heap-buffer-overflow" >&2; kill -ABRT $$; }; done\nexit 0\n' \
-	"$_gp" > "$WORK/bs/san9.sh"
+printf '#!/bin/sh\nfor f in "$@"; do grep -q "^9[.]" "$f" && { echo "==1==ERROR: AddressSanitizer: heap-buffer-overflow" >&2; kill -ABRT $$; }; done\nexit 0\n' \
+	> "$WORK/bs/san9.sh"
 chmod +x "$WORK/bs/san9.sh"
 bs_san() { "$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --bin "$WORK/bs/$1.sh" --oracle "$WORK/bs/oracle_ok.sh" \
 	--sanitized; }
@@ -18674,14 +22202,36 @@ want_broken_none "bsq --sanitized: ...but not on standard input, with no argumen
 	"$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --bin "$WORK/bs/catty.sh" --oracle "$WORK/bs/oracle_ok.sh" \
 		--mode stdin --sanitized
 want_red   "bsq --sanitized: a crash is" -- bs_san crashes
+# A report that names the map names the scratch copy the runner handed the
+# program, gone when the test ends; the case keeps it as case-N.map and
+# replays it under that name, which the report now shows.
+printf '#!/bin/sh\nfor f in "$@"; do grep -q "^9[.]" "$f" && { echo "==1==ERROR: AddressSanitizer: heap-buffer-overflow while reading $f" >&2; kill -ABRT $$; }; done\nexit 0\n' \
+	> "$WORK/bs/sanpath9.sh"
+chmod +x "$WORK/bs/sanpath9.sh"
+# Kept in a folder of its own, as under bazel test.
+bs_sank() { env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/bs/outs" TEST_TARGET=//mod:ex00_bsq_asan \
+	"$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --bin "$WORK/bs/$1.sh" --oracle "$WORK/bs/oracle_ok.sh" \
+	--sanitized; }
+want_out   "bsq --sanitized: a report naming the map shows the kept name" \
+	'heap-buffer-overflow while reading case-15.map' -- bs_sank sanpath9
+want_out   "bsq --sanitized: ...and says it did" \
+	'shown by the name it is kept under: case-15.map)' -- bs_sank sanpath9
+# ...but only a map that was kept: run by hand, outside bazel test, there is
+# nowhere to keep one, and the report named case-15.map, a file that exists
+# nowhere, under a line saying the map was not kept.
+bs_sanh() { env -u TEST_UNDECLARED_OUTPUTS_DIR "$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" \
+	--bin "$WORK/bs/$1.sh" --oracle "$WORK/bs/oracle_ok.sh" --sanitized; }
+want_out   "bsq --sanitized: by hand the map is said not kept" \
+	'generated for this case (a run under bazel test keeps it)' -- bs_sanh sanpath9
+want_broken_none "bsq --sanitized: ...and the report names no kept map" 'case-15.map' -- bs_sanh sanpath9
 # A RUN THAT DID NOT FINISH IS NOT A FINDING (V48, ruling R4): a program too
 # slow for the 9 x 9 maps under the sanitizer was "2 of 24 case(s) under
 # ASan/UBSan went wrong", beside a plain replay that says no answer was
 # judged wrong. Still red -- two cases were not judged -- and said apart,
 # beside a sanitizer report when there is one.
-printf '#!/bin/sh\nfor f in "$@"; do %s -q "^9[.]" "$f" && sleep 5; done\nexit 0\n' "$_gp" > "$WORK/bs/slow9.sh"
-printf '#!/bin/sh\nfor f in "$@"; do %s -q "^9[.]" "$f" && sleep 5; %s -q "^5[.]" "$f" && { echo "==1==ERROR: AddressSanitizer: heap-buffer-overflow" >&2; kill -ABRT $$; }; done\nexit 0\n' \
-	"$_gp" "$_gp" > "$WORK/bs/slow9san5.sh"
+printf '#!/bin/sh\nfor f in "$@"; do grep -q "^9[.]" "$f" && sleep 5; done\nexit 0\n' > "$WORK/bs/slow9.sh"
+printf '#!/bin/sh\nfor f in "$@"; do grep -q "^9[.]" "$f" && sleep 5; grep -q "^5[.]" "$f" && { echo "==1==ERROR: AddressSanitizer: heap-buffer-overflow" >&2; kill -ABRT $$; }; done\nexit 0\n' \
+	> "$WORK/bs/slow9san5.sh"
 chmod +x "$WORK/bs/slow9.sh" "$WORK/bs/slow9san5.sh"
 bs_slow() { "$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --bin "$WORK/bs/$1.sh" --oracle "$WORK/bs/oracle_ok.sh" \
 	--sanitized --timeout 1 --show 0 > "$WORK/bs/$1.out" 2>&1; echo "$?" > "$WORK/bs/$1.rc"; }
@@ -18698,8 +22248,8 @@ want_out   "bsq --sanitized: ...and apart from a finding beside them" \
 # replay. It used to be refused, so the grouped corpus -- where one map's
 # leftovers meet the next map's reading -- was memory-checked by no target.
 # san_err dies the way abort_on_error ends a run when any map of it is invalid.
-printf '#!/bin/sh\nfor f in "$@"; do %s -q "^2[.]oo" "$f" && { echo "==1==ERROR: AddressSanitizer: heap-use-after-free" >&2; kill -ABRT $$; }; done\nexit 0\n' \
-	"$_gp" > "$WORK/bs/san_err.sh"
+printf '#!/bin/sh\nfor f in "$@"; do grep -q "^2[.]oo" "$f" && { echo "==1==ERROR: AddressSanitizer: heap-use-after-free" >&2; kill -ABRT $$; }; done\nexit 0\n' \
+	> "$WORK/bs/san_err.sh"
 chmod +x "$WORK/bs/san_err.sh"
 bs_san_multi() { env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/bs/smout" TEST_TARGET=//mod:ex00_bsq_multi_diff_asan \
 	"$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --bin "$WORK/bs/$1.sh" --oracle "$WORK/bs/oracle_mixed.sh" \
@@ -18719,7 +22269,7 @@ want_out   "bsq --sanitized: ...saying every run ran" \
 # the program ran out its time and was reported as a hang (a review of
 # finding 113's runners reproduced it on rush02_check). runaway prints
 # without end on the two 2 x 2 maps and answers nothing else.
-printf '#!/bin/sh\n%s -q "^2[.]" "$1" && exec cat /dev/zero\nexit 0\n' "$_gp" > "$WORK/bs/runaway.sh"
+printf '#!/bin/sh\ngrep -q "^2[.]" "$1" && exec cat /dev/zero\nexit 0\n' > "$WORK/bs/runaway.sh"
 chmod +x "$WORK/bs/runaway.sh"
 want_out   "bsq --sanitized: output without end is RUNAWAY, not a hang" 'CASE 1  [runaway]' -- \
 	"$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --bin "$WORK/bs/runaway.sh" --oracle "$WORK/bs/oracle_ok.sh" \
@@ -18786,7 +22336,7 @@ printf 'ok\t0\t-1\t-1\t%s\t%s\n' "$_ESC_F0" "$_ESC_E0" >> "$WORK/bs/esc_corpus"
 printf '#!/bin/sh\ncat %s\n' "$WORK/bs/esc_corpus" > "$WORK/bs/oracle_esc.sh"
 # Reads the map and answers it: drop the header, fill the one empty cell. It
 # touches BOTH decoded blobs, so a broken escape on either side fails the arm.
-printf '#!/bin/sh\nfor f in "$@"; do %s 1d "$f" | %s "s/ /x/"; done\n' "$_sd" "$_sd" \
+printf '#!/bin/sh\nfor f in "$@"; do sed 1d "$f" | sed "s/ /x/"; done\n' \
 	> "$WORK/bs/escgood.sh"
 chmod +x "$WORK/bs/oracle_esc.sh" "$WORK/bs/escgood.sh"
 
@@ -18807,8 +22357,8 @@ want_green "bsq: a backslash and a space survive the corpus escape" -- \
 	printf 'ok\t0\t-1\t-1\t1 ox\\no\\n\to\\n\n'
 } > "$WORK/bs/space_corpus"
 printf '#!/bin/sh\ncat %s\n' "$WORK/bs/space_corpus" > "$WORK/bs/oracle_space.sh"
-printf '#!/bin/sh\nfor f in "$@"; do case "$(%s -n 1p "$f")" in "3 ox") printf " o \\noxx\\noxx\\n" ;; *) %s 1d "$f" ;; esac; done\n' \
-	"$_sd" "$_sd" > "$WORK/bs/spacey.sh"
+printf '#!/bin/sh\nfor f in "$@"; do case "$(sed -n 1p "$f")" in "3 ox") printf " o \\noxx\\noxx\\n" ;; *) sed 1d "$f" ;; esac; done\n' \
+	> "$WORK/bs/spacey.sh"
 chmod +x "$WORK/bs/oracle_space.sh" "$WORK/bs/spacey.sh"
 want_green "bsq: an answer that starts with a space keeps it" -- bs_run spacey oracle_space
 
@@ -18899,10 +22449,10 @@ want_broken_none "bsq: ...and never names a 0x0 square" 'is 0x0' -- \
 # count written with a leading zero -- the runner cannot see the map's bytes
 # say so, and does not need to: what is under test is the words it prints.
 printf '# a maintainer note\nWhich reading does this target take?\n' > "$WORK/bs/clues_readings.tsv"
-printf '#!/bin/sh\n"%s" "%s" | %s "s/^ok\t/ok:count_leading_zero\t/"\n' \
-	"$SH" "$WORK/bs/oracle_ok.sh" "$_sd" > "$WORK/bs/oracle_readings.sh"
-printf '#!/bin/sh\n"%s" "%s" | %s "s/^ok\t/ok:made_up_form\t/"\n' \
-	"$SH" "$WORK/bs/oracle_ok.sh" "$_sd" > "$WORK/bs/oracle_unworded.sh"
+printf '#!/bin/sh\n"%s" "%s" | sed "s/^ok\t/ok:count_leading_zero\t/"\n' \
+	"$SH" "$WORK/bs/oracle_ok.sh" > "$WORK/bs/oracle_readings.sh"
+printf '#!/bin/sh\n"%s" "%s" | sed "s/^ok\t/ok:made_up_form\t/"\n' \
+	"$SH" "$WORK/bs/oracle_ok.sh" > "$WORK/bs/oracle_unworded.sh"
 chmod +x "$WORK/bs/oracle_readings.sh" "$WORK/bs/oracle_unworded.sh"
 bs_read() { _bsr=$1; shift; "$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --stderr-ignored "$BS_WHY" --bin "$WORK/bs/$_bsr.sh" \
 	--oracle "$WORK/bs/oracle_readings.sh" --show 1 "$@"; }
@@ -18942,6 +22492,17 @@ want_broken_none "bsq: ...in no words of the runner's" 'the only output is' -- b
 want_broken_none "bsq: ...and without it, a failure claims no reading" \
 	"this harness's reading" -- "$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --stderr-ignored "$BS_WHY" --bin "$WORK/bs/catty.sh" \
 	--oracle "$WORK/bs/oracle_ok.sh" --show 1
+# The full character in a row of the map is an open form too (bsq_readings'
+# full_in_body): its record is worded, not refused as a form with no sentence.
+{
+	printf '#!/bin/sh\n"%s" "%s"\n' "$SH" "$WORK/bs/oracle_readings.sh"
+	printf 'printf %s\n' "'err:full_in_body\\t-1\\t-1\\t-1\\t2.ox\\\\n..\\\\n.x\\\\n\\tmap error\\\\n\\n'"
+} > "$WORK/bs/oracle_readings_full.sh"
+chmod +x "$WORK/bs/oracle_readings_full.sh"
+want_out   "bsq: a readings record with the full character in a row names that form" \
+	'the file: a row of its map holds its "full" character.' -- \
+	"$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" --stderr-ignored "$BS_WHY" --bin "$WORK/bs/good.sh" \
+	--oracle "$WORK/bs/oracle_readings_full.sh" --show 1 --readings
 want_out   "bsq: a failing run prints its hints" 'Which reading does this target take?' -- \
 	bs_read catty --readings --clues "$WORK/bs/clues_readings.tsv"
 want_broken_none "bsq: ...never a maintainer's line of them" 'a maintainer note' -- \
@@ -18957,6 +22518,22 @@ want_out   "bsq: --case shows the rows keyed to the target" 'Which reading does 
 	bs_read catty --readings --clues "$WORK/bs/clues_keyed.tsv" --case readings
 want_broken_none "bsq: ...and none keyed to a case of the program" 'What does open return' -- \
 	bs_read catty --readings --clues "$WORK/bs/clues_keyed.tsv" --case readings
+# ...and a run the test's limit stops is a failing run too: a readings case
+# shown before the stop said its hints were below, and the stop printed none.
+# The 2x2 maps are printed back (wrong), every other one waits 0.6s, and the
+# test's 10s run out before the 24 maps do.
+printf '#!/bin/sh\ncase "$(head -c 2 "$1")" in\n  2.) cat "$1" ;;\n  *) sleep 0.6; sed 1d "$1" | sed "s/[.]/x/g" ;;\nesac\n' \
+	> "$WORK/bs/slow_catty.sh"
+chmod +x "$WORK/bs/slow_catty.sh"
+later_red_out "bsq: ...and a run cut short by the test's limit prints them" \
+	'Which reading does this target take?' -- $SHORT "$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" \
+		--stderr-ignored "$BS_WHY" --bin "$WORK/bs/slow_catty.sh" --oracle "$WORK/bs/oracle_readings.sh" \
+		--show 1 --readings --clues "$WORK/bs/clues_readings.tsv"
+# ...as it names the marks of the want and got lines it showed, as a run
+# that ended does.
+later_red_out "bsq: ...and names the marks of the lines it showed" \
+	'$ is where a line ended.' -- $SHORT "$SH" "$TOOLS/bsq_check.sh" --quotes "$BS_QUOTES" \
+		--stderr-ignored "$BS_WHY" --bin "$WORK/bs/slow_catty.sh" --oracle "$WORK/bs/oracle_ok.sh" --show 1
 
 # ------------------------------------------------------------ oracle_fixtures
 # Holds a project's named fixtures to the //oracle arm that writes them. A fake
@@ -19014,12 +22591,15 @@ want_broken "oracle_fixtures: a reference with no record is refused" 'printed no
 # student's place (c_program's reference = True): a case whose run and
 # expected file drifted apart is red on any tree. A fake oracle answers `run
 # --has toy` and `run toy ARG...`, which prints the first line of the toy.dict
-# in the folder it runs from, if there is one, then each argument.
+# in the folder it runs from, if there is one, then each argument -- or,
+# for a first argument "open", nothing, a reason on stderr and status 2: no
+# answer, as a reference says for a run the subject leaves open.
 mkdir -p "$WORK/rc"
 {
 	printf '%s\n' '#!/bin/sh' '[ "$1" = run ] || exit 2' 'shift' \
 		'if [ "$1" = --has ]; then [ "$2" = toy ]; exit; fi' \
 		'[ "$1" = toy ] || exit 2' 'shift' \
+		'if [ "${1-}" = open ]; then echo "oracle run toy: no answer: open run" >&2; exit 2; fi' \
 		'[ -f toy.dict ] && head -n 1 toy.dict' \
 		'for a in "$@"; do printf "%s\n" "$a"; done'
 } > "$WORK/rc/oracle.sh"
@@ -19063,6 +22643,22 @@ want_green "reference_cases: either of the files a case accepts" -- \
 	rc_run --case-run alt 6 --expected "$WORK/rc/x.txt" --expected-alt "$WORK/rc/y.txt" -- y
 want_out   "reference_cases: an argument after -- is the program's" 'FAIL   dashes' -- \
 	rc_run --case-run dashes 5 --expected "$WORK/rc/x.txt" -- --case-run x
+# A run the reference has no answer for: printing nothing is an answer a
+# program can give, so an empty expected file would pass the differ, and a
+# case would settle what the subject leaves open. Only a survive case, which
+# compares no output, may make such a run; an argument "--survive" after --
+# is the program's, not the case's.
+: > "$WORK/rc/nothing.txt"
+want_red   "reference_cases: a case held to a run the reference has no answer for is red" -- \
+	rc_run --case-run open 4 --expected "$WORK/rc/nothing.txt" -- open
+want_out   "reference_cases: ...naming the case and quoting the reference's reason" \
+	'no answer: open run' -- rc_run --case-run open 4 --expected "$WORK/rc/nothing.txt" -- open
+want_out   "reference_cases: ...in the case's own FAIL line" 'FAIL   open: the reference has no answer' -- \
+	rc_run --case-run open 4 --expected "$WORK/rc/nothing.txt" -- open
+want_green "reference_cases: ...but a survive case may make that run" -- \
+	rc_run --case-run open 3 --survive -- open
+want_red   "reference_cases: ...and an argument --survive after -- does not make one" -- \
+	rc_run --case-run open 5 --expected "$WORK/rc/nothing.txt" -- open --survive
 want_broken "reference_cases: a program //oracle has no reference for is refused" \
 	"no reference program named 'other'" -- \
 	"$SH" "$TOOLS/reference_cases.sh" --oracle "$WORK/rc/oracle.sh" --program other \
@@ -19141,43 +22737,41 @@ mkdir -p "$WORK/av"
 } > "$WORK/av/corpus.tsv"
 printf '#!/bin/sh\ncat %s\n' "$WORK/av/corpus.tsv" > "$WORK/av/oracle.sh"
 
-# The fake students. Written, not run -- see the note above the bsq ones for why
-# the tool names are printf ARGUMENTS and not part of the format string.
-_pf="printf"
+# The fake students. Written, not run.
 # Correct: one argument per line, a newline after each.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "$a"; done\n' "$_pf" > "$WORK/av/good.sh"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done\n' > "$WORK/av/good.sh"
 # The separator bug: a newline BETWEEN arguments rather than after each. Its
 # output differs from the correct one only in the final byte, which is exactly
 # what c-06's argv TABLE cannot see (it joins lines, so a missing final newline
 # is invisible unless the last line is empty) and what `cmp` sees every time.
 # %b, not %s, for the separator: with %s it printed a literal backslash-n, so
 # this fixture was red as "line-count" and never had the bug it is named for.
-printf '#!/bin/sh\n_s=""\nfor a in "$@"; do %s "%%b%%s" "$_s" "$a"; _s="\\n"; done\n' \
-	"$_pf" > "$WORK/av/nonl.sh"
+printf '#!/bin/sh\n_s=""\nfor a in "$@"; do printf "%%b%%s" "$_s" "$a"; _s="\\n"; done\n' \
+	> "$WORK/av/nonl.sh"
 # Stops at the first empty argument, which is the commonest real mistake here
 # and which no case anybody types by hand contains.
-printf '#!/bin/sh\nfor a in "$@"; do [ -n "$a" ] || break; %s "%%s\\n" "$a"; done\n' \
-	"$_pf" > "$WORK/av/stopsempty.sh"
+printf '#!/bin/sh\nfor a in "$@"; do [ -n "$a" ] || break; printf "%%s\\n" "$a"; done\n' \
+	> "$WORK/av/stopsempty.sh"
 # Reads stdin. Without `< /dev/null` on every run this eats the rest of the
 # corpus, the loop ends after one case, and the layer reports "OK, 1 case".
-printf '#!/bin/sh\ncat > /dev/null\nfor a in "$@"; do %s "%%s\\n" "$a"; done\n' \
-	"$_pf" > "$WORK/av/eatsstdin.sh"
+printf '#!/bin/sh\ncat > /dev/null\nfor a in "$@"; do printf "%%s\\n" "$a"; done\n' \
+	> "$WORK/av/eatsstdin.sh"
 # Every argument but the first, then the first: the right lines in the wrong
 # order, which is what "wrong-order" exists to name. It reverses and sorts
 # nothing, so it is no exercise's answer.
-printf '#!/bin/sh\n[ $# -gt 0 ] || exit 0\n_a="$1"; shift\nfor a in "$@"; do %s "%%s\\n" "$a"; done\n%s "%%s\\n" "$_a"\n' \
-	"$_pf" "$_pf" > "$WORK/av/rotates.sh"
+printf '#!/bin/sh\n[ $# -gt 0 ] || exit 0\n_a="$1"; shift\nfor a in "$@"; do printf "%%s\\n" "$a"; done\nprintf "%%s\\n" "$_a"\n' \
+	> "$WORK/av/rotates.sh"
 # Right bytes, except that it drops every byte above 0x7f: only the cases with
 # such a byte in an argument fail, which is the property the family line has to
 # find on its own.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "$a" | %s -d "\\200-\\377"; done\n' \
-	"$_pf" "$_tr" > "$WORK/av/dropshigh.sh"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a" | tr -d "\\200-\\377"; done\n' \
+	> "$WORK/av/dropshigh.sh"
 # Right bytes, then a plain non-zero return.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "$a"; done\nexit 3\n' \
-	"$_pf" > "$WORK/av/exits3.sh"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done\nexit 3\n' \
+	> "$WORK/av/exits3.sh"
 # Right bytes, then a return of 128: the boundary. A signal is 128+N, N >= 1.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "$a"; done\nexit 128\n' \
-	"$_pf" > "$WORK/av/exits128.sh"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done\nexit 128\n' \
+	> "$WORK/av/exits128.sh"
 chmod +x "$WORK/av"/*.sh
 
 # Every call says what stderr is held to (argv_check.sh refuses one that does
@@ -19247,16 +22841,16 @@ want_broken "argv_check: --note, a second place for a level's reason, is refused
 # The exit status, by the rule in docs/reference.md ("Run contract"): noted
 # here, failed only by the robust exit-status target.
 want_green "argv_check: right bytes then a plain non-zero exit passes" -- av_run exits3
-want_out   "argv_check: ...and says so in a note" 'names no exit status' -- av_show exits3
+want_out   "argv_check: ...and says so in a note" 'from your subject names an exit' -- av_show exits3
 want_out   "argv_check: ...naming the twin that fails it" '_argv_diff_exit' -- av_show exits3
 # 128 is a return. It was counted as a crash and printed "killed by signal 0",
 # where argv_table.sh and progname_test.sh both call it a plain return.
 want_green "argv_check: exit 128 is a return, not a signal" -- av_run exits128
-want_out   "argv_check: ...and is noted as one" 'names no exit status' -- av_show exits128
+want_out   "argv_check: ...and is noted as one" 'from your subject names an exit' -- av_show exits128
 # 255 is `return (-1);`, which the shell's 128+N reading called a death by
 # signal 127. The runner asks tools/exit_status how each run ended instead.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "$a"; done\nexit 255\n' \
-	"$_pf" > "$WORK/av/exits255.sh"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done\nexit 255\n' \
+	> "$WORK/av/exits255.sh"
 chmod +x "$WORK/av/exits255.sh"
 want_green "argv_check: exit 255 is a return, not a signal" -- av_run exits255
 want_broken_none "argv_check: ...and never called one" 'signal' -- av_show exits255
@@ -19266,13 +22860,47 @@ want_broken "argv_check: a program exec cannot start is refused" 'could not be s
 	"$SH" "$TOOLS/argv_check.sh" --bin "$WORK/noint" \
 		--oracle "$WORK/av/oracle.sh" --fn fixture --stderr-ignored "$AV_WHY" --show 0
 
+# A LONG CASE IS SHOWN CUT. C 06's corpora hold an argument of 5000 bytes and
+# a list of 1100 arguments (finding 041), and a failing case printed each
+# whole: every argument in the argv: line, the replay line with all of them,
+# and an expected line of 5000 bytes. Here the toy's corpus gains the two, and
+# a program wrong on every case shows each one cut: its first arguments, each
+# to its first 300 bytes, the rest counted, its output lines cut the same way,
+# and the replay line, which cannot be cut and still run, kept as a file.
+{
+	cat "$WORK/av/corpus.tsv"
+	LC_ALL=C awk 'BEGIN {
+		s = ""
+		for (i = 0; i < 5000; i++) s = s "x"
+		printf "args\t2\t%s\ty\t%s\\ny\\n\n", s, s
+		printf "args\t1100"
+		for (i = 0; i < 1100; i++) printf "\ta%d", i
+		printf "\t"
+		for (i = 0; i < 1100; i++) printf "a%d\\n", i
+		printf "\n"
+	}'
+} > "$WORK/av/long.tsv"
+printf '#!/bin/sh\ncat %s\n' "$WORK/av/long.tsv" > "$WORK/av/long_oracle.sh"
+chmod +x "$WORK/av/long_oracle.sh"
+av_long() { env "$@" "$SH" "$TOOLS/argv_check.sh" --bin "$WORK/av/nonl.sh" \
+	--oracle "$WORK/av/long_oracle.sh" --fn fixture --stderr-ignored "$AV_WHY" --show 0; }
+_av_xs=$(LC_ALL=C awk 'BEGIN { for (i = 0; i < 400; i++) printf "x" }')
+want_broken_none "argv_check: a 5000-byte argument is not printed whole" "$_av_xs" -- av_long
+want_out "argv_check: ...its rendering says how much was left out" '... (4700 more bytes)' -- av_long
+want_out "argv_check: ...and its output line too" '[... line cut here, 4700 more bytes]' -- av_long
+want_broken_none "argv_check: 1100 arguments are not listed whole" '[a1099]' -- av_long
+want_out "argv_check: ...the ones left out are counted" '... and 1080 more arguments' -- av_long
+want_out "argv_check: ...and a long replay line is kept as a file" \
+	'replay:   sh bazel-testlogs/mod/ex00_argv_diff/test.outputs/replay-case-' -- \
+	av_long TEST_UNDECLARED_OUTPUTS_DIR="$WORK/av/out" TEST_TARGET=//mod:ex00_argv_diff
+
 # A BYTE MATCH IS NOT A PASS IF THE PROGRAM THEN DIED. This runner compared
 # output and nothing else, so a deliverable printing the right bytes and
 # segfaulting on the way out was "every one byte-identical to the reference".
 # Demonstrated on the real c-06 ex01 deliverable: a copy crashing only on an
 # argv byte above 0x7f died on 134 of 200 cases and was green in every layer
 # that exercise owns.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "$a"; done\nkill -SEGV $$\n' "$_pf" \
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done\nkill -SEGV $$\n' \
 	> "$WORK/av/crashes.sh"
 chmod +x "$WORK/av/crashes.sh"
 want_red "argv_check: right bytes then a SEGV is not a pass" -- av_run crashes
@@ -19283,7 +22911,7 @@ want_red "argv_check: right bytes then a SEGV is not a pass" -- av_run crashes
 # each case's own (ARGV_TIMEOUT), after three of which the sweep stops rather
 # than spend the test rediscovering the same hang; and the test's own.
 printf '#!/bin/sh\nexec sleep 20\n' > "$WORK/av/hangs.sh"
-printf '#!/bin/sh\nsleep 1\nfor a in "$@"; do %s "%%s\\n" "$a"; done\n' "$_pf" > "$WORK/av/slow.sh"
+printf '#!/bin/sh\nsleep 1\nfor a in "$@"; do printf "%%s\\n" "$a"; done\n' > "$WORK/av/slow.sh"
 chmod +x "$WORK/av/hangs.sh" "$WORK/av/slow.sh"
 later_red_out "argv_check: three runs over their own cap stop the sweep" \
 	'STOPPED after 3 runs' -- env ARGV_TIMEOUT=1 "$SH" "$TOOLS/argv_check.sh" \
@@ -19304,13 +22932,25 @@ later_red_out "argv_check: a sweep that ran out of time is never a pass" \
 # test's limit stops the sweep: that run is named, never one of the cases
 # "judged wrong before that" (V84, ruling R4). mkdir makes "the first run"
 # one run, whichever argument list it is handed.
-printf '#!/bin/sh\nmkdir "$0.first" 2> /dev/null && exec sleep 20\nsleep 1\nfor a in "$@"; do %s "%%s\\n" "$a"; done\n' \
-	"$_pf" > "$WORK/av/hang_first.sh"
+printf '#!/bin/sh\nmkdir "$0.first" 2> /dev/null && exec sleep 20\nsleep 1\nfor a in "$@"; do printf "%%s\\n" "$a"; done\n' \
+	> "$WORK/av/hang_first.sh"
 chmod +x "$WORK/av/hang_first.sh"
 later_red_none "argv_check: a run past its own limit is not judged wrong at a stop" \
 	'judged wrong before that' -- \
 	$SHORT ARGV_TIMEOUT=2 "$SH" "$TOOLS/argv_check.sh" \
 		--bin "$WORK/av/hang_first.sh" --oracle "$WORK/av/oracle.sh" --fn fixture --stderr-ignored "$AV_WHY" --show 0
+# ...and with no stop at all (V85): the case whose first argument is a waits
+# past its own 2 s, every other case is right, and the verdict counted that run
+# among the cases that "differ from the reference". It did not finish, so it
+# is said apart, red, and never judged (ruling R4).
+printf '#!/bin/sh\n[ "$1" = a ] && exec sleep 20\nfor a in "$@"; do printf "%%s\\n" "$a"; done\n' \
+	> "$WORK/av/hang_a.sh"
+chmod +x "$WORK/av/hang_a.sh"
+av_hang_a() { env ARGV_TIMEOUT=2 "$SH" "$TOOLS/argv_check.sh" --bin "$WORK/av/hang_a.sh" \
+	--oracle "$WORK/av/oracle.sh" --fn fixture --stderr-ignored "$AV_WHY" --show 0; }
+later_red_out "argv_check: a run past its own limit is counted apart" \
+	'and 1 did not finish within 2s each' -- av_hang_a
+later_red_none "argv_check: ...never as a difference" 'differ from the reference' -- av_hang_a
 later_term "argv_check: SIGTERM ends it, cleaned up, with 143" -- \
 	"$SH" "$TOOLS/argv_check.sh" \
 		--bin "$WORK/av/slow.sh" --oracle "$WORK/av/oracle.sh" --fn fixture --stderr-ignored "$AV_WHY" --show 0
@@ -19347,8 +22987,8 @@ want_out "argv_check: ...and says how to see more" \
 want_green "argv_check: ...keeping every one in test.outputs" -- \
 	grep -q "replay:   ./a.out 'x9' 'y9'" "$WORK/av/out2/differences.txt"
 # stderr is never graded, and a case that wrote to it is said (finding 156).
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "$a"; done\necho "debug" >&2\n' \
-	"$_pf" > "$WORK/av/noisy.sh"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done\necho "debug" >&2\n' \
+	> "$WORK/av/noisy.sh"
 chmod +x "$WORK/av/noisy.sh"
 want_green "argv_check: a program that also writes to stderr passes" -- av_run noisy
 want_out   "argv_check: ...and the report says so" 'also wrote to standard error (not graded' -- \
@@ -19514,8 +23154,8 @@ want_red   "argv_check --sanitized: ...and NO_SKIP=1 turns it red" -- \
 # STANDARD ERROR, A CHOICE AT EVERY CALL (review of WP-50). This runner threw
 # stderr away on every run; now the call says what it is held to, and a
 # message about a valid input fails where it says --stderr-empty.
-printf '#!/bin/sh\nfor a in "$@"; do %s "%%s\\n" "$a"; done\necho "a note" >&2\n' \
-	"$_pf" > "$WORK/av/chatty.sh"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done\necho "a note" >&2\n' \
+	> "$WORK/av/chatty.sh"
 chmod +x "$WORK/av/chatty.sh"
 av_err() { "$SH" "$TOOLS/argv_check.sh" --bin "$WORK/av/$1.sh" \
 	--oracle "$WORK/av/oracle.sh" --fn fixture --show 3 --stderr-empty; }
@@ -19557,19 +23197,18 @@ _big=$(awk 'BEGIN { s = ""; while (length(s) < 5000) s = s "abcdefghij"; print s
 } > "$WORK/fc/corpus.tsv"
 printf '#!/bin/sh\ncat %s\n' "$WORK/fc/corpus.tsv" > "$WORK/fc/oracle.sh"
 
-# The fake students. Written, not run -- the tool names are printf ARGUMENTS so
-# the require scanner does not read them as selftest.sh's own calls.
-printf '#!/bin/sh\nfor f in "$@"; do %s "$f"; done\n' cat > "$WORK/fc/good.sh"
+# The fake students. Written, not run.
+printf '#!/bin/sh\nfor f in "$@"; do cat "$f"; done\n' > "$WORK/fc/good.sh"
 printf '#!/bin/sh\nexit 0\n' > "$WORK/fc/silent.sh"
 # Stops at the first NUL, which is what a buffer treated as a C string does.
 # This arm is the one that caught the runner decoding through a shell variable:
 # a variable cannot hold a NUL, so the file reached the program without one and
 # this program PASSED 60 of 60.
-printf '#!/bin/sh\nfor f in "$@"; do %s -d "\\000" < "$f"; done\n' tr \
+printf '#!/bin/sh\nfor f in "$@"; do tr -d "\\000" < "$f"; done\n' \
 	> "$WORK/fc/eatsnul.sh"
 # Reads stdin before its files: without `< /dev/null` on every run it swallows
 # the rest of the corpus and the layer reports OK having checked one case.
-printf '#!/bin/sh\n%s > /dev/null\nfor f in "$@"; do %s "$f"; done\n' cat cat \
+printf '#!/bin/sh\ncat > /dev/null\nfor f in "$@"; do cat "$f"; done\n' \
 	> "$WORK/fc/eatsstdin.sh"
 chmod +x "$WORK/fc"/*.sh
 
@@ -19595,13 +23234,13 @@ want_green "file_check: a program that reads stdin is not starved" -- fc_run eat
 
 # Same blind spot, same fix: the status is consulted on the path where the
 # bytes matched, not only on the path where they did not.
-printf '#!/bin/sh\nfor f in "$@"; do %s "$f"; done\nkill -SEGV $$\n' cat \
+printf '#!/bin/sh\nfor f in "$@"; do cat "$f"; done\nkill -SEGV $$\n' \
 	> "$WORK/fc/crashes.sh"
 chmod +x "$WORK/fc/crashes.sh"
 want_red "file_check: right bytes then a SEGV is not a pass" -- fc_run crashes
 # ...but right bytes then a return of 255 is: a status it returned, which
 # waitpid() tells from a death by "signal 127" (tools/exit_status).
-printf '#!/bin/sh\nfor f in "$@"; do %s "$f"; done\nexit 255\n' cat \
+printf '#!/bin/sh\nfor f in "$@"; do cat "$f"; done\nexit 255\n' \
 	> "$WORK/fc/ret255.sh"
 chmod +x "$WORK/fc/ret255.sh"
 want_green "file_check: right bytes then a return of 255 passes" -- fc_run ret255
@@ -19609,7 +23248,7 @@ want_green "file_check: right bytes then a return of 255 passes" -- fc_run ret25
 # call site asks, a message about one of them fails the case even when the
 # bytes on stdout are right -- and only there: the Run contract ignores stderr
 # unless the subject requires something of it (finding 110).
-printf '#!/bin/sh\nfor f in "$@"; do %s "$f"; done\necho "cannot read" >&2\n' cat \
+printf '#!/bin/sh\nfor f in "$@"; do cat "$f"; done\necho "cannot read" >&2\n' \
 	> "$WORK/fc/chatty.sh"
 chmod +x "$WORK/fc/chatty.sh"
 want_green "file_check: a message on stderr is not judged unless asked" -- fc_run chatty
@@ -19627,6 +23266,10 @@ want_broken_none "file_check: ...never said to differ from the reference" \
 	'differ from the reference' -- fc_quiet chatty --show 1
 want_out   "file_check: ...its headline says what it did" 'wrote to standard error; their output was right' -- \
 	fc_quiet chatty --show 1
+# ...nor under the hint on the bytes: they were right, and it read
+# "a truncation ... at the first NUL" over a report with no truncation.
+want_broken_none "file_check: ...nor read by the hint on truncation" \
+	'a truncation at the first NUL' -- fc_quiet chatty --show 1
 want_green "file_check: --stderr-empty passes a quiet program" -- fc_quiet good
 # A default is not a decision: a call that says nothing of stderr, or both
 # things, never ran (exit 2), and says what to pass.
@@ -19639,8 +23282,8 @@ want_broken "file_check: ...and one that says both" 'standard error is judged, o
 # Both kinds of failure in one run: the headline counts each, and a case whose
 # bytes differ shows its stderr as a clue, not as the fault. mixed.sh gets
 # line3's file wrong and complains about line5's, which it gets right.
-printf '#!/bin/sh\nfor f in "$@"; do\n\tif %s -qx line3 "$f"; then echo wrong; echo "about line3" >&2\n\telif %s -qx line5 "$f"; then %s "$f"; echo "about line5" >&2\n\telse %s "$f"; fi\ndone\n' \
-	grep grep cat cat > "$WORK/fc/mixed.sh"
+printf '#!/bin/sh\nfor f in "$@"; do\n\tif grep -qx line3 "$f"; then echo wrong; echo "about line3" >&2\n\telif grep -qx line5 "$f"; then cat "$f"; echo "about line5" >&2\n\telse cat "$f"; fi\ndone\n' \
+	> "$WORK/fc/mixed.sh"
 chmod +x "$WORK/fc/mixed.sh"
 want_red   "file_check: a wrong case and a noisy one are both failures" -- fc_quiet mixed
 want_out   "file_check: ...the headline counts the wrong one" '1 differ from the reference' -- \
@@ -19660,12 +23303,43 @@ later_red_out "file_check: a program that never ends is stopped, and said to be"
 # ...and a run past its own limit before the test's stops the sweep is
 # named, never one of the cases "judged wrong before that" (V84, as
 # argv_check's): the first run waits past its 2 s, every other takes 1 s.
-printf '#!/bin/sh\nmkdir "$0.first" 2> /dev/null && exec sleep 20\nsleep 1\nfor f in "$@"; do %s "$f"; done\n' cat \
+printf '#!/bin/sh\nmkdir "$0.first" 2> /dev/null && exec sleep 20\nsleep 1\nfor f in "$@"; do cat "$f"; done\n' \
 	> "$WORK/fc/hang_first.sh"
 chmod +x "$WORK/fc/hang_first.sh"
 later_red_none "file_check: a run past its own limit is not judged wrong at a stop" \
 	'judged wrong before that' -- $SHORT FILE_TIMEOUT=2 "$SH" "$TOOLS/file_check.sh" \
 		--bin "$WORK/fc/hang_first.sh" --oracle "$WORK/fc/oracle.sh" --fn fixture --show 0 \
+		--stderr-ignored "the selftest corpus is about stdout"
+
+# ...and with no stop at all (V85): the file holding line3 waits past its
+# own 2 s, every other case is right, and the verdict counted that run among
+# the cases that "differ from the reference", under the hint on a buffer
+# treated as a string. It did not finish, so it is said apart, red, and
+# never judged (ruling R4); no hint about the bytes reads it.
+printf '#!/bin/sh\ngrep -qx line3 "$1" && exec sleep 20\nfor f in "$@"; do cat "$f"; done\n' \
+	> "$WORK/fc/hang_line3.sh"
+chmod +x "$WORK/fc/hang_line3.sh"
+fc_hang3() { env FILE_TIMEOUT=2 "$SH" "$TOOLS/file_check.sh" --bin "$WORK/fc/hang_line3.sh" \
+	--oracle "$WORK/fc/oracle.sh" --fn fixture --show 0 \
+	--stderr-ignored "the selftest corpus is about stdout"; }
+later_red_out "file_check: a run past its own limit is counted apart" \
+	'and 1 did not finish within 2s each' -- fc_hang3
+later_red_none "file_check: ...never as a difference" 'differ from the reference' -- fc_hang3
+later_red_none "file_check: ...nor read by the hint on the bytes" 'a truncation at the first NUL' -- fc_hang3
+# ...nor by its own case: the case block printed "first difference: byte
+# 1" and the window around it, over bytes the run never finished writing.
+later_red_none "file_check: ...nor shown as a first difference" 'first difference' -- fc_hang3
+later_red_out "file_check: ...its case says it was not judged" \
+	'not judged: a run that did not finish was not seen to its end' -- fc_hang3
+# What it had printed by then is shown, as it is: here the very bytes the
+# reference has, which the case once called "byte-identical to the
+# reference" -- of a run nobody saw end.
+printf '#!/bin/sh\nif %s -qx line3 "$1"; then %s "$1"; exec sleep 20; fi\nfor f in "$@"; do %s "$f"; done\n' grep cat cat \
+	> "$WORK/fc/hang_part3.sh"
+chmod +x "$WORK/fc/hang_part3.sh"
+later_red_out "file_check: ...and shows what it had printed by then" \
+	'what it had printed when it was stopped:' -- env FILE_TIMEOUT=2 "$SH" "$TOOLS/file_check.sh" \
+		--bin "$WORK/fc/hang_part3.sh" --oracle "$WORK/fc/oracle.sh" --fn fixture --show 0 \
 		--stderr-ignored "the selftest corpus is about stdout"
 
 # The floors, each exit 2: a corpus that cannot fail anything is a broken
@@ -19771,6 +23445,25 @@ want_green "file_check --sanitized: wrong bytes, memory-clean, are not its findi
 want_out   "file_check --sanitized: ...and says its arguments were unwatched" \
 	'Reads inside the argument strings, or past argv'"'"'s end, are invisible' -- fc_san silent
 want_red   "file_check --sanitized: a crash is" -- fc_san crashes
+# A report that names a file names the scratch copy the program was given;
+# the case keeps it as case-N-fileK, which the report shows -- where it was
+# kept. Run by hand there is nowhere to keep it, and the report named a
+# file that exists nowhere.
+printf '#!/bin/sh\nfor f in "$@"; do n=$(%s -c < "$f"); [ $n -lt 4096 ] || { echo "==1==ERROR: AddressSanitizer: heap-buffer-overflow while reading $f" >&2; kill -ABRT $$; }; done\nexit 0\n' \
+	wc > "$WORK/fc/sanpath.sh"
+chmod +x "$WORK/fc/sanpath.sh"
+fc_sank() { env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/fc/outs" TEST_TARGET=//mod:ex00_file_diff_asan \
+	"$SH" "$TOOLS/file_check.sh" --bin "$WORK/fc/$1.sh" --oracle "$WORK/fc/oracle.sh" --fn fixture --sanitized; }
+fc_sanh() { env -u TEST_UNDECLARED_OUTPUTS_DIR "$SH" "$TOOLS/file_check.sh" --bin "$WORK/fc/$1.sh" \
+	--oracle "$WORK/fc/oracle.sh" --fn fixture --sanitized; }
+want_out   "file_check --sanitized: a report naming a file shows the kept name" \
+	'heap-buffer-overflow while reading case-3-file0' -- fc_sank sanpath
+want_out   "file_check --sanitized: ...and says it did" \
+	'shown by the name it is kept under: case-3-file0)' -- fc_sank sanpath
+want_out   "file_check --sanitized: by hand the file is not kept" \
+	'replay:  ./a.out <file 0>' -- fc_sanh sanpath
+want_broken_none "file_check --sanitized: ...and the report names no kept file" \
+	'case-3-file0' -- fc_sanh sanpath
 
 # ------------------------------------------------------------------ probe_under
 # Bazel's --run_under for measuring what a case list catches: every program a

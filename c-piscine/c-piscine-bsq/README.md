@@ -98,7 +98,8 @@ where the subject names no status (the
 - several files in one run (`two_maps`, `error_then_map`), a name no file has
   (`missing_alone`, `map_then_missing`, `missing_then_map`), and an invalid map
   on standard input (`stdin_invalid`);
-- one case the subject leaves open, `no_final_newline` (below).
+- two cases the subject leaves open, `no_final_newline` and `full_in_body`
+  (below).
 
 Every file a case reads, and every output it expects, is written by
 `//oracle`'s reference (`oracle bsq_fixtures`): `ex00_oracle_fixtures`
@@ -198,8 +199,12 @@ you read and how.
 - **The "full" character inside the map.** The subject describes the map as
   "lines containing 'empty' characters and 'obstacle' characters", and its
   validity list says "The characters on the map can only be those introduced
-  in the first line", which are three. No test holds a map body with the full
-  character in it, in either direction.
+  in the first line", which are three. At `basic`,
+  `ex00_full_in_body_output` accepts either verdict a reading can give, and
+  checks what both agree on: "map error", or the solved map with that
+  character left where it is (it sits where no biggest square goes, whatever
+  your program takes it for). At `strict`, `ex00_readings` holds one reading,
+  its hints saying which.
 - **More rows than the first line announces.** A file with fewer rows does
   not hold the map it promises; for more, the subject does not say. No test
   holds one, in either direction.

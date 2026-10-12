@@ -3,7 +3,7 @@
 # testShell00 with permissions -r--r-xr-x, listed as Jun 1 23:42 (any year;
 # see ck_listed_at in tools/shell_check.sh).
 # Emits a per-property PASS/FAIL checklist via shell_check.sh.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?shell_check library not provided}"
 
 TAR=${1:-testShell00.tar}

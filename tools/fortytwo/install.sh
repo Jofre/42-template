@@ -1,8 +1,8 @@
 #!/bin/sh
 # install.sh -- put the `42` command on PATH.
 #
-# Usage:
-#   sh tools/fortytwo/install.sh [BINDIR]     # BINDIR defaults to ~/.local/bin
+# Usage: BINDIR defaults to ~/.local/bin.
+#   sh tools/fortytwo/install.sh [BINDIR]
 #
 # It writes one small file, BINDIR/42: a shim that walks up from the folder you
 # type in to the checkout around it and runs that checkout's tools/42.sh, so

@@ -8,11 +8,12 @@
 # cutting the number at 24 characters and both strings at 34 without a mark --
 # in the runner that exists for long numbers -- and a generated dictionary was
 # overwritten by the next case and deleted on exit, so a failing case could be
-# neither read nor replayed (finding 158). Now the number is whole, EXPECTED
-# and GOT go through tools/runner_lib.sh's rl_vis (\xHH for a byte that is not
-# printable, \n for a line break), the first differing character is named,
-# and a failing case's generated dictionary is kept in test.outputs, with the
-# command that replays it.
+# neither read nor replayed (finding 158). Now EXPECTED and GOT go through
+# tools/runner_lib.sh's rl_vis (\xHH for a byte that is not printable, \n for
+# a line break), the first differing character is named, and a failing
+# case's generated dictionary is kept in test.outputs, with the command that
+# replays it. A value longer than SHOW_W bytes is cut where it is shown, with
+# a mark saying how much was left out (see show_case).
 #
 # WHY THIS IS ONE EXEC PER CASE, unlike every other differential layer here.
 # c_diff streams a 400k-line corpus through ONE process reading stdin, which is
@@ -47,7 +48,10 @@
 #     separators are a space and bonus 1's "-", "," and "and", so every
 #     reading of the composition passes this; English typed into the
 #     program does not, against a dictionary whose values are random.
-#   * Nothing at all, and a run that does not end by itself.
+#   * Nothing at all, a crash (a signal), or output without end. A run
+#     that did not finish within its time is red too, and shown, but never
+#     judged (the owner's ruling R4): what it would have printed was not
+#     seen, so the verdict counts it apart.
 #   * The two shapes the named cases at basic hold as every reading spells
 #     them (BUILD.bazel, "what the subject states in words"): a number below
 #     100 with a key of its own -- a teen, a ten, a unit -- is that key's
@@ -61,11 +65,11 @@
 #     eight" and "seven million thousand" passed this target).
 # Any other difference -- "and", a leading "one", another decomposition, a
 # spelling of a number past the dictionary that combines scale words -- is
-# shown as information and passes: composition is not judged here. THE CORPUS CONTRACT this rests on
-# (oracle/src/rush02.rs): every number is a valid and positive integer, and
-# a case that expects words names a dictionary with every reference key
-# (rush02_words uses --dict, ref.dict; rush02_dicts drops a key only where it
-# expects "Dict Error").
+# shown as information and passes: composition is not judged here. THE CORPUS
+# CONTRACT this rests on, which the reference's corpus keeps: every number is a
+# valid and positive integer, and a case that expects words names a dictionary
+# with every reference key (rush02_words uses --dict, ref.dict; rush02_dicts
+# drops a key only where it expects "Dict Error").
 #
 # WHAT IS COMPARED is the whole of standard output, byte for byte: the
 # reference's words and the newline every subject transcript shows after them
@@ -89,7 +93,7 @@
 #                   [--sanitized | --valgrind PATH --valgrind-tools FILE
 #                    [--sample N] [--rule FILE]]
 #                   [--gate-differ PATH --gate-bin PATH --gate-expected PATH
-#                    --gate-number N]
+#                    --gate-number N [--gate-label NAME]]
 #                   (--stderr-empty | --stderr-ignored REASON)
 #
 #   --show N       how many failing cases to print (default DIFF_MAX_ROWS, 40;
@@ -110,8 +114,11 @@
 #
 # The gate (tools/runner_lib.sh's rl_gate): while `BIN DICT N`, the
 # subject's own example, does not print the --gate-expected file, the run
-# says SKIP and passes. A gated target is one that judges (--settled); the
-# manual ones run whatever their author asked them to.
+# says SKIP and passes, naming the output test the gate is (--gate-label,
+# runner_lib.sh's RL_GATE_NAME). A gated target is one that judges
+# (--settled); the manual ones run whatever their author asked them to. Any
+# --gate-* without all of --gate-differ, --gate-bin and --gate-expected is a
+# wiring mistake, refused (rl_gate_whole).
 #
 # Env: RUSH02_TIMEOUT  seconds one number may take (default 10), capped by what
 #                      is left of the test's own limit (tools/runner_lib.sh).
@@ -130,7 +137,7 @@ require() {
 		exit 2
 	done
 }
-require awk cat cmp grep mktemp rm tr
+require awk cat cmp grep mktemp rm tr wc
 
 # The shared runner helpers: the time budget, signal traps and how a run ended
 # (tools/runner_lib.sh, which says why each is written once).
@@ -180,11 +187,15 @@ while [ $# -gt 0 ]; do
 		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
 		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
 		--gate-number) need "$1" "$#"; GATE_NUMBER="$2"; shift 2 ;;
+		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
 		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
 		*) echo "rush02_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole rush02_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_NUMBER$RL_GATE_NAME"
 
 for v in BIN DICT ORACLE; do
 	eval "x=\$$v"
@@ -252,7 +263,8 @@ GOTF=""
 WANTF=""
 ERRF=""
 BLOCK=""
-rl_traps 'rm -f "$CORPUS" "$TMPD" "$GOTF" "$WANTF" "$ERRF" "$BLOCK"'
+REPLAYF=""
+rl_traps 'rm -f "$CORPUS" "$TMPD" "$GOTF" "$WANTF" "$ERRF" "$BLOCK" "$REPLAYF"'
 
 "$ORACLE" "$FN" "$SEED" "$COUNT" > "$CORPUS" 2>/dev/null || {
 	echo "rush02_check.sh: the oracle produced no corpus for '$FN'" >&2
@@ -302,33 +314,84 @@ esac
 # test's runfiles tree.
 DICT_SHOWN=${DICT#"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/"}
 
-# show_case N NUMBER DICT -- one failing case, whole, as a block on stdout:
-# the number, both outputs byte-exact (tools/runner_lib.sh's rl_vis: \n is a
-# line break, \xHH a byte that is not printable), where they part, and how to
-# run it again. DICT is the generated dictionary, or empty when the case used
-# --dict. The outputs are $WANTF and $GOTF.
+# show_out FILE -- an output as a shown case prints it: every byte visible
+# (rl_vis), then $ where it ended. rl_vis shows a space as a space, so an
+# output with no final newline that ended in one read like one that did not
+# (V71); a $ the output holds is \x24, so the mark is never its text. An
+# empty output is "(nothing)". end_legend says what the mark is.
+show_out() {
+	if [ -s "$1" ]; then
+		rl_vis arg "" "$SHOW_W" < "$1"
+		# Cut, it did not end where the line does: rl_vis's mark says so.
+		[ "$(wc -c < "$1")" -gt "$SHOW_W" ] || printf '$'
+	else
+		printf '(nothing)'
+	fi
+}
+
+# end_legend -- under a report that showed an output, once: what its $ is.
+# Read off the lines printed (rl_block's RL_SHOWNF), or a composition
+# --settled showed as information, which holds an expected line.
+end_legend() {
+	if [ "$OPEN" -eq 0 ] &&
+		! grep -Eq '^ +(expected|got|having printed): .*[$]$' "$RL_SHOWNF" 2> /dev/null; then
+		return 0
+	fi
+	echo "  In the lines above, \$ is where an output ended: a space before it is one"
+	echo "  the program printed."
+}
+
+# shown_legend -- the marks the shown lines hold (rl_shown_legend), with \n
+# read as the newline that ends a line: a legend written once named a
+# backslash and \xHH under words that held neither. Under --settled too,
+# whose failing cases and compositions show the same lines.
+shown_legend() {
+	rl_shown_legend '^    (number|expected|got): +|^ +having printed: ' "  " 1
+}
+
+# show_case N NUMBER DICT -- one failing case as a block on stdout: the
+# number, both outputs byte-exact (show_out: tools/runner_lib.sh's rl_vis, \n
+# a line break, \xHH a byte that is not printable, and $ where it ended),
+# where they part, and how to run it again. DICT is the generated
+# dictionary, or empty when the case used --dict. The outputs are $WANTF and
+# $GOTF.
+#
+# CUT TO WHAT A READER CAN READ. The corpora hold numbers of about a
+# thousand digits, and their words are longer still: one failing case
+# printed its number, both outputs and its replay line whole, each a
+# thousand bytes or more, and a ^ as far to the right. Each value is shown
+# to its first SHOW_W bytes (rl_vis's WIDTH), the rest counted; where the
+# outputs part past that is shown around the byte (rl_diff_window), and a
+# replay line longer than SHOW_W, which cannot be cut and still run, is kept
+# as a file (replay_line). Only what is shown is cut: the case ran, and was
+# compared, on every byte.
+SHOW_W=${RL_EXCERPT_WIDTH:-300}
 show_case() {
 	echo ""
 	printf '  case %s of %s\n' "$1" "$GOT_CASES"
-	printf '    number:   %s\n' "$(printf '%s' "$2" | rl_vis arg)"
-	printf '    expected: %s\n' "$(rl_vis arg < "$WANTF")"
+	printf '    number:   %s\n' "$(printf '%s' "$2" | rl_vis arg "" "$SHOW_W")"
+	printf '    expected: %s\n' "$(show_out "$WANTF")"
 	if [ "$ended" = 1 ]; then
 		printf '    got:      (it %s)\n' "$RL_WHY"
-		[ ! -s "$GOTF" ] || printf '              having printed: %s\n' "$(rl_vis arg < "$GOTF")"
+		[ ! -s "$GOTF" ] || printf '              having printed: %s\n' "$(show_out "$GOTF")"
 	elif cmp -s "$WANTF" "$GOTF"; then
 		printf '    got:      the same words, byte for byte\n'
 	elif [ "$SETTLED" = 1 ]; then
 		# Where they part is not what --settled judges: its FAILS line
 		# says what is.
-		printf '    got:      %s\n' "$(rl_vis arg < "$GOTF")"
+		printf '    got:      %s\n' "$(show_out "$GOTF")"
 	else
-		printf '    got:      %s\n' "$(rl_vis arg < "$GOTF")"
+		printf '    got:      %s\n' "$(show_out "$GOTF")"
 		# Where they part: the first byte that differs, counted from 1, and a
 		# ^ under it in the lines above. Those show escapes (\x01, \n), so
 		# the ^ goes where the rendering of the bytes before it ends, not at
 		# the byte count, which would drift one column per escape.
 		_at=$(rl_first_diff "$WANTF" "$GOTF")
-		printf '              %s first difference: byte %s\n' "$(rl_caret "$WANTF" "$_at")" "$_at"
+		if [ "$_at" -le "$SHOW_W" ]; then
+			printf '              %s first difference: byte %s\n' "$(rl_caret "$WANTF" "$_at")" "$_at"
+		else
+			rl_diff_window "$WANTF" "$GOTF" "              "
+		fi
 	fi
 	# What it wrote to stderr: the fault itself under --stderr-empty, and
 	# otherwise often the explanation of the difference above.
@@ -343,16 +406,37 @@ show_case() {
 	show_replay "$@"
 }
 
+# replay_line N DICTNAME NUMBER -- case N's replay: line, `./rush-02 DICTNAME
+# NUMBER` with the number as a shell word that gives back its exact bytes
+# (rl_shword): rl_vis's rendering is for reading, and a replay built from it
+# ran another input. One longer than SHOW_W bytes is kept as
+# replay-case-N.sh beside the dictionary, and the line names it.
+replay_line() {
+	printf './rush-02 %s %s\n' "$2" "$(printf '%s' "$3" | rl_shword)" > "$REPLAYF"
+	_rp_n=$(($(wc -c < "$REPLAYF") - 1))
+	if [ "$_rp_n" -le "$SHOW_W" ]; then
+		printf '    replay:   %s\n' "$(cat "$REPLAYF")"
+	elif rl_save "$REPLAYF" "replay-case-$1.sh"; then
+		printf '    replay:   sh replay-case-%s.sh (a command line of %d bytes, kept in %s/, where it runs)\n' \
+			"$1" "$_rp_n" "${RL_SAVED%/*}"
+	else
+		printf '    replay:   (a command line of %d bytes, too long to show; only a run under bazel test keeps it)\n' \
+			"$_rp_n"
+	fi
+}
+
 # show_replay N NUMBER DICT -- how to run case N again: its dictionary, kept
-# when the case generated one, and the command line.
+# beside the others, and the command line. DICT_KEPT says whether the case's
+# dictionary, generated or fixed, was kept: not run by hand outside bazel
+# test, where there is nowhere to keep it.
+DICT_KEPT=0
 show_replay() {
+	DICT_KEPT=0
 	if [ -n "$3" ]; then
 		if rl_save "$3" "case-$1.dict"; then
+			DICT_KEPT=1
 			printf '    dictionary: generated for this case, kept as %s\n' "$RL_SAVED"
-			# The number as a shell word that gives back its exact bytes
-			# (rl_shword): rl_vis's rendering above is for reading, and a
-			# replay built from it ran another input.
-			printf '    replay:   ./rush-02 case-%s.dict %s\n' "$1" "$(printf '%s' "$2" | rl_shword)"
+			replay_line "$1" "case-$1.dict" "$2"
 		else
 			printf '    dictionary: generated for this case (a run under bazel test keeps it)\n'
 		fi
@@ -362,9 +446,10 @@ show_replay() {
 		# line does (docs/testing.md); its workspace path, named from there,
 		# reached nothing. Outside bazel test there is nowhere to keep it.
 		if rl_save "$DICT" "${DICT##*/}"; then
-			printf '    replay:   ./rush-02 %s %s\n' "${DICT##*/}" "$(printf '%s' "$2" | rl_shword)"
+			DICT_KEPT=1
+			replay_line "$1" "${DICT##*/}" "$2"
 		else
-			printf '    replay:   ./rush-02 %s %s\n' "$DICT_SHOWN" "$(printf '%s' "$2" | rl_shword)"
+			replay_line "$1" "$DICT_SHOWN" "$2"
 		fi
 	fi
 }
@@ -416,10 +501,9 @@ dict_cover() {
 # one REFDICT (--dict, the reference dictionary) holds as well: those are the
 # keys the named cases at basic hold, and a dictionary may add others -- "45"
 # beside 40 and 5 -- whose use the subject leaves open, and the reference
-# composes without (oracle/src/rush02.rs, compose_with). Settling one here
-# failed the reference's own composition (the wave 6 review). Nothing for any
-# other number, or one whose keys DICT lacks. Each dictionary is read as
-# dict_cover reads it.
+# composes without. Settling one here failed the reference's own composition
+# (the wave 6 review). Nothing for any other number, or one whose keys DICT
+# lacks. Each dictionary is read as dict_cover reads it.
 settled_shape() {
 	N="$3" LC_ALL=C awk '
 		# The two files by their order, not their names: the corpus
@@ -489,7 +573,7 @@ settled_words() {
 	_shape=$(settled_shape "$1" "$DICT" "$4")
 	if [ -n "$_shape" ] && [ "$3" != "$_shape" ]; then
 		echo "every reading spells this number with its own keys' values, and only those:" \
-			"$(printf '%s' "$_shape" | rl_vis arg) (a number below 100 with a key of its own" \
+			"$(printf '%s' "$_shape" | rl_vis arg "" "$SHOW_W") (a number below 100 with a key of its own" \
 			"is that key's value alone; a round <group> <scale> is the two)"
 		return
 	fi
@@ -508,6 +592,7 @@ GOTF=$(mktemp)
 WANTF=$(mktemp)
 ERRF=$(mktemp)
 BLOCK=$(mktemp)
+REPLAYF=$(mktemp)
 # No second trap here. `trap` REPLACES the handler rather than adding to it, so
 # re-arming it at this point would silently drop the INT and TERM the one above
 # installs -- and it is the same command either way, because these files were
@@ -520,9 +605,21 @@ BLOCK=$(mktemp)
 show_mem_case() {
 	echo ""
 	printf '  case %s of %s  [%s]\n' "$1" "$GOT_CASES" "$RL_MEM_KIND"
-	printf '    number:   %s\n' "$(printf '%s' "$2" | rl_vis arg)"
+	printf '    number:   %s\n' "$(printf '%s' "$2" | rl_vis arg "" "$SHOW_W")"
 	show_replay "$@"
-	rl_mem_report
+	# A report that names the dictionary (memcheck's open descriptors)
+	# shows it by the name show_replay keeps it under, which the replay line
+	# uses: a generated one is a scratch file gone with the test, and the
+	# fixed one a path in this test's tree. Only where it kept it: the name
+	# of one it could not keep is a file that exists nowhere.
+	if [ "$DICT_KEPT" = 0 ]; then
+		# conventions: rl_mem_report without --as -- a dictionary not kept has no other name
+		rl_mem_report
+	elif [ -n "$3" ]; then
+		rl_mem_report --as "$3" "case-$1.dict"
+	else
+		rl_mem_report --as "$DICT" "${DICT##*/}"
+	fi
 }
 DONE=0
 
@@ -588,6 +685,15 @@ while IFS='	' read -r f1 f2 f3; do
 		BAD=$((BAD + 1))
 		show_case "$TOTAL" "$num" "$gen_dict" > "$BLOCK"
 		rl_block "$BLOCK"
+	elif [ "$RL_CAUSE" = timeout ]; then
+		# It did not finish: red, and shown, but no rule is applied to
+		# what it had printed by then (WHAT GATES).
+		BAD=$((BAD + 1))
+		{
+			show_case "$TOTAL" "$num" "$gen_dict"
+			printf '    not judged: a run that did not finish was not seen to its end\n'
+		} > "$BLOCK"
+		rl_block "$BLOCK"
 	else
 		# The words, as settled_why reads them: what was printed, less the
 		# newline(s) after it, which no rule of WHAT GATES is about.
@@ -608,8 +714,11 @@ while IFS='	' read -r f1 f2 f3; do
 			# spelling is a reading of it at all.
 			OPEN=$((OPEN + 1))
 			if [ "$OPEN" -le 3 ]; then
-				show_case "$TOTAL" "$num" "$gen_dict"
-				printf '    passes:   another composition of the number, which this target does not judge\n'
+				{
+					show_case "$TOTAL" "$num" "$gen_dict"
+					printf '    passes:   another composition of the number, which this target does not judge\n'
+				} > "$BLOCK"
+				rl_shown "$BLOCK"
 			fi
 		fi
 	fi
@@ -647,30 +756,50 @@ if [ -n "$RL_STOP" ]; then
 	# The cases judged wrong before the sweep stopped, not counting the one
 	# the time ran out in (counted in $BAD, but cut short, not wrong): a verdict,
 	# which keeps the report from reading as "ran out of time" alone. Nor any
-	# that ran out of its own limit (RL_HANGS, in $BAD too): not judged
-	# (ruling R4), and rl_sweep_stopped names them apart (V84).
-	_wrong=$((BAD - RL_HANGS))
-	[ "$RL_STOP" != budget ] || _wrong=$((_wrong - 1))
-	rl_sweep_stopped "$TOTAL" "$GOT_CASES" "$_wrong"
+	# that ran out of its own limit (both in RL_DNF, and in $BAD too): not
+	# judged (ruling R4), and rl_sweep_stopped names them apart (V84).
+	rl_sweep_stopped "$TOTAL" "$GOT_CASES" "$((BAD - RL_DNF))"
+	# The cases shown above it hold the same marks as a finished report's.
+	end_legend
+	shown_legend
 	exit 1
 fi
+# The cases judged wrong, and apart from them the runs that did not finish
+# (RL_DNF, in $BAD too): red, never a difference (V85).
+WRONG=$((BAD - RL_DNF))
+rl_dnf_said "$CASE_TMO"
 if [ "$SETTLED" = 1 ]; then
 	[ "$OPEN" -le 3 ] || echo "  ... $((OPEN - 3)) more difference(s) in composition, not judged here, not shown."
 	if [ "$BAD" -eq 0 ]; then
 		echo "  RESULT: OK — none of $TOTAL cases breaks a rule every reading of the subject"
 		echo "  agrees on; $OPEN differ from the reference's own composition, which this"
 		echo "  target does not judge: they are information."
+		end_legend
+		shown_legend
 		rl_stderr_rule
 		rl_stderr_note
 		exit 0
 	fi
-	echo "  RESULT: $BAD of $TOTAL cases break a rule every reading of the subject agrees on"
-	echo "  (each one's FAILS line says which). Composition is not judged here: \"and\","
-	echo "  a leading \"one\" or another split of the number pass; what fails is Error for"
-	echo "  a valid number, Dict Error from a dictionary that can spell it, words that"
-	echo "  are not the dictionary's values, a number with a key of its own below 100 or"
-	echo "  a round <group> <scale> spelled other than by those keys, nothing at all, or"
-	echo "  a run that never ends."
+	if [ "$RL_DNF" -gt 0 ] && [ "$WRONG" -eq 0 ]; then
+		echo "  RESULT: none of $TOTAL cases breaks a rule every reading of the subject"
+		echo "  agrees on, and $RL_DNF_SAID."
+	elif [ "$RL_DNF" -gt 0 ]; then
+		echo "  RESULT: $WRONG of $TOTAL cases break a rule every reading of the subject"
+		echo "  agrees on, and $RL_DNF_SAID"
+	else
+		echo "  RESULT: $BAD of $TOTAL cases break a rule every reading of the subject agrees on"
+	fi
+	if [ "$WRONG" -gt 0 ]; then
+		echo "  (each one's FAILS line says which). Composition is not judged here: \"and\","
+		echo "  a leading \"one\" or another split of the number pass; what fails is Error"
+		echo "  for a valid number, Dict Error from a dictionary that can spell it, words"
+		echo "  that are not the dictionary's values, a number with a key of its own"
+		echo "  below 100 or a round <group> <scale> spelled other than by those keys,"
+		echo "  nothing at all, a crash, or output without end."
+	fi
+	rl_dnf_note "$WRONG"
+	end_legend
+	shown_legend
 	rl_stderr_note
 	exit 1
 fi
@@ -680,20 +809,33 @@ if [ "$BAD" -eq 0 ]; then
 	rl_stderr_note
 	exit 0
 fi
-echo "  RESULT: $((TOTAL - BAD))/$TOTAL agree, $BAD differ."
+if [ "$RL_DNF" -eq 0 ]; then
+	echo "  RESULT: $((TOTAL - BAD))/$TOTAL agree, $BAD differ."
+elif [ "$WRONG" -eq 0 ]; then
+	echo "  RESULT: $((TOTAL - BAD))/$TOTAL agree, and $RL_DNF_SAID."
+else
+	echo "  RESULT: $((TOTAL - BAD))/$TOTAL agree, $WRONG differ, and $RL_DNF_SAID."
+fi
+rl_dnf_note "$WRONG"
 rl_stderr_note
-echo ""
-echo "  Read this before changing anything. A difference here is one of two"
-echo "  things:"
-echo "    * a real bug — the usual case, especially if small numbers differ; or"
-echo "    * a reading: where the subject leaves how a number is worded open, the"
-echo "      reference took one reading, and yours may be another."
-echo "  Compare the SHAPE of the differences: if every case differs the same way,"
-echo "  that is a convention, not a bug."
-# The marks are named from the lines the report showed (rl_shown_legend),
-# with \n read as the newline that ends a line: a legend written once named
-# a backslash and \xHH under words that held neither.
-echo "  The reference prints a newline after the words (\`| cat -e\` marks it"
-echo "  with \$)."
-rl_shown_legend '^    (number|expected|got): +|^ +having printed: ' "  " 1
+# What a difference means, where there is one: a run that did not finish is
+# none.
+if [ "$WRONG" -gt 0 ]; then
+	echo ""
+	echo "  Read this before changing anything. A difference here is one of two"
+	echo "  things:"
+	echo "    * a real bug — the usual case, especially if small numbers differ; or"
+	echo "    * a reading: where a sentence can be read more than one way, the"
+	echo "      reference took one reading, and yours may be another."
+	echo "  Compare the SHAPE of the differences: if every case differs the same way,"
+	echo "  that is a convention, not a bug."
+fi
+# The newline is named as the \n its expected: lines end in, which the
+# legend below names too, and no longer as the $ that `| cat -e` prints for
+# it: in this report, $ is where an output ended, and nothing else. printf,
+# not echo: dash's echo would print the \n as a line break.
+printf '%s\n' '  The reference prints a newline after the words: the \n at the end'
+printf '%s\n' '  of each expected: line.'
+end_legend
+shown_legend
 exit 1

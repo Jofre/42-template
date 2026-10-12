@@ -1,12 +1,19 @@
   The return is a pointer, printed as the tail it points at, or as NULL.
     * an empty needle diverges           -> the subject states what that returns,
                                             and it is not "not found"
-    * matches at the very end are missed -> where the outer scan stops; the last
-                                            possible start is not the last byte
+    * matches at the very end are missed -> a needle that ends where the
+                                            haystack ends: which starting
+                                            positions does your code try, and
+                                            is that one among them?
     * overlapping matches ("aaa" in "aaaa") -> the FIRST match is what is asked
-                                            for, so where the outer scan resumes
-    * partial matches confuse it         -> the inner comparison has to restart
-                                            from the right place, not continue
-    * only long needles fail             -> the bound on the inner loop
+                                            for: which one does your code
+                                            report?
+    * partial matches confuse it         -> a near miss just before a real
+                                            match: after a mismatch, which
+                                            position does your code try next?
+    * only long needles fail             -> how far does your code compare, and
+                                            what stops it: the end of the
+                                            needle, of the haystack, or
+                                            something else?
     * only inputs holding a byte of 0x80 or more -> whether a comparison in
                                           your loop sees that char as negative

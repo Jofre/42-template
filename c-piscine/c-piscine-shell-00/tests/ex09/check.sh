@@ -15,7 +15,7 @@
 # The label "42 file" is a SPEC constant taken from the subject, so showing it
 # reveals nothing: how a magic database says it is the student's to work out
 # from `man magic`.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 M=${1:-ft_magic}

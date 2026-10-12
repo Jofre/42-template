@@ -16,7 +16,7 @@
 #     walked in, so the fixture's names tell them apart.
 # Whether 42 grades either of them, the subject does not say -- which is what
 # puts this at strict and not at basic (docs/reference.md, "Run contract").
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D="${1:-git_ignore.sh}"

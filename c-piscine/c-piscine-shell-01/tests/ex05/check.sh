@@ -15,7 +15,7 @@
 # on the RAW bytes and confirm the content with a byte-for-byte compare against a
 # controlled fixture we create ourselves. "42", the size (2) and the mode (614) are
 # SPEC constants from the subject, not the answer (the answer is the tricky filename).
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 dir=${1:-.}

@@ -39,6 +39,13 @@ does: `shell01_rdwssap` (shell-01 ex07) and `shell01_chelou` (shell-01 ex08).
   breaks (a comment printed, a name that is no reversed login, the wrong lines,
   the order, the window), computed from the passwd file the program read.
   shell-01 ex07's check prints PASS or FAIL for each; neither prints the names.
+  Three more forms read only the passwd file (`--passwd FILE`), not stdin, and
+  answer by exit code before the program runs: `shell01_rdwssap orders`
+  (whether the locale's order and byte order differ on the names kept),
+  `reaches <n>` (whether at least n names are kept) and `shows` (whether a
+  fixture file shows what ex07's check needs from it; on failure it prints a
+  word for each thing it lacks). ex07's `check.sh` and `literal.sh` ask them;
+  the module header of `shell01.rs` has the details.
 - `oracle shell01_chelou` prints the sum of `$FT_NBR1` and `$FT_NBR2` in the
   exercise's bases, and `shell01_chelou cases <seed>` the pairs shell-01 ex08's
   check runs: one for each class of input it covers. The check compares byte
@@ -60,13 +67,18 @@ is run:
 - `oracle run <program> <arg>...` prints what `./<program> <arg>...` must,
   from the folder it is run in (`oracle run --has <program>` says by exit code
   whether there is one; `program()` in `main.rs` lists them: `rush-02`,
-  `rush01`, `bsq`).
+  `rush01`, `bsq`, `do-op`).
   `c_program(reference = True)` runs every named case through it, with the
   case's own argv, argument file and run folder (`exNN_reference_cases`,
   `tools/reference_cases.sh`), so a case whose run no longer gives the file it
-  expects fails on any tree, a stub's included.
+  expects fails on any tree, a stub's included. A reference exits 0 when it
+  answers; where it has no answer (a run the subject leaves open) it prints
+  nothing, says why on standard error and exits with another status, and
+  `reference_cases.sh` fails any case but a survive case that makes that run:
+  printing nothing is itself an answer, which an empty expected file would
+  pass.
 
-Two arms make inputs rather than corpora, for the cases no hand-written fixture
+Three arms make inputs rather than corpora, for the cases no hand-written fixture
 reaches (finding 041): `oracle bsq_long` and `oracle bsq_big` are fixed lists
 of three and four BSQ maps, far past any capacity a program might pick
 (`bsq_check.sh --fixed 3` and `--fixed 4`) -- the long ones cheap for any
@@ -193,9 +205,10 @@ Membership says *whether* a grid is right; a student needs to hear *why* it is
 not — "row 2 holds the height 3 twice", "column 3 is seen as 2 from the top, but
 clue 3 asks for 3". Working that out is the validity half of a rush01 solver, so
 it lives here rather than in the runner: `src/rush01_validate.rs`, run as
+below, which reads one request per stdin line and writes one reply for each:
 
 ```
-oracle rush01_validate            # one request per stdin line, one reply each
+oracle rush01_validate
 request  <W> <H>\t<clues>\t<cells>
 reply    <faults>\t<category>\t<message>\t<why>
 ```
@@ -279,7 +292,7 @@ that silently breaks the shell side.
 | --- | --- | --- |
 | `bsq_maps` | bsq | a valid map file, and the map with the square drawn |
 | `bsq_mixed` | bsq | valid and invalid files interleaved by the reference |
-| `bsq_readings` | bsq | the same, under this harness's reading of what the subject leaves open (a count written `09`, `+9`, ` 9` or `9 `, a map with no final newline): the strict `ex00_readings` only |
+| `bsq_readings` | bsq | the same, under this harness's reading of what the subject leaves open (a count written `09`, `+9`, ` 9` or `9 `, a map with no final newline, a row holding the full character): the strict `ex00_readings` only |
 | `bsq_fixtures` | bsq | not a corpus: `<path>\t<bytes>` for every file BSQ's named cases read, which `ex00_oracle_fixtures` holds `tests/ex00/` to |
 | `rush00_fixtures` | rush-00 | not a corpus: `<path>\t<bytes>` for the files the `ex00_rush0N_defense` targets read -- the subject's defense case, `rush(123, 42)`, drawn by each variant, and the row its table expects -- which rush-00's `ex00_oracle_fixtures` holds `tests/ex00/` to |
 | `bsq_long` | bsq | a FIXED list of three maps past every capacity a program might pick, whose biggest square is one cell at most (seed and `count` are not read; `bsq_check.sh --fixed 3`) |
@@ -321,6 +334,13 @@ and a deliberately broken `strlen(buf)` program passed 60 of 60 until that was
 fixed. `esc_posix`'s own note in `src/common.rs` says the same thing about
 values that DO travel through a variable.
 
+c-06's three programs also run whole: `oracle c06_run print|rev|sort ARG...`
+prints what the program prints for that argv. The argument tables of C 06
+ex01–ex03 and Piscine Reloaded ex18 and ex19 (`table.txt`) were emitted from a
+reference program with `argv_table.sh --emit`; `c_argv_table(model = [...])`
+names this command, and each table's `exNN_model` emits the table again with
+it and compares.
+
 c-06 ex00 has no arm. It is entirely about `argv[0]`, which means the binary has
 to be COPIED to a name and run there, and `tools/progname_test.sh` already does
 exactly that under two names while also checking the exit status. A corpus of
@@ -349,14 +369,17 @@ the five it added trustworthy rather than merely plausible.
 | `c00_print_comb` | c-00 ex05 | the 120 strictly increasing digit trios, `", "`-separated | 598 |
 | `c00_print_comb2` | c-00 ex06 | the 4 950 ordered pairs of two-digit numbers, `", "`-separated | 34 648 |
 | `c05_ten_queens` | c-05 ex08 | the 724 ten-queens boards, then the count | 7 968 |
-| `c00_print_combn` | c-00 ex08 | all nine lines, n = 1…9, each newline-terminated | 7 148 |
+| `c00_print_combn` | c-00 ex08 | all nine lines, n = 1…9, each newline-terminated | 7 145 |
 
-For **all seven**, `gen`'s output IS the answer rather than a corpus, and both
-`gen` and `bench` do the same thing and both PRINT. What differs between the
-c-00 five and ten queens is the *write() framing*, and that difference is the
-whole point of the c-00 five — see the two sections below, in order.
+For **all seven**, `gen`'s output IS the answer rather than a corpus. Six of
+them, the c-00 five and ten queens, also have a `bench` arm that does the same
+thing as `gen` and PRINTS. `c00_print_combn` has `gen` only: no
+`c_reference_cost` compares ex08's cost, so `oracle bench c00_print_combn`
+answers "no baseline" and exits 2. What differs between the c-00 five and ten
+queens is the *write() framing*, and that difference is the whole point of the
+c-00 five — see the two sections below, in order.
 
-None of the six emits a trailing newline that its fixture does not have; the
+None of the seven emits a trailing newline that its fixture does not have; the
 five c-00 fixtures contain **no newline at all**.
 
 ### The zero-input reference (c-05 ex08, ten queens)
@@ -474,7 +497,7 @@ dozen ints is linear in how many arrays it is handed); a `c_perf(length = ...)`
 series holds the number of cases still and grows the input instead. There is no
 reference column: the exercise's length harness (`tests/exNN/len_*.c`) checks
 its own result. `oracle check` holds each arm to its line count, its element
-count and its seed. Today: `c01_sort_int_tab_len` and `c12_list_sort_len`.
+count and its seed.
 
 ## Why this is not flaky (the determinism contract)
 
@@ -502,8 +525,10 @@ delivers.
 
 `check_all()` sums the failure count of each module's `check()` — `c00`–`c13`,
 `rush00`, `rush01`, `rush02`, plus `rush01_bonus::check()`,
-`rush01_validate::check()`, `bsq::check()`, `shell01::check()` and
-`shell00::check()`, twenty-two calls in all — and a
+`rush01_validate::check()`, `bsq::check()`, `shell01::check()`,
+`shell00::check()` and `length::check()` (the length-series generators' own
+self-check, see *Length series for the perf layer*), twenty-three calls in all
+— and a
 non-zero total exits 1. (The two shell modules hold their line-range,
 MAC-address and diff-replay references to hand-worked tables and to seeded
 properties: a window cut three ways reassembles into its input; a diff built
@@ -513,12 +538,12 @@ named eleven and called the first rush
 module `rush`, a file renamed to `rush00.rs`; in the one section whose stated
 purpose is being exhaustive.) The checks come
 in three kinds, all of them **internal to the crate**. Kinds 1 and 2 are in every
-module; kind 3 is in only four, so do not read it as blanket coverage:
+module but `length`, which has kind 2 only; kind 3 is in only eighteen, so do not read it as blanket coverage:
 
 1. **Hand-written case tables** — literal input/output pairs typed into the Rust
    source and verified once by a human. These pin the values a property cannot:
    `c09`'s `strcmp` table fixes the exact byte difference including high bytes
-   (`0x80` vs `0x7f` → `1`, `"abc"` vs `"abcd"` → `-100`), and `rush` replays the
+   (`0x80` vs `0x7f` → `1`, `"abc"` vs `"abcd"` → `-100`), and `rush00` replays the
    subject's own worked examples from chapters V…IX verbatim (chapter V is
    Rush00 and IX is Rush04, per the rush-00 subject).
 2. **Property assertions over a seeded sweep** — what must hold for *every*
@@ -557,7 +582,7 @@ module; kind 3 is in only four, so do not read it as blanket coverage:
    `c13` 8 000 generated corpora, `rush01` all 438 solvable vectors plus 4 000
    random well-formed ones, the rest 20 000 — each off its own fixed seed.
    Five references are not sampled at all but held against a **second,
-   independently written construction in the same crate**: `rush` renders
+   independently written construction in the same crate**: `rush00` renders
    *every* 1…60 × 1…60 box for all five variants; `c05_ten_queens` must agree
    board for board and in order with a deliberately naive re-scanning search that
    shares none of its logic; and `c00_print_comb` / `c00_print_comb2` must agree
@@ -605,9 +630,35 @@ module; kind 3 is in only four, so do not read it as blanket coverage:
    hand-written table pins the exact reply bytes, awk's reading of odd cell
    values included.
 3. **Generator self-checks** — that the *corpus* still contains what it claims,
-   which nothing else in the suite would notice. **Only `c00`, `rush`,
-   `rush01`, `bsq` and `rush02` do this.** `c00` asserts its corpus head still pins `0`, `±1` and the
-   `i32` boundaries instead of letting them drift into the random tail; `rush`
+   which nothing else in the suite would notice. **Only `c00`, `c01`, `c02`,
+   `c03`, `c04`, `c06`, `c07`, `c08`, `c10`, `c11`, `c12`, `c13`, `shell01`,
+   `rush00`, `rush01`, `rush01_bonus`, `bsq` and `rush02` do this.** `c01`,
+   `c02`, `c03`, `c04`, `c06`, `c07` and `c11` read back what
+   their generators write and assert that the corpora they name for an
+   input with no bound still hold a case past every round capacity (16, 64, 256, 1024 and
+   4096): a string longer than 4096 bytes, a list of more than 4096 ints, a
+   count or a size past 4096, an argument list longer than 1024, and for a
+   base, which C 04's subject forbids to repeat a symbol, a valid one past 64 symbols beside an
+   invalid one past 4096 bytes, so that a
+   function working through room of its own of one of those sizes cannot pass
+   the corpus. `c12` and `c13` assert that the lists `int_lists` draws and the
+   trees `gen_seqs` draws still carry two long ones, of 600 and 2000 elements,
+   the same whatever the seed. `c08` asserts its corner cases still hold a byte
+   of `0x80` or above, an empty array and an empty string, and no NUL, which an argument cannot carry.
+   `c10` asserts its file corpus still holds an empty file, a file with a NUL, a
+   file with no final newline, one past 4096 bytes and one that makes `hexdump`
+   squeeze, and that its grouped corpora hold groups of one, two and three files,
+   among them a squeeze and a line that exist only across a file boundary.
+   `shell01` asserts its `shell01_chelou` cases are each a pair it can sum, still
+   hold every class its check names (a zero on either side, a zero sum, two
+   backslashes side by side, a final backslash, a lone `?`, a sum over 70
+   digits, a run of each digit of the first base), and come out the same from the same seed.
+   `rush01_bonus` re-solves what it emits, as `rush01` does: each listed
+   solution solves the vector it is filed under, a line that claims its list is
+   whole is solved again to the same count, and every size up to 9 but 4,
+   which is `rush01`'s, is emitted.
+   `c00` asserts its corpus head still pins `0`, `±1` and the
+   `i32` boundaries instead of letting them drift into the random tail; `rush00`
    asserts its size table stays inside the contract, holds no duplicates, and
    still covers both the subject's sizes and the ceiling dimensions, and that
    its corpus head and its fixtures still hold the defense case; `rush01`
@@ -637,14 +688,28 @@ module; kind 3 is in only four, so do not read it as blanket coverage:
 
 ### What it does not assert
 
-**It never calls libc, and it never reads the curated `expected.txt` fixtures.**
-The crate is std-only with zero dependencies: no `extern "C"`, no `#[link]`, no
-`unsafe`, and nothing in `oracle/src/` uses `include_str!` or opens a file but
-the ones a command hands it, as it would hand them to the program it stands
-for: `shell00_diff_apply`'s two, `shell01_hwaddr`'s `/sys/class/net`, and the
-dictionary `oracle run rush-02` is given (grep it). No line count here, deliberately: it would rot, and the property it was
+**It never compares against libc, and it never reads the curated `expected.txt`
+fixtures.** The crate is std-only with zero dependencies and no `#[link]`. Its
+one `extern "C"` block, and all of its `unsafe`, is in `shell01.rs`: the
+user-database calls `shell01_groups` and `shell01_multigroup` need (the same
+glibc calls `id` makes), and `setlocale` and `strcoll` for `shell01_rdwssap`'s
+collation, as `sort` uses them. No other part of the crate calls libc. Nothing
+in `oracle/src/` uses `include_str!` or opens a file but the ones a command
+hands it, as it would hand them to the program it stands for (for example
+`shell00_diff_apply`'s two, the maps `oracle run bsq` is given, the dictionary
+`oracle run rush-02` is given), or, for a shell reference, the system file the
+exercise's own command reads: `/sys/class/net` for `shell01_hwaddr`, and
+`/etc/passwd` for `shell01_rdwssap` unless `--passwd` names another (grep it).
+Beside the modules' checks, `oracle check` runs this binary itself
+(`env::current_exe`, in `main.rs`'s `check_args`) with an argument that is not
+UTF-8 -- to each reference program `oracle run` knows, to c-06's and c-10's,
+and once to the commands that take words -- and holds each run to a status of
+that command's own, never Rust's panic; those runs open what their command
+would, the dictionary `run rush-02` reads from the working directory and the
+path `run bsq` is given.
+No line count here, deliberately: it would rot, and the property it was
 supporting does not depend on one.
-There is no C library on the other side of any comparison here.
+No C exercise's library function is the reference for any comparison here.
 
 That matters most for the fixtures. (Three projects are the exception, and not
 through `oracle check`: BSQ's named fixtures are written by `oracle
@@ -734,8 +799,13 @@ subject defines an `ft_atoi` that consumes an arbitrary RUN of signs
 would be the wrong answer rather than a second opinion. See the comment on
 `c_diff(num = "03")` in `c-piscine/c-piscine-c-04/BUILD.bazel`.
 
-`do_op` (c-11 ex05) has **no generator and no reference** — it is a `c_program`
-covered by argv cases only. It used to be listed here; it never existed.
+`do-op` (c-11 ex05) has **no generator**: it is a `c_program` covered by its
+named cases. Its reference is a program, `oracle run do-op`, which
+`ex05_reference_cases` runs on every case in the program's place, and which
+`check()` holds to the subject's own runs and to Rust's checked `i32`
+arithmetic. Where the subject leaves a run open it gives no answer: it says
+why on standard error and exits 2, as `c10_run` does, so no case but a
+survive case may make that run.
 
 All of the above runs as `oracle check`, wired into the suite as
 **`//oracle:oracle_check`** and therefore gating every `bazel test //...`.
@@ -745,12 +815,19 @@ guard this modest has to be a real test.
 
 ## Build / run by hand
 
+From the oracle's folder, an arm runs with a seed and a count, as in
+`cargo run --offline -- c03_strcmp 42 2000`:
+
 ```sh
 cd oracle
-cargo run --offline -- <fn> <seed> <count>   # e.g. c03_strcmp 42 2000
+cargo run --offline -- <fn> <seed> <count>
+```
 
-# the zero-input arms ignore both numbers and print their exercise's expected
-# output, so every one of them is its own regression test:
+The zero-input arms ignore both numbers and print their exercise's expected
+output, so every one of them is its own regression test. These and the
+commands below run from the same folder, `oracle/`:
+
+```sh
 cargo run --offline -- c05_ten_queens 0 0 |
 	awk 'NR == 725 { $0 = "return value\t" $0 } 1' |
 	cmp - ../c-piscine/c-piscine-c-05/tests/ex08/expected.txt
@@ -759,17 +836,25 @@ cargo run --offline -- c00_print_reverse_alphabet 0 0 | cmp - ../c-piscine/c-pis
 cargo run --offline -- c00_print_numbers 0 0 | cmp - ../c-piscine/c-piscine-c-00/tests/ex03/expected.txt
 cargo run --offline -- c00_print_comb 0 0 | cmp - ../c-piscine/c-piscine-c-00/tests/ex05/expected.txt
 cargo run --offline -- c00_print_comb2 0 0 | cmp - ../c-piscine/c-piscine-c-00/tests/ex06/expected.txt
+```
 
-# `bench <arm>` must print the same bytes as `<arm> 0 0` for all six, and reads
-# nothing from stdin (so it cannot block on an inherited terminal):
+`bench <arm>` must print the same bytes as `<arm> 0 0` for all six, and reads
+nothing from stdin (so it cannot block on an inherited terminal):
+
+```sh
 cargo run --offline -- bench c00_print_comb2 </dev/null | cmp - ../c-piscine/c-piscine-c-00/tests/ex06/expected.txt
+```
 
-# rush01: 876 lines at the floor, 438 of them ending in a bare tab (`Error`).
-# `bench` here does read a corpus, and solves each vector rather than looking it
-# up — a table probe timed against a student's search would say nothing:
+rush01: 876 lines at the floor, 438 of them ending in a bare tab (`Error`).
+`bench` here does read a corpus, and solves each vector rather than looking it
+up — a table probe timed against a student's search would say nothing. Of the
+two counts below, the first is the `Error` cases (438) and the second the
+multi-solution ones (66):
+
+```sh
 cargo run --offline -- rush01_solve 1 0 > /tmp/rush01.tsv
-awk -F'\t' '$2==""' /tmp/rush01.tsv | wc -l      # 438 — the `Error` cases
-awk -F'\t' 'NF>2' /tmp/rush01.tsv | wc -l        # 66  — the multi-solution ones
+awk -F'\t' '$2==""' /tmp/rush01.tsv | wc -l
+awk -F'\t' 'NF>2' /tmp/rush01.tsv | wc -l
 cargo run --offline -- bench rush01_solve < /tmp/rush01.tsv
 ```
 

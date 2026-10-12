@@ -210,9 +210,10 @@ run_as() {
 	if [ "$ended" = returned ] && [ "$status" -gt 0 ] && [ "$EXIT_ONLY" = 0 ]; then
 		printf 'PASS: run as ./%s -> printed "./%s"\n' "$name" "$name"
 		printf 'NOTE: ... then returned exit status %d.\n' "$status"
-		printf '      The subject names no exit status, so that does not fail here;\n'
-		printf '      the robust exit-status check fails it, because a program that\n'
-		printf '      did its job conventionally returns 0 from main.\n'
+		printf '      No sentence this harness quotes from your subject names an exit\n'
+		printf '      status, so that does not fail here; the robust exit-status check\n'
+		printf '      fails it, because a program that did its job conventionally\n'
+		printf '      returns 0 from main.\n'
 		return
 	fi
 	if [ "$ended" != returned ] || [ "$status" -ne 0 ]; then
@@ -237,9 +238,9 @@ run_as() {
 			printf '      The program died rather than returning. The output was already\n'
 			printf '      flushed, so only how it ended shows it.\n'
 		else
-			printf '      The subject names no exit status. This is the robust check,\n'
-			printf '      which applies the C convention: a program that did its job\n'
-			printf '      returns 0 from main.\n'
+			printf '      No sentence this harness quotes from your subject names an exit\n'
+			printf '      status. This is the robust check, which applies the C\n'
+			printf '      convention: a program that did its job returns 0 from main.\n'
 		fi
 		show_stderr
 		RC=1

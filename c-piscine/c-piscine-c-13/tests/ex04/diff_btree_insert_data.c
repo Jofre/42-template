@@ -18,9 +18,9 @@ static int	cmp_str(void *a, void *b)
 
 /* The node at the end of one route: a step per letter from the root, L down
  * the left link and R down the right, stopping as soon as a link is empty.
- * The routes are the reference's (oracle/src/c13.rs works out where each item
- * belongs), so this harness never chooses a way through the tree and holds no
- * traversal: it only goes and looks where it is told. */
+ * The routes are the reference's (it works out where each item belongs), so
+ * this harness never chooses a way through the tree and holds no traversal:
+ * it only goes and looks where it is told. */
 static t_btree	*follow(t_btree *root, const char *route)
 {
 	while (root != NULL && *route != '\0' && *route != ',')

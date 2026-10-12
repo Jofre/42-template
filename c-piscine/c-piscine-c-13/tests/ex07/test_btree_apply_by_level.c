@@ -14,9 +14,9 @@ static void	apply(void *item, int level, int first)
  * reading agrees on what the walk must do here: visit node k (item k) k-th,
  * at level floor(log2(k + 1)), first exactly when k + 1 is a power of two.
  * That is checked by construction as the walk goes, and shown as ONE line,
- * not 20000: past every capacity room for waiting nodes is usually given
- * (64, 256, 1024, 4096, 16384), a walk that keeps them in room of its own
- * fixed size gets it wrong here, or dies (finding 041). */
+ * not 20000. The tree is wider than every round number a capacity is usually
+ * fixed at (64, 256, 1024, 4096, 16384), so a capacity chosen as a constant
+ * gets it wrong here, or dies (finding 041). */
 #define BIG 20000
 
 static t_btree	g_big[BIG];

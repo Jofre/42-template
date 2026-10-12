@@ -1,9 +1,9 @@
 //! BSQ (c-piscine-bsq) reference: the biggest square of empty cells on a map.
 //!
-//! Line formats (see oracle/README.md) — one shape for the four corpus arms:
+//! Line formats (see oracle/README.md) — one shape for the three corpus arms:
 //!   bsq_maps     <tag>\t<side>\t<top>\t<left>\t<escaped-file>\t<escaped-expected>
-//!   bsq_errors   same shape; tag is err:<slug>, side/top/left are -1
-//!   bsq_mixed    same shape; a seeded interleave of the two, for every transport
+//!   bsq_mixed    same shape; valid maps and invalid files (tag err:<slug>,
+//!                side/top/left -1) in a seeded interleave, for every transport
 //!   bsq_readings same shape; the ONE reading this repo takes of the sentences
 //!                the subject leaves open (see WHAT THIS REFERENCE REFUSES TO
 //!                DECIDE), for the strict ex00_readings target only
@@ -18,7 +18,7 @@
 //! common::esc_posix — printable ASCII raw, and anything else as "\0NNN" in
 //! OCTAL, never rush00's "\xHH". The consumer is tools/bsq_check.sh running
 //! under /bin/sh, which is dash here, and dash's `printf %b` does not know
-//! "\xHH": it prints the four bytes back literally. The error arm really does
+//! "\xHH": it prints the four bytes back literally. The error cases really do
 //! emit control bytes -- "three different PRINTABLE characters" is one of the
 //! subject's own validity rules, so a non-printable among them is an error case
 //! that has to be generated -- which makes the octal form a correctness
@@ -46,15 +46,24 @@
 //!
 //! The subject's "Definition of a valid file" settles more than most, which is
 //! why -- unlike rush-02's -- this arm may gate. It does not settle everything,
-//! and the generator emits none of the following IN EITHER DIRECTION. Each is a
-//! question the subject answers twice, or not at all:
+//! and the settled arms (bsq_maps, bsq_mixed) emit none of the following IN
+//! EITHER DIRECTION. Each is a question the subject answers twice, or not at
+//! all; a basic case that asks one accepts every reading's answer, and
+//! bsq_readings alone takes one:
 //!
 //!   * The FULL character appearing in a map body. The description says the map
 //!     "is made up of lines containing empty characters and obstacle
 //!     characters"; the validity list says "the characters on the map can only
 //!     be those introduced in the first line", which is all three. Both are
-//!     literal. This is the one most likely to be added later "because it is
-//!     obviously an error". It is not obviously anything.
+//!     literal. This is the one most likely to be added to the settled arms
+//!     "because it is obviously an error". It is not obviously anything. The
+//!     basic case full_in_body accepts "map error", or the map solved with
+//!     that character left where it is: it sits in a cell no biggest square
+//!     covers, whether a program takes it for an obstacle or for an empty
+//!     cell, so every reading that solves the map draws the same square.
+//!     bsq_readings takes one reading, the description's: a row holds only
+//!     the empty and obstacle characters, so one holding the full character
+//!     is map error. check() asserts that no settled record holds one.
 //!   * MORE body lines than the count declares. Fewer is forced (the promised
 //!     map is not there); more has two readings -- read the declared number and
 //!     answer, or call the file a liar.
@@ -383,6 +392,24 @@ fn top_beats_left() -> MapSpec {
         &["#####...", "#####...", "...##...", "...#####", "...#####"],
         DOT_OX,
     )
+}
+
+/// The named case `full_in_body`'s map, and the cell its file writes as the
+/// full character: (2,5), right of a wall, where no biggest square goes
+/// whether a program takes that cell for an obstacle or for an empty one --
+/// the 3x3 at (0,0) is the answer either way, and check() holds both. So a
+/// program that solves the map has one answer, whichever it takes, and the
+/// case accepts that or "map error" (the header's list).
+fn full_in_body_map() -> (MapSpec, usize, usize) {
+    (from_rows(&["...#..", "...#..", "...#..", "......"], DOT_OX), 2, 5)
+}
+
+/// The file of `m` with cell (r, c) written as its full character.
+fn with_full(m: &MapSpec, r: usize, c: usize) -> Vec<u8> {
+    let mut f = m.file();
+    let start = m.rows().to_string().len() + 4;
+    f[start + r * (m.grid[0].len() + 1) + c] = m.full;
+    f
 }
 
 /// One obstacle at (1,1) of a 4x4 map, under three given characters: the
@@ -812,11 +839,15 @@ fn ok_case_as(slug: &str, m: &MapSpec, file: Vec<u8>) -> Case {
 ///   the end     "Lines are separated by the usual newline character": the
 ///               last row needs no newline of its own, and the map is solved
 ///               (every OUTPUT row still ends in one)
+///   the full    "The map is made up of lines containing 'empty' characters
+///   character   and 'obstacle' characters": a row holding the full
+///               character is map error
 ///
 /// Over five maps, one of them all obstacles (side 0) and the subject's own,
 /// so the floors bsq_check.sh holds every corpus to are met. Every record
 /// names its form in its tag -- ok:count_leading_zero, ok:no_final_newline,
-/// err:count_plus, err:count_space_before, err:count_space_after -- and
+/// err:count_plus, err:count_space_before, err:count_space_after,
+/// err:full_in_body -- and
 /// bsq_check.sh --readings refuses a record that does not, or one whose form
 /// it has no sentence for: a failure here has to say which question it is.
 fn readings() -> Vec<Case> {
@@ -836,6 +867,9 @@ fn readings() -> Vec<Case> {
         let mut f = m.file();
         f.pop();
         out.push(ok_case_as("no_final_newline", m, f));
+        // the full character in the last cell, where a check of the first
+        // rows does not look
+        out.push(err_case("full_in_body", with_full(m, m.rows() - 1, m.grid[0].len() - 1)));
     }
     out
 }
@@ -920,6 +954,15 @@ fn fixtures() -> Vec<(String, Vec<u8>)> {
     f.pop();
     out.push(("fixtures/no_final_newline.map".to_string(), f));
     out.push(("no_final_newline.txt".to_string(), solved(&nonl)));
+
+    // The full character in a row: the case accepts "map error" or this, the
+    // map solved with that character left where it is, in a cell no biggest
+    // square covers whichever way a program takes it (full_in_body_map).
+    let (fm, fr, fc) = full_in_body_map();
+    let mut fsolved = solved(&fm);
+    fsolved[fr * (fm.grid[0].len() + 1) + fc] = fm.full;
+    out.push(("fixtures/full_in_body.map".to_string(), with_full(&fm, fr, fc)));
+    out.push(("full_in_body.txt".to_string(), fsolved));
     out
 }
 
@@ -942,25 +985,6 @@ fn gen_maps(seed: u64, count: usize) {
     let mut w = io::BufWriter::new(out.lock());
     for m in &maps {
         emit(&mut w, &ok_case(m));
-    }
-    let _ = w.flush();
-}
-
-fn gen_errors(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed ^ 0x5b5);
-    let mut cases = err_head();
-    let mut maps: Vec<MapSpec> = Vec::new();
-    ok_tail(&mut rng, count, &mut maps);
-    for m in &maps {
-        if cases.len() >= count.max(ERR_SLUGS.len()) {
-            break;
-        }
-        cases.push(mutate_invalid(&mut rng, m));
-    }
-    let out = io::stdout();
-    let mut w = io::BufWriter::new(out.lock());
-    for c in &cases {
-        emit(&mut w, c);
     }
     let _ = w.flush();
 }
@@ -1156,11 +1180,11 @@ fn holds_by_counts(grid: &[Vec<bool>], side: usize, top: usize, left: usize) -> 
 /// A map file read by the subject's "Definition of a valid file", or None
 /// for one it calls invalid. Where the subject leaves a sentence open this
 /// takes bsq_readings' reading -- the count is decimal digits only, positive
-/// and fitting an int; the last row needs no newline of its own -- and the
-/// two questions no layer asks in either direction (the full character in
-/// the body, more rows than the count) it answers as invalid only because a
-/// program must answer them: `run` serves the named cases, none of which
-/// holds either, and must never be read as settling them.
+/// and fitting an int; the last row needs no newline of its own; a row
+/// holding the full character is invalid -- and the question no layer asks
+/// in either direction (more rows than the count) it answers as invalid only
+/// because a program must answer it: `run` serves the named cases, none of
+/// which holds one, and must never be read as settling it.
 fn parse_map(bytes: &[u8]) -> Option<MapSpec> {
     let nl = bytes.iter().position(|&b| b == b'\n')?;
     let head = &bytes[..nl];
@@ -1222,7 +1246,7 @@ fn answer(bytes: &[u8]) -> Vec<u8> {
 /// answer, one blank line between two of them; a name that will not open is
 /// a map error, and with no name the map comes on standard input. Returns 0:
 /// the subject names no exit status.
-pub fn run(args: &[String]) -> i32 {
+pub fn run(args: &[std::ffi::OsString]) -> i32 {
     let mut out: Vec<u8> = Vec::new();
     if args.is_empty() {
         let mut bytes = Vec::new();
@@ -1251,7 +1275,6 @@ pub fn run(args: &[String]) -> i32 {
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
         "bsq_maps" => gen_maps(seed, count),
-        "bsq_errors" => gen_errors(seed, count),
         "bsq_mixed" => gen_mixed(seed, count),
         "bsq_readings" => gen_readings(),
         "bsq_fixtures" => gen_fixtures(),
@@ -1313,7 +1336,9 @@ fn misread_counts(file: &[u8]) -> Vec<u128> {
 /// every row ends in one. Only for check(): a record the corpus files as
 /// invalid must be invalid at BOTH poles, and a valid one valid at both, or it
 /// is not a settled record. (The FULL character in a body and more rows than
-/// the count are open too; no record holds either, and both poles refuse them.)
+/// the count are open too, and both poles refuse them: no record holds more
+/// rows, and only bsq_readings holds the full character, which check() asserts
+/// with full_in_body, since a record that only it breaks is invalid at both.)
 fn valid_under(file: &[u8], lenient: bool) -> bool {
     let nl = match file.iter().position(|&b| b == b'\n') {
         Some(i) => i,
@@ -1366,6 +1391,38 @@ fn valid_under(file: &[u8], lenient: bool) -> bool {
     }
     rows.iter()
         .all(|r| r.len() == rows[0].len() && r.iter().all(|&b| b == ch[0] || b == ch[1]))
+}
+
+/// `file` with every full character in its rows written as the empty one,
+/// or None where its first line does not end in three different characters.
+fn full_as_empty(file: &[u8]) -> Option<Vec<u8>> {
+    let nl = file.iter().position(|&b| b == b'\n')?;
+    if nl < 3 {
+        return None;
+    }
+    let (empty, obstacle, full) = (file[nl - 3], file[nl - 2], file[nl - 1]);
+    if empty == obstacle || obstacle == full || empty == full {
+        return None;
+    }
+    let mut f = file.to_vec();
+    for b in f[nl + 1..].iter_mut() {
+        if *b == full {
+            *b = empty;
+        }
+    }
+    Some(f)
+}
+
+/// Whether the full character in a row is what decides `file`: a row holds
+/// it, and written as the empty character it leaves a file valid at one pole
+/// or both (valid_under). The open form bsq_readings tags full_in_body. A file
+/// broken some other way as well is invalid under every reading, so it is not
+/// this question.
+fn full_in_body(file: &[u8]) -> bool {
+    match full_as_empty(file) {
+        Some(f) => f != file && (valid_under(&f, false) || valid_under(&f, true)),
+        None => false,
+    }
 }
 
 /// Which open form of the count this file's first line has, if any: the forms
@@ -1655,6 +1712,12 @@ pub fn check() -> usize {
             eprintln!("CHECK FAIL bsq a settled valid record has no final newline");
             fails += 1;
         }
+        // valid_under refuses it at both poles, so an err record that only
+        // it breaks would pass as settled above: say so here.
+        if full_in_body(&c.file) {
+            eprintln!("CHECK FAIL bsq a settled record holds the full character in a row: {:?}", c.tag);
+            fails += 1;
+        }
     }
 
     // ---- the readings arm says what the header says it does ----
@@ -1662,14 +1725,21 @@ pub fn check() -> usize {
     for c in &rd {
         let form = open_count_form(&c.file);
         let nonl = c.file.last() != Some(&b'\n');
+        let full = full_in_body(&c.file);
         // The tag names the one open form the record holds, and nothing else
         // is open in it.
         let ok = match c.tag.as_str() {
-            "ok:count_leading_zero" => form == Some("a leading zero") && !nonl,
-            "ok:no_final_newline" => form.is_none() && nonl,
-            "err:count_plus" => form == Some("a '+'") && !nonl,
-            "err:count_space_before" => form == Some("a space before it") && !nonl,
-            "err:count_space_after" => form == Some("a space after it") && !nonl,
+            "ok:count_leading_zero" => form == Some("a leading zero") && !nonl && !full,
+            "ok:no_final_newline" => form.is_none() && nonl && !full,
+            "err:count_plus" => form == Some("a '+'") && !nonl && !full,
+            "err:count_space_before" => form == Some("a space before it") && !nonl && !full,
+            "err:count_space_after" => form == Some("a space after it") && !nonl && !full,
+            // and the full character is all that keeps it from being valid:
+            // written as the empty one, the file is valid even at the strict pole
+            "err:full_in_body" => {
+                form.is_none() && !nonl && full
+                    && full_as_empty(&c.file).map_or(false, |f| valid_under(&f, false))
+            }
             _ => false,
         };
         if !ok {
@@ -1685,6 +1755,49 @@ pub fn check() -> usize {
     if rd.len() < 20 || !rd.iter().any(|c| c.tag.starts_with("ok:") && c.side == 0) {
         eprintln!("CHECK FAIL bsq readings corpus is below bsq_check.sh's floors (20 records, a side-0 map)");
         fails += 1;
+    }
+    // Every open form the header says this arm holds is in it.
+    for tag in [
+        "ok:count_leading_zero",
+        "ok:no_final_newline",
+        "err:count_plus",
+        "err:count_space_before",
+        "err:count_space_after",
+        "err:full_in_body",
+    ] {
+        if !rd.iter().any(|c| c.tag == tag) {
+            eprintln!("CHECK FAIL bsq readings corpus holds no {} record", tag);
+            fails += 1;
+        }
+    }
+
+    // ---- full_in_body's map has one answer under every reading that
+    //      solves it (the header's list) ----
+    {
+        let (m, r, c) = full_in_body_map();
+        let mut ob = m.grid.clone();
+        ob[r][c] = true;
+        let (a, b) = (o_bsq(&m.grid), o_bsq(&ob));
+        let covers = a.0 > 0 && r >= a.1 && r < a.1 + a.0 && c >= a.2 && c < a.2 + a.0;
+        if a != b || covers || a.0 == 0 || m.grid[r][c] {
+            eprintln!(
+                "CHECK FAIL bsq full_in_body: the cell ({}, {}) as empty answers {:?}, as an obstacle {:?}: \
+                 not one square that leaves it out",
+                r, c, a, b
+            );
+            fails += 1;
+        }
+        let mut want = m.solved(a.0, a.1, a.2);
+        want[r * (m.grid[0].len() + 1) + c] = m.full;
+        let fx = fixtures();
+        let get = |p: &str| fx.iter().find(|(q, _)| q == p).map(|(_, b)| b.clone());
+        if get("fixtures/full_in_body.map") != Some(with_full(&m, r, c))
+            || get("full_in_body.txt") != Some(want)
+            || !full_in_body(&with_full(&m, r, c))
+        {
+            eprintln!("CHECK FAIL bsq full_in_body's map or its solved output is not among the named fixtures");
+            fails += 1;
+        }
     }
 
     // ---- the named fixtures are files a test can hold ----

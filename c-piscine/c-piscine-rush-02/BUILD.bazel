@@ -186,7 +186,7 @@ c_make(
 # arms, as memory_rule): a run that ended by itself must hold nothing at exit,
 # as the valgrind arm asks of the plain run. Both at robust: the evaluation's
 # memory check never sees a refused allocation, so on this path the rule is
-# the repo's to apply (TODO.md §23, WP-92).
+# the repo's to apply (WP-92).
 _FREE_RULE = ("Rush 02, p.7: \"Any memory allocated on the heap (with malloc(3)) " +
               "must be freed correctly. This will be verified during the evaluation.\"")
 
@@ -756,8 +756,8 @@ hand_test(
 # reference dictionary, output that is not the dictionary's values with a
 # space, "-", "," or "and" between them, the shapes the named cases above
 # hold at basic spelled other than by their keys (a teen or a ten alone, a
-# round "<group> <scale>": the corpus opens with them), nothing at all, and a
-# run that does not end by itself (finding 160: these were in the manual
+# round "<group> <scale>": the corpus opens with them), nothing at all, a
+# crash, or output without end (finding 160: these were in the manual
 # targets below only; the shapes, the mutation run of 2026-10-03). Any other
 # difference from the reference -- "and", a leading "one", another split of
 # the number, a spelling past the dictionary that combines scale words -- is
@@ -770,6 +770,13 @@ hand_test(
 # Both wait, like every diff layer, for the subject's own example to pass:
 # `ex00_bin ref.dict 42` (dict_arg_42). While it is red they say SKIP, and
 # NO_SKIP=1 forces them open (tools/runner_lib.sh, rl_gate).
+
+# That run's output test, by name (`waits` on both targets, and --gate-label,
+# which their SKIP line names): five cases print forty_two.txt, so the gate's
+# program and file alone do not say which (tools/defs.bzl, _waits_for). Its
+# red log lists both.
+RUSH02_WAITS = "ex00_dict_arg_42_output"
+
 RUSH02_GATE = [
     "--gate-differ",
     "$(location //tools:diff_output.sh)",
@@ -779,12 +786,9 @@ RUSH02_GATE = [
     "$(location tests/ex00/forty_two.txt)",
     "--gate-number",
     "42",
+    "--gate-label",
+    RUSH02_WAITS,
 ]
-
-# That run's output test, by name (`waits` on both targets): five cases print
-# forty_two.txt, so the gate's program and file alone do not say which
-# (tools/defs.bzl, _waits_for). Its red log lists both.
-RUSH02_WAITS = "ex00_dict_arg_42_output"
 
 # A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the Run
 # contract's: ignored, unless the subject requires something of it.

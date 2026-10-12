@@ -11,8 +11,11 @@
   Then ask which FAMILY of sizes fails, not which single case:
     * only sizes with a 1 in them          -> the row/column that is first and
                                               last at the same time
-    * only sizes with a 2 in them          -> a fill loop that cannot run zero times
-    * every size, off by one character     -> a bound on the column loop
-    * every size, off by one line          -> a bound on the row loop
+    * only sizes with a 2 in them          -> a 2 leaves nothing between the two
+                                              edges: what does your code write
+                                              when the inside is empty?
+    * every size, off by one character     -> what decides where a line ends?
+    * every size, off by one line          -> what decides how many lines are
+                                              written?
     * wide-but-short but not tall-but-thin -> x and y are not doing the job you think
     * fine until 128 or 256 wide           -> the type of the variable you count with

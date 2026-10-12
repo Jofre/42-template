@@ -26,6 +26,17 @@
 #   --timeout SECS  wall-clock budget (default 20), capped by what is left of
 #                   the test's own limit
 #   --label TEXT    what to call the binary in messages
+#   --gate-differ P --gate-bin P --gate-expected P [--gate-stdin P] [--gate-labeled]
+#                   SKIP while the output test this run waits for is red:
+#                   P is tools/diff_output.sh, and the rest is that test's
+#                   program, expected file, stdin and --labeled
+#                   (runner_lib.sh's rl_gate, which fails open). For a
+#                   program that links the code that output test runs: while
+#                   that is red, this run fails for the same reason, with
+#                   less to go on. Any --gate-* without all of --gate-differ,
+#                   --gate-bin and --gate-expected is a wiring mistake
+#                   (exit 2).
+#   --gate-label NAME  the name of that output test, for the SKIP line
 #
 # A run killed by a signal, stopped by the time budget or by the output budget
 # fails whatever the flags say.
@@ -63,6 +74,9 @@ EXIT_ONLY=0
 EXIT_SOURCE=subject
 TIMEOUT=20
 LABEL=""
+GATE_DIFFER=""
+GATE_BIN=""
+GATE_EXPECTED=""
 
 # `--flag` with nothing after it used to die as "2: parameter not set" from
 # `set -u` -- the right exit code wrapped in raw shell. Same loop in every
@@ -80,6 +94,12 @@ while [ $# -gt 0 ]; do
 		--exit-source) need "$1" "$#"; EXIT_SOURCE="$2"; shift 2 ;;
 		--timeout) need "$1" "$#"; TIMEOUT="$2"; shift 2 ;;
 		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
+		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-stdin) need "$1" "$#"; rl_list_add RL_GATE_PASS --stdin "$2"; shift 2 ;;
+		--gate-labeled) rl_list_add RL_GATE_PASS --labeled; shift ;;
+		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
 		--) shift; break ;;
 		*) echo "run_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -103,6 +123,16 @@ if [ "$EXIT_ONLY" = 1 ] && [ -z "$WANT_EXIT" ]; then
 	echo "run_check.sh: --exit-only needs --exit: it judges the status and nothing else" >&2
 	exit 2
 fi
+# A gate is all three of --gate-differ, --gate-bin and --gate-expected, and
+# the other --gate-* options describe it. Given without all three, rl_gate
+# fails open and the run goes on as if no gate had been asked for: a wiring
+# mistake, refused as diff_output.sh refuses its own.
+if [ -n "$GATE_DIFFER$GATE_BIN$GATE_EXPECTED$RL_GATE_PASS$RL_GATE_NAME" ] &&
+	{ [ -z "$GATE_DIFFER" ] || [ -z "$GATE_BIN" ] || [ -z "$GATE_EXPECTED" ]; }; then
+	echo "run_check.sh: a gate needs --gate-differ, --gate-bin and --gate-expected together;" >&2
+	echo "              --gate-stdin, --gate-labeled and --gate-label describe that gate" >&2
+	exit 2
+fi
 
 # A PROGRAM THAT DID NOT BUILD is a stand-in script that says why (see
 # tools/standin.sh). Graded as a program, its "output" is empty and its exit
@@ -118,6 +148,16 @@ done
 # shellcheck source=tools/standin.sh
 . "$_sl"
 standin_check run_check "$BIN" fail "$LABEL"
+
+# THE GATE, after the stand-in check: a program that did not build is red
+# whatever its gate says, since the program the gate runs may be built
+# without the file that broke this one. Its words are this layer's: it
+# replays nothing, so rl_gate's corpus paragraph is not true here.
+RL_GATE_WHY="  That fixture runs the same code, with a table and hints attached. This
+  run only asks that the program prints something and ends, and while that
+  fixture is red it fails for the same reason, with less to go on. Once the
+  *_output layer is green, this one starts checking."
+rl_gate run_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED"
 
 OUT=$(mktemp)
 ERR=$(mktemp)
@@ -166,13 +206,15 @@ elif [ "$RL_CAUSE" = signal ] || [ "$RL_CAUSE" = stopped ]; then
 	FAIL=1
 elif [ -n "$WANT_EXIT" ] && [ "$RC" -ne "$WANT_EXIT" ]; then
 	echo "run_check: FAIL — $LABEL exited $RC, expected $WANT_EXIT"
-	# Where the status came from is the caller's to say: "the subject names
-	# none" under a status the subject does name would be false.
+	# Where the status came from is the caller's to say: "no sentence names
+	# one" under a status the call site quotes would be false.
 	if [ "$EXIT_SOURCE" = convention ]; then
-		echo "            The subject names no exit status. This is the robust check,"
-		echo "            which applies the C convention: a program that did its job"
-		echo "            returns $WANT_EXIT from main (docs/reference.md, \"Run contract\")."
+		echo "            No sentence this harness quotes from your subject names an exit"
+		echo "            status. This is the robust check, which applies the C convention:"
+		echo "            a program that did its job returns $WANT_EXIT from main"
+		echo "            (docs/reference.md, \"Run contract\")."
 	else
+		# conventions: the call site's --exit-source -- subject, the default: the status is one its subject names
 		echo "            The subject names this status, so it is part of the verdict"
 		echo "            at every level."
 	fi
@@ -215,8 +257,9 @@ fi
 
 echo "run_check: OK — $LABEL exited $RC and wrote $BYTES byte(s) within ${RL_TMO:-$TIMEOUT}s"
 if [ -n "$NOTE" ]; then
-	echo "  note: $NOTE. The subject names no exit status, so this layer does not"
-	echo "        fail on it; the robust exit-status check does, because a program"
-	echo "        that did its job conventionally returns $NOTE_EXIT from main."
+	echo "  note: $NOTE. No sentence this harness"
+	echo "        quotes from your subject names an exit status, so this layer does"
+	echo "        not fail on it; the robust exit-status check does, because a"
+	echo "        program that did its job conventionally returns $NOTE_EXIT from main."
 fi
 exit 0

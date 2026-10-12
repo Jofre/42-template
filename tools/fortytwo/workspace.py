@@ -4,9 +4,10 @@ Nothing here is a second copy of a fact the harness already holds. The projects
 are the folders whose BUILD.bazel opens a subject() contract and calls
 c_levels(); an exercise is an entry of that contract; its turn-in folder is the
 contract's, read by tools/first_red.sh --turnin (the one reading
-//tools/tests:turnin_dirs holds to the macros'); the layers are _LAYER_LEVEL's
-in tools/defs.bzl; the level filter is tools/submit.sh's gate_tags(), so a
-green `42 test` is a gate `42 submit` will pass.
+//tools/tests:macro_fixtures_test holds to each project's :turnin_dirs); the
+layers are _LAYER_LEVEL's in tools/defs.bzl; the level filter is
+tools/submit.sh's gate_tags(), so a green `42 test` is a gate `42 submit` will
+pass.
 """
 
 import difflib
@@ -23,6 +24,15 @@ LAYER_ALIASES = {"norminette": "norm"}
 
 class UsageError(Exception):
     """A request 42 cannot turn into a run. Exit 2, as Bazel's own usage errors."""
+
+
+class UnknownWord(UsageError):
+    """A word resolve() reads as nothing: no project, exercise, layer or label. A
+    command that takes fewer kinds of word says so in an error of its own."""
+
+    def __init__(self, message, word):
+        UsageError.__init__(self, message)
+        self.word = word
 
 
 class Project:
@@ -183,6 +193,36 @@ def resolve_level(flag, environ, ws):
     return value, source
 
 
+def read_identity(ws):
+    """{"username": ..., "email": ...}: the 42header.* keys of .vscode/settings.json that are set.
+
+    Read as tools/submit.sh's and tools/gen_header.sh's read_42 reads them, so
+    42 shows the identity they use: the first line holding the key and a
+    quoted value, the value being what is between those quotes, and an empty
+    one is not set. They read bytes (LC_ALL=C); a byte that is no UTF-8 is
+    U+FFFD here, which only 42's own output shows. tools/identity.sh writes
+    them.
+    """
+    keys = {}
+    try:
+        with open(os.path.join(ws, ".vscode", "settings.json"), "rb") as f:
+            lines = f.read().decode("utf-8", "replace").split("\n")
+    except OSError:
+        return keys
+    for k in ("username", "email"):
+        # sed's `.` before the key, and [[:space:]], which under C is ASCII's blanks.
+        rx = re.compile(r'.*"42header.%s"[ \t\n\r\f\v]*:[ \t\n\r\f\v]*"([^"]*)"' % k)
+        for line in lines:
+            m = rx.match(line)
+            if m:
+                # A NUL is dropped, as the shell's $(...) drops it.
+                v = m.group(1).replace("\0", "")
+                if v:
+                    keys[k] = v
+                break
+    return keys
+
+
 class Scope:
     """What a command applies to: a project, maybe one exercise, maybe one layer; or a label."""
 
@@ -330,7 +370,7 @@ class Workspace:
                     ex = None
                 project, named_project = p, True
                 continue
-            raise UsageError(self._unknown(w))
+            raise UnknownWord(self._unknown(w), w)
         if ex is not None:
             if project is None:
                 raise UsageError("%s of which project? Name one (42 test c-05 %s), or run it from the project's folder." % (ex, ex))
@@ -345,6 +385,10 @@ class Workspace:
         hint = (" Did you mean %s?" % " or ".join(close)) if close else ""
         return ("%r is not a project, an exercise (ex03) or a layer.%s "
                 "`42 help test` lists what a word can be." % (word, hint))
+
+    def close_projects(self, word):
+        """The projects whose short names are close to word, closest first."""
+        return difflib.get_close_matches(word, [p.short for p in self.projects()], n=3, cutoff=0.6)
 
     def project_list(self):
         """The projects, as the help and the root's error list them."""

@@ -230,11 +230,12 @@ _ck_word() {
 	esac
 }
 
-# _ck_excerpt FILE NAME -> FILE's first five lines under the run it belongs
-# to, each path the check passed shown by its name alone (a sandbox path is
-# noise to the reader), through runner_lib.sh's rl_excerpt: the one byte
-# renderer (a control byte as \xHH, a CRLF line ending as a line ending --
-# ssh-keygen writes them), a line longer than RL_EXCERPT_WIDTH cut with a
+# _ck_excerpt FILE NAME [--crlf] -> FILE's first five lines under the run it
+# belongs to, each path the check passed shown by its name alone (a sandbox
+# path is noise to the reader), through runner_lib.sh's rl_excerpt: the one
+# byte renderer (a control byte as \xHH, a carriage return too; with --crlf,
+# ck_run's, one that ends a line as part of the line ending), a line longer
+# than RL_EXCERPT_WIDTH cut with a
 # marker, and, when anything was left out, a line saying how much and where the
 # whole text is kept (test.outputs/NAME). This used to be a copy of its own
 # that showed a control byte as '?', cut a line at 160 bytes, and saved
@@ -293,16 +294,20 @@ _ck_excerpt() {
 			print line
 		}' "$1" > "$1.shown"
 	sh -c '. "$1"; shift; rl_excerpt "$@"' shell_check.sh "$_CK_RL" \
-		"$1.shown" 5 "$2" "         "
+		${3:+"$3"} "$1.shown" 5 "$2" "         "
 	rm -f "$1.shown"
 }
 
-# ck_run [-C DIR] [--no-redirect] OUTFILE cmd...  -> run the turn-in, the one
-# way every check does. stdout goes to OUTFILE byte for byte, stderr to
+# ck_run [-C DIR] [--no-redirect] [--crlf] OUTFILE cmd...  -> run the turn-in,
+# the one way every check does. stdout goes to OUTFILE byte for byte, stderr to
 # OUTFILE.err (also in $CK_ERR), and the exit status to $CK_RC. -C runs it
 # from DIR. Where the exercise declares a redirect (see ck_redirected), the
 # run reads the fixture when it opens the redirected path; --no-redirect runs
-# it on the machine's own file instead. How it ended
+# it on the machine's own file instead. --crlf is for a program that ends its
+# lines with CRLF, and the call says which one: the stderr shown below reads
+# a carriage return that ends a line as part of the line's end, where any
+# other run shows it as \x0d -- for a turn-in, the one clue that the script
+# was saved with CRLF line ends. How it ended
 # goes to $CK_HOW, the line tools/exit_status wrote ("exit 3", "signal 11",
 # "noexec WHY"; empty when the helper was itself stopped from outside), for a
 # caller that judges the ending: shell_test.sh's diff --run reads it with
@@ -328,14 +333,14 @@ _ck_excerpt() {
 #
 # A word `sh` in command position runs $_CK_SH, /bin/sh, and the first block
 # says so: a script that works in a terminal through its #! line (bash) and
-# fails here needs to know which shell was used. That block says "as the
-# subject requires", which holds for the three shell subjects here (each says
-# shell exercises must be executable with /bin/sh), and //tools:conventions
-# asks a check that runs `sh` for ck_sh_parses too. A project whose subject
-# names another shell, or none, runs its script with that shell's name
-# instead, and gets neither claim. A repeat of the same status and stderr is
-# one line, so a check that runs the script four times does not print the
-# same error four times.
+# fails here needs to know which shell was used. That block says which shell
+# ran it and that its #! line did not, never why: the shell a turn-in runs
+# under is its call site's choice, and a library every check sources quotes
+# no subject. //tools:conventions asks a check that runs `sh` for
+# ck_sh_parses too. A check that runs its script with another shell's name
+# gets neither. A repeat of the same status and stderr is one line, so a
+# check that runs the script four times does not print the same error four
+# times.
 #
 # A status alone is never a failure here. Where a subject names one, the check
 # compares $CK_RC itself; where it names none, the run contract
@@ -366,6 +371,7 @@ ck_run() {
 	fi
 	_ck_cd=""
 	_ck_redir=1
+	_ck_crlf=""
 	while :; do
 		case "${1:-}" in
 			-C)
@@ -374,6 +380,10 @@ ck_run() {
 				;;
 			--no-redirect)
 				_ck_redir=0
+				shift
+				;;
+			--crlf)
+				_ck_crlf=--crlf
 				shift
 				;;
 			*) break ;;
@@ -512,7 +522,7 @@ ck_run() {
 	fi
 	_CK_LAST=$_ck_key
 	if [ "$_ck_bysh" = 1 ] && [ "$_CK_SHOWN" = 0 ]; then
-		printf '  ran: %s  (/bin/sh, as the subject requires; not through its #! line)\n' \
+		printf '  ran: %s  (/bin/sh, not through its #! line)\n' \
 			"$_ck_shown"
 	else
 		printf '  ran: %s\n' "$_ck_shown"
@@ -527,7 +537,7 @@ ck_run() {
 	esac
 	if [ -s "$CK_ERR" ]; then
 		printf '       stderr:\n'
-		_ck_excerpt "$CK_ERR" "run-$_CK_RUNS-stderr.txt"
+		_ck_excerpt "$CK_ERR" "run-$_CK_RUNS-stderr.txt" "$_ck_crlf"
 	else
 		printf '       stderr: nothing\n'
 	fi
@@ -690,7 +700,7 @@ ck_executable() {
 			;;
 		*)
 			printf '  [FAIL] %s has its execute bit set, so ./%s runs\n' "$_ck_n" "$_ck_n"
-			printf '         hint: the subject runs ./%s, which needs the x that ls -l shows; set it in the generator (man chmod)\n' "$_ck_n"
+			printf '         hint: ./%s runs only with the x that ls -l shows; set it in the generator (man chmod)\n' "$_ck_n"
 			_CK_FAIL=$((_CK_FAIL + 1))
 			;;
 	esac
@@ -900,7 +910,7 @@ ck_wording() {
 		_CK_REPORTED=1
 		printf '  BROKEN CHECK SCRIPT: it quotes the subject'"'"'s words for "%s", and\n' "$1"
 		printf '  this exercise'"'"'s shell_exercise call gives none: add\n'
-		printf '  wording = {"%s": "<the sentence, as the subject says it>"}\n' "$1"
+		printf '  wording = {"%s": "<the sentence, in the subject'"'"'s own words>"}\n' "$1"
 		printf '  to it (tools/defs.bzl).\n'
 		exit 2
 	fi

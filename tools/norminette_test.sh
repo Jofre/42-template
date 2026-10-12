@@ -72,6 +72,11 @@ require() {
 }
 require cat grep head mktemp rm sed tr
 
+# A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
+# in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
+# none (tools/runner_lib.sh, "THE SCRATCH FOLDER").
+case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
+
 # conventions: runs no student code -- it runs the pinned norminette over the student's sources
 # conventions: harness tool NORM -- the pinned norminette
 

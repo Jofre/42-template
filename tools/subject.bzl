@@ -10,8 +10,7 @@ happened to hold. So they disagreed: C 12 ex08's header was optional to the
 files layer and a build input to every other; C 09 ex01 compiled srcs/ as the
 student's work while its files layer said the grader brings them; BSQ turned
 in under ex00/ "like a rush", though its subject has no turn-in directory line
-at all (findings 096, 108, 124, 128, 172, 177; TODO.md §23, classes 1
-and 2).
+at all (findings 096, 108, 124, 128, 172, 177).
 
 So each project's BUILD.bazel opens with ONE subject() call, transcribed from
 the subject's header boxes, and the macros in tools/defs.bzl read it:
@@ -341,24 +340,42 @@ subject_contract = rule(
     },
 )
 
-def subject(grader, group, exercises, strict = True, name = "subject"):
+def subject(grader, group, exercises, strict = True, mandatory = None, mandatory_quote = None, name = "subject"):
     """A project's subject contract. The FIRST call in its BUILD.bazel.
 
     Args:
-        grader: who grades the turn-in: "moulinette" (a program, every
-            Piscine module and BSQ), "defense" (peers at an evaluation, the
-            rushes), or "both".
+        grader: who grades the turn-in: "moulinette" (a program alone:
+            Piscine Reloaded), "defense" (peers at an evaluation: the
+            rushes), or "both" (the Moulinette and a defense: every other
+            Piscine module and BSQ).
         group: True for a group project (the rushes): the turn-in is a team's.
         exercises: {"NN": exercise(...)}, one entry per exercise that turns
             something in, keyed by the number its tests/exNN/ folder has.
         strict: the project's default for exercise(strict): whether a file
             the subject did not ask for FAILS the files layer (True, where the
             subject says to turn in nothing else) or warns. Default True.
+        mandatory: the keys of the exercises the subject itself calls its
+            mandatory part, where it says so ("You have reached the end of
+            the mandatory exercises..."): `submit --written-only` will not
+            push the project while one of them is still a stub. None, the
+            default, where the subject names no such part; it is never
+            inferred, and never written for a subject that does not say it.
+        mandatory_quote: the subject's sentence that says so, with its page,
+            as the project's other quotes are written. Required with
+            mandatory, and refused without it.
         name: unused: the contract is always the target `subject`, which is
             where every macro looks for it. Here because every macro takes a
             `name` (see c_levels in tools/defs.bzl).
     """
-    problem = subject_problem(grader, group, exercises, strict, name)
+    problem = subject_problem(
+        grader = grader,
+        group = group,
+        exercises = exercises,
+        strict = strict,
+        mandatory = mandatory,
+        mandatory_quote = mandatory_quote,
+        name = name,
+    )
     if problem:
         fail(problem)
 
@@ -375,13 +392,15 @@ def subject(grader, group, exercises, strict = True, name = "subject"):
             "group": group,
             "strict": strict,
             "exercises": exercises,
+            "mandatory": mandatory or [],
+            "mandatory_quote": mandatory_quote or "",
         }),
         libs = sorted(libs.keys()),
         lib_labels = sorted(libs.keys()),
         visibility = ["//visibility:public"],
     )
 
-def subject_problem(grader, group, exercises, strict = True, name = "subject"):
+def subject_problem(grader, group, exercises, strict = True, mandatory = None, mandatory_quote = None, name = "subject"):
     """What is wrong with a subject() call, as the message it fails with; None if nothing.
 
     A value for the reason exercise_problem() gives: proven on broken
@@ -392,6 +411,8 @@ def subject_problem(grader, group, exercises, strict = True, name = "subject"):
         group: as subject() takes it.
         exercises: as subject() takes it.
         strict: as subject() takes it.
+        mandatory: as subject() takes it.
+        mandatory_quote: as subject() takes it.
         name: as subject() takes it.
 
     Returns:
@@ -420,4 +441,24 @@ def subject_problem(grader, group, exercises, strict = True, name = "subject"):
                  "(dir = None), and the project has other exercises. A root turn-in " +
                  "is the whole repository, so it is the project's only exercise.") %
                 ", ".join(roots))
+    if mandatory == None:
+        if mandatory_quote != None:
+            return ("subject(mandatory_quote = ...) with no mandatory list: it quotes the " +
+                    "subject for the list it gives")
+        return None
+    if type(mandatory) != "list":
+        return "subject(mandatory = %r): a list of exercise keys, [\"00\", \"01\"]" % (mandatory,)
+    if not mandatory:
+        return ("subject(mandatory = []): name the exercises the subject calls mandatory, " +
+                "or leave mandatory out")
+    seen = {}
+    for num in mandatory:
+        if num not in exercises:
+            return "subject(mandatory = ...): %r is not an exercise of this contract" % (num,)
+        if num in seen:
+            return "subject(mandatory = ...): %r is named twice" % (num,)
+        seen[num] = True
+    if type(mandatory_quote) != "string" or not mandatory_quote.strip():
+        return ("subject(mandatory = ...) quotes no sentence: mandatory_quote is the " +
+                "subject's own words naming its mandatory part")
     return None

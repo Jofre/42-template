@@ -1,11 +1,10 @@
 /* Live-differential reader harness for ft_list_reverse_fun.
- * Line: <csv>\t<reversed-csv> -- the same corpus as ex08's ft_list_reverse
- * (oracle c12_list_reverse): both subjects ask for the list's elements in the
- * reverse order, and differ only in what the caller holds, a head by value
- * here. Builds the list (data = (void*)(intptr_t)v), calls the function on its
- * head, and serialises what that SAME head reaches afterwards: the caller
- * cannot be handed a new one, so that is the list the caller sees.
- * See tools/diffio.h. */
+ * Line: <csv>\t<reversed-csv>. Builds the list (data = (void*)(intptr_t)v),
+ * calls the function on its head, and serialises what that SAME head reaches
+ * afterwards, which is the list the caller sees. See tools/diffio.h.
+ *
+ * The corpus is ex08's (oracle c12_list_reverse), whose subject also asks for
+ * the list's elements in the reverse order. */
 #include "ft_list.h"
 #include "diffio.h"
 #include <stdint.h>

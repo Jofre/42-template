@@ -11,7 +11,7 @@
 # and fingerprint format, which find predicates exist, whether `file` honours a
 # custom magic file -- with neutral inputs of its own.
 #
-# AND THE FACTS THE HARNESS'S OWN DEFAULTS DEPEND ON (TODO.md D7: gathered,
+# AND THE FACTS THE HARNESS'S OWN DEFAULTS DEPEND ON (D7: gathered,
 # not guessed). Where Bazel's state can go -- every drive a student can use,
 # with its space, owner, mode and what can be said about persistence, and what
 # tools/drives.sh (setup.sh's and tools/bazel's choice) decides on this box;
@@ -33,10 +33,13 @@
 # private key, and does all work inside a fresh `mktemp -d` that is removed on
 # exit. It captures tool *versions* and *behaviors* only — no secrets.
 #
-# USAGE (from the repo root, on a 42 machine that has this repo cloned):
-#   sh tools/env-audit.sh                 # write + print the report only
-#   sh tools/env-audit.sh --commit        # also commit the report file
-#   sh tools/env-audit.sh --commit --push # also push it on branch env-audit-42
+# USAGE (from the repo root, on a 42 machine that has this repo cloned). Write
+# and print the report only:
+#   sh tools/env-audit.sh
+# Also commit the report file:
+#   sh tools/env-audit.sh --commit
+# Also push it on branch env-audit-42:
+#   sh tools/env-audit.sh --commit --push
 #
 # A BARE SCRIPT FIRST, and a Bazel target second. `bazel run //tools:env_audit`
 # works and takes the same flags after `--`, but the plain `sh` form is the one
@@ -251,7 +254,7 @@ kv "login shell (passwd)" "$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7
 cap "/etc/shells" cat /etc/shells
 
 h "Drives, for tools/drives.sh"
-# Where Bazel's state -- 8.9 GB for a full run -- can go on this box, which is
+# Where a full run's Bazel state (DRIVES_FULL_GB) can go on this box, which is
 # a decision (tools/drives.sh: /goinfre/$USER, then the cache dir in $HOME, then
 # /tmp/$USER) made from these facts rather than from a guess. Deliberately NOT
 # /sgoinfre as a candidate: that is network-attached, and a shared drive used
@@ -273,7 +276,7 @@ h "Drives, for tools/drives.sh"
 # Nothing here writes: the choice below is PREDICTED (DRIVES_DRY), from the
 # modes of what exists, so the account is left as it was found.
 if [ -r "$ROOT/tools/drives.sh" ]; then
-    # shellcheck source=drives.sh
+    # shellcheck source=tools/drives.sh
     . "$ROOT/tools/drives.sh"
     _au_user=$(drives_user)
     for _d in /goinfre "/goinfre/$_au_user" /sgoinfre "$HOME" "${XDG_CACHE_HOME:-$HOME/.cache}" /tmp "/tmp/$_au_user"; do
@@ -290,7 +293,7 @@ if [ -r "$ROOT/tools/drives.sh" ]; then
         else
             kv "setup.sh would choose" "nothing: $DRIVES_WHY"
         fi
-        if drives_default_root; then
+        if drives_default_root "$ROOT"; then
             kv "tools/bazel's root" "$DRIVES_ROOT  (with no .bazelrc.local; $DRIVES_ROOT_WHY)"
         else
             kv "tools/bazel's root" "none: $DRIVES_ROOT_WHY"
@@ -473,6 +476,12 @@ cap "ssh"        ssh -V
 # ssh-keygen has no --help; list supported key algorithms instead (ed25519 matters for ex03)
 cap "ssh key algos" ssh -Q key
 cap "file"       file --version
+# bc, net-tools (netstat) and iproute2 (ip): with `file`, the tools the dev
+# container installs UNPINNED for the shell exercises, because no campus report
+# has carried their versions yet (.devcontainer/Dockerfile says why).
+cap "bc"         bc --version
+cap "netstat"    netstat --version
+cap "ip"         ip -V
 cap "find"       find --version
 cap "tar"        tar --version
 cap "patch"      patch --version
@@ -689,7 +698,7 @@ ea_trace() {  # ea_trace FILE MINE -- one trace; in full if MINE, or unfinished
     [ "$_tfull" = 0 ] || sed 's/^/    /' "$1"
 }
 if [ -r "$ROOT/tools/prime_trace.sh" ]; then
-    # shellcheck source=prime_trace.sh
+    # shellcheck source=tools/prime_trace.sh
     . "$ROOT/tools/prime_trace.sh"
     kv "folder" "$TRACE_ROOT"
     kv "this boot" "${BOOT_ID:-unknown}"
@@ -758,8 +767,8 @@ if [ "$DO_COMMIT" = 1 ]; then
             if git -C "$ROOT" push -u origin "$BR" 2>&1; then
                 echo "    pushed to origin/$BR."
             else
-                echo "    !! push failed. Run manually:"
-                echo "       git push -u origin $BR      # add --force-with-lease if it diverged"
+                echo "    !! push failed. Run manually, adding --force-with-lease if it diverged:"
+                echo "       git push -u origin $BR"
             fi
         else
             echo "    (skipped push; re-run with --push, or: git push -u origin $BR)"

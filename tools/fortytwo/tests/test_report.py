@@ -125,12 +125,10 @@ class Next(unittest.TestCase):
 class Coldness(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.root = os.path.join(self.tmp.name, "root")
         self.ws = os.path.join(self.tmp.name, "ws")
         os.makedirs(self.ws)
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def test_the_output_base_is_bazels_md5_of_the_checkout(self):
         self.assertEqual(report.output_base(self.ws, "/r"),

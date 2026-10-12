@@ -36,6 +36,11 @@ require() {
 }
 require awk basename cat cksum cmp comm cut dirname find grep head mktemp od rm sed sort tail tr uniq xargs
 
+# A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
+# in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
+# none (tools/runner_lib.sh, "THE SCRATCH FOLDER").
+case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
+
 # conventions: runs no student code -- it reads the repository and runs the pinned linters over it
 # conventions: harness tool SHELLCHECK BUILDIFIER -- the pinned linters, from MODULE.bazel
 
@@ -122,11 +127,11 @@ cd "$WS" || { echo "conventions.sh: cannot enter '$WS'" >&2; exit 2; }
 # failure this whole file exists to prevent: a scan that silently covers less
 # than it used to and goes on reporting OK.
 #
-# So the modules are counted against tools/submit.sh's REMOTES table, which
-# TODO.md already names as the authority for which modules exist. A module the
-# table knows and this run cannot see means the file list is short, and a short
-# file list is a smaller gate reporting the same green. Exit 2: nothing was
-# checked properly, which is a broken harness rather than a broken convention.
+# So the modules are counted against tools/submit.sh's REMOTES table, the
+# authority for which modules exist. A module the table knows and this run
+# cannot see means the file list is short, and a short file list is a smaller
+# gate reporting the same green. Exit 2: nothing was checked properly, which is
+# a broken harness rather than a broken convention.
 #
 # The keys are read only between `REMOTES='` and its closing quote, whatever
 # they look like. They used to be matched by shape, `^c-piscine-[a-z0-9-]*=`,
@@ -175,6 +180,45 @@ if [ -n "$missing_modules" ]; then
 	echo "  as though it had scanned everything. If this is the sh_test, add" >&2
 	echo "  each module's :conventions_srcs to //tools/tests:conventions." >&2
 	exit 2
+fi
+
+# The single files are starved the same way, one at a time. A check that reads
+# a file only where it exists (`if [ -f tools/pins.tsv ]`) has nothing to say
+# about a tree without it, and under `bazel run`, or over a selftest's fixture,
+# that is all an absence can mean. Under `bazel test` it far more often means
+# nobody declared the file to the test: .bazelversion, the Dockerfile, the
+# editor's tasks.json and tools/pins.tsv were missing that way, and every
+# version they pin went uncompared, run after run, behind a green gate. So in a
+# real test every file this script tests that way must be in the tree. The
+# list is read from this script's own text, so a guard written tomorrow is
+# held to it the day it is written. CONV_MAY_LACK are the maintainer's own
+# records, which a fresh clone has none of; a file joins it only when a tree
+# that ships can lack it, never because a test was not given it.
+CONV_MAY_LACK="TODO.md HISTORY.md"
+if [ -n "${TEST_SRCDIR:-}" ] && [ -z "${BUILD_WORKSPACE_DIRECTORY:-}" ]; then
+	grep -v '^[[:space:]]*#' "$CONV_HOME/${0##*/}" |
+		grep -oE '\[ -[ef] [A-Za-z0-9_./-]+ \]' |
+		sed 's/^\[ -[ef] //; s/ \]$//' | sort -u > "$lex_d/guarded"
+	if [ ! -s "$lex_d/guarded" ]; then
+		echo "conventions.sh: found no file guard in its own text ($CONV_HOME/${0##*/})" >&2
+		echo "  It reads that list to know what this run must see; an empty one" >&2
+		echo "  is a read that failed, not a script that guards nothing." >&2
+		exit 2
+	fi
+	missing_files=""
+	while IFS= read -r _f; do
+		case " $CONV_MAY_LACK " in *" $_f "*) continue ;; esac
+		[ -f "$_f" ] || missing_files="$missing_files
+    $_f"
+	done < "$lex_d/guarded"
+	if [ -n "$missing_files" ]; then
+		echo "conventions.sh: files its checks read are missing from the test's runfiles:$missing_files" >&2
+		echo "  A check below reads each only where it exists, so without it that" >&2
+		echo "  check stands down and this run reports OK having compared nothing." >&2
+		echo "  Add each to a :conventions_srcs of //tools/tests:conventions (the" >&2
+		echo "  root BUILD.bazel's, for a file in a folder with no BUILD file)." >&2
+		exit 2
+	fi
 fi
 
 FAILS=0
@@ -307,7 +351,7 @@ if [ -n "$SHELLCHECK" ] && [ -x "$SHELLCHECK" ]; then
 	# Built with `set --` rather than an unquoted command substitution: the
 	# latter is SC2046, and a lint this script cannot pass itself is not a lint.
 	# It skips what text_files() skips (V113): a dot folder the repo does not
-	# track (the owner's gitignored .research/ held a peer's script, reported
+	# track (a gitignored one of the owner's held a peer's script, reported
 	# here) and a student's generators/, which its exercise's own lint layer
 	# reads (shell_test.sh's lint mode). .devcontainer, .github and .vscode are read.
 	set --
@@ -326,6 +370,38 @@ else
 		"decides which warnings exist, so a host copy makes the result depend" \
 		"on the machine. Pass --shellcheck \$(location @shellcheck_linux_x86_64//:shellcheck)."
 fi
+
+# ---------------------------------------------------------------------------
+# N. A shellcheck source directive names a file shellcheck can open.
+#
+# A script that sources a file through a variable (`. "${SHELL_CHECK_LIB:?}"`)
+# carries a directive naming that file, for shellcheck to follow it under -x,
+# and it opens the path from where it runs, which is the repository root
+# here, never from the script's folder. 25 module check scripts named
+# tools/shell_check.sh by their own relative path, ../../../../, and the
+# runners in tools/ named drives.sh bare: from the root those are no files,
+# so shellcheck followed none of them, said so in a note (SC1091) that
+# -S warning hides, and linted every one without the library it uses. Not
+# dead either, since a directive is what keeps SC1090 quiet: removing one
+# makes the warning, while naming the file from the root makes it read.
+# /dev/null, the way to say "follow nothing", is a file too. The zone is
+# the student's (text_files()). And a comment line that opens with the
+# tool's name is read by it as a directive, so none here does.
+_srcdir=$(text_files -exec grep -lE '^[[:blank:]]*#[[:blank:]]*shellcheck[[:blank:]].*source=' {} + |
+	sed 's#^\./##' | sort | while IFS= read -r _f; do
+	grep -nE '^[[:blank:]]*#[[:blank:]]*shellcheck[[:blank:]].*source=' "$_f" 2> /dev/null |
+		while IFS= read -r _l; do
+			_p=${_l#*source=}
+			_p=${_p%%[[:blank:]]*}
+			[ -e "$_p" ] || printf '    %s:%s: %s\n' "$_f" "${_l%%:*}" "$_p"
+		done
+done)
+[ -z "$_srcdir" ] || report \
+	"a shellcheck source directive names a file shellcheck cannot open" \
+	"$_srcdir" \
+	"shellcheck opens a directive's file from the repository root, where" \
+	"this runs it, never from the script's folder: write the path from the" \
+	"root (tools/shell_check.sh), or /dev/null for a file it must not follow."
 
 # ---------------------------------------------------------------------------
 # 4. buildifier finds no semantic warnings, except the documented backlog.
@@ -408,11 +484,28 @@ fi
 # again): those mains are the SUBJECT's own code, transcribed, and the exercise
 # is to make them compile. (ex03's second main, test_point_int.c, is the
 # harness's own and defines nothing but main, so it leaks nothing either.)
-for f in $(for _m in $MODULES; do
+#
+# And a floor under it: a find that matches nothing is a check that passes. If
+# the modules' BUILD files name a test main ("test_<x>.c", outside a comment)
+# and the find read none, this run cannot see the files (a :conventions_srcs
+# glob that stopped matching them, a folder renamed under tests/), and the
+# rule above said nothing about every one.
+_tmains=$(for _m in $MODULES; do
 	[ -d "$_m/tests" ] && find "$_m/tests" -name 'test_*.c'
-done | sort); do
+done | sort)
+if [ -z "$_tmains" ]; then
+	_tnamed=$(for _m in $MODULES; do
+		[ -f "$_m/BUILD.bazel" ] && sed 's/#.*//' "$_m/BUILD.bazel"
+	done | grep -cE '"test_[^"/]*\.c"' || :)
+	[ "${_tnamed:-0}" -eq 0 ] || report \
+		"the test-main check read no test_*.c, while the modules' BUILD files name one on $_tnamed line(s)" \
+		"It reads every tests/**/test_*.c of the modules in the REMOTES table," \
+		"and found none: it passed having read nothing. Under bazel test, each" \
+		"module's :conventions_srcs has to hold its tests' C files."
+fi
+for f in $_tmains; do
 	case "$f" in
-		c-piscine/c-piscine-c-08/* | */c-piscine/c-piscine-c-08/*) continue ;;
+		*c-piscine/c-piscine-c-08/*) continue ;;
 		*c-piscine-reloaded/c-piscine-reloaded/tests/ex23/*) continue ;;
 	esac
 	leaked=$(awk '
@@ -526,209 +619,6 @@ while IFS= read -r f; do
 done < "$lex_d/files"
 
 # ---------------------------------------------------------------------------
-# N. Every script declares the external commands it takes from PATH.
-#
-# THE FAILURE THIS EXISTS FOR IS SILENT. `grep -qE "AddressSanitizer" "$ERR" &&
-# ...` on a machine with no grep does not error: it reads exactly like "no
-# match". asan_run.sh then skips its sanitizer branch and reports a real ASan
-# finding under the generic "died on signal 6" headline. The verdict happens to
-# stay red there -- ASan aborts, so the crash branch below catches it -- but
-# that is luck, not design, and the same shape sits in a dozen sibling runners
-# where it would decide the verdict outright.
-#
-# The remedy is the one item 6 settled for /bin/sh: prove the USAGE is sound
-# rather than pin the binaries. Each script says which commands it needs, probes
-# for them once at startup, and exits 2 -- "the check never ran" -- if one is
-# absent. This check is what stops that list going stale, by recomputing it from
-# what the script actually calls.
-#
-# HOW THE LIST IS COMPUTED. Only names in the vocabulary below, and only in
-# COMMAND position -- line start, or after | ; & ( $( ` -- so `# see also grep`
-# in a comment and `--diff` in a flag name do not count. A tool reached through
-# a variable ($NM, $DIFFER, $NORM) is a path Bazel handed in, already pinned and
-# already failing loudly, so it is deliberately not in scope.
-#
-# THE VOCABULARY IS NOT JUST COREUTILS, and that was a real hole. It listed 24
-# always-there commands, so the eight tools whose answer actually decides a
-# verdict -- cc, git, comm, md5sum, make, perl, shellcheck, timeout -- were
-# invisible to this check. Worse, because the comparison is equality, a script
-# that CORRECTLY declared `git` would have been reported as drifted: the one
-# thing this check exists to encourage was the one thing it punished. Anything a
-# script can call has to be nameable here, or the guarantee is only about the
-# commands that were never going to be missing anyway.
-#
-# Three exemptions, all declared in the file rather than listed here, so the
-# reason travels with the code:
-#   * a sourced library (`# shellcheck shell=`), which runs inside its caller's
-#     options;
-#   * `# conventions: no-require`, today only env-audit.sh -- it PROBES a host,
-#     so a missing tool is its finding to report rather than a reason to refuse;
-#   * `# conventions: optional <tool> -- <why>`, for a command the script
-#     probes with `command -v` and then DEGRADES or SKIPs without. Those must
-#     not go in `require`, which exits 2 on absence, so they are named one at a
-#     time with the reason beside them. Naming each one is the point: "this tool
-#     is allowed to be missing" is a decision about what the layer still
-#     guarantees, and it should be reviewable rather than implied by a word
-#     being absent from a list.
-#
-# A sourced library has no require() of its own -- it runs inside its caller,
-# and the caller's list is computed from the CALLER's text. So a library that
-# takes commands from PATH probes them itself, in a loop spelled
-# `for _<x>_t in <commands>; do` (tools/runner_lib.sh), and that loop is its
-# declaration, checked here the same way. A library with no such loop calls
-# nothing from PATH and is skipped.
-for f in tools/*.sh tools/tests/*.sh; do
-	libdecl=""
-	if grep -q '^# shellcheck shell=' "$f"; then
-		libdecl=$(sed -n 's/^for _[a-z]*_t in \([a-z0-9 ._-]*\); do$/\1/p' "$f" | head -n 1)
-		[ -n "$libdecl" ] || continue
-	fi
-	grep -q '^# conventions: no-require' "$f" && continue
-	optional=$(sed -n 's/^# conventions: optional \([a-z0-9_.-]*\).*/\1/p' "$f" |
-		sort -u | tr '\n' ' ')
-	used=$(awk -v optional="$optional" '
-		BEGIN {
-			split("grep sed awk sort tr wc cut head tail od cmp diff find " \
-			      "xargs basename dirname mktemp date chmod cp mv rm mkdir " \
-			      "ln readlink env comm cc git make md5sum nm perl python3 " \
-			      "sha256sum shellcheck tar timeout valgrind cat touch tee " \
-			      "uniq sleep id uname expr seq stat rmdir paste nl " \
-			      "cksum pandoc pdftotext weasyprint fold", v, " ")
-			for (i in v) vocab[v[i]] = 1
-			split("if then else elif do done while until case esac ! { } fi", k, " ")
-			for (i in k) kw[k[i]] = 1
-			split(optional, o, " ")
-			for (i in o) if (o[i] != "") exempt[o[i]] = 1
-		}
-		# Drop the literal text inside double quotes, keeping whatever a $( )
-		# inside them contains. Without this, `echo "cannot read symbols from
-		# $src (nm failed)"` splits at the paren and reads `nm` as a command --
-		# the same class of miss as reading comments, which the strip above
-		# already fixed, and it reported a phantom `nm` in forbidden_symbols.sh.
-		#
-		# The quoting state has to be a STACK, not a flag, because a command
-		# substitution re-opens quoting inside a quoted string:
-		#
-		#     [ "$(git ls-files -s "$f" | cut -d" " -f1)" = "100755" ]
-		#
-		# A flat scanner pairs the quote before $f with the one after it, then
-		# treats ` | cut -d` as quoted text and drops a real call. Each $( )
-		# pushes the outer state and starts fresh; ) pops it back.
-		function strip_quoted(s,   out, i, c, d, inq, stack) {
-			out = ""; d = 0; inq = 0
-			for (i = 1; i <= length(s); i++) {
-				c = substr(s, i, 1)
-				if (c == "\\") {
-					if (!inq) out = out c substr(s, i + 1, 1)
-					i++
-					continue
-				}
-				if (c == "$" && substr(s, i + 1, 1) == "(") {
-					stack[d] = inq
-					d++; inq = 0
-					out = out "$("
-					i++
-					continue
-				}
-				if (c == ")" && d > 0) {
-					d--; inq = stack[d]
-					out = out ")"
-					continue
-				}
-				if (c == "\"") { inq = !inq; continue }
-				if (!inq) out = out c
-			}
-			return out
-		}
-		{
-			line = $0
-			sub(/^[ \t]*#.*/, "", line)
-			if (line == "") next
-			# A trap ARGUMENT is a command list that runs later, so its
-			# contents are command position -- but they are quoted, so the
-			# scanner saw only the word `trap`. Every runner that cleans up
-			# after itself does it with `trap "rm ..." EXIT`, and once the
-			# hand-written rm calls were replaced by traps, three scripts were
-			# reported as no longer calling rm while still very much needing it.
-			# Unwrap the single-quoted form (the only one the repo uses; a bare
-			# `trap some_function EXIT` names a shell function, not a command,
-			# and correctly does not count).
-			# rl_traps (tools/runner_lib.sh) takes the same argument and
-			# hands it to trap, so it is unwrapped the same way.
-			if (match(line, /^[ \t]*(trap|rl_traps)[ \t]+\047/)) {
-				sub(/^[ \t]*(trap|rl_traps)[ \t]+\047/, "", line)
-				sub(/\047[^\047]*$/, "", line)
-			}
-			line = strip_quoted(line)
-			gsub(/\$\(/, "\n", line)
-			gsub(/[|;&()`]/, "\n", line)
-			n = split(line, frag, "\n")
-			for (i = 1; i <= n; i++) {
-				s = frag[i]
-				sub(/^[ \t]*/, "", s)
-				while (1) {
-					if (match(s, /^[A-Za-z_][A-Za-z0-9_]*=/)) {
-						sub(/^[^ \t]+[ \t]*/, "", s); continue
-					}
-					w = s; sub(/[ \t].*/, "", w)
-					if (w in kw) { sub(/^[^ \t]+[ \t]*/, "", s); continue }
-					break
-				}
-				# `command -v X` IS A USE OF X, and this scanner used to miss
-				# every one of them because the command word is `command`.
-				# That is the hole that lets a runner probe a tool, degrade
-				# silently when it is absent, and declare nothing either way:
-				# the tool appears in no `require` list, so nothing exits 2
-				# without it, and no `# conventions: optional` line is forced,
-				# so nobody ever wrote down what the layer still guarantees
-				# when it is gone. A probe is exactly the case the optional
-				# declaration exists for.
-				if (match(s, /^command[ \t]+-[A-Za-z]*v[ \t]+[A-Za-z0-9_.-]+/)) {
-					probe = substr(s, RSTART, RLENGTH)
-					sub(/^command[ \t]+-[A-Za-z]*v[ \t]+/, "", probe)
-					if ((probe in vocab) && !(probe in exempt)) seen[probe] = 1
-				}
-				w = s; sub(/[ \t].*/, "", w)
-				if ((w in vocab) && !(w in exempt)) seen[w] = 1
-			}
-		}
-		END { for (w in seen) print w }' "$f" | sort | tr '\n' ' ')
-	if [ -n "$libdecl" ]; then
-		declared=$(printf '%s\n' "$libdecl" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
-	else
-		declared=$(grep -m1 '^require ' "$f" | cut -d' ' -f2- | tr ' ' '\n' |
-			grep -v '^$' | sort | tr '\n' ' ')
-	fi
-	[ -z "$used" ] && [ -z "$declared" ] && continue
-	if [ -z "$declared" ]; then
-		report "$f calls PATH commands and declares none" \
-			"uses: $used" \
-			"Add the helper every other script carries, right after set -u:" \
-			"    require() {" \
-			"            for _t in \"\$@\"; do" \
-			"                    command -v \"\$_t\" > /dev/null 2>&1 && continue" \
-			"                    echo \"$(basename "$f"): required command '\$_t' is not on PATH\" >&2" \
-			"                    exit 2" \
-			"            done" \
-			"    }" \
-			"    require $used" \
-			"A missing tool used as a predicate answers 'false' rather than" \
-			"failing, which is a wrong verdict nothing else in the suite can see."
-	elif [ "$used" != "$declared" ]; then
-		report "$f's require list does not match what it calls" \
-			"declared: $declared" \
-			"calls:    $used" \
-			"${optional:+already exempt: $optional}" \
-			"A list that has drifted is worse than none: it reads as a" \
-			"guarantee that the probe covers this script, and it does not." \
-			"If the tool is one this script PROBES and then degrades or skips" \
-			"without, it does not belong in require -- that exits 2 on absence." \
-			"Say so instead, one line per tool, and the check will exempt it:" \
-			"    # conventions: optional <tool> -- <what stops being checked>"
-	fi
-done
-
-# ---------------------------------------------------------------------------
 # N. The documented layer table matches the one the build actually uses.
 #
 # THIS IS THE CHECK THE DOCS DID NOT HAVE. README.md used to state that the
@@ -790,6 +680,41 @@ elif [ "$LEVELS" != "$DOCTABLE" ]; then
 		"the level the build will actually give them."
 	rm -f "$_lvl_tmp" "$_doc_tmp"
 fi
+
+# ---------------------------------------------------------------------------
+# N. A macro's docstring says what no PROJECT does, never what no call site
+#    does.
+#
+# tools/tests/macro_fixtures/knobs calls the macros with every parameter and
+# case key no module passes, so each branch is run by something; that makes
+# it a call site of every knob, and "no call site passes one today" false
+# the day it landed. A docstring that counts call sites -- "nothing in the
+# repo overrides it", "no caller passes one", "this macro's only caller in
+# the repo", "every existing call site does" -- counts the fixture too.
+# Where it means the projects, the modules a student works in, it says "no
+# project"; where it means a rule, it states the rule.
+# Read: tools/*.bzl, a phrase found across a line break too (a docstring
+# wraps), each reported at the line it starts on.
+_census=$(for _b in tools/*.bzl; do
+	[ -f "$_b" ] || continue
+	awk '
+		function flat(s) { sub(/^[ \t]*(#[ \t]*)?/, "", s); return tolower(s) }
+		function scan(cur, nxt, n,    s) {
+			s = cur " " nxt
+			if (match(s, /no (call site|caller)s? (passes|needs|does|sets|overrides)|every call site relies|every existing call site|nothing in the repo|only caller in the repo/) &&
+			    RSTART <= length(cur))
+				printf "    %s:%d: %s\n", FILENAME, n, prev_raw
+		}
+		NR > 1 { scan(p, flat($0), NR - 1) }
+		{ p = flat($0); prev_raw = $0; sub(/^[ \t]*/, "", prev_raw) }
+		END { if (NR) scan(p, "", NR) }' "$_b"
+done)
+[ -z "$_census" ] || report \
+	"a macro's docstring says what no call site does, and the knobs fixture is one" \
+	"$_census" \
+	"tools/tests/macro_fixtures/knobs passes every parameter no module does," \
+	"so a count of call sites is wrong as written. Say \"no project\" when" \
+	"the projects are meant -- or state the rule, not the roll call."
 
 # ---------------------------------------------------------------------------
 # N. first_red's stub-green layers are layers, at basic.
@@ -1058,16 +983,17 @@ done
 # down from robust to strict (the owner's ruling, 2026-10-09) and a hint of
 # its exercise went on saying robust (the review of that change). A text
 # names a level as "<target>, at <level>", the target and the level in
-# backticks or not.
+# backticks or not, in either case, as the layer rule below reads its own: a
+# sentence may open on the target ("Ex04_base_to_space_output, at Robust").
 _lvbad=$(printf '%s\n' "$RAISED" | while read -r _rt _rl; do
 	[ -n "$_rt" ] || continue
 	_rm=${_rt#//}
 	_rm=${_rm%%:*}
 	_rn=${_rt##*:}
 	[ -d "$_rm" ] || continue
-	grep -rnowE "${_rn}\`?,? at \`?(basic|strict|robust|complete)" "$_rm" 2> /dev/null |
+	grep -iRnowE "${_rn}\`?,? at \`?(basic|strict|robust|complete)" "$_rm" 2> /dev/null |
 		awk -v l="$_rl" -v t="$_rn" '{
-			s = $0; sub(/.* at `?/, "", s)
+			s = tolower($0); sub(/.* at `?/, "", s)
 			if (s != l) print $0 " (" t " sits at " l ")"
 		}'
 done)
@@ -1077,6 +1003,45 @@ done)
 	"Say the level the target sits at: tools/defs.bzl's _RAISED, which" \
 	"docs/reference.md prints. A student reads it to know how far up the" \
 	"ladder the question is."
+
+# And a text there that names a LAYER at a level -- "allocfail sits at level
+# 3 (robust)" -- names the one _LAYER_LEVEL gives it. A layer whose level
+# changes leaves behind every text that named the old one: the probe headers
+# of C 07 ex00 and Reloaded ex20 went on saying allocfail sat at robust, "so
+# it never meets a beginner", beside a BUILD file that said basic. A layer
+# is named as "<layer> sits at level N", "<layer> sits at <level>" or "is"
+# or "stays" for "sits", the name in backticks or not, in either case (a
+# sentence may open on it: "Allocfail sits at Level 3"); a target raised
+# above its layer is named by the target, which the check above holds. The
+# zone is not read.
+_lyrbad=$(for _m in $MODULES; do
+	[ -d "$_m" ] || continue
+	grep -iRnE --exclude-dir=deliverable --exclude-dir=generators \
+		'[a-z_0-9]`? (sits|is|stays) at (level [1-4]|basic|strict|robust|complete)' "$_m" 2> /dev/null
+done | LV="$LEVELS" awk '
+	BEGIN {
+		n = split(ENVIRON["LV"], r, "\n")
+		for (i = 1; i <= n; i++) { split(r[i], f, " "); if (f[1] != "") lvl[f[1]] = f[2] }
+		split("basic strict robust complete", names, " ")
+		for (i = 1; i <= 4; i++) num[names[i]] = i
+	}
+	{
+		t = $0; sub(/^[^:]*:[0-9]+:/, "", t); t = tolower(t)
+		while (match(t, /[a-z_0-9]+`? (sits|is|stays) at (level [1-4]|basic|strict|robust|complete)/)) {
+			s = substr(t, RSTART, RLENGTH); t = substr(t, RSTART + RLENGTH)
+			l = s; sub(/[` ].*/, "", l)
+			if (!(l in lvl)) continue
+			w = s; sub(/.* at /, "", w); sub(/^level /, "", w)
+			if (w in num) w = num[w]
+			if (w != lvl[l]) print "    " $0 " (" l " sits at " names[lvl[l]] ")"
+		}
+	}')
+[ -z "$_lyrbad" ] || report \
+	"a text names a layer at a level it does not sit at" \
+	"$_lyrbad" \
+	"Say the level _LAYER_LEVEL in tools/defs.bzl gives the layer, which" \
+	"docs/reference.md's layer table prints -- or, where one exercise's" \
+	"target sits above it, name that target and its level (_RAISED)."
 
 # ---------------------------------------------------------------------------
 # N. The tests of a whole module are named the same in the three places that
@@ -1252,10 +1217,10 @@ fi
 # `# conventions: optional`, so the require list is exactly what must be
 # present.
 #
-# Only fixtures that are actually USED are checked. selftest.sh:849 builds one
-# for cycles_check and no arm ever sets PATH to it, so enforcing there would be
-# a false red on dead code -- reported separately below, because a fixture
-# nobody uses is a guarantee nobody gets.
+# Only fixtures that are actually USED are checked. A fixture no arm sets PATH
+# to would be a false red on dead code, so it is reported separately below
+# instead: a fixture nobody uses is a guarantee nobody gets. (That report is
+# how the cycles_check fixture in selftest.sh was found, and deleted.)
 _fixtmp=$(mktemp)
 for f in tools/tests/selftest*.sh; do
 	[ -f "$f" ] || continue
@@ -1328,11 +1293,11 @@ rm -f "$_fixtmp"
 # called in a file that does not define it is "not found", exit 127, and the
 # `;` or the newline after it swallows that. Nothing goes red.
 #
-# It happened again, in the arms rather than the runners. selftest.sh defines
-# want_red, want_green, want_out, want_broken and want_broken_none;
-# selftest_slow.sh defines only the first, third and fourth. Three arms written
-# against want_out/want_broken_none in selftest_slow SILENTLY DID NOT RUN -- the
-# arm count went 17 to 19 where five arms had been added, and the file still
+# It happened again, in the arms rather than the runners. selftest_slow.sh
+# then defined only want_red, want_green and want_broken, while selftest.sh
+# also had want_out and want_broken_none. Three arms written against
+# want_out/want_broken_none in selftest_slow SILENTLY DID NOT RUN -- the arm
+# count went 17 to 19 where five arms had been added, and the file still
 # reported "0 failed". An arm that does not run is worse than an arm that does
 # not exist, because the count says otherwise.
 #
@@ -1378,8 +1343,12 @@ done
 # check.sh copied into another section's clue toy. So, read as the shell
 # reads it -- a statement over its continuation lines, a loop's words for
 # its variable, a helper's argument for its $1 (a helper on one line too,
-# whose body names a toy outright where it is defined), a toy variable for
-# its path (`_cv99=$WORK/cv/.../tests`), here-documents and comments skipped:
+# whose body names a toy outright where it is defined, and known by its
+# whole statement: one continued with a backslash, the shape of r2_run, was
+# read from its first line as a helper over many lines, that line dropped
+# and its body run on to the next } at the start of a line), a toy
+# variable for its path (`_cv99=$WORK/cv/.../tests`), here-documents and
+# comments skipped:
 #
 #   a toy's file is written by one statement (`>`, `>|`, `2>` and `&>`
 #   truncate it alike; `>>` appends);
@@ -1500,27 +1469,30 @@ toy_uses() {  # toy_uses FILE -- KIND TOY FILE LINE SECTION, tab-separated
 			    x ~ /^[a-z][A-Za-z0-9_\/.-]*\/tests(\/ex[0-9]+)?$/)
 				val[v] = x
 		}
-		if (!cont && match($0, /^[A-Za-z_][A-Za-z0-9_]*\(\)[ \t]*\{/)) {
-			infn = substr($0, 1, index($0, "(") - 1)
+		# A statement, over its continuation lines: a helper is known by
+		# the statement that opens it, so one on one line continued with a
+		# backslash (r2_run) is a helper on one line too.
+		if (cont) st = st " " $0
+		else { st = $0; at = FNR }
+		if ($0 ~ /\\$/) { cont = 1; sub(/\\$/, "", st); next }
+		cont = 0
+		if (match(st, /^[A-Za-z_][A-Za-z0-9_]*\(\)[ \t]*\{/)) {
+			infn = substr(st, 1, index(st, "(") - 1)
 			ntpl[infn] = 0
 			# A helper on one line: a body naming $1 is judged at each call;
 			# one that names a toy outright is judged here, as a body over
 			# many lines is, statement by statement.
-			if ($0 ~ /\}[ \t]*(#.*)?$/) {
-				b = $0
+			if (st ~ /\}[ \t]*(#.*)?$/) {
+				b = st
 				sub(/^[^{]*\{[ \t]*/, "", b)
 				sub(/[ \t;]*\}[ \t]*(#.*)?$/, "", b)
 				f1 = infn
 				infn = ""
 				if (index(b, "$1") > 0 || index(b, "${1}") > 0) tpl[f1, ++ntpl[f1]] = b
-				else judge(b, FNR)
+				else judge(b, at)
 			}
 			next
 		}
-		if (cont) st = st " " $0
-		else { st = $0; at = FNR }
-		if ($0 ~ /\\$/) { cont = 1; sub(/\\$/, "", st); next }
-		cont = 0
 		judge(st, at)
 		if (infn != "" && st ~ /^\}/) infn = ""
 	}' "$1"
@@ -1578,6 +1550,346 @@ for f in tools/tests/selftest*.sh; do
 		"Each block passes only while its own conventions run comes before the" \
 		"other's write. Write the file once, holding every block's lines."
 done
+
+# ...and a fixture tree is named in one section, as a toy exercise is (V93).
+#
+# A tree is a folder under $WORK: a workspace this script is run over, or a
+# runner's fixtures. Two sections have built in one tree more than once: the
+# readings arms rewrote the README.md of the tree the conventions section
+# had built, so their runs read that section's module; a loop gave its
+# perf docs to the first conventions section's workspace; the command
+# registry's arms added a module to, and rewrote submit.sh in, the tree the
+# runner rules' arms run over. Each passed only while its own run came
+# first, and in a shard that skips the first section its arms are gone
+# while its plain code still writes. So a tree is named in one section of
+# its file (`# ----- name`, the unit the shards deal): outright, through a
+# loop's variable, through a variable holding its path (until it is set
+# again, by a loop or a read too), or through a helper. A helper's body is
+# read at each call, in the caller's section, with the words the call
+# passes for its positional parameters: "$WORK/$1/Makefile" names the tree
+# the call names, and a helper one section defines and another calls names
+# its trees in the other. Make's arms once shared three trees that way,
+# made by a helper in one section and passed to one by the next. Two kinds
+# are shared by design: cv, the toy every conventions section adds to, and
+# a tree named before the first section, which belongs to no section, as do
+# the trees a helper written there names outright. Comments are skipped.
+#
+# And a tree named before the first section is every section's, so none
+# writes into it (`>`, `>>` or mkdir): what one section leaves there, the
+# others read in a shard that runs it and miss in one that does not. The
+# diff_output arms once wrote a clues.tsv into the stand-in tree.
+for f in tools/tests/selftest*.sh; do
+	[ -f "$f" ] || continue
+	awk '
+	# A loop: its variable and its words, to its done. The variable holds
+	# a word now, whatever path it held before.
+	function loop(s,   w, k, nr, rr) {
+		if (match(s, /(^|[;&|{( \t])for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t][^;]*;[ \t]*do/)) {
+			w = substr(s, RSTART, RLENGTH)
+			sub(/^.*for[ \t]+/, "", w)
+			lv = w
+			sub(/[ \t].*/, "", lv)
+			sub(/^[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+/, "", w)
+			sub(/[ \t]*;[ \t]*do$/, "", w)
+			gsub(/["\047]/, "", w)
+			nw = split(w, ww, /[ \t]+/)
+			delete alias[lv]
+		}
+		# ...and so do the variables a read sets.
+		if (match(s, /(^|[;&|{( \t!])read[ \t]+(-[A-Za-z]+[ \t]+)*[A-Za-z_][A-Za-z0-9_ \t]*/)) {
+			w = substr(s, RSTART, RLENGTH)
+			sub(/^.*read[ \t]+/, "", w)
+			nr = split(w, rr, /[ \t]+/)
+			for (k = 1; k <= nr; k++) delete alias[rr[k]]
+		}
+	}
+	# How long the loop variable is where s, just after "$WORK/", starts
+	# with it ($v or ${v}); 0 where it does not.
+	function at_lv(s) {
+		if (lv == "") return 0
+		if (substr(s, 1, length(lv) + 3) == "${" lv "}") return length(lv) + 3
+		if (substr(s, 1, length(lv) + 1) == "$" lv && substr(s, length(lv) + 2, 1) !~ /[A-Za-z0-9_]/)
+			return length(lv) + 1
+		return 0
+	}
+	# The longest tree s starts with, whole: "hdr sp/x" is "hdr sp", not "hdr".
+	function at_tree(s,   d, best) {
+		best = ""
+		for (d in dir)
+			if (substr(s, 1, length(d)) == d && substr(s, length(d) + 1, 1) !~ /[A-Za-z0-9_.-]/ &&
+			    length(d) > length(best))
+				best = d
+		return best
+	}
+	function mark(t, at) {
+		if (t == "" || t == "cv" || (t in pre)) return
+		if (sec == "") { pre[t] = 1; return }
+		if (!((t, sec) in seen)) { seen[t, sec] = 1; n[t]++; where[t] = where[t] " [" sec "] (line " at ")" }
+	}
+	# A write into a tree named before the first section, from a section.
+	function wrote(t, at) {
+		if (sec == "" || t == "cv" || !(t in pre) || ((t, sec) in wseen)) return
+		wseen[t, sec] = 1
+		wat[t] = wat[t] " [" sec "] (line " at ")"
+	}
+	# The tree a word written into names: outright, or through a variable.
+	function target(w,   v) {
+		gsub(/["\047]/, "", w)
+		if (substr(w, 1, 6) == "$WORK/") return at_tree(substr(w, 7))
+		for (v in alias)
+			if (index(w, "${" v "}/") == 1 || index(w, "$" v "/") == 1) return alias[v]
+		return ""
+	}
+	# The words of a statement as the shell splits them, quotes taken off:
+	# wq is 1 for a word with a quoted part, 2 for ; | & ( or ).
+	function words(s,   nn, w, quoted, inw, t) {
+		nn = 0; w = ""; quoted = 0; inw = 0
+		while (s != "") {
+			if (match(s, /^[ \t]+/) || match(s, /^[;&|()]/)) {
+				t = substr(s, 1, RLENGTH)
+				if (inw) { wd[++nn] = w; wq[nn] = quoted }
+				w = ""; quoted = 0; inw = 0
+				if (t !~ /^[ \t]/) { wd[++nn] = t; wq[nn] = 2 }
+			} else if (match(s, /^"([^"\\]|\\.)*"/)) {
+				t = substr(s, 2, RLENGTH - 2)
+				w = w t; quoted = 1; inw = 1
+			} else if (match(s, /^\047[^\047]*\047/)) {
+				w = w substr(s, 2, RLENGTH - 2); quoted = 1; inw = 1
+			} else if (match(s, /^\\./)) {
+				w = w substr(s, 2, 1); inw = 1
+			} else if (match(s, /^[^ \t;&|()"\047\\]+/)) {
+				# A comment: the rest of the line.
+				if (!inw && substr(s, 1, 1) == "#") break
+				w = w substr(s, 1, RLENGTH); inw = 1
+			} else {
+				# An unclosed quote: the rest is one word.
+				w = w substr(s, 2); quoted = 1; inw = 1
+				RLENGTH = length(s)
+			}
+			s = substr(s, RLENGTH + 1)
+		}
+		if (inw) { wd[++nn] = w; wq[nn] = quoted }
+		return nn
+	}
+	# What one statement names under $WORK. The first pass learns which
+	# names are folders; the second marks each in its section.
+	function names(s, at,   i, l, k, t, v, x, m, w) {
+		if (FNR == NR) {
+			x = s
+			while ((i = index(x, "$WORK/")) > 0) {
+				x = substr(x, i + 6)
+				if (match(x, /^[^\/"\047$`]+\//)) dir[substr(x, 1, RLENGTH - 1)] = 1
+				else if ((l = at_lv(x)) > 0 && substr(x, l + 1, 1) == "/")
+					for (k = 1; k <= nw; k++) dir[ww[k]] = 1
+			}
+			if (match(s, /^[ \t]*[A-Za-z_][A-Za-z0-9_]*="?\$WORK\/[A-Za-z0-9_.-]+"?[ \t]*$/)) {
+				t = s
+				sub(/^[^=]*="?\$WORK\//, "", t)
+				sub(/"?[ \t]*$/, "", t)
+				dir[t] = 1
+			}
+			if (match(s, /^[ \t]*[A-Za-z_][A-Za-z0-9_]*=[^ \t]*\$WORK\//)) {
+				v = s
+				sub(/^[ \t]*/, "", v)
+				sub(/=.*/, "", v)
+				held[v] = 1
+			}
+			return
+		}
+		x = s
+		while ((i = index(x, "$WORK/")) > 0) {
+			x = substr(x, i + 6)
+			if ((t = at_tree(x)) != "") mark(t, at)
+			else if (at_lv(x))
+				for (k = 1; k <= nw; k++) if (ww[k] in dir) mark(ww[k], at)
+		}
+		for (v in alias)
+			if (index(s, "${" v "}") > 0 || match(s, "\\$" v "([^A-Za-z0-9_]|$)")) mark(alias[v], at)
+		# A write: what a redirection names, and what mkdir makes.
+		m = s
+		while (match(m, /(^|[^>&0-9])[0-9&]?>>?\|?[ \t]*[^ \t;&|<>()]+/)) {
+			w = substr(m, RSTART, RLENGTH)
+			m = substr(m, RSTART + RLENGTH)
+			sub(/^[^>]*>>?\|?[ \t]*/, "", w)
+			wrote(target(w), at)
+		}
+		if (match(s, /(^|[;&|{( \t])mkdir[ \t]/)) {
+			m = substr(s, RSTART + RLENGTH)
+			k = split(m, ww2, /[ \t]+/)
+			for (i = 1; i <= k && ww2[i] !~ /^[;&|)]/; i++) wrote(target(ww2[i]), at)
+		}
+		# A variable holding a path in a tree names that tree wherever
+		# it is read, until it is set again.
+		if (match(s, /^[ \t]*[A-Za-z_][A-Za-z0-9_]*=/)) {
+			v = s
+			sub(/^[ \t]*/, "", v)
+			sub(/=.*/, "", v)
+			delete alias[v]
+			x = s
+			sub(/^[^=]*=/, "", x)
+			gsub(/"/, "", x)
+			if (x ~ /^\$WORK\/[^$`;|&<>() \t]*$/ && (t = at_tree(substr(x, 7))) != "") alias[v] = t
+		}
+	}
+	# One statement: each helper it calls, with the words the call passes,
+	# then what it names itself.
+	function stmt(s, at, depth,   i, j, nn, c, nc, cl, p, np, h, k, b, a, li, r, nr, svl, svn, svw) {
+		loop(s)
+		c = ""
+		nn = split(s, wd, /[^A-Za-z0-9_]+/)
+		for (i = 1; i <= nn; i++) if (wd[i] in rel) { c = 1; break }
+		if (c != "" && depth < 8) {
+			nn = words(s)
+			c = ""
+			for (i = 1; i <= nn; i++) {
+				if (wq[i] || !(wd[i] in rel)) continue
+				# A command: first, or after an operator, a keyword, the --
+				# that ends the words of an arm, or a helper that runs it.
+				if (i > 1 && wq[i - 1] != 2 && (wq[i - 1] || (!(wd[i - 1] in hn) &&
+				    wd[i - 1] !~ /^(--|if|then|else|elif|do|while|until|!|\{|time)$/)))
+					continue
+				a = wd[i]
+				for (j = i + 1; j <= nn && wq[j] != 2; j++) a = a SUBSEP wd[j]
+				c = c (c == "" ? "" : "\035") a
+			}
+			nc = (c == "") ? 0 : split(c, cl, "\035")
+			for (i = 1; i <= nc; i++) {
+				np = split(cl[i], p, SUBSEP)
+				h = p[1]
+				# A helper inside its own call is not expanded again.
+				if (h in active) continue
+				active[h] = 1
+				# A word that is the loop variable stands for each word.
+				li = 0
+				for (j = 2; j <= np && j <= 10; j++)
+					if (lv != "" && (p[j] == "$" lv || p[j] == "${" lv "}")) { li = j; break }
+				nr = li ? nw : 1
+				svl = lv; svn = nw
+				for (k = 1; k <= nw; k++) svw[k] = ww[k]
+				for (r = 1; r <= nr; r++) {
+					for (k = 1; k <= hn[h]; k++) {
+						b = hb[h, k]
+						# A helper of the preamble names its own trees where it
+						# is written (keep, below).
+						if (!hr[h, k] || (hs[h] == "" && b !~ /\$\{?[1-9]/)) continue
+						for (j = 9; j >= 1; j--) {
+							a = (j + 1 <= np) ? p[j + 1] : ""
+							if (j + 1 == li) a = svw[r]
+							gsub(/[\\&]/, "\\\\&", a)
+							gsub("\\$\\{" j "\\}", a, b)
+							gsub("\\$" j, a, b)
+						}
+						stmt(b, at, depth + 1)
+						if (b ~ /(^|[;& \t])done([ \t;)]|$)/) lv = ""
+					}
+					lv = svl; nw = svn
+					for (k = 1; k <= nw; k++) ww[k] = svw[k]
+				}
+				delete active[h]
+			}
+		}
+		names(s, at)
+	}
+	# A helper: each statement of its body, a variable set from a
+	# positional parameter read as that parameter.
+	function keep(st,   v, m, x, i, nt, tk) {
+		m = st
+		while (match(m, /(^|[;& \t])[A-Za-z_][A-Za-z0-9_]*="?\$\{?[1-9]\}?"?([;& \t]|$)/)) {
+			x = substr(m, RSTART, RLENGTH)
+			m = substr(m, RSTART + RLENGTH - 1)
+			sub(/^[;& \t]/, "", x)
+			v = x
+			sub(/=.*/, "", v)
+			sub(/^[^$]*\$\{?/, "", x)
+			pm[v] = substr(x, 1, 1)
+		}
+		for (v in pm) {
+			gsub("\\$\\{" v "\\}", "${" pm[v] "}", st)
+			while (match(st, "\\$" v "([^A-Za-z0-9_]|$)"))
+				st = substr(st, 1, RSTART) pm[v] substr(st, RSTART + 1 + length(v))
+		}
+		hb[infn, ++hn[infn]] = st
+		# Whether it can name a tree: outright, through a variable that
+		# ever holds a path under $WORK, or through a helper that can.
+		m = (st ~ /\$WORK/)
+		for (v in held)
+			if (!m && (index(st, "${" v "}") > 0 || match(st, "\\$" v "([^A-Za-z0-9_]|$)"))) m = 1
+		nt = split(st, tk, /[^A-Za-z0-9_]+/)
+		for (i = 1; !m && i <= nt; i++) if (tk[i] in rel) m = 1
+		hr[infn, hn[infn]] = m
+		if (m) rel[infn] = 1
+		# A helper of the preamble names its own trees where it is written.
+		if (hs[infn] == "" && st !~ /\$\{?[1-9]/) stmt(st, at, 0)
+		else if (FNR == NR) names(st, at)
+	}
+	{ gsub(/\$\{WORK\}/, "$WORK") }
+	FNR == 1 { lv = ""; sec = ""; infn = ""; cont = 0; hd = ""; split("", alias); split("", hn); split("", rel) }
+	# A here-document: what it names, and nothing it defines or calls.
+	hd != "" { t = $0; sub(/^\t*/, "", t); if (t == hd) hd = ""; else names($0, FNR); next }
+	/^# -----+ / && !cont { sec = $0; sub(/^# -+ /, "", sec); next }
+	/^[ \t]*#/ && !cont { next }
+	{
+		if ($0 !~ /^[ \t]*#/ && match($0, /<<-?[ \t]*["\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
+			pre_ = substr($0, 1, RSTART - 1)
+			h = substr($0, RSTART, RLENGTH)
+			if (gsub(/\047/, "", pre_) % 2 == 0 && gsub(/"/, "", pre_) % 2 == 0) {
+				hd = h
+				gsub(/[<\-"\047 \t]/, "", hd)
+			}
+		}
+		if (cont) st = st " " $0
+		else { st = $0; at = FNR }
+		if ($0 ~ /\\$/) { cont = 1; sub(/\\$/, "", st); next }
+		cont = 0
+		# A helper: its body, to the brace that closes it -- on its own
+		# line, as far in as the name, or at the end of a helper on one.
+		if (infn == "" && match(st, /^[ \t]*[A-Za-z_][A-Za-z0-9_]*\(\)[ \t]*\{/)) {
+			h = st
+			sub(/^[ \t]*/, "", h)
+			sub(/\(.*/, "", h)
+			ind = st
+			sub(/[^ \t].*/, "", ind)
+			infn = h
+			hn[h] = 0
+			delete rel[h]
+			hs[h] = sec
+			split("", pm)
+			st = substr(st, RSTART + RLENGTH)
+			if (st ~ /(^|[ \t;])\}[ \t]*(#.*)?$/) {
+				sub(/[ \t;]*\}[ \t]*(#.*)?$/, "", st)
+				if (st ~ /[^ \t]/) keep(st)
+				infn = ""
+			}
+			next
+		}
+		if (infn == "") {
+			stmt(st, at, 0)
+			if (st ~ /(^|[;& \t])done([ \t;)]|$)/) lv = ""
+			next
+		}
+		if (substr(st, 1, length(ind) + 1) == ind "}") { infn = ""; next }
+		keep(st)
+	}
+	END {
+		for (t in n) if (n[t] > 1) printf "two\t    \"$WORK/%s\":%s\n", t, where[t]
+		for (t in wat) printf "pre\t    \"$WORK/%s\":%s\n", t, wat[t]
+	}' "$f" "$f" | sort > "$lex_d/trees"
+	_ft=$(awk -F'\t' '$1 == "two" { print $2 }' "$lex_d/trees")
+	[ -z "$_ft" ] || report "$f names one fixture tree in two sections" \
+		"$_ft" \
+		"A shard runs the arms of some sections only, and every section's plain" \
+		"code: a tree two sections name is one section's fixture under the other" \
+		"one's arms, and what either writes there the other's runs read. Give the" \
+		"later section a tree of its own."
+	_fp=$(awk -F'\t' '$1 == "pre" { print $2 }' "$lex_d/trees")
+	[ -z "$_fp" ] || report "$f writes from a section into a fixture tree made before the first section" \
+		"$_fp" \
+		"Every section reads a tree made before the first one, and a shard runs" \
+		"the arms of some sections only: what one section writes there, another" \
+		"reads in one shard and misses in the next. Give that section a tree of" \
+		"its own."
+done
+rm -f "$lex_d/trees"
 
 for f in tools/*.sh tools/tests/*.sh; do
 	grep -q 'need "\$1" "\$#"' "$f" || continue
@@ -1651,10 +1963,12 @@ done | sort -u)
 #   PIPED    "|" when its output goes down a pipe
 #
 # It knows quotes (single ones across lines, as an awk program spans them),
-# $( ), backticks, ${ }, $(( )), comments, backslash-newline, here-documents
-# (whose bodies it skips) and case patterns (which are never commands). What
-# it does not know -- eval, sh -c STRING, aliases -- no runner uses. Each file
-# is read once, here, and every rule below reads the result.
+# $( ), backticks, ${ }, $(( )) and a $( ) inside one, comments,
+# backslash-newline, here-documents (whose bodies it skips) and case patterns
+# (which are never commands). What it does not read into -- eval's string, an
+# alias, a string handed to sh -c or trap -- it hands over as words, and the
+# require list below unwraps the last. Each file is read once, here, and every
+# rule below reads the result.
 sh_cmds() {
 	awk '
 	BEGIN {
@@ -1742,16 +2056,13 @@ sh_cmds() {
 		ctx[d] = c
 		issub[d] = 1
 	}
-	# $(( ... )): an arithmetic expansion, taken whole as part of the word.
-	function arith(line, i,   j, dep, c) {
-		dep = 0
-		for (j = i + 1; j <= length(line); j++) {
-			c = substr(line, j, 1)
-			if (c == "(") dep++
-			else if (c == ")") { dep--; if (dep == 0) break }
-		}
+	# $(( ... )): an arithmetic expansion, part of the word as $((.)). What it
+	# holds is no command, except a $( ) or backticks inside it, which run as
+	# anywhere else: `$(( $(wc -l < f) - 1 ))` calls wc.
+	function arith() {
 		addc("$((.))")
-		return j
+		push("A")
+		apar[d] = 0
 	}
 	{
 		L = FNR
@@ -1776,6 +2087,17 @@ sh_cmds() {
 				if (c == "\047") d--
 				continue
 			}
+			if (k == "A") {
+				if (c == "$" && substr(line, i + 1, 2) == "((") { arith(); i += 2; continue }
+				if (c == "$" && substr(line, i + 1, 1) == "(") { subpush("C"); i++; continue }
+				if (c == "`") { subpush("B"); continue }
+				if (c == "(") apar[d]++
+				else if (c == ")") {
+					if (apar[d] > 0) apar[d]--
+					else { i++; d--; continue }
+				}
+				continue
+			}
 			if (k == "D" || k == "P") {
 				if (c == "\\") { addc(c substr(line, i + 1, 1)); i++; continue }
 				if (k == "D" && c == "\"") { addc(c); d--; continue }
@@ -1784,7 +2106,7 @@ sh_cmds() {
 					if (c == "}") { pb[d]--; if (pb[d] == 0) { addc(c); d--; continue } }
 					if (c == "\"") { addc(c); push("D"); continue }
 				}
-				if (c == "$" && substr(line, i + 1, 2) == "((") { i = arith(line, i); continue }
+				if (c == "$" && substr(line, i + 1, 2) == "((") { arith(); i += 2; continue }
 				if (c == "$" && substr(line, i + 1, 1) == "(") { addc("$(.)"); subpush("C"); i++; continue }
 				if (c == "$" && substr(line, i + 1, 1) == "{") { addc("${"); push("P"); pb[d] = 1; i++; continue }
 				if (c == "`") { addc("`.`"); subpush("B"); continue }
@@ -1804,7 +2126,7 @@ sh_cmds() {
 				addc("`.`"); subpush("B"); continue
 			}
 			if (c == "$") {
-				if (substr(line, i + 1, 2) == "((") { i = arith(line, i); continue }
+				if (substr(line, i + 1, 2) == "((") { arith(); i += 2; continue }
 				if (substr(line, i + 1, 1) == "(") { addc("$(.)"); subpush("C"); i++; continue }
 				if (substr(line, i + 1, 1) == "{") { addc("${"); push("P"); pb[d] = 1; i++; continue }
 				addc(c); continue
@@ -1866,7 +2188,7 @@ sh_cmds() {
 		}
 		if (cont) next
 		k = fk[d]
-		if (k == "S" || k == "D" || k == "P") addc("\036")
+		if (k == "S" || k == "D" || k == "P" || k == "A") addc("\036")
 		else { endc(d); lstart = 0 }
 		if (nh > hcur) hmode = 1
 	}
@@ -1884,18 +2206,241 @@ cmds_of() {  # cmds_of FILE -- the path of FILE's sh_cmds, made on first use
 }
 
 # ---------------------------------------------------------------------------
+# N. Every script declares the external commands it takes from PATH.
+#
+# THE FAILURE THIS EXISTS FOR IS SILENT. `grep -qE "AddressSanitizer" "$ERR" &&
+# ...` on a machine with no grep does not error: it reads exactly like "no
+# match". asan_run.sh then skips its sanitizer branch and reports a real ASan
+# finding under the generic "died on signal 6" headline. The verdict happens to
+# stay red there -- ASan aborts, so the crash branch below catches it -- but
+# that is luck, not design, and the same shape sits in a dozen sibling runners
+# where it would decide the verdict outright.
+#
+# The remedy is the one item 6 settled for /bin/sh: prove the USAGE is sound
+# rather than pin the binaries. Each script says which commands it needs, probes
+# for them once at startup, and exits 2 -- "the check never ran" -- if one is
+# absent. This check is what stops that list going stale, by recomputing it from
+# what the script actually calls.
+#
+# HOW THE LIST IS COMPUTED. Only names in the vocabulary below, and only in
+# COMMAND position -- the first word of a command, past its assignments and
+# keywords, as the lexer (sh_cmds, above) reads the shell -- so `# see also
+# grep` in a comment and `--diff` in a flag name do not count. Nor does a word
+# inside quotes: `echo "... (nm failed)"` once split at its paren and reported a
+# phantom `nm`, and while this check matched lines rather than reading the
+# shell, so did an awk variable after a `;` inside a single-quoted program, or
+# one at the start of a line of a program spanning lines (`nm = 2`). A tool
+# reached through a variable ($NM, $DIFFER, $NORM) is a path Bazel handed in,
+# already pinned and already failing loudly, so it is deliberately not in scope.
+#
+# THE VOCABULARY IS NOT JUST COREUTILS, and that was a real hole. It listed 24
+# always-there commands, so the eight tools whose answer actually decides a
+# verdict -- cc, git, comm, md5sum, make, perl, shellcheck, timeout -- were
+# invisible to this check. Worse, because the comparison is equality, a script
+# that CORRECTLY declared `git` would have been reported as drifted: the one
+# thing this check exists to encourage was the one thing it punished. Anything a
+# script can call has to be nameable here, or the guarantee is only about the
+# commands that were never going to be missing anyway.
+#
+# Three exemptions, all declared in the file rather than listed here, so the
+# reason travels with the code:
+#   * a sourced library (`# shellcheck shell=`), which runs inside its caller's
+#     options;
+#   * `# conventions: no-require -- <why>`, today only env-audit.sh -- it
+#     PROBES a host, so a missing tool is its finding to report rather than a
+#     reason to refuse;
+#   * `# conventions: optional <tool> -- <why>`, for a command the script
+#     probes with `command -v` and then DEGRADES or SKIPs without. Those must
+#     not go in `require`, which exits 2 on absence, so they are named one at a
+#     time with the reason beside them. Naming each one is the point: "this tool
+#     is allowed to be missing" is a decision about what the layer still
+#     guarantees, and it should be reviewable rather than implied by a word
+#     being absent from a list.
+# Either without its reason exempts nothing.
+#
+# And one addition, for a tool that only a program the script WRITES runs (a
+# here-document, or a string a helper of its own turns into a file):
+#     # conventions: writes a program that runs <tool> -- <why>
+# The lexer reads that text as data, which it is to this script, but the
+# program runs on this script's PATH, and a tool missing there reads as a
+# program that failed -- a pass for an arm that wants a red. Declared, with
+# its reason, the tool joins the calls and is read as any call is: a tool of
+# the vocabulary, unless an `optional` line exempts it, so `require` has to
+# probe it. A marker with no reason declares nothing.
+#
+# A sourced library has no require() of its own -- it runs inside its caller,
+# and the caller's list is computed from the CALLER's text. So a library that
+# takes commands from PATH probes them itself, in a loop spelled
+# `for _<x>_t in <commands>; do` (tools/runner_lib.sh), and that loop is its
+# declaration, checked here the same way. A library with no such loop calls
+# nothing from PATH and is skipped.
+#
+# The vocabulary's commands that a file of sh_cmds lines runs, one per line,
+# past the ones `optional` ($2) exempts, with those a marker names ($3). A
+# command list a script hands to something that runs it is a string to the
+# lexer, so it is written to $lex_d/req_inner for the caller to lex and read
+# in turn: a trap's argument, and sh -c's.
+req_calls() {
+	awk -F'\t' -v optional="$2" -v runs="$3" -v inner="$lex_d/req_inner" '
+		BEGIN {
+			split("grep sed awk sort tr wc cut head tail od cmp diff find " \
+			      "xargs basename dirname mktemp date chmod cp mv rm mkdir " \
+			      "ln readlink env comm cc git make md5sum nm perl python3 " \
+			      "sha256sum shellcheck tar timeout valgrind cat touch tee " \
+			      "uniq sleep id uname expr seq stat rmdir paste nl " \
+			      "cksum pandoc pdftotext weasyprint fold", v, " ")
+			for (i in v) vocab[v[i]] = 1
+			split("if then else elif do done while until case esac ! { } fi", k, " ")
+			for (i in k) kw[k[i]] = 1
+			split(optional, o, " ")
+			for (i in o) if (o[i] != "") exempt[o[i]] = 1
+			split(runs, o, " ")
+			for (i in o) if (o[i] != "") use(o[i])
+		}
+		function use(w) { if ((w in vocab) && !(w in exempt)) print w }
+		# A quoted word, unquoted, its newlines and tabs restored.
+		function unwrap(x) {
+			x = substr(x, 2, length(x) - 2)
+			gsub(/\036/, "\n", x); gsub(/\035/, "\t", x)
+			print x > inner
+		}
+		{
+			n = split($4, c, "\037")
+			# The word that runs: past the assignments and keywords in front.
+			for (i = 1; i <= n; i++)
+				if (c[i] !~ /^[A-Za-z_][A-Za-z0-9_]*=/ && !(c[i] in kw)) break
+			if (i > n) next
+			use(c[i])
+			# `command -v X` IS A USE OF X, and this scanner used to miss
+			# every one of them because the command word is `command`.
+			# That is the hole that lets a runner probe a tool, degrade
+			# silently when it is absent, and declare nothing either way:
+			# the tool appears in no `require` list, so nothing exits 2
+			# without it, and no `# conventions: optional` line is forced,
+			# so nobody ever wrote down what the layer still guarantees
+			# when it is gone. A probe is exactly the case the optional
+			# declaration exists for.
+			if (c[i] == "command" && c[i + 1] ~ /^-[A-Za-z]*v$/) use(c[i + 2])
+			# A helper handed a command after `--` runs it, as the selftest
+			# does with want_green "name" -- make -C dir. After the `--` of a
+			# tool (grep -- PATTERN, rm -- FILE) comes an argument instead.
+			# Any other command word counts, so a function that never runs
+			# what it is handed counts too (`f x -- sort` calls sort), and
+			# that over-count is kept: telling the runners apart means
+			# following "$@" through each helper, through the helpers it
+			# hands it on to, and into the library it sources. A word too
+			# many costs a require of a tool the script does not need, which
+			# is loud; a word too few lets a missing tool read as "false".
+			if (!(c[i] in vocab))
+				for (j = i + 1; j < n; j++)
+					if (c[j] == "--") { use(c[j + 1]); break }
+			# A trap ARGUMENT is a command list that runs later, so its
+			# contents are command position -- but they are quoted, so the
+			# lexer hands over one word after `trap`. Every runner that
+			# cleans up after itself does it with `trap "rm ..." EXIT`, and
+			# once the hand-written rm calls were replaced by traps, three
+			# scripts were reported as no longer calling rm while still very
+			# much needing it. Unwrap the single-quoted form (the only one
+			# the repo uses; a bare `trap some_function EXIT` names a shell
+			# function, not a command, and correctly does not count).
+			# rl_traps (tools/runner_lib.sh) takes the same argument and
+			# hands it to trap, so it is unwrapped the same way.
+			if ((c[i] == "trap" || c[i] == "rl_traps") && c[i + 1] ~ /^\047[^\047]*\047$/)
+				unwrap(c[i + 1])
+			# sh -c STRING runs STRING, wherever the shell is named -- by
+			# path, through a variable, behind env -- and shell_test.sh
+			# probes its redirect fixture with a cmp no other line runs.
+			# The c may come in a cluster (-ec) or after flags of its own
+			# (-e -c), and the string in single quotes or in double ones
+			# that hold no quote and no backslash.
+			for (j = i + 1; j < n; j++) {
+				if (c[j] !~ /^-[a-z]*c[a-z]*$/) continue
+				if (c[j + 1] !~ /^(\047[^\047]*\047|"[^"\\]*")$/) continue
+				for (m = j - 1; m > i && c[m] ~ /^-[a-z]+$/; m--) ;
+				if (c[m] ~ /^"?(\$\{?[A-Za-z0-9_]*SH\}?|([^ ]*\/)?(ba|da)?sh)"?$/)
+					unwrap(c[j + 1])
+			}
+		}' "$1"
+}
+for f in tools/*.sh tools/tests/*.sh; do
+	libdecl=""
+	if grep -q '^# shellcheck shell=' "$f"; then
+		libdecl=$(sed -n 's/^for _[a-z]*_t in \([a-z0-9 ._-]*\); do$/\1/p' "$f" | head -n 1)
+		[ -n "$libdecl" ] || continue
+	fi
+	grep -q '^# conventions: no-require -- ..*' "$f" && continue
+	optional=$(sed -n 's/^# conventions: optional \([a-z0-9_.-]*\) -- ..*/\1/p' "$f" |
+		sort -u | tr '\n' ' ')
+	runs=$(sed -n 's/^[[:blank:]]*# conventions: writes a program that runs \([a-z0-9_.-]*\) -- ..*/\1/p' "$f" |
+		tr '\n' ' ')
+	# A string sh -c runs may itself set a trap, so the strings are read
+	# until none is left, in three rounds at most.
+	used=$( {
+		_rq_c=$(cmds_of "$f"); _rq_n=0
+		while [ "$_rq_n" -lt 3 ]; do
+			: > "$lex_d/req_inner"
+			req_calls "$_rq_c" "$optional" "$runs"
+			[ -s "$lex_d/req_inner" ] || break
+			sh_cmds "$lex_d/req_inner" > "$lex_d/req_inner.cmds"
+			_rq_c="$lex_d/req_inner.cmds"; _rq_n=$((_rq_n + 1))
+		done
+	} | sort -u | tr '\n' ' ')
+	if [ -n "$libdecl" ]; then
+		declared=$(printf '%s\n' "$libdecl" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ')
+	else
+		declared=$(grep -m1 '^require ' "$f" | cut -d' ' -f2- | tr ' ' '\n' |
+			grep -v '^$' | sort | tr '\n' ' ')
+	fi
+	[ -z "$used" ] && [ -z "$declared" ] && continue
+	if [ -z "$declared" ]; then
+		report "$f calls PATH commands and declares none" \
+			"uses: $used" \
+			"Add the helper every other script carries, right after set -u:" \
+			"    require() {" \
+			"            for _t in \"\$@\"; do" \
+			"                    command -v \"\$_t\" > /dev/null 2>&1 && continue" \
+			"                    echo \"$(basename "$f"): required command '\$_t' is not on PATH\" >&2" \
+			"                    exit 2" \
+			"            done" \
+			"    }" \
+			"    require $used" \
+			"A missing tool used as a predicate answers 'false' rather than" \
+			"failing, which is a wrong verdict nothing else in the suite can see."
+	elif [ "$used" != "$declared" ]; then
+		report "$f's require list does not match what it calls" \
+			"declared: $declared" \
+			"calls:    $used" \
+			"${optional:+already exempt: $optional}" \
+			"A list that has drifted is worse than none: it reads as a" \
+			"guarantee that the probe covers this script, and it does not." \
+			"If the tool is one this script PROBES and then degrades or skips" \
+			"without, it does not belong in require -- that exits 2 on absence." \
+			"Say so instead, one line per tool, and the check will exempt it:" \
+			"    # conventions: optional <tool> -- <what stops being checked>" \
+			"If only a program this script WRITES runs it, say that instead:" \
+			"    # conventions: writes a program that runs <tool> -- <which>"
+	fi
+done
+
+# ---------------------------------------------------------------------------
 # N. The cycles row names every exercise whose c_cycles leaves cases out.
 #
 # docs/reference.md's `cycles` row lists, after "`c_cycles`' `max_unit`:",
 # the exercises whose c_cycles call leaves a corpus's capacity cases out, so
 # a reader knows which reports skip them. It named C 07 ex05 and C 09 ex02
 # after six more had been given one. Each C module's BUILD file is read for
-# its c_cycles calls, whole, at any indentation, and the row is held to the
-# exercises whose call sets max_unit ("C NN exAA and exBB, C MM exCC").
+# its c_cycles calls, whole, at any indentation, and Piscine Reloaded's,
+# whose corpora are C 01's, C 03's and C 07's; the row is held to the
+# exercises whose call sets max_unit ("C NN exAA and exBB, C MM exCC,
+# Piscine Reloaded exDD").
 mu_build=$(for _m in $MODULES; do
-	case "$_m" in */c-piscine-c-[0-9][0-9]) ;; *) continue ;; esac
+	case "$_m" in
+		*/c-piscine-c-[0-9][0-9]) _mu_mod="C ${_m##*-}" ;;
+		*/c-piscine-reloaded) _mu_mod="Piscine Reloaded" ;;
+		*) continue ;;
+	esac
 	[ -f "$_m/BUILD.bazel" ] || continue
-	awk -v mod="C ${_m##*-}" '
+	awk -v mod="$_mu_mod" '
 		!inc { p = index($0, "c_cycles("); if (p == 0) next; inc = 1; t = ""; d = 0; $0 = substr($0, p + 8) }
 		{
 			l = $0; sub(/#.*/, "", l); t = t " " l
@@ -1919,11 +2464,12 @@ mu_doc=$(awk '
 		n = split(r, w, /[ ,]+/)
 		for (i = 1; i <= n; i++) {
 			if (w[i] == "C" && w[i + 1] ~ /^[0-9][0-9]$/) { mod = "C " w[i + 1]; i++ }
+			else if (w[i] == "Piscine" && w[i + 1] == "Reloaded") { mod = "Piscine Reloaded"; i++ }
 			else if (w[i] ~ /^ex[0-9][0-9]$/ && mod != "") print mod " " w[i]
 		}
 	}' docs/reference.md 2> /dev/null | sort -u)
 mu_text=$(for _m in $MODULES; do
-	case "$_m" in */c-piscine-c-[0-9][0-9]) ;; *) continue ;; esac
+	case "$_m" in */c-piscine-c-[0-9][0-9] | */c-piscine-reloaded) ;; *) continue ;; esac
 	grep -l 'max_unit' "$_m/BUILD.bazel" 2> /dev/null
 done)
 if [ -n "$mu_text" ] && [ -z "$mu_build" ]; then
@@ -2227,13 +2773,8 @@ libtrap=$(for f in $lib_sourcers; do trap_check "tools/$f" any; done)
 # on the line, or in the comments right above it, exempts that one command.
 budget_bad=$(for f in tools/*.sh; do
 	[ "$f" = tools/conventions.sh ] && continue
-	# The tool's name is assembled inside awk: written out, this very line
-	# would read to the require scanner above as a call to it.
 	awk -v f="$f" '
-		BEGIN {
-			t = "time" "out"
-			re = "command -v " t "|" t " -s |(^|[;&|(!{]|then |do |else )[ \t]*" t "[ \t]"
-		}
+		BEGIN { re = "command -v timeout|timeout -s |(^|[;&|(!{]|then |do |else )[ \t]*timeout[ \t]" }
 		/^[ \t]*#/ { next }
 		$0 ~ re { printf "    %s:%d: bounds a run itself: %s\n", f, FNR, $0 }' "$f"
 done
@@ -2446,6 +2987,33 @@ elif [ "$_lbr" != "$_lbw" ]; then
 		"'. \"\$RL_LIB\"' sources the library."
 fi
 
+# And tools/defs.bzl's _GATE_LABEL_RUNNERS, which c_levels()' audit reads to
+# refuse a gated test that passes no --gate-label (_gate_label_problems), is
+# exactly the runners whose option loop takes both --gate-differ and
+# --gate-label: one missing there lets its gated targets drop the name, and
+# their SKIP line names no test.
+_glr=$(sed -n '/^_GATE_LABEL_RUNNERS = \[/,/^\]/p' tools/defs.bzl 2> /dev/null |
+	sed -n 's|^ *"//tools:\([A-Za-z0-9_.-]*\)",$|\1|p' | sort -u)
+_glw=$(for f in tools/*.sh; do
+	grep -q '^[[:space:]]*--gate-differ)' "$f" &&
+		grep -q '^[[:space:]]*--gate-label)' "$f" && basename "$f"
+done | sort -u)
+if [ -z "$_glr" ]; then
+	report "tools/defs.bzl has no _GATE_LABEL_RUNNERS list this check can read" \
+		"c_levels()' audit reads it to refuse a gated test whose runner could" \
+		"name its output test in a SKIP line and is not told to. Keep it as one" \
+		"\"//tools:<runner>.sh\", per line, between _GATE_LABEL_RUNNERS = [ and ]."
+elif [ "$_glr" != "$_glw" ]; then
+	report "tools/defs.bzl's _GATE_LABEL_RUNNERS is not the list of runners that take --gate-differ and --gate-label" \
+		"$(printf '%s\n' "$_glr" > "$lex_d/glr"; printf '%s\n' "$_glw" > "$lex_d/glw"
+			comm -23 "$lex_d/glr" "$lex_d/glw" | sed 's|^|    listed, and takes not both: tools/|'
+			comm -13 "$lex_d/glr" "$lex_d/glw" | sed 's|^|    takes both, not listed: tools/|')" \
+		"The audit refuses a test of a listed runner that passes --gate-differ" \
+		"and no --gate-label, whose SKIP line would name no output test. Make" \
+		"the list the scripts in tools/ whose option loop has a --gate-differ)" \
+		"and a --gate-label) case."
+fi
+
 # ---------------------------------------------------------------------------
 # N. A runner cuts captured output with rl_excerpt, which says what it dropped.
 #
@@ -2459,9 +3027,10 @@ fi
 # stream: head -N, -n N, -c N; tail -n N; sed -n '1,Np' and sed Nq; awk
 # 'NR<=N'. A cut is not an excerpt when what it keeps never reaches the log:
 # taken into a variable ($( ) that is not echo's or printf's argument), written
-# to a file, or piped into cmp, wc, read or grep -q. A cut that does reach the
-# log and is not of output -- the header comment of a source file -- says so
-# in a comment right above it:
+# to a file, or piped into cmp, wc, read or grep -q. /dev/stdout, /dev/stderr
+# and /dev/tty, quoted or not, are the log; /dev/stderr.log is a file. A cut
+# that does reach the log and is not of output -- the header comment of a
+# source file -- says so in a comment right above it:
 #     # conventions: not-an-excerpt -- <why>
 excerpt_bad=$(for f in $RUNNERS; do
 	awk -v f="$f" '
@@ -2473,6 +3042,10 @@ excerpt_bad=$(for f in $RUNNERS; do
 		function isredir(x) { return x ~ /^[0-9]*(<<?-?|>>?|<>|>\||[<>]&)/ }
 		function bareop(x) { return x ~ /^[0-9]*(<<?-?|>>?|<>|>\|)$/ }
 		function unq(x) { gsub(/^["\047]|["\047]$/, "", x); return x }
+		# A redirection to the log: the path ends there, quoted or not.
+		function isterm(x) {
+			return x ~ /^1?>>?[|]?("\/dev\/(stdout|stderr|tty)"|\047\/dev\/(stdout|stderr|tty)\047|\/dev\/(stdout|stderr|tty))$/
+		}
 		# How much a count keeps: a number; 0 for +N (from line N on, not a
 		# cut); -1 for one this scan cannot read, which counts as a cut.
 		function num(x) {
@@ -2536,7 +3109,7 @@ excerpt_bad=$(for f in $RUNNERS; do
 				if (isredir(w[i])) {
 					x = w[i]
 					if (bareop(x)) { i++; x = x w[i] }
-					if (x ~ /^1?>>?[^&]/ && x !~ /\/dev\/(stdout|stderr)/) tofile = 1
+					if (x ~ /^1?>>?[^&]/ && !isterm(x)) tofile = 1
 					continue
 				}
 				m++; v[m] = w[i]
@@ -2583,6 +3156,318 @@ runner_scripts() {
 		done
 	} | sort -u
 }
+
+# ---------------------------------------------------------------------------
+# N. A test's scratch files go under TEST_TMPDIR, and valgrind opens no door.
+#
+# Bazel gives a test TEST_TMPDIR, a folder of its own that it empties, and the
+# TMPDIR of the shell that ran `bazel`, or TMPDIR=/tmp, the machine's, when that
+# shell set none. Most set none, so every mktemp under `bazel test` made its
+# file in /tmp: one run of the selftest made about 6,600 there, and what a run
+# killed at its time limit or a trap that missed left behind stayed --
+# thousands of them, on a campus box whose /tmp every student shares. And
+# valgrind, unless told otherwise, opens three FIFOs in TMPDIR for a gdb that
+# never comes (vgdb), which a killed run leaves too. So:
+#
+#   * a script a test runs as its program -- a test's srcs, in a BUILD file
+#     or a .bzl (a *_binary's srcs is no test), or the script a .bzl test
+#     rule names as an attribute's default -- points TMPDIR at TEST_TMPDIR
+#     before its first mktemp: by sourcing tools/runner_lib.sh, whose
+#     prologue does it, or with that line itself,
+#         case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
+#     (a TMPDIR naming another folder than /tmp was chosen, by that shell or
+#     by a selftest arm that hands a runner one of its own, and is kept on
+#     purpose), and a Python one assigns os.environ["TMPDIR"] from
+#     TEST_TMPDIR the same way, as a statement, before the first line that
+#     asks tempfile for a name (an import asks for none). What it runs
+#     inherits it, so a gate, a compiler or a check script is covered;
+#   * every valgrind a script starts -- the command, or what rl_run, rl_tmo,
+#     exec, env or nice start -- passes --vgdb=no (--version and --help
+#     start no client and need none).
+find . \( -name BUILD.bazel -o -name '*.bzl' \) -not -path './bazel-*' \
+	-not -path '*/deliverable/*' -not -path '*/generators/*' 2> /dev/null |
+	sed 's#^\./##' | sort > "$lex_d/tmpd_defs"
+# DEFINITION <TAB> LINE <TAB> LABEL, for each test program a file names. A
+# test's srcs is read where a call whose name ends in _test is open (a
+# hand_test, a py_test, defs.bzl's _test), or where a macro sets
+# kwargs["srcs"], and read whole: a list of strings, on one line or on as
+# many as it takes to its closing ]. A value it cannot read so -- built in
+# Starlark, a name or a call in the list, a string with no extension (a
+# target's name) -- is never skipped: it is UNREAD, and reported, unless its
+# line ends in "# one of NAME", NAME a list of strings some BUILD file or
+# .bzl holds at its top level, whose scripts are then the programs it may be
+# (ONEOF, read from the LIST lines). A string whose extension names a
+# source that is compiled (a cc_test's "x.c") or an object is no script,
+# which this rule does not hold, and is passed over; one with any other
+# extension than .sh or .py ("t.bash") may be a script it cannot read, and
+# is UNREAD too. A line's comment starts at its first # outside a string,
+# and may quote. Docstrings are no code, and are passed over.
+while IFS= read -r f; do
+	awk -v f="$f" '
+		# A line with its strings emptied and its comment cut, for counting
+		# brackets.
+		function bare(x) {
+			gsub(/\\./, "", x)
+			gsub(/"[^"]*"/, "\"\"", x)
+			gsub(/\047[^\047]*\047/, "\047\047", x)
+			sub(/#.*/, "", x)
+			return x
+		}
+		# The calls a stretch of code opens and closes: each ( pushes the
+		# name before it ("def" for a def), each ) pops one.
+		function walk(x,   i, c, tok, isdef) {
+			tok = ""
+			for (i = 1; i <= length(x); i++) {
+				c = substr(x, i, 1)
+				if (c ~ /[A-Za-z0-9_.]/) { tok = tok c; continue }
+				if (c == "(") { st[++sp] = isdef ? "def" : tok; isdef = 0 }
+				else if (c == ")") { if (sp > 0) sp-- }
+				else if (tok == "def") isdef = 1
+				tok = ""
+			}
+		}
+		function opened(x,   o) {
+			o = gsub(/\[/, "[", x)
+			return o - gsub(/\]/, "]", x)
+		}
+		# The strings of x that may name a script, one line each. In a
+		# list, a string with another extension than .sh or .py is passed
+		# over; in a test'"'"'s srcs, only a compiled source is.
+		function strs(x, pre,   s, w) {
+			while (match(x, /"[^"]*"/)) {
+				s = substr(x, RSTART + 1, RLENGTH - 2)
+				x = substr(x, RSTART + RLENGTH)
+				if (s ~ /\.[A-Za-z0-9]+$/ && s !~ /\.(sh|py)$/) {
+					if (pre ~ /^LIST\t/ || s ~ /\.(c|h|cc|cpp|cxx|hh|hpp|hxx|rs|S|s|o|a|so)$/) continue
+					w = pre; sub(/\t/, ":", w)
+					printf "UNREAD\t%s: \"%s\" (a test'"'"'s srcs this check cannot read: no .sh or .py, nor a compiled source)\n", w, s
+					continue
+				}
+				printf "%s\t%s\n", pre, s
+			}
+		}
+		# x cut where its comment starts: at the first # of a copy whose
+		# strings are blanked to spaces, column for column.
+		function uncomment(x,   y, p) {
+			y = x
+			gsub(/\\./, "  ", y)
+			while (match(y, /"[^"]*"|\047[^\047]*\047/))
+				y = substr(y, 1, RSTART - 1) sprintf("%" RLENGTH "s", "") substr(y, RSTART + RLENGTH)
+			p = index(y, "#")
+			return p ? substr(x, 1, p - 1) : x
+		}
+		# A test'"'"'s srcs value, whole.
+		function value(v, ln, note,   b, i, d, c, inner, rest) {
+			sub(/^[ \t]+/, "", v)
+			b = bare(v)
+			if (substr(b, 1, 1) == "[") {
+				d = 0
+				for (i = 1; i <= length(b); i++) {
+					c = substr(b, i, 1)
+					if (c == "[") d++
+					else if (c == "]" && --d == 0) break
+				}
+				inner = substr(b, 2, i - 2); rest = substr(b, i + 1)
+				gsub(/[ \t,]|""/, "", inner)
+				c = v
+				while (match(c, /"[^"]*"/)) {
+					if (substr(c, RSTART, RLENGTH) !~ /\.[A-Za-z0-9]+"$/) inner = "x"
+					c = substr(c, RSTART + RLENGTH)
+				}
+				if (inner == "" && rest ~ /^[ \t,)]*$/) { strs(v, f "\t" ln); return }
+			}
+			if (match(note, /# one of [A-Za-z_][A-Za-z0-9_]*/)) {
+				printf "ONEOF\t%s\t%d\t%s\n", f, ln, substr(note, RSTART + 9, RLENGTH - 9)
+				return
+			}
+			sub(/[ \t]*,?[ \t]*$/, "", v)
+			printf "UNREAD\t%s:%d: srcs = %s (a test'"'"'s srcs this check cannot read)\n", f, ln, v
+		}
+		{
+			l = $0
+			if (indoc) {
+				p = index(l, "\"\"\"")
+				if (p == 0) next
+				l = substr(l, p + 3); indoc = 0
+			}
+			while ((p = index(l, "\"\"\"")) > 0) {
+				r = substr(l, p + 3); q = index(r, "\"\"\"")
+				if (q == 0) { l = substr(l, 1, p - 1); indoc = 1; break }
+				l = substr(l, 1, p - 1) "\"\"" substr(r, q + 3)
+			}
+			if (l ~ /^[ \t]*#/) next
+			code = uncomment(l)
+			b = bare(l)
+		}
+		f ~ /\.bzl$/ && match(code, /default = "[^"]+\.(sh|py)"/) {
+			r = substr(code, RSTART, RLENGTH)
+			sub(/^default = "/, "", r); sub(/"$/, "", r)
+			dl[++nd] = FNR; dv[nd] = r
+		}
+		/(^|[^A-Za-z0-9_])test = True/ { istest = 1 }
+		inval {
+			val = val " " code
+			if ((vd += opened(b)) <= 0) { inval = 0; value(val, vl, vnote) }
+			walk(b); next
+		}
+		inlist {
+			lval = lval " " code
+			if ((ld += opened(b)) <= 0) { inlist = 0; strs(lval, "LIST\t" lname) }
+			next
+		}
+		match(l, /^[A-Za-z_][A-Za-z0-9_]* = \[/) {
+			lname = l; sub(/ .*/, "", lname)
+			lval = substr(code, RLENGTH); ld = opened(b)
+			if (ld <= 0) strs(lval, "LIST\t" lname); else inlist = 1
+			next
+		}
+		{
+			k = 0
+			if (match(l, /kwargs\["srcs"\] = /)) { k = 1; walk(b) }
+			else if (match(b, /(^|[^A-Za-z0-9_."\]])srcs = /)) {
+				walk(substr(b, 1, RSTART))
+				k = sp > 0 && st[sp] ~ /_test$/
+				walk(substr(b, RSTART + 1))
+				if (k) match(l, /(^|[^A-Za-z0-9_."\]])srcs = /)
+			} else walk(b)
+			if (!k) next
+			vl = FNR; vnote = l
+			val = substr(code, RSTART + RLENGTH)
+			vd = opened(bare(val))
+			if (vd > 0) inval = 1; else value(val, vl, vnote)
+		}
+		END { if (istest) for (i = 1; i <= nd; i++) printf "%s\t%d\t%s\n", f, dl[i], dv[i] }' "$f"
+done < "$lex_d/tmpd_defs" > "$lex_d/tmpd_all"
+awk -F'\t' '
+	NR == FNR { if ($1 == "LIST" && $3 ~ /\.(sh|py)$/) one[$2] = one[$2] "\n" $3; next }
+	$1 == "LIST" { next }
+	$1 != "ONEOF" { print; next }
+	!($4 in one) {
+		printf "UNREAD\t%s:%s: one of %s, which no BUILD file or .bzl holds as a list of scripts\n", $2, $3, $4
+		next
+	}
+	{ n = split(substr(one[$4], 2), w, "\n"); for (i = 1; i <= n; i++) printf "%s\t%s\t%s\n", $2, $3, w[i] }
+' "$lex_d/tmpd_all" "$lex_d/tmpd_all" > "$lex_d/tmpd_named"
+# Each label, as the path of the file: //pkg:name, and a bare name beside the
+# BUILD file -- or, in a .bzl, in the package that calls it, which is found
+# by looking for the file wherever it is.
+while IFS="$(printf '\t')" read -r _td _tl _tn; do
+	[ "$_td" != UNREAD ] || { printf 'UNREAD\t%s\n' "$_tl"; continue; }
+	case "$_tn" in
+		//*:*) _tp=${_tn#//}; _tp="${_tp%%:*}/${_tp#*:}"; _tp=${_tp#/} ;;
+		*) _tp="$(dirname "$_td")/${_tn#:}"; _tp=${_tp#./} ;;
+	esac
+	if [ -f "$_tp" ]; then
+		printf '%s\n' "$_tp"
+	elif [ "${_td%.bzl}" != "$_td" ] && [ "${_tn#//}" = "$_tn" ]; then
+		_tf=$(find . -path './bazel-*' -prune -o -path "*/${_tn#:}" -print 2> /dev/null | sed 's#^\./##')
+		if [ -n "$_tf" ]; then
+			printf '%s\n' "$_tf"
+		else
+			printf 'MISSING\t%s:%s: %s\n' "$_td" "$_tl" "$_tn"
+		fi
+	else
+		printf 'MISSING\t%s:%s: %s\n' "$_td" "$_tl" "$_tn"
+	fi
+done < "$lex_d/tmpd_named" | sort -u > "$lex_d/tmpd_progs"
+# The line, whole: a string that holds it, as this script's own do, is not it.
+# shellcheck disable=SC2016 # the line is text, expanded by the script it is in.
+_tmpd_line='case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac'
+tmpd_bad=$(
+	# Sourcing the library counts only while its prologue holds the line.
+	if [ -f tools/runner_lib.sh ] && ! grep -qxF -- "$_tmpd_line" tools/runner_lib.sh; then
+		echo "    tools/runner_lib.sh: its prologue never points TMPDIR at TEST_TMPDIR"
+	fi
+	awk -F'\t' '$1 == "MISSING" { print "    " $2 " (a test program this check cannot find)" }
+		$1 == "UNREAD" { print "    " $2 }' "$lex_d/tmpd_progs"
+	grep -v '^MISSING\|^UNREAD' "$lex_d/tmpd_progs" | while IFS= read -r p; do
+		case "$p" in
+			*.py)
+				# The assignment itself, as a statement (a line that only
+				# names both is none), and the first line that asks tempfile
+				# for a name; an import asks for none.
+				_tpy=$(awk '
+					/^[ \t]*#/ { next }
+					!set && /^[ \t]*os\.environ\[["\047]TMPDIR["\047]\] = os\.environ(\[|\.get\()["\047]TEST_TMPDIR["\047]/ { set = FNR }
+					!use && !/^[ \t]*(import|from)[ \t]/ &&
+						/tempfile\.|mkdtemp|mkstemp|mktemp|TemporaryDirectory|TemporaryFile|gettempdir/ { use = FNR }
+					END { print set + 0, use + 0 }' "$p")
+				if [ "${_tpy% *}" = 0 ]; then
+					printf '    %s: a Python test program that never sets TMPDIR from TEST_TMPDIR\n' "$p"
+				elif [ "${_tpy#* }" != 0 ] && [ "${_tpy#* }" -lt "${_tpy% *}" ]; then
+					printf '    %s:%s: tempfile, before line %s sets TMPDIR from TEST_TMPDIR\n' \
+						"$p" "${_tpy#* }" "${_tpy% *}"
+				fi
+				continue ;;
+		esac
+		# The first mktemp it runs, read from the shell (cmds_of), and the
+		# first line that points TMPDIR at TEST_TMPDIR, its own or the
+		# library's.
+		_tm=$(awk -F'\t' '{
+				n = split($4, w, "\037")
+				for (i = 1; i <= n; i++) {
+					x = w[i]
+					if (x ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || x == "!" || x == "{" || x == "if" || x == "then" || x == "do" || x == "time") continue
+					if (x == "mktemp") { print $1; exit }
+					break
+				}
+			}' "$(cmds_of "$p")")
+		[ -n "$_tm" ] || continue
+		_tt=$(awk -v c="$_tmpd_line" '{ l = $0; sub(/^[ \t]+/, "", l) }
+			l == c || l == ". \"$RL_LIB\"" { print FNR; exit }' "$p")
+		if [ -z "$_tt" ]; then
+			printf '    %s:%s: mktemp, and TMPDIR never points at TEST_TMPDIR\n' "$p" "$_tm"
+		elif [ "$_tt" -gt "$_tm" ]; then
+			printf '    %s:%s: mktemp, before line %s points TMPDIR at TEST_TMPDIR\n' "$p" "$_tm" "$_tt"
+		fi
+	done
+	{
+		runner_scripts
+		for f in tools/tests/*.sh; do
+			[ -f "$f" ] && echo "$f"
+		done
+	} | sort -u | while IFS= read -r p; do
+		[ "$p" = tools/conventions.sh ] && continue
+		awk -F'\t' -v f="$p" '
+			function unq(x) { gsub(/["\047{}]/, "", x); return x }
+			function isvg(x,   b) {
+				x = unq(x); b = x; sub(/.*\//, "", b)
+				return b == "valgrind" || b == "valgrind.bin" || x ~ /^\$[A-Z_]*VALGRIND[A-Z_]*$/
+			}
+			function wrapper(x) {
+				return x == "rl_run" || x == "rl_tmo" || x == "exec" || x == "env" || x == "nice" || x == "command"
+			}
+			{
+				n = split($4, w, "\037")
+				i = 1
+				while (i <= n && (w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w[i] == "!" || w[i] == "{" || w[i] == "if" || w[i] == "then" || w[i] == "do" || w[i] == "time")) i++
+				if (i <= n && wrapper(w[i])) {
+					i++
+					while (i <= n && (w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w[i] ~ /^-/ || w[i] ~ /^[0-9]+$/)) i++
+				}
+				if (i > n || !isvg(w[i])) next
+				ok = 0
+				for (j = i + 1; j <= n; j++) {
+					x = unq(w[j])
+					if (x == "--vgdb=no" || x == "--version" || x == "--help") ok = 1
+				}
+				if (!ok) printf "    %s:%d: valgrind without --vgdb=no\n", f, $1
+			}' "$(cmds_of "$p")"
+	done
+)
+[ -z "$tmpd_bad" ] || report \
+	"a test makes its scratch files outside TEST_TMPDIR, or runs valgrind with its gdb door open" \
+	"$tmpd_bad" \
+	"Bazel sets TEST_TMPDIR, a folder it owns and empties, and TMPDIR=/tmp when" \
+	"the shell that ran it set none, so mktemp writes to /tmp and what a killed" \
+	"run leaves stays there (a TMPDIR naming another folder is kept). A test's" \
+	"program sources tools/runner_lib.sh before its first mktemp, or runs" \
+	"  $_tmpd_line" \
+	"itself (a Python one assigns os.environ[\"TMPDIR\"] from it before it first" \
+	"calls tempfile). And valgrind takes --vgdb=no: without it each run opens" \
+	"three FIFOs in /tmp. A test's srcs this check cannot read is written as a" \
+	"list of strings, or its line ends in '# one of NAME', NAME a top-level" \
+	"list of the scripts it may be; a script it names ends in .sh or .py."
 
 # ---------------------------------------------------------------------------
 # N. A sanitizer's options are set by rl_sanitizers, and by nothing else.
@@ -2705,6 +3590,86 @@ for f in tools/*.sh; do
 			"ignores. Remove the row, or pass the symbolizer to rl_sanitizers."
 	fi
 done
+
+# ---------------------------------------------------------------------------
+# N. A corpus runner that keeps its inputs shows a memory report through
+# rl_mem_report --as.
+#
+# A report that names a scratch file the program was given -- memcheck's
+# "Open file descriptor 4: /tmp/tmp.XXXX/map" -- named a file gone when the
+# test ends, right below the lines that keep the input as case-12.map, and
+# rl_mem_report --as SCRATCH KEPT shows it by the kept name. Three runners
+# pass it; the next one written would not have to. Which file a runner
+# handed the program is not something a scan can tell, so this reads a
+# runner's own rl_save call (outside comments) as keeping an input -- a
+# runner keeps an output through rl_excerpt -- and asks every rl_mem_report
+# call of a tools/*_check.sh that makes one to pass --as on its line, or to
+# be a wrapper's `rl_mem_report "$@"` in a function that passes --as. A
+# call that shows no kept input (none was kept, run by hand) says why on the
+# line above it:
+#     # conventions: rl_mem_report without --as -- <why>
+#
+# A wrapper's call is judged when its function ends, once its body is read:
+# where its braces, counted from its header outside quoted strings and a
+# trailing comment, are all closed again -- at a } that starts a line, at
+# the end of a one-line wrapper (`mr() { rl_mem_report "$@"; }`, a comment
+# after it or not), on a body line that ends in the } -- and also at the
+# end of a header line that ends in its }, whatever the count says, and, for
+# a body whose } this does not see, at the next header or the end of the
+# file.
+# Judged only at a } that starts a line, a one-line wrapper's call was
+# dropped unjudged by the next header or the end of the file; judged at the
+# end of a header line only where the line ended in its }, a wrapper with a
+# comment after it, or one whose } ended its body's last line, stayed open,
+# and a later top-level `rl_mem_report --as` excused its call -- as it did
+# for one whose count took in a { inside a quoted string (`echo "{"`).
+asname_bad=$(for f in tools/*_check.sh; do
+	[ -f "$f" ] || continue
+	awk -v f="$f" '
+		function flag(l, s) { sub(/^[ \t]+/, "", s); bad = bad sprintf("    %s:%d: %s\n", f, l, s) }
+		# The wrapper calls queued in the function read so far, judged.
+		function flush(    i) {
+			for (i = 1; i <= np; i++) if (!fas) flag(pl[i], ps[i])
+			np = 0
+		}
+		/^[ \t]*#[ \t]*conventions: rl_mem_report without --as -- [^ \t]/ { mark = 1; next }
+		/^[ \t]*#/ { next }
+		{ hdr = 0 }
+		/^[A-Za-z_][A-Za-z0-9_]*\(\)[ \t]*\{/ { flush(); infn = 1; fas = 0; depth = 0; hdr = 1 }
+		/(^|[^A-Za-z0-9_])rl_save[ \t]/ { saves = 1 }
+		infn && /(^|[ \t])--as([ \t]|$)/ { fas = 1 }
+		/(^|[^A-Za-z0-9_])rl_mem_report([ \t;]|$)/ {
+			if ($0 ~ /(^|[ \t])--as([ \t]|$)/ || mark) {
+				# passes it, or says why not
+			} else if (infn && $0 ~ /rl_mem_report[ \t]+"\$@"/) {
+				np++; pl[np] = FNR; ps[np] = $0
+			} else flag(FNR, $0)
+		}
+		{ mark = 0 }
+		# Its braces so far, quoted strings and a trailing comment left out.
+		infn {
+			b = $0
+			gsub(/"([^"\\]|\\.)*"|\047[^\047]*\047/, "", b)
+			sub(/[ \t]+#.*$/, "", b)
+			depth += gsub(/\{/, "{", b) - gsub(/\}/, "}", b)
+		}
+		# A header line that ends in its } closes it too, whatever the
+		# count says.
+		infn && (/^}/ || depth <= 0 || (hdr && /[;&][ \t]*}[ \t]*(#.*)?$/)) {
+			flush()
+			infn = 0
+		}
+		END { flush(); if (saves) printf "%s", bad }' "$f"
+done)
+[ -z "$asname_bad" ] || report \
+	"a runner keeps an input it handed the program, and shows a memory report without --as" \
+	"$asname_bad" \
+	"rl_mem_report --as SCRATCH KEPT (tools/runner_lib.sh) shows each scratch" \
+	"path the program was given by the name the case keeps it under, the name" \
+	"its replay line uses; without it the report names a file gone with the" \
+	"test. Pass it for each input that was kept (rl_save returned true), or" \
+	"say why not on the line above the call:" \
+	"    # conventions: rl_mem_report without --as -- <why>"
 
 # ---------------------------------------------------------------------------
 # N. A runner that compiles is in _PINNED_CC_RUNNERS, and one that links
@@ -3117,12 +4082,10 @@ udiff_bad=$(
 	runner_scripts | while IFS= read -r f; do
 		case "$f" in tools/runner_lib.sh | tools/conventions.sh) continue ;; esac
 		awk -v f="$f" '
-			# d[i]ff: the word spelled out after a | reads as a call of it
-			# to the require scanner of this very file.
 			/^[ \t]*#/ { next }
 			{
 				l = $0
-				while (match(l, /(^[ \t]*|[;|&(][ \t]*|(^|[ \t])(if|then|else|do|while|until|!)[ \t]+)("\$\{?DIFF\}?"|\$\{?DIFF\}?|d[i]ff)[ \t]/)) {
+				while (match(l, /(^[ \t]*|[;|&(][ \t]*|(^|[ \t])(if|then|else|do|while|until|!)[ \t]+)("\$\{?DIFF\}?"|\$\{?DIFF\}?|diff)[ \t]/)) {
 					seg = substr(l, RSTART + RLENGTH)
 					l = seg
 					e = match(seg, /[;|&)]/)
@@ -3485,6 +4448,10 @@ cat_each() {
 	done
 	return 0
 }
+# How many clues.tsv the rule found, and how many it compared: the floor
+# after the loop.
+_clu_seen=0
+_clu_cmp=0
 for c in $(for _m in $MODULES; do
 	for _c in "$_m"/tests/ex*/clues*.tsv; do
 		[ -f "$_c" ] && echo "$_c"
@@ -3499,9 +4466,12 @@ done); do
 	# labels of the folder's .txt files too, so a row keyed to a row of a
 	# labeled program case was allowed there and reported here (V12).
 	case "${c##*/}" in
-		clues.tsv) [ -f "$e" ] || [ -n "$names" ] || continue ;;
+		clues.tsv)
+			_clu_seen=$((_clu_seen + 1))
+			[ -f "$e" ] || [ -n "$names" ] || continue ;;
 		*) continue ;;
 	esac
+	_clu_cmp=$((_clu_cmp + 1))
 	# In a program's folder each case has an output file of its own, and a
 	# labeled one's rows are keyed by their labels (diff_output.sh puts a
 	# failing row's label in FAILED beside the case's name): the labeled
@@ -3539,6 +4509,34 @@ done); do
 		"\"name\" of one of the exercise's c_program cases, or \"valgrind\" for a" \
 		"program's memory arms."
 done
+# The floor. A clues.tsv is compared where an expected.txt or a program's
+# cases give it labels, and is passed over otherwise: so a run that cannot see
+# the expected outputs passes over every one, and says nothing. Under `bazel
+# test` it compared none of them until each module's :conventions_srcs held
+# tests/**/*.txt, while `bazel run` compared a hundred.
+[ "$_clu_seen" -eq 0 ] || [ "$_clu_cmp" -gt 0 ] || report \
+	"the dead-label check compared none of the $_clu_seen clues.tsv it found" \
+	"Each is compared with the labels of the expected.txt beside it or of its" \
+	"program's cases, and this run found neither for any of them: it passed" \
+	"having compared nothing. Under bazel test, each module's" \
+	":conventions_srcs has to hold its tests' expected outputs."
+# And one floor under that one: it counted the clues.tsv the loop found, so a
+# run that found none -- the glob above matching nothing any more, or a run
+# that cannot see the files -- passed without a word. The folders under the
+# modules' tests/ are counted apart from the glob, and a run that found
+# folders there and no clues.tsv in any says so.
+_clu_dirs=0
+for _m in $MODULES; do
+	for _d in "$_m"/tests/*/; do
+		[ -d "$_d" ] && _clu_dirs=$((_clu_dirs + 1))
+	done
+done
+[ "$_clu_dirs" -eq 0 ] || [ "$_clu_seen" -gt 0 ] || report \
+	"the dead-label check found no clues.tsv in the $_clu_dirs folders under the modules' tests/" \
+	"It reads each module's tests/exNN/clues.tsv, and this run found none, so" \
+	"it passed having compared nothing. A clues.tsv moved out of tests/exNN/," \
+	"or one the run cannot see, is a hint no check reads: under bazel test," \
+	"each module's :conventions_srcs has to hold its tests' clues*.tsv."
 
 # The same for a case's own hint file (clues_<something>.tsv), which a case of
 # c_header or c_program, or a reading of c_function, names beside its own
@@ -3624,6 +4622,87 @@ for _m in $MODULES; do
 			"prints, inputs and output alike (tools/rust_diff.sh, print_columns)."
 	done < "$lex_d/files"
 done
+
+# And a c_cycles call counts its unit off the columns that paragraph names:
+# length() of a column the harness names <hex...> is halved (two hex digits
+# a byte), and length() of any other column is not. C 04 ex04's unit was
+# length($2), named "digit", over <hexBase>: it counted two units a byte of
+# the base, and its max_unit then left out cases "of more than 1000 digits"
+# that printed none; C 07 ex03's was once length($1)/2 over a decimal
+# count. A term is halved when the "/2" follows it, past the closing
+# parentheses and the other length() terms of a sum. Only a literal
+# unit_expr is read, and a column after a "..." only as $NF.
+for _m in $MODULES; do
+	[ -f "$_m/BUILD.bazel" ] || continue
+	awk '
+		function lit(s) { return match(s, /"[^"]*"/) ? substr(s, RSTART + 1, RLENGTH - 2) : "" }
+		/^c_cycles\(/ { inb = 1; n = h = u = ""; next }
+		inb && /^[ \t]*num[ \t]*=/ { n = lit($0) }
+		inb && /^[ \t]*harness[ \t]*=/ { h = lit($0) }
+		inb && /^[ \t]*unit_expr[ \t]*=/ { u = lit($0) }
+		inb && /^\)/ { inb = 0; if (n != "" && h != "" && u != "") print n "\t" h "\t" u }
+	' "$_m/BUILD.bazel" > "$lex_d/cyc"
+	while IFS="$(printf '\t')" read -r _n _h _u; do
+		_hf="$_m/tests/ex$_n/$_h"
+		[ -f "$_hf" ] || continue
+		_line=$(sed -n '1,12p' "$_hf" | grep -m 1 'Line:')
+		why=$(printf '%s\n' "$_line" | LC_ALL=C awk -v u="$_u" '
+			{
+				s = $0
+				sub(/^.*Line:[ \t]*/, "", s)
+				sub(/\. .*$/, "", s); sub(/\.$/, "", s)
+				nf = split(s, col, /\\t/)
+				for (k = 1; k <= nf; k++) if (col[k] ~ /\.\.\./) { open = k; break }
+			}
+			END {
+				r = u
+				while (match(r, /length\(\$([0-9]+|NF)\)/)) {
+					f = substr(r, RSTART + 8, RLENGTH - 9)
+					r = substr(r, RSTART + RLENGTH)
+					if (f == "NF") k = nf
+					else if (open && f + 0 >= open) continue
+					else k = f + 0
+					if (k < 1 || k > nf) continue
+					t = r
+					sub(/^([ \t)+]|length\(\$([0-9]+|NF)\))*/, "", t)
+					halved = (t ~ /^\/[ \t]*2([^0-9]|$)/)
+					hex = (col[k] ~ /^<[Hh][Ee][Xx]/)
+					if (hex && !halved)
+						printf "length($%s) counts %s, two hex digits a byte, and is not halved\n", f, col[k]
+					else if (!hex && halved)
+						printf "length($%s)/2 halves %s, which is no hex column\n", f, col[k]
+				}
+			}')
+		[ -z "$why" ] || report \
+			"$_m/BUILD.bazel: c_cycles(num = \"$_n\")'s unit_expr \"$_u\"" \
+			"$why" \
+			"A unit is read off the columns the harness's \"Line:\" names ($_hf):" \
+			"a byte of a <hex...> column is two of its characters (length(\$k)/2)," \
+			"and any other column is counted as it is. Make the unit what unit_name" \
+			"says it is."
+	done < "$lex_d/cyc"
+done
+
+# And a C file whose header sends its reader to tools/diffio.h -- the "See
+# tools/diffio.h." that closes a harness's "Line:" paragraph, where the
+# reader learns how a line is split and its fields decoded -- includes it.
+# Six toy rush harnesses of the knobs fixture copied the sentence, and its
+# "Line: <x>\t<y>", from a real one, and none of them reads a line: each
+# calls rush once with nothing on its stdin. Every C file outside the zone
+# is read, wherever it lies.
+_dpbad=$(text_files \( -name '*.c' -o -name '*.h' \) -exec awk '
+	FNR == 1 {
+		if (f != "" && see && !inc) printf "    %s:%d\n", f, at
+		f = FILENAME; sub(/^\.\//, "", f); see = 0; inc = 0
+	}
+	!see && /See tools\/diffio\.h/ { see = 1; at = FNR }
+	/^[ \t]*#[ \t]*include[ \t]*["<]([^">]*\/)?diffio\.h[">]/ { inc = 1 }
+	END { if (f != "" && see && !inc) printf "    %s:%d\n", f, at }' {} + | sort)
+[ -z "$_dpbad" ] || report \
+	"a C file sends its reader to tools/diffio.h and does not include it" \
+	"$_dpbad" \
+	"Its header describes a line the file never reads. Say what the file" \
+	"does instead -- what it calls, and what it reads, if anything."
 
 # ---------------------------------------------------------------------------
 # N. A string harness's legend has a line for the bytes above 0x7f.
@@ -3930,12 +5009,12 @@ done
 # for reading it. The oracle counts when the line names its path (//oracle,
 # oracle/, a .rs file) or calls it "the Rust oracle" or its "source". Comments
 # are skipped -- a whole comment line, a trailing "# ..." on a line of shell,
-# everything in a C file outside its string literals -- because they are written
-# for whoever maintains the check, and several say which arm a fixture came
-# from; so is the shell builtin (`while read -r x`), which reads a line and
-# nobody's source. The files are the ones the sh_test can see as well as
-# `bazel run` -- tools/*.sh and each module's :conventions_srcs -- so the two
-# ways of running this agree.
+# everything in a C file outside its string literals -- because a comment may
+# say which arm a fixture came from; the rule after the BUILD one below holds
+# every comment to naming no file of the source. The shell builtin (`while
+# read -r x`) is skipped too: it reads a line, not anybody's source. The files
+# are the ones the sh_test can see as well as `bazel run` -- tools/*.sh and
+# each module's :conventions_srcs -- so the two ways of running this agree.
 #
 # It is a line-by-line scan, so it catches the form the refcost paragraph had,
 # not every phrasing of it: a door split across two echo lines gets past it.
@@ -3989,8 +5068,8 @@ oracle_door=$(
 # as a sentence to the student (tools/asan_check.sh, "The probe's OWN header
 # comment"). There the oracle's PATH alone says where the answer lives -- a
 # log may not say where one is (docs/design.md, "Measure the axis") -- and
-# C 13 ex07's named oracle/src/c13.rs, in a sentence about the corpus that
-# was no longer true (the mutation run of 2026-10-03, c13b obs. 2). The same
+# C 13 ex07's named the oracle's C 13 file, in a sentence about the corpus
+# that was no longer true (the mutation run of 2026-10-03, c13b obs. 2). The same
 # extraction asan_check.sh runs, then a path of the oracle in any form.
 probe_door=$(
 	for _m in $MODULES; do
@@ -4029,10 +5108,10 @@ probe_door=$(
 # door the rules above shut in a log, a clue and a probe's header -- and
 # never names a reading: only the strict target's own hint and its row of
 # docs/reference.md state one. V94's census found 25 comment lines naming a
-# file of oracle/src and four that said "this harness's reading", among them
-# what the readings were. A reading stated in other words ("newest first,
-# the direction ls sorts in") is past what this reads: the author is that
-# check, as AGENTS.md section 0 says of prose.
+# file of the oracle's source and four that said "this harness's reading",
+# among them what the readings were. A reading stated in other words
+# ("newest first, the direction ls sorts in") is past what this reads: the
+# author is that check, as AGENTS.md section 0 says of prose.
 #
 # Read: each module's BUILD.bazel and .bzl files, whole-line comments and
 # the comment after code on a line (a `#` with no string open before it).
@@ -4099,6 +5178,343 @@ build_lbl=$(printf '%s\n' "$build_door" | sed -n 's/^L//p')
 	"docs/reference.md state it."
 
 # ---------------------------------------------------------------------------
+# N. No other shipped file names the oracle's source, a comment included.
+#
+# The owner's answer of 2026-10-10 (V123) carries the BUILD-comment ruling
+# above to every file that ships. A test file, a fixture and a runner are
+# read as a BUILD file is, and a BUILD comment sent its reader to a runner's
+# section that named the reference's source file. V123's census found 18
+# files under the modules' tests/ and 4 runners doing so: "the reading is
+# stated once, in" a file of the oracle, a generated fixture's "Source of
+# truth" line. Say what the check measures, or where its cases come from as
+# a command (`oracle rush00_fixtures`), never the path of the source.
+#
+# Read: every file text_files() reads but the oracle's own folder, the
+# maintainer's backlog and record (TODO.md and HISTORY.md, which the
+# template ships without), the Bazel lock file (the Rust rules' own paths,
+# not prose) and a module's BUILD and .bzl files, which the rule above
+# reads. The docs are read too: a page says "the oracle's source" where it
+# means it, and none needs the path. In a script (by its extension or its
+# #! line) and a BUILD file only the comments and what a script of shell
+# prints, since code may use the path as plumbing (the check below that
+# finds every fixture arm walks it, a grader_library() names its crate).
+# Anywhere else every line: a C file's comments and the strings it prints,
+# a .bzl file's docstrings, and a fixture's or a page's text are all prose
+# someone reads.
+#
+# What a script of shell prints is shown to a student as its comments never
+# are, and UNOWNED's message in oracle_fixtures.sh once named the source in
+# an echo no rule read. So the rule reads the arguments of an echo or a
+# printf at the head of a command (a case arm's too), to the end of that
+# command and over the lines a trailing backslash joins to it, and the lines
+# of a here-document fed to a command that prints what it reads (cat, sed,
+# tr, fold, column, tee). Not what the last command of a pipeline sends to a
+# file (> file and > /dev/null; >&2 and > /dev/stderr still print), what a
+# $( ) captures, nor what a block -- a { } group, a loop, an if, a subshell
+# -- sends to a file on its closing line. A string handed to a function that
+# prints it (a runner_lib.sh helper, this file's report) is past what this
+# reads, and so are a here-document any other command reads, a quoted string
+# that runs on over several lines, and a one-line { ...; } > file, which it
+# reads as printed.
+#
+# A comment of shell begins at a # that starts a word, at the start of the
+# line or after a blank or a ;, so ${f#prefix} and $# are code. An
+# apostrophe inside a word (it's) opens no string there: working shell holds
+# one only in a here-document or a string carried on from the line before,
+# both prose a student is shown, so the # after it is read. Python, a BUILD
+# file and a Makefile begin a comment at any # outside a string.
+#
+# _pv_s and _pv_e, which the rule on citations of TODO.md uses too, match
+# the first and the last line of a passage the template build strips, which
+# neither rule reads. Empty, they match nothing (each rule tests for that):
+# the template has no such passage left. _private, the files only main has,
+# is empty there for the same reason.
+_or_skip="TODO.md HISTORY.md"
+_or_private=""
+_pv_s=""
+_pv_e=""
+_private=""
+ref_door=$(
+	text_files -exec grep -lIE 'oracle/src|[A-Za-z0-9_][.]rs([^A-Za-z0-9_]|$)' {} + | sort |
+	while IFS= read -r _f; do
+		_f=${_f#./}
+		case "$_f" in
+			oracle/* | MODULE.bazel.lock) continue ;;
+		esac
+		case " $_or_skip " in *" $_f "*) continue ;; esac
+		_br=0
+		for _m in $MODULES; do
+			case "${_f#"$_m"/}" in
+				"$_f" | */*) ;;
+				BUILD.bazel | *.bzl) _br=1 ;;
+			esac
+		done
+		[ "$_br" = 1 ] && continue
+		case "$_f" in
+			*.sh | *.bash) _hash=2 ;;
+			*.bazel | *.py | */BUILD | BUILD | */Makefile | Makefile | *.mk) _hash=1 ;;
+			*) _hash=0 ;;
+		esac
+		LC_ALL=C awk -v f="$_f" -v hash="$_hash" -v s="$_pv_s" -v e="$_pv_e" '
+			# The comment of a line: from the first # with no string open
+			# before it, and in shell (hash 2) only a # that starts a word.
+			function comment(l,   i, c, p, q) {
+				q = ""
+				for (i = 1; i <= length(l); i++) {
+					c = substr(l, i, 1)
+					p = i > 1 ? substr(l, i - 1, 1) : " "
+					if (q != "") {
+						if (c == "\\" && (hash != 2 || q == "\"")) i++
+						else if (c == q) q = ""
+					} else if (c == "\\") i++
+					else if (c == "\"") q = c
+					else if (c == "\047") {
+						if (hash != 2 || p !~ /[[:alnum:]]/ || substr(l, i + 1, 1) !~ /[[:alnum:]]/)
+							q = c
+					} else if (c == "#" && (hash != 2 || p ~ /[[:blank:];]/))
+						return substr(l, i + 1)
+				}
+				return ""
+			}
+			# A line of shell as comment() reads it, with what its quotes
+			# hold turned to "_" and cut where its comment starts: the
+			# operators and the words around the strings, at their columns.
+			function bare(l,   i, c, p, q, out) {
+				q = ""
+				out = ""
+				for (i = 1; i <= length(l); i++) {
+					c = substr(l, i, 1)
+					p = i > 1 ? substr(l, i - 1, 1) : " "
+					if (q != "") {
+						if (c == "\\" && q == "\"") { out = out "__"; i++ }
+						else if (c == q) { q = ""; out = out c }
+						else out = out "_"
+						continue
+					}
+					if (c == "\\") { out = out "__"; i++; continue }
+					if (c == "\"") q = c
+					else if (c == "\047" && (p !~ /[[:alnum:]]/ || substr(l, i + 1, 1) !~ /[[:alnum:]]/))
+						q = c
+					else if (c == "#" && p ~ /[[:blank:];]/)
+						return out
+					out = out c
+				}
+				return out
+			}
+			# Whether the word at column i of the bare line j starts a
+			# command: first on the line, after an operator, the pattern of
+			# a case arm (*) echo), a keyword or an assignment (LC_ALL=C
+			# printf).
+			function cmdpos(j, i,   pre) {
+				if (i > 1 && substr(j, i - 1, 1) ~ /[[:alnum:]_.\/=-]/)
+					return 0
+				pre = substr(j, 1, i - 1)
+				sub(/[[:blank:]]+$/, "", pre)
+				while (pre !~ /[;&|({!]$/ && match(pre, /(^|[[:blank:]])[A-Za-z_][A-Za-z0-9_]*=[^[:blank:]]*$/)) {
+					pre = substr(pre, 1, RSTART - 1)
+					sub(/[[:blank:]]+$/, "", pre)
+				}
+				return pre == "" || pre ~ /[;&|(){!]$/ ||
+					pre ~ /(^|[^[:alnum:]_])(then|do|else|elif|if|while|until)$/
+			}
+			# Whether the command at column i writes its output to a file
+			# (or /dev/null): a > in the last command of its pipeline that
+			# is not a copy of a descriptor (>&2), a redirection of another
+			# one (2> err) or one to the terminal (> /dev/stderr, and
+			# > "/dev/stderr", whose quotes the bare line keeps but whose
+			# path it has turned to _: the line as written, R, is read at
+			# the same columns for it). The path ends there, quoted or not:
+			# > /dev/stderr.log is a file.
+			function tofile(j, i,   t, r, k, b) {
+				t = substr(j, i)
+				r = substr(R, i)
+				if (match(t, /;|&&|[|][|]/)) {
+					t = substr(t, 1, RSTART - 1)
+					r = substr(r, 1, RSTART - 1)
+				}
+				while (match(t, /[|]/)) {
+					t = substr(t, RSTART + 1)
+					r = substr(r, RSTART + 1)
+				}
+				for (k = 1; k <= length(t); k++)
+					if (substr(t, k, 1) == ">" &&
+						match(substr(r, k), /^>>?[[:blank:]]*("\/dev\/(stderr|stdout|tty)"|\047\/dev\/(stderr|stdout|tty)\047|\/dev\/(stderr|stdout|tty))/) &&
+						substr(r, k + RLENGTH, 1) !~ /[^[:blank:];&|)}<>]/) {
+						b = substr(t, k, RLENGTH)
+						gsub(/./, " ", b)
+						t = substr(t, 1, k - 1) b substr(t, k + RLENGTH)
+					}
+				gsub(/[0-9]*>&[0-9-]+/, "", t)
+				gsub(/[2-9]>>?[[:blank:]]*[^[:blank:]]*/, "", t)
+				return t ~ />/
+			}
+			# Whether column i sits in a $( ... ) or a `...` still open: a
+			# $( whose ) has not come, each ( nested in it closed by its own.
+			function captured(j, i,   pre, k, n, st) {
+				pre = substr(j, 1, i - 1)
+				if (gsub(/`/, "`", pre) % 2)
+					return 1
+				n = 0
+				for (k = 1; k <= length(pre); k++)
+					if (substr(pre, k, 1) == "(")
+						st[++n] = k > 1 && substr(pre, k - 1, 1) == "$"
+					else if (substr(pre, k, 1) == ")" && n > 0)
+						n--
+				for (k = 1; k <= n; k++)
+					if (st[k])
+						return 1
+				return 0
+			}
+			# A line that names the source in what it prints. Inside a
+			# block (a group, a loop, an if, a subshell), it waits for the
+			# line closing the block, which may send the output elsewhere.
+			function hit(n, line,   k) {
+				txt[n] = line
+				if (d > 0)
+					buf[d] = buf[d] " " n
+				else
+					out[n] = 1
+			}
+			function close_block(quiet,   k, m, ns) {
+				m = split(buf[d], ns, " ")
+				buf[d] = ""
+				d--
+				if (!quiet)
+					for (k = 1; k <= m; k++)
+						hit(ns[k], txt[ns[k]])
+			}
+			# The logical line held in J (bare) and R (as written), its
+			# physical lines starting at columns off[1..np].
+			function logical(   k, a, w, x, y, z, base, len, piece) {
+				if (J ~ /^[[:blank:]]*([}]|[)]|done|fi)([^[:alnum:]_]|$)/ && d > 0) {
+					match(J, /^[[:blank:]]*([}]|[)]|done|fi)/)
+					close_block(cap[d] || tofile(J, RLENGTH + 1))
+				}
+				base = 0
+				while (match(substr(J, base + 1), /(echo|printf)([[:blank:]]|$)/)) {
+					a = base + RSTART
+					w = a + (substr(J, a, 1) == "e" ? 4 : 6)
+					base = w - 1
+					if (!cmdpos(J, a) || tofile(J, a) || captured(J, a))
+						continue
+					z = substr(J, w)
+					len = match(z, /[|;&<>]/) ? RSTART - 1 : length(z)
+					for (k = 1; k <= np; k++) {
+						x = off[k] > w ? off[k] : w
+						y = off[k] + blen[k] < w + len ? off[k] + blen[k] : w + len
+						if (x >= y)
+							continue
+						piece = tolower(substr(R, x, y - x))
+						if (piece ~ /oracle\/src|[a-z0-9_][.]rs([^a-z0-9_]|$)/)
+							hit(ln[k], txt0[k])
+					}
+				}
+				# A group closed at the end of the line it ends (`|| {` ...
+				# `exit 2; }`), on a line that opens none.
+				if (d > 0 && J !~ /^[[:blank:]]*[}]/ && match(J, /;[[:blank:]]*[}][^}]*$/) &&
+					J !~ /(^|[;&|(]|[[:blank:]])[{]([[:blank:]]|$)/)
+					close_block(cap[d] || tofile(J, RSTART + RLENGTH))
+				# A here-document: its lines are read when a command that
+				# prints what it reads (cat, sed, tr, fold, column, tee) has it.
+				if (match(J, /<<-?[[:blank:]]*/) && substr(J, RSTART + 2, 1) != "<") {
+					x = RSTART
+					hdt = substr(J, x + 2, 1) == "-"
+					z = substr(R, RSTART + RLENGTH)
+					if (match(z, /^["\047\\]?[A-Za-z_][A-Za-z0-9_]*/)) {
+						hd = substr(z, 1, RLENGTH)
+						gsub(/["\047\\]/, "", hd)
+						hdp = 0
+						base = 0
+						while (match(substr(J, base + 1), /(cat|sed|tr|fold|column|tee)([[:blank:]]|$)/)) {
+							a = base + RSTART
+							base = a + RLENGTH - 1
+							if (a > x)
+								break
+							if (cmdpos(J, a) && substr(J, a, x - a) !~ /;|[|]|&&/)
+								hdp = !tofile(J, a) && !captured(J, a)
+						}
+					}
+				}
+				# An elif or an else stays in the block its if opened, and
+				# the then of an elif may come lines later.
+				if (J ~ /^[[:blank:]]*elif([^[:alnum:]_]|$)/)
+					el = 1
+				if (J ~ /((^|[^[:alnum:]_$])([{]|do|then)|[(])[[:blank:]]*$/ &&
+					J !~ /^[[:blank:]]*else([^[:alnum:]_]|$)/ &&
+					!(el && J ~ /(^|[^[:alnum:]_])then[[:blank:]]*$/)) {
+					d++
+					buf[d] = ""
+					cap[d] = captured(J, length(J) + 1)
+				}
+				if (J ~ /(^|[^[:alnum:]_])then[[:blank:]]*$/)
+					el = 0
+			}
+			# A script with no extension (the copy of this file the sh_test
+			# runs) says what it is on its first line.
+			FNR == 1 && /^#!/ { hash = /^#!.*[\/[:blank:]](ba|da|k|z)?sh([[:blank:]]|$)/ ? 2 : 1 }
+			s != "" && $0 ~ s { blk = 1; next }
+			e != "" && $0 ~ e { blk = 0; next }
+			blk { next }
+			{
+				last = FNR
+				t = tolower(hash ? comment($0) : $0)
+				if (t ~ /oracle\/src|[a-z0-9_][.]rs([^a-z0-9_]|$)/) {
+					txt[FNR] = $0
+					out[FNR] = 1
+				}
+			}
+			hash != 2 { next }
+			hd != "" {
+				t = $0
+				if (hdt)
+					sub(/^\t+/, "", t)
+				if (t == hd)
+					hd = ""
+				else if (hdp && tolower($0) ~ /oracle\/src|[a-z0-9_][.]rs([^a-z0-9_]|$)/)
+					hit(FNR, $0)
+				next
+			}
+			{
+				r = $0
+				more = r ~ /\\$/ && comment(r) == ""
+				if (more)
+					r = substr(r, 1, length(r) - 1)
+				if (np == 0) {
+					J = ""
+					R = ""
+				}
+				np++
+				ln[np] = FNR
+				txt0[np] = $0
+				off[np] = length(J) + 1
+				t = bare(r)
+				blen[np] = length(t)
+				J = J t
+				R = R r substr(t, length(r) + 1)
+				if (more)
+					next
+				logical()
+				np = 0
+			}
+			END {
+				while (d > 0)
+					close_block(cap[d])
+				for (n = 1; n <= last; n++)
+					if (n in out)
+						printf "    %s:%d: %s\n", f, n, txt[n]
+			}' "$_f"
+	done
+)
+[ -z "$ref_door" ] || report \
+	"a shipped file names the oracle's source" \
+	"$ref_door" \
+	"A test file, a fixture, a runner and a page ship, and a student reads" \
+	"them as they read a BUILD file (the owner's answer of 2026-10-10). Say" \
+	"what the check measures, or the command that writes its cases, never" \
+	"where the reference's source is." \
+	"$_or_private"
+
+# ---------------------------------------------------------------------------
 # N. A runner quotes no subject of its own accord.
 #
 # A runner is shared by every project that calls it, so a sentence written into
@@ -4119,23 +5535,56 @@ build_lbl=$(printf '%s\n' "$build_door" | sed -n 's/^L//p')
 # and BSQ's printed "the subject prints it verbatim" and "the subject picks the
 # one closest to the TOP" (V90). The owner's ruling, 2026-10-09: such a runner
 # takes the sentence from its call site too (--quotes, tools/runner_lib.sh's
-# rl_quote). So in a runner that exactly one module's BUILD.bazel runs (its
-# label as a test's `srcs` or a corpus_memory `runner`) and no macro of
+# rl_quote). A RUNNER EVERY PROJECT CALLS did the same in a branch one option
+# opens: diff_output.sh's address-dump note told the student to print each
+# line's address "as the subject asks", where only --sanitize reaches, one
+# exercise's option; make_test.sh told every c_make caller "the subject says
+# nothing about how it exits", which c_make has no way to quote (V122). So
+# in every runner, a message also never says what "the subject" says, reads,
+# prints, picks, fixes, sets, requires, asks, lists, gives, states, names,
+# leaves, specifies, lets or allows. The last five came later: argv_check,
+# argv_table and progname_test told every caller "the subject names no exit
+# status", a claim none of them takes a quote to back.
+#
+# Where it reads the call site back -- "the files the subject asks for" over
+# the list the subject() contract supplies, "the subject gives no number for
+# it" where the call site's --exit-source says so -- the line is allowed by
+# name: a comment right above the message names the option that brings it,
+#     # conventions: the call site's --OPTION -- <what it reads back>
+# and OPTION is one the runner parses (a `--OPTION)` arm of its case). A
+# marker naming an option the runner never reads allows nothing, and neither
+# does a line of that shape inside a here-document, which prints.
+#
+# Nor does any marker in a runner that exactly one module's BUILD.bazel runs
+# (its label as a test's `srcs` or a corpus_memory `runner`) and no macro of
 # tools/defs.bzl emits as a test's `srcs` -- its tables of runner facts
-# (_RUNNER_CHOICES, _LIB_RUNNERS) do not count -- a message also never says
-# what "the subject" says, reads, prints, picks, fixes, sets, requires, asks,
-# lists, gives or states. A runner the macros call speaks to every project,
-# and its "the files the subject asks for" is the call site's contract read
-# back, so the phrase is not judged there.
+# (_RUNNER_CHOICES, _LIB_RUNNERS) do not count. Such a runner speaks to one
+# project, so what its subject says comes through rl_quote and --quotes
+# (the owner's ruling, 2026-10-09), never as a read-back of its own words.
 #
 # A program's own name is not a project's (rush02_check.sh's ./rush-02 replay
 # line), and neither is a word inside a path or a longer name. Comments are
-# skipped, in a here-document too: they say where a rule came from, for
-# whoever maintains the runner. A message continued over lines ending in a
-# backslash is read whole, its strings joined, and reported at its first line
-# (not one built in a $( ), whose output is an argument of another command);
-# two separate echo lines are still read one by one. awk's print counts where
-# it starts a statement, never as a word inside a string.
+# skipped: they say where a rule came from, for whoever maintains the
+# runner. In a here-document a # line is no comment and marks nothing: it
+# prints, and is judged as any line there is, unless the here-document is
+# written to a file (`cat > FILE <<EOF`: an awk program, a C probe), whose
+# comment it is. Skipped unjudged, a project's name on such a line reached
+# the log with no report. A message continued over lines ending in a
+# backslash is read whole, its strings joined, and reported at its first
+# line (not one built in a $( ), whose output is an argument of another
+# command); two separate echo lines are still read one by one. awk's print
+# counts where it starts a statement, never as a word inside a string.
+#
+# A LIBRARY IS READ AS A RUNNER IS. A tools/*.sh that is sourced, never run
+# (`# shellcheck shell=sh` in place of a shebang), is no runner, and what it
+# prints reaches the same logs where a runner or a check script sources it:
+# runner_lib.sh's and standin.sh's those of the runners, shell_check.sh's
+# those of every shell check. Read as runners alone, the rule never saw
+# shell_check.sh, whose ck_executable hint said what "the subject runs" in
+# every shell exercise's log. One only the commands a person runs source
+# (drives.sh and prime_trace.sh: the setup and environment commands, and the
+# container's postcreate.sh) prints to a terminal, never to a test's log, and
+# is not read.
 #
 # THE NAMES COME FROM THE MODULE TABLE (tools/submit.sh's REMOTES), never from
 # a list kept here: a list of the Piscine's names let the first Common Core
@@ -4154,7 +5603,22 @@ project_names=$(for _m in $MODULES; do
 	esac
 	printf '%s\n' "$_b" | tr 'A-Z' 'a-z'
 done | sort -u)
-subject_leak=$(for f in $RUNNERS; do
+# The libraries read with the runners: a sourced one a runner or a module's
+# test script names in a shellcheck source directive. Each . of a file
+# through a variable carries one, or shellcheck warns (SC1090), and the rule
+# on directives above holds its path to a file that opens.
+_said_libs=$( {
+	for _r in $RUNNERS; do echo "$_r"; done
+	for _m in $MODULES; do
+		[ -d "$_m/tests" ] && grep -Rl 'shellcheck.*source=tools/' "$_m/tests"
+	done
+} | while IFS= read -r _f; do
+	sed -n 's/^[[:blank:]]*#[[:blank:]]*shellcheck[[:blank:]].*source=\(tools\/[A-Za-z0-9_.-]*\.sh\).*/\1/p' "$_f"
+done | sort -u | while IFS= read -r _l; do
+	[ -f "$_l" ] && grep -q '^# shellcheck shell=sh' "$_l" && echo "$_l"
+done)
+subject_leak=$(for f in $(printf '%s\n' $RUNNERS $_said_libs | sort -u); do
+	# Whether one project alone runs it: then no marker allows a line.
 	_own=0
 	_lbl="//tools:${f#tools/}"
 	if ! grep -qF "srcs = [\"$_lbl\"" tools/defs.bzl; then
@@ -4168,7 +5632,10 @@ subject_leak=$(for f in $RUNNERS; do
 		done
 		[ "$_n" -eq 1 ] && _own=1
 	fi
-	awk -v f="$f" -v names="$project_names" -v own="$_own" '
+	# The options the runner parses, one per line: what a marker may name.
+	_opts=$(sed -n 's/^[[:blank:]]*\(--[a-z0-9][a-z0-9-]*\))$/\1/p; s/^[[:blank:]]*\(--[a-z0-9][a-z0-9-]*\))[[:blank:]].*/\1/p' "$f")
+	[ "$_own" = 0 ] || _opts=""
+	awk -v f="$f" -v names="$project_names" -v opts="$_opts" '
 		BEGIN {
 			n = split(names, nm, "\n")
 			for (i = 1; i <= n; i++) {
@@ -4182,7 +5649,12 @@ subject_leak=$(for f in $RUNNERS; do
 			t = $0
 			sub(/^\t*/, "", t)
 			if (t == hd) { hd = ""; next }
-			if (t ~ /^[ \t]*#/) next
+			# A # line here is no comment, so it marks nothing, and a
+			# marker above the here-document reaches no line of it. It
+			# prints, and is judged, unless the here-document goes to a
+			# file, whose comment it is.
+			if (t ~ /^[ \t]*#/) { mk = ""; if (hdfile) next }
+			cur = mk; mk = ""
 			l = $0; at = NR; first = $0
 			judge()
 			next
@@ -4193,10 +5665,20 @@ subject_leak=$(for f in $RUNNERS; do
 			if (!(more = ($0 ~ /\\[ \t]*$/))) judge()
 			next
 		}
-		/^[ \t]*#/ { next }
+		/^[ \t]*#/ { mark($0); next }
+		# A marker covers the message that starts on the line below its
+		# comment block, and nothing after it.
+		{ cur = mk; mk = "" }
 		match($0, /<<-?[ \t]*["\047]?[A-Za-z_][A-Za-z0-9_]*/) {
 			hd = substr($0, RSTART, RLENGTH)
 			gsub(/[<\-"\047 \t]/, "", hd)
+			# Written to a file: its standard output sent to one (>&2 and
+			# > /dev/stderr still print), read with each quoted string one
+			# word: a > inside one (the program of awk, $1 > 0) sends nothing.
+			uq = $0
+			gsub(/"([^"\\]|\\.)*"|\047[^\047]*\047/, "Q", uq)
+			hdfile = uq ~ /(^|[^0-9&>])1?>>?\|?[ \t]*[^&> \t]/ &&
+			    $0 !~ /(^|[^0-9&>])1?>>?\|?[ \t]*["\047]?\/dev\/(stdout|stderr|tty)/
 		}
 		!/(^|[;&|({ \t])(echo|printf)[ \t(]/ && !/(^|[;{)])[ \t]*print[ \t(]/ &&
 		    !/(^|[^A-Za-z0-9_])(verdict|say)\(/ { next }
@@ -4218,7 +5700,15 @@ subject_leak=$(for f in $RUNNERS; do
 			gsub(/\\[nt]/, " ", j)
 			gsub(/["\047\\]/, " ", j)
 			gsub(/[ \t]+/, " ", j)
-			if (own && j ~ /(^|[^a-z])the subject (says|reads|prints|picks|fixes|sets|requires|asks|lists|gives|states)([^a-z]|$)/) hit()
+			if (j ~ /(^|[^a-z])the subject (says|reads|prints|picks|fixes|sets|requires|asks|lists|gives|states|names|leaves|specifies|lets|allows)([^a-z]|$)/ &&
+			    (cur == "" || index("\n" opts "\n", "\n" cur "\n") == 0)) hit()
+		}
+		# A marker: the option the message below it reads back.
+		function mark(s) {
+			if (match(s, /# conventions: the call site\047s --[a-z0-9][a-z0-9-]* -- [^ \t]/)) {
+				mk = substr(s, RSTART + 31)
+				sub(/ .*/, "", mk)
+			}
 		}
 		function hit() { printf "    %s:%d: %s\n", f, at, first }' "$f"
 done)
@@ -4229,7 +5719,22 @@ done)
 	"the call site, where the project's own subject is quoted once (c_make's" \
 	"quotes, c_function's allocfail_rule, c_program's memory_rule, and" \
 	"runner_quotes() for a runner one project calls), or say the rule the" \
-	"layer applies and whose rule it is."
+	"layer applies and whose rule it is. A line that reads back what the call" \
+	"site passes (the files its contract lists) says so in a comment right" \
+	"above it: '# conventions: the call site's --OPTION -- <what it reads" \
+	"back>', OPTION being one the runner parses. In a runner one project" \
+	"calls, no marker counts: its sentence comes through rl_quote."
+
+# excerpt_awk -- cut(S, N): the first N bytes of S, less the start of a
+# character the cut split, as a report shows a line. A program that holds it
+# runs under LC_ALL=C, where every awk counts bytes (gawk counts characters
+# under a UTF-8 locale), and starts with it: awk "$excerpt_awk"'...'.
+excerpt_awk='
+		function cut(s, n) {
+			s = substr(s, 1, n)
+			sub(/([\300-\337]|[\340-\357][\200-\277]?|[\360-\367][\200-\277]?[\200-\277]?)$/, "", s)
+			return s
+		}'
 
 # ---------------------------------------------------------------------------
 # N. A hint that can fire at first red asks a question; it never lists steps.
@@ -4280,7 +5785,7 @@ done)
 # characters"): a list already reads left to right. C 02 ex12's row was
 # reworded that way.
 first_red_steps() {  # first_red_steps FILE SHELL(0|1) [PROGRAM-CASE-NAMES]
-	NAMES="${3:-}" awk -v shell="$2" '
+	NAMES="${3:-}" LC_ALL=C awk -v shell="$2" "$excerpt_awk"'
 	function steplike(text,   t, w, nw, i, prev, nx, j, mk, imp) {
 		t = tolower(text)
 		if ((t ~ /(^|[ \t(])1[.)]([ \t]|$)/ && t ~ /(^|[ \t(])2[.)]([ \t]|$)/) ||
@@ -4351,7 +5856,7 @@ first_red_steps() {  # first_red_steps FILE SHELL(0|1) [PROGRAM-CASE-NAMES]
 		if (!shell && !prog && keyed && k > 3) next
 		why = steplike(f[1])
 		if (why != "")
-			printf "    line %d (%s): %s...\n", FNR, why, substr(f[1], 1, 60)
+			printf "    line %d (%s): %s...\n", FNR, why, cut(f[1], 60)
 	}' "$1"
 }
 
@@ -4452,7 +5957,7 @@ fi
 # to move to, and is not one of these. The raised targets' why cells
 # (raised_whys, above) are read too.
 widen_lines() {  # widen_lines FILE NAME: the lines of a hint file that name a wider type
-	awk -F'\t' -v f="$2" '
+	LC_ALL=C awk -F'\t' -v f="$2" "$excerpt_awk"'
 		function widens(t) {
 			return t ~ /wider|widen|wide enough|(big|large)( enough)? type|type (that is )?(big|large|wide) enough/ ||
 			    t ~ /accumulator.?s type|(larger|bigger|longer) (integer )?type|(larger|bigger) integer/ ||
@@ -4463,12 +5968,12 @@ widen_lines() {  # widen_lines FILE NAME: the lines of a hint file that name a w
 			t = tolower(f ~ /\.tsv$/ ? $1 : $0)
 			hit = widens(t)
 			if (hit)
-				printf "    %s:%d: %s\n", f, NR, substr($0, 1, 70)
+				printf "    %s:%d: %s\n", f, NR, cut($0, 70)
 			else if (f ~ /diff_clues[^\/]*\.txt$/ && pn && !phit) {
 				j = pt " " t
 				gsub(/[ \t]+/, " ", j)
 				if (widens(j))
-					printf "    %s:%d: %s (wrapped onto line %d)\n", f, pn, substr(pr, 1, 70), NR
+					printf "    %s:%d: %s (wrapped onto line %d)\n", f, pn, cut(pr, 70), NR
 			}
 			pt = t; pr = $0; pn = NR; phit = hit
 		}' "$1"
@@ -4488,7 +5993,159 @@ widen_lines "$_whys" docs/reference.md)
 	"to the construction that layer fails. Ask whether the value has to be" \
 	"formed at all -- does anything computed on the way to it not fit? -- and" \
 	"point at what C promises about each type's width: docs/testing.md, under" \
-	"ilp32 (WP-75 in TODO.md section 23)."
+	"ilp32."
+
+# ---------------------------------------------------------------------------
+# N. A hint names no loop's inner workings and no step of a known method.
+#
+# AGENTS.md section 2, "Shipped teaching prose has no timing gate": a hint
+# describes a symptom and asks about a concept; it never gives the method for
+# a named exercise. Two passes over the diff legends reworded 67 rows and then
+# a dozen more that had taken one construction as given -- "the bound on the
+# trial-division loop", "the loop that peels digits", "the order recursion
+# unwinds in", "negating first", "the outer scan", "the row loop, not the
+# byte loop", "save it before, not after", "the loop must not stop at the
+# first match" -- and the clue rows printed at the first red did the same
+# ("advance the candidate until it passes", "squaring the divisor", "decide
+# what value your accumulator starts at"). Each pass was a read by hand, and
+# each found rows the one before had missed.
+#
+# This reads every hint a module ships: the hint column of each clues*.tsv
+# row, each line of a diff_clues*.txt (a readings target's included; '#'
+# lines are maintainers'), and the "Line:" paragraph of each harness
+# (tests/exNN/diff_*.c), which rust_diff.sh prints as the legend of its
+# columns. A legend and a paragraph wrap, so each line is read joined to the
+# one before it too. The phrases it knows name a loop by its part (an inner,
+# outer, row, column, byte or fill loop, scan or bound; a loop's step or
+# bound), or one step of a known method (trial division, peeling digits,
+# repeated division, recursion unwinding, negating first, accumulating the
+# positive value, an accumulator's start, squaring the divisor, the
+# candidate or "it to test", advancing the candidate, a value written before
+# the other is read or saved, saving it before, a loop that must not stop at
+# a match or returns "instead of continuing", links rewritten "while being
+# walked", an index that moves before the byte at it is read or printed,
+# making a negative number positive). "The base
+# case" and "the recursive call" name a method too, except in an exercise
+# whose subject asks for recursion: a call in its BUILD file declares
+# method = "recursive", quoting that sentence in method_rule. Generic
+# phrases -- "a loop that cannot run zero times", "the loop bound" -- are
+# none of these. A hint that hands over a method in other words gets past
+# them, so the rule stays the author's to keep.
+#
+# A row that has to name one says why, on a '#' line just above it (a
+# legend's row and the lines it wraps onto, or a clue row), or, for a
+# harness's paragraph, on a line of its first twelve outside the paragraph,
+# which print_columns would print to the student:
+#     # conventions: method named -- REASON
+# A report's excerpt is cut at 70 bytes, never inside a character
+# (excerpt_awk).
+method_lines() {  # method_lines FILE NAME RECURSIVE [OFFSET]: hint lines naming a method
+	LC_ALL=C awk -F'\t' -v f="$2" -v rec="$3" -v off="${4:-0}" "$excerpt_awk"'
+		function named(t) {
+			return t ~ /(inner|outer|row|column|byte|fill) (loop|scan|bound)|loop.s (step|bound|upper bound)/ ||
+			    t ~ /trial[- ]division|starts at [0-9]|digit-peeling|peel(s|ing)?( off)? (one |a )?digits?|repeated division/ ||
+			    t ~ /recursion unwinds|negat(e|ing) (the value )?first|accumulat(e|ing) the positive|accumulator (starts|begins)|start accumulating/ ||
+			    t ~ /save it before|must not stop at|squar(e|ing) (the |your )?(divisor|candidate)|square it to test|divisor.s square|advance the candidate/ ||
+			    t ~ /(over)?written before (it|the other) (is|was) (read|saved)|instead of continuing|while (still )?being walked/ ||
+			    t ~ /(moves|advances|increments|is (incremented|advanced)) before (it|the [a-z]+( at it)?) is (read|printed|written)/ ||
+			    t ~ /(makes?|making|turns?|turning) (a |the )?negative (number |value |int )?positive/ ||
+			    (!rec && t ~ /base case|recursive call/)
+		}
+		function norm(s) { gsub(/\342\200\231/, "\047", s); return tolower(s) }
+		/^[ \t]*#/ {
+			if ($0 ~ /# conventions: method named -- [^ \t]/) mark = 1
+			pn = 0
+			next
+		}
+		{
+			row = (f ~ /\.tsv$/ || $0 ~ /^[ \t]*\*/)
+			if (row || !inrow) { esc = mark; mark = 0 }
+			inrow = (f !~ /\.tsv$/ && $0 !~ /^[ \t]*$/ && (row || inrow))
+			t = norm(f ~ /\.tsv$/ ? $1 : $0)
+			hit = named(t)
+			if (esc) hit = 1
+			else if (hit)
+				printf "    %s:%d: %s\n", f, NR + off, cut($0, 70)
+			else if (f !~ /\.tsv$/ && pn && !phit) {
+				j = pt " " t
+				gsub(/[ \t]+/, " ", j)
+				if (named(j))
+					printf "    %s:%d: %s (wrapped onto line %d)\n", f, pn + off, cut(pr, 70), NR + off
+			}
+			pt = t; pr = $0; pn = NR; phit = hit
+		}' "$1"
+}
+# The "Line:" paragraph of a harness, as rust_diff.sh's print_columns cuts it
+# (the first twelve lines, from "Line:" to an empty comment line or the end
+# of the comment), each line kept at its own line number; nothing when one
+# of those twelve lines outside the paragraph carries the marker. A marker
+# inside it would be printed to the student, so it does not count.
+method_paragraph() {  # method_paragraph FILE: "<NR>\t<text>" per line
+	awk -v top=12 '
+		NR > top { exit }
+		{ line = $0; in_p = 0 }
+		!f {
+			i = index(line, "Line:")
+			if (i != 0) {
+				f = 1
+				line = substr(line, i)
+			}
+		}
+		f && more && !stop {
+			if (line ~ /^[ \t]*\*\/[ \t]*$/) stop = 1
+			sub(/^[ \t]*\*[ \t]?/, "", line)
+			if (line ~ /^[ \t]*$/) stop = 1
+		}
+		f && !stop {
+			more = 1
+			in_p = 1
+			done = (line ~ /\*\//)
+			sub(/[ \t]*\*\/.*$/, "", line)
+			if (line != "") p[++n] = NR "\t" line
+			if (done) stop = 1
+		}
+		!in_p && /conventions: method named -- [^ \t]/ { m = 1 }
+		END { if (!m) for (k = 1; k <= n; k++) print p[k] }' "$1"
+}
+# method_rec MODULE: the exercise numbers whose BUILD file calls something
+# with method = "recursive", one per line.
+method_rec() {
+	awk '
+		/^[ \t]*#/ { next }
+		/^[a-z_]+\(/ { if (rec && num != "") print num; num = ""; rec = 0 }
+		match($0, /num = "[0-9]+"/) { num = substr($0, RSTART + 7, RLENGTH - 8) }
+		/method = "recursive"/ { rec = 1 }
+		END { if (rec && num != "") print num }' "$1/BUILD.bazel"
+}
+method_bad=$(for _m in $MODULES; do
+	_rec=$(method_rec "$_m")
+	for _c in "$_m"/tests/ex*/clues*.tsv "$_m"/tests/ex*/diff_clues*.txt "$_m"/tests/ex*/diff_*.c; do
+		[ -f "$_c" ] || continue
+		_n=${_c%/*}
+		_n=${_n##*/ex}
+		_r=0
+		printf '%s\n' "$_rec" | grep -qx "$_n" && _r=1
+		case $_c in
+		*.c)
+			method_paragraph "$_c" > "$lex_d/method_para"
+			[ -s "$lex_d/method_para" ] || continue
+			# The paragraph's lines are consecutive: read as a legend, each
+			# is named at its own line of the file.
+			_o=$(($(head -n 1 "$lex_d/method_para" | cut -f1) - 1))
+			cut -f2- "$lex_d/method_para" | method_lines - "$_c" "$_r" "$_o"
+			;;
+		*) method_lines "$_c" "$_c" "$_r" ;;
+		esac
+	done
+done)
+[ -z "$method_bad" ] || report \
+	"a hint names a loop's inner workings or a step of a known method" \
+	"$method_bad" \
+	"A hint is read before the student has tried anything, so it never gives" \
+	"the method for a named exercise (AGENTS.md section 2, \"Shipped teaching" \
+	"prose has no timing gate\"): it names what the diverging inputs have in" \
+	"common and asks a question about the concept. A row that must name one" \
+	"says why on a '#' line above it: '# conventions: method named -- REASON'."
 
 # ---------------------------------------------------------------------------
 # N. A reading is named only as this harness's, and only in a hint a strict
@@ -4511,7 +6168,7 @@ widen_lines "$_whys" docs/reference.md)
 #  every hint (a clues*.tsv row's hint, a line of a diff_clues*.txt), every
 #  line a check script or a runner (tools/*.sh) prints, a raised target's why
 #  in docs/reference.md, and every page that ships (the *.md files outside
-#  the zone, but the maintainer's TODO.md, HISTORY.md and docs/publishing.md).
+#  the zone, but the maintainer's own, which the template build removes).
 #  In a hint, a script, a runner or a why the verbs it was stated with count
 #  too ("strict reads", "this table reads", "this harness reads ... as" or
 #  "this check reads ... as", up to four words between); a page may describe a
@@ -4560,7 +6217,7 @@ rd_label='this harness\047s reading'
 # their lines) or page (prose: the other names only, and it wraps). A
 # typographic apostrophe reads as a plain one, and so does a shell's '"'"'.
 rd_words() {
-	awk -v kind="$2" -v name="${3:-$1}" -v other="$rd_other" -v verb="$rd_verb" '
+	LC_ALL=C awk -v kind="$2" -v name="${3:-$1}" -v other="$rd_other" -v verb="$rd_verb" "$excerpt_awk"'
 		function norm(s) {
 			gsub(/\342\200\231/, "\047", s)
 			gsub(/\047\042\047\042\047/, "\047", s)
@@ -4584,19 +6241,20 @@ rd_words() {
 			else t = norm($0)
 			hit = named(t)
 			if (hit)
-				printf "    %s:%d: %s\n", name, NR, substr($0, 1, 80)
+				printf "    %s:%d: %s\n", name, NR, cut($0, 80)
 			else if ((kind == "legend" || kind == "page" || kind == "sh") && pn && !phit) {
 				j = pt " " said(t)
 				gsub(/[[:blank:]]+/, " ", j)
 				if (named(j))
-					printf "    %s:%d: %s (wrapped onto line %d)\n", name, pn, substr(pr, 1, 80), NR
+					printf "    %s:%d: %s (wrapped onto line %d)\n", name, pn, cut(pr, 80), NR
 			}
 			pt = said(t); pr = $0; pn = NR; phit = hit
 		}' "$1"
 }
 # The pages that ship: every *.md outside the zone, but the maintainer's.
-rd_pages=$(text_files -name '*.md' ! -path ./TODO.md ! -path ./HISTORY.md \
-	! -path ./docs/publishing.md ! -path './tools/tests/*' -print |
+# conventions: private-name -- skips that page where it exists, as the two below
+rd_pages=$(text_files -name '*.md' ! -path ./docs/publishing.md \
+	! -path ./TODO.md ! -path ./HISTORY.md ! -path './tools/tests/*' -print |
 	sed 's|^\./||' | sort)
 rd_bad=$(
 	for _m in $MODULES; do
@@ -4639,7 +6297,7 @@ rd_bad=$(
 # is read with the one before it.
 rd_state='this harness\047s reading( of "[^"]*")?([[:blank:]]+(is|takes|covers)([^a-z]|$)|[[:blank:]]*:)'
 rd_states() {
-	awk -v name="$1" -v state="$rd_state" '
+	LC_ALL=C awk -v name="$1" -v state="$rd_state" "$excerpt_awk"'
 		function norm(s) {
 			gsub(/\342\200\231/, "\047", s)
 			return tolower(s)
@@ -4653,12 +6311,12 @@ rd_states() {
 			t = norm($0); o = own(t)
 			hit = !o && t ~ state
 			if (hit)
-				printf "    %s:%d: %s\n", name, NR, substr($0, 1, 80)
+				printf "    %s:%d: %s\n", name, NR, cut($0, 80)
 			else if (pn && !phit && !o && !po) {
 				j = pt " " t
 				gsub(/[[:blank:]]+/, " ", j)
 				if (j ~ state)
-					printf "    %s:%d: %s (wrapped onto line %d)\n", name, pn, substr(pr, 1, 80), NR
+					printf "    %s:%d: %s (wrapped onto line %d)\n", name, pn, cut(pr, 80), NR
 			}
 			pt = t; pr = $0; pn = NR; phit = hit; po = o
 		}' "$1"
@@ -4694,7 +6352,7 @@ done)
 # line prints is read with the line before it, as rd_words reads it, and a
 # shell's \047 or '"'"' reads as a plain apostrophe.
 rd_runner() {
-	awk -v name="$1" -v label="$rd_label" '
+	LC_ALL=C awk -v name="$1" -v label="$rd_label" "$excerpt_awk"'
 		function norm(s) {
 			gsub(/\342\200\231/, "\047", s)
 			gsub(/\047\042\047\042\047/, "\047", s)
@@ -4727,12 +6385,12 @@ rd_runner() {
 			t = said(norm($0))
 			hit = states(t)
 			if (hit)
-				printf "    %s:%d: %s\n", name, NR, substr($0, 1, 80)
+				printf "    %s:%d: %s\n", name, NR, cut($0, 80)
 			else if (pn && !phit) {
 				j = pt " " t
 				gsub(/[[:blank:]]+/, " ", j)
 				if (states(j))
-					printf "    %s:%d: %s (wrapped onto line %d)\n", name, pn, substr(pr, 1, 80), NR
+					printf "    %s:%d: %s (wrapped onto line %d)\n", name, pn, cut(pr, 80), NR
 			}
 			pt = t; pr = $0; pn = NR; phit = hit
 		}' "$1"
@@ -4845,7 +6503,7 @@ done)
 # any other case, or to none, is basic. MODE sh: a check script's printed
 # lines, which its basic output test prints.
 rd_label_rows() {
-	STRICT="${3:-}" ABOVE="${4:-}" awk -v mode="$2" -v label="$rd_label" -v f="$1" '
+	STRICT="${3:-}" ABOVE="${4:-}" LC_ALL=C awk -v mode="$2" -v label="$rd_label" -v f="$1" "$excerpt_awk"'
 		BEGIN {
 			n = split(ENVIRON["STRICT"], k, "\n"); for (i = 1; i <= n; i++) if (k[i] != "") st[k[i]] = 1
 			n = split(ENVIRON["ABOVE"], k, "\n"); for (i = 1; i <= n; i++) if (k[i] != "") up[k[i]] = 1
@@ -4872,7 +6530,7 @@ rd_label_rows() {
 				else if (high != "") { lv = "above"; why = " (keyed to " high ", above strict)" }
 				else next
 			}
-			printf "%s\t    %s:%d: %s%s\n", lv, f, NR, substr($0, 1, 70), why
+			printf "%s\t    %s:%d: %s%s\n", lv, f, NR, cut($0, 70), why
 		}' "$1"
 }
 rd_rows=$(for _m in $MODULES; do
@@ -5170,12 +6828,12 @@ shcheck_runs() {  # shcheck_runs FILE [git] -> each line that runs a script outs
 				if (w == "ck" || w == "ck_require") { k += 2; continue }
 				# What ck_run runs is the turn-in, or a program the check
 				# chose: in the git reading it is a command like any other.
-				# Past the options of ck_run, in any order (-C DIR and
-				# --no-redirect), and then its output file.
+				# Past the options of ck_run, in any order (-C DIR,
+				# --no-redirect and --crlf), and then its output file.
 				if (FIND != "" && w == "ck_run") {
 					for (k++; k <= n; ) {
 						if (W[d, k] == "-C") k += 2
-						else if (W[d, k] == "--no-redirect") k++
+						else if (W[d, k] == "--no-redirect" || W[d, k] == "--crlf") k++
 						else break
 					}
 					k++
@@ -5328,7 +6986,7 @@ shcheck_raw_prints() {  # shcheck_raw_prints FILE -> each line printing a run's 
 				for (i = 1; i <= n; i++) {
 					if (w[i] == "") continue
 					if (w[i] == "-C") { i++; continue }
-					if (w[i] == "--no-redirect") continue
+					if (w[i] == "--no-redirect" || w[i] == "--crlf") continue
 					f = norm(w[i]); T[f] = 1; T[f ".err"] = 1
 					break
 				}
@@ -5804,9 +7462,14 @@ _copies=$(printf '%s' "$_tfiles" | awk -F '\t' '
 # other: the two tests/ folders file for file and byte for byte, and, where
 # either is a c_program call, their `cases` token for token, in whatever
 # layout, once comments are left out and each folder's own tests/exNN/ is
-# read as one (a call it cannot match is reported, never passed). And a tests/
-# folder of three files or more that is all a copy of another module's, with
-# no such line, is reported: the next repeat copied in.
+# read as one (a call it cannot match is reported, never passed); and so
+# their c_diff calls' size, counts and seed (and perf's count and length) and
+# their c_cycles calls' budgets and count, which C 05 ex05's raised size once
+# left behind in its twin; and the layers that replay a generated corpus
+# (hand_test and corpus_memory calls naming a corpus runner), layer for
+# layer, which Reloaded's ex18 and ex19 lacked. And a
+# tests/ folder of three files or more that is all a copy of another
+# module's, with no such line, is reported: the next repeat copied in.
 ctwin_calls() {  # ctwin_calls MODULE -> "MODULE<TAB>exNN<TAB>TWIN" per c_twin(num = "NN", of = "...")
 	awk -v m="$1" '
 		/^c_twin\(/ {
@@ -5817,17 +7480,18 @@ ctwin_calls() {  # ctwin_calls MODULE -> "MODULE<TAB>exNN<TAB>TWIN" per c_twin(n
 		}
 	' "$1/BUILD.bazel"
 }
-ccases() {  # ccases BUILD exNN -> that c_program call's `cases`, one line; "(no cases)"; "UNREADABLE"; or nothing
-	# Each c_program( call, at any indentation and in any layout -- one line
-	# or many, `num` and `cases` on the call's own line or not -- is read whole
-	# (brackets counted outside strings, comments left out). The one whose
-	# num is "NN" gives its cases list on one line: blanks outside strings
-	# and a comma before a closing bracket dropped, tests/exNN/ read as
-	# tests/exXX/, so two layouts of one list compare equal. A call whose
-	# num is not a literal (a comprehension's variable) cannot be matched:
-	# UNREADABLE, unless a literal call matched, so the pair is reported and
-	# never compared equal on two empty readings, as a one-line call once was.
-	awk -v want="${2#ex}" -v ex="$2" '
+ccall_arg() {  # ccall_arg BUILD MACRO exNN KEY -> per MACRO(num = "NN") call, its KEY's value on one line; "(no KEY)"; "UNREADABLE"; or nothing
+	# Each MACRO( call, at any indentation and in any layout -- one line or
+	# many, `num` and KEY on the call's own line or not -- is read whole
+	# (brackets counted outside strings, comments left out). Each one whose
+	# num is "NN" gives KEY's value, at the call's own depth, on one line:
+	# blanks outside strings and a comma before a closing bracket dropped,
+	# tests/exNN/ read as tests/exXX/, so two layouts of one value compare
+	# equal. A call whose num is not a literal (a comprehension's variable)
+	# cannot be matched: UNREADABLE, unless a literal call matched, so the
+	# pair is reported and never compared equal on two empty readings, as a
+	# one-line call once was.
+	awk -v macro="$2" -v want="${3#ex}" -v ex="$3" -v key="$4" '
 		# code(l): l without its comment, strings kept whole.
 		function code(l,   i, c, out, q) {
 			out = ""; q = 0
@@ -5883,24 +7547,67 @@ ccases() {  # ccases BUILD exNN -> that c_program call's `cases`, one line; "(no
 			}
 			return out
 		}
-		function call_done(t,   n, c) {
-			if (match(t, /[(,][ \t]*num[ \t]*=[ \t]*"[^"]*"/)) {
-				n = substr(t, RSTART, RLENGTH); sub(/^[^"]*"/, "", n); sub(/"$/, "", n)
-				if (n != want) return
-				found = 1
-				if (!match(t, /[(,][ \t]*cases[ \t]*=[ \t]*\[/)) { print "(no cases)"; return }
-				c = list(substr(t, RSTART))
-				gsub("tests/" ex "/", "tests/exXX/", c)
-				print c
-			} else if (match(t, /[(,][ \t]*num[ \t]*=/))
-				unlit = 1
+		# arg(t, k): where the value of argument k of the call t opens
+		# starts, or 0: a k inside a nested call or list is not it.
+		function arg(t, k,   i, ch, q, d, r) {
+			q = 0; d = 0
+			for (i = 1; i <= length(t); i++) {
+				ch = substr(t, i, 1)
+				if (q) {
+					if (ch == "\\") i++
+					else if (ch == "\"") q = 0
+					continue
+				}
+				if (ch == "\"") { q = 1; continue }
+				if (ch == "(" || ch == "[" || ch == "{") d++
+				else if (ch == ")" || ch == "]" || ch == "}") d--
+				if (d != 1 || (ch != "(" && ch != ",")) continue
+				r = substr(t, i + 1)
+				if (match(r, "^[ \t]*" k "[ \t]*=[^=]")) return i + RLENGTH
+			}
+			return 0
+		}
+		# scalar(t): t up to the comma or bracket that ends it, blanks
+		# outside strings dropped.
+		function scalar(t,   i, ch, q, d, out) {
+			q = 0; d = 0; out = ""
+			for (i = 1; i <= length(t); i++) {
+				ch = substr(t, i, 1)
+				if (q) {
+					out = out ch
+					if (ch == "\\") { i++; out = out substr(t, i, 1) }
+					else if (ch == "\"") q = 0
+					continue
+				}
+				if (ch == " " || ch == "\t") continue
+				if (d == 0 && (ch == "," || ch == ")" || ch == "]" || ch == "}")) break
+				if (ch == "\"") q = 1
+				else if (ch == "(" || ch == "[" || ch == "{") d++
+				else if (ch == ")" || ch == "]" || ch == "}") d--
+				out = out ch
+			}
+			return out
+		}
+		function call_done(t,   p, n, c) {
+			p = arg(t, "num")
+			if (!p) return
+			n = scalar(substr(t, p))
+			if (n !~ /^"[^"]*"$/) { unlit = 1; return }
+			if (substr(n, 2, length(n) - 2) != want) return
+			found = 1
+			p = arg(t, key)
+			if (!p) { print "(no " key ")"; return }
+			c = substr(t, p); sub(/^[ \t]*/, "", c)
+			c = substr(c, 1, 1) == "[" ? list(c) : scalar(c)
+			gsub("tests/" ex "/", "tests/exXX/", c)
+			print c
 		}
 		{
 			l = code($0)
 			if (!inc) {
-				p = index(l, "c_program(")
+				p = index(l, macro "(")
 				if (p == 0 || (p > 1 && substr(l, p - 1, 1) ~ /[A-Za-z0-9_.]/)) next
-				l = substr(l, p + length("c_program"))
+				l = substr(l, p + length(macro))
 				inc = 1; text = ""; d = 0
 			}
 			text = text " " l
@@ -5910,7 +7617,246 @@ ccases() {  # ccases BUILD exNN -> that c_program call's `cases`, one line; "(no
 		END { if (!found && unlit) print "UNREADABLE" }
 	' "$1"
 }
+ccorpus_layers() {  # ccorpus_layers BUILD RUNNERS -> "exNN<TAB>layer" per corpus layer; "UNREADABLE<TAB>why"
+	# A corpus layer is a hand_test or corpus_memory statement that names
+	# one of RUNNERS (tools/defs.bzl's _CORPUS_RUNNERS, one per line):
+	# written out, or a comprehension over a table of tuples assigned above
+	# it (C 06's C06_ARGV_CORPORA), one layer per row. A layer reads as its
+	# macro, its target's name with the exercise's number left out, its
+	# runner, level and size, its --fn, --count and --seed, and the other
+	# options it passes as written, but those about standard error, which
+	# are each call site's choice. A name or a value it cannot work out --
+	# a variable no table binds -- is UNREADABLE, so the pair is reported
+	# and never compared equal on two empty readings; and so is a
+	# corpus_memory, or a hand_test whose srcs are not all strings, that
+	# names its runner through a name, which might be one of RUNNERS.
+	awk -v runners="$2" '
+		BEGIN {
+			n = split(runners, r, "\n")
+			for (i = 1; i <= n; i++) if (r[i] != "") runner["\"" r[i] "\""] = 1
+			split("--bin --oracle --fn --count --seed --stderr-empty --stderr-ignored", dr, " ")
+			for (i in dr) dropped["\"" dr[i] "\""] = 1
+		}
+		# code(l): l without its comment, strings kept whole.
+		function code(l,   i, c, out, q) {
+			out = ""; q = 0
+			for (i = 1; i <= length(l); i++) {
+				c = substr(l, i, 1)
+				if (q) {
+					out = out c
+					if (c == "\\") { i++; out = out substr(l, i, 1) }
+					else if (c == "\"") q = 0
+					continue
+				}
+				if (c == "#") break
+				if (c == "\"") q = 1
+				out = out c
+			}
+			return out
+		}
+		# depth(t): how many brackets of any kind t opens and leaves open.
+		function depth(t,   i, ch, q, d) {
+			q = 0; d = 0
+			for (i = 1; i <= length(t); i++) {
+				ch = substr(t, i, 1)
+				if (q) {
+					if (ch == "\\") i++
+					else if (ch == "\"") q = 0
+					continue
+				}
+				if (ch == "\"") q = 1
+				else if (ch == "(" || ch == "[" || ch == "{") d++
+				else if (ch == ")" || ch == "]" || ch == "}") d--
+			}
+			return d
+		}
+		# tokens(s): s as tok[1..nt] -- a string whole with its quotes, a
+		# name, a number, or one character of punctuation.
+		function tokens(s,   i, j, c) {
+			split("", tok); nt = 0; i = 1
+			while (i <= length(s)) {
+				c = substr(s, i, 1)
+				if (c == " " || c == "\t") { i++; continue }
+				if (c == "\"") {
+					for (j = i + 1; j <= length(s); j++) {
+						if (substr(s, j, 1) == "\\") j++
+						else if (substr(s, j, 1) == "\"") break
+					}
+					tok[++nt] = substr(s, i, j - i + 1); i = j + 1
+				} else if (c ~ /[A-Za-z_0-9.]/) {
+					match(substr(s, i), /^[A-Za-z_0-9.]+/)
+					tok[++nt] = substr(s, i, RLENGTH); i += RLENGTH
+				} else { tok[++nt] = c; i++ }
+			}
+		}
+		function close_of(k,   d) {  # the token that closes the bracket at k
+			d = 0
+			for (; k <= nt; k++) {
+				if (tok[k] == "(" || tok[k] == "[" || tok[k] == "{") d++
+				else if ((tok[k] == ")" || tok[k] == "]" || tok[k] == "}") && --d == 0) return k
+			}
+			return 0
+		}
+		function unq(v) { return v ~ /^".*"$/ ? substr(v, 2, length(v) - 2) : v }
+		# table(name): the rows of NAME = [(...), ...] as T[name, row, field].
+		function table(name,   k, e, row, f, d, v) {
+			e = close_of(3); row = 0; known[name] = 1
+			for (k = 4; k < e; k++) {
+				if (tok[k] != "(") {
+					if (tok[k] != ",") { row++; T[name, row, 1] = tok[k] }
+					continue
+				}
+				row++; f = 1; v = ""; d = 0
+				for (k++; k <= nt; k++) {
+					if (d == 0 && tok[k] == ")") break
+					if (tok[k] == "(" || tok[k] == "[" || tok[k] == "{") d++
+					else if (tok[k] == ")" || tok[k] == "]" || tok[k] == "}") d--
+					if (d == 0 && tok[k] == ",") { T[name, row, f++] = v; v = ""; continue }
+					v = v (v == "" ? "" : " ") tok[k]
+				}
+				if (v != "") T[name, row, f] = v
+			}
+			rows[name] = row
+		}
+		# value(a, b): the tokens a..b as one value -- a string, a number, a
+		# name a row binds, "..." % name, and those joined by + -- or "\001".
+		function value(a, b,   out, k, v) {
+			out = ""
+			for (k = a; k <= b; k++) {
+				if (tok[k] == "+") continue
+				if (tok[k] ~ /^"/ && tok[k + 1] == "%" && k + 2 <= b) {
+					v = tok[k + 2] == "(" ? tok[k + 3] : tok[k + 2]
+					if (!(v in B) || B[v] ~ /^\[/) return "\001"
+					v = unq(tok[k]); sub(/%s/, unq(B[tok[k + 2] == "(" ? tok[k + 3] : tok[k + 2]]), v)
+					out = out v; k += tok[k + 2] == "(" ? 4 : 2
+				} else if (tok[k] ~ /^"/ || tok[k] ~ /^[0-9.]+$/ || tok[k] == "None") out = out unq(tok[k])
+				else if ((tok[k] in B) && B[tok[k]] !~ /^\[/) out = out unq(B[tok[k]])
+				else return "\001"
+			}
+			return out
+		}
+		# after(sep, nx): the value an option takes, when the token after
+		# it is one -- a string that is no option, or a name a row binds.
+		function after(sep, nx) {
+			if (sep != ",") return ""
+			if (nx ~ /^"/) return nx ~ /^"--/ ? "" : " " unq(nx)
+			if ((nx in B) && B[nx] !~ /^\[/) return " " unq(B[nx])
+			return ""
+		}
+		# layer(a, e): the call tok[a]( ... tok[e], under the bindings B.
+		function layer(a, e,   k, d, key, ve, tname, run, lv, sz, opt, fl, nf, i, j, w, nw, t) {
+			tname = ""; run = ""; lv = "-"; sz = "-"; opt["fn"] = opt["count"] = opt["seed"] = "-"; nf = 0
+			d = 0
+			for (k = a + 2; k < e; k++) {
+				if (tok[k] == "(" || tok[k] == "[" || tok[k] == "{") { d++; continue }
+				if (tok[k] == ")" || tok[k] == "]" || tok[k] == "}") { d--; continue }
+				if (d == 0 && tok[k + 1] == "=" && (tok[k - 1] == "(" || tok[k - 1] == ",")) {
+					key = tok[k]
+					for (ve = k + 2; ve < e; ve++) {
+						if (tok[ve] == "(" || tok[ve] == "[" || tok[ve] == "{") ve = close_of(ve)
+						else if (tok[ve] == ",") break
+					}
+					if (key == (tok[a] == "corpus_memory" ? "stem" : "name")) tname = value(k + 2, ve - 1)
+					else if (key == "level") lv = value(k + 2, ve - 1)
+					else if (key == "size") sz = value(k + 2, ve - 1)
+					continue
+				}
+				if (tok[k] in runner) run = unq(tok[k])
+				if (tok[k] == "\"--fn\"" || tok[k] == "\"--count\"" || tok[k] == "\"--seed\"") {
+					opt[substr(tok[k], 4, length(tok[k]) - 4)] = value(k + 2, k + 2)
+				} else if (tok[k] ~ /^"--/ && !(tok[k] in dropped)) fl[++nf] = unq(tok[k]) after(tok[k + 1], tok[k + 2])
+				else if ((tok[k] in B) && B[tok[k]] ~ /^\[/) {
+					nw = split(B[tok[k]], w, " ")
+					for (j = 1; j <= nw; j++)
+						if (w[j] ~ /^"--/ && !(w[j] in dropped)) fl[++nf] = unq(w[j]) after(w[j + 1], w[j + 2])
+				}
+			}
+			if (tname == "\001" || tname !~ /^ex[0-9][0-9]_/ || lv == "\001" || sz == "\001" ||
+				opt["fn"] == "\001" || opt["count"] == "\001" || opt["seed"] == "\001") {
+				print "UNREADABLE\ta " tok[a] " call whose name or values are not written out, nor read from a table of rows above it"
+				return
+			}
+			for (i = 2; i <= nf; i++)
+				for (j = i; j > 1 && fl[j - 1] > fl[j]; j--) { t = fl[j]; fl[j] = fl[j - 1]; fl[j - 1] = t }
+			t = ""
+			for (i = 1; i <= nf; i++) t = t (t == "" ? "" : ", ") fl[i]
+			gsub(substr(tname, 1, 4), "exXX", t)
+			print substr(tname, 1, 4) "\t" tok[a] " exXX" substr(tname, 5) ": " run ", level " lv ", size " sz \
+				", --fn " opt["fn"] ", --count " opt["count"] ", --seed " opt["seed"] ", options " (t == "" ? "-" : t)
+		}
+		# written(a, e): whether the hand_test tok[a]( ... tok[e] has its srcs
+		# and every one of them written out as a string.
+		function written(a, e,   k, d, ve) {
+			d = 0
+			for (k = a + 2; k < e; k++) {
+				if (tok[k] == "(" || tok[k] == "[" || tok[k] == "{") { d++; continue }
+				if (tok[k] == ")" || tok[k] == "]" || tok[k] == "}") { d--; continue }
+				if (d != 0 || tok[k] != "srcs" || tok[k + 1] != "=" || (tok[k - 1] != "(" && tok[k - 1] != ",")) continue
+				for (ve = k + 2; ve < e; ve++) {
+					if (tok[ve] == "(" || tok[ve] == "[" || tok[ve] == "{") ve = close_of(ve)
+					else if (tok[ve] == ",") break
+				}
+				for (k += 2; k < ve; k++)
+					if (tok[k] !~ /^"/ && tok[k] != "[" && tok[k] != "]" && tok[k] != "," && tok[k] != "+") return 0
+				return 1
+			}
+			return 0
+		}
+		function statement(s,   k, a, e, nv, v, tb, row, i, named) {
+			tokens(s)
+			if (tok[1] ~ /^[A-Z][A-Z0-9_]*$/ && tok[2] == "=" && tok[3] == "[") { table(tok[1]); return }
+			named = 0
+			for (k = 1; k <= nt; k++) if (tok[k] in runner) named = 1
+			if (!named) {
+				# A call that names its runner through a name -- a row of a
+				# table, a variable -- may be a corpus layer all the same:
+				# passed over, it left its pair two empty readings, equal.
+				a = (tok[1] == "[") ? 2 : 1
+				if (tok[a + 1] == "(" && (tok[a] == "corpus_memory" || tok[a] == "hand_test" && !written(a, close_of(a + 1))))
+					print "UNREADABLE\ta " tok[a] " call whose " (tok[a] == "hand_test" ? "srcs" : "runner") \
+						" is no string naming a corpus runner"
+				return
+			}
+			split("", B)
+			a = (tok[1] == "[") ? 2 : 1
+			if (tok[a] != "hand_test" && tok[a] != "corpus_memory" || tok[a + 1] != "(") {
+				print "UNREADABLE\ta statement naming a corpus runner that is no hand_test or corpus_memory call"
+				return
+			}
+			e = close_of(a + 1)
+			if (a == 1) { layer(a, e); return }
+			if (tok[e + 1] != "for") {
+				print "UNREADABLE\ta comprehension over hand_test or corpus_memory with no for"
+				return
+			}
+			nv = 0
+			for (k = e + 2; k <= nt && tok[k] != "in"; k++) if (tok[k] != ",") v[++nv] = tok[k]
+			tb = tok[k + 1]
+			if (!(tb in known) || tok[k + 2] != "]") {
+				print "UNREADABLE\ta comprehension over " tb ", which is no table of rows assigned above it"
+				return
+			}
+			for (row = 1; row <= rows[tb]; row++) {
+				split("", B)
+				for (i = 1; i <= nv; i++) if ((tb, row, i) in T) B[v[i]] = T[tb, row, i]
+				layer(a, e)
+			}
+		}
+		{
+			l = code($0)
+			if (!ins && l ~ /^[ \t]*$/) next
+			text = text " " l; ins = 1
+			d += depth(l)
+			if (d <= 0) { statement(text); text = ""; d = 0; ins = 0 }
+		}
+	' "$1"
+}
 _ctw=$(for _m in $MODULES; do [ -f "$_m/BUILD.bazel" ] && ctwin_calls "$_m"; done)
+# The corpus runners, as c_levels()' audit reads them: a layer that names one
+# of them is compared below. A tree with no tools/defs.bzl has none.
+_ctwrun=""
+[ -f tools/defs.bzl ] && _ctwrun=$(sed -n '/^_CORPUS_RUNNERS = \[/,/^\]/p' tools/defs.bzl |
+	sed -n 's#^[[:blank:]]*"\(//tools:[A-Za-z0-9_]*\.sh\)",.*#\1#p')
 _ctwin_bad=""
 _oldifs=$IFS
 IFS='
@@ -5937,16 +7883,54 @@ for _t in $_ctw; do
 		cmp -s "$_tm/tests/$_tex/$_f" "$_sm/tests/$_sex/$_f" || _ctwin_bad="$_ctwin_bad
     ${_f#./} differs between $_tm/tests/$_tex and $_sm/tests/$_sex"
 	done
-	_cct=$(ccases "$_tm/BUILD.bazel" "$_tex")
-	_ccs=$(ccases "$_sm/BUILD.bazel" "$_sex")
-	if [ "$_cct" = UNREADABLE ] || [ "$_ccs" = UNREADABLE ]; then
-		_ctwin_bad="$_ctwin_bad
-    the c_program calls of $_tm $_tex and $_src cannot be compared: one has no
-    c_program(num = \"NN\") with its number written out, and a call whose num
+	# What each call replays and how long it may take, beside the cases: a
+	# size raised on one copy, for a correct answer that came near its time
+	# limit on the corpus the two share, and not on the other, left the
+	# twin one slow run from a TIMEOUT.
+	# And the seed, which picks the corpus a count is a count of, and
+	# what the perf layer replays: two equal counts of two seeds are two
+	# corpora.
+	for _mk in c_program:cases c_diff:size c_diff:count c_diff:asan_count \
+		c_diff:seed c_diff:perf_count c_diff:perf_length \
+		c_cycles:budget c_cycles:syscall_budget c_cycles:count; do
+		_mac=${_mk%%:*}
+		_key=${_mk#*:}
+		_cct=$(ccall_arg "$_tm/BUILD.bazel" "$_mac" "$_tex" "$_key")
+		_ccs=$(ccall_arg "$_sm/BUILD.bazel" "$_mac" "$_sex" "$_key")
+		if [ "$_cct" = UNREADABLE ] || [ "$_ccs" = UNREADABLE ]; then
+			_ctwin_bad="$_ctwin_bad
+    the $_mac calls of $_tm $_tex and $_src cannot be compared: one has no
+    $_mac(num = \"NN\") with its number written out, and a call whose num
     is a variable cannot be matched; write that call with its own number"
-	elif [ "$_cct" != "$_ccs" ]; then
-		_ctwin_bad="$_ctwin_bad
+		elif [ "$_cct" != "$_ccs" ] && [ "$_key" = cases ]; then
+			_ctwin_bad="$_ctwin_bad
     the cases of $_tm's c_program(num = \"${_tex#ex}\") differ from $_src's"
+		elif [ "$_cct" != "$_ccs" ]; then
+			_ctwin_bad="$_ctwin_bad
+    the $_key of $_tm's $_mac(num = \"${_tex#ex}\") differs from $_src's:
+    $(printf '%s' "${_cct:-(no call)}" | tr '\n' ' ') here, $(printf '%s' "${_ccs:-(no call)}" | tr '\n' ' ') there"
+		fi
+	done
+	# The layers that replay a generated corpus, one by one (ccorpus_layers):
+	# Reloaded's ex18 and ex19 had none of the argument corpora C 06 runs on
+	# the programs they repeat, and nothing above could see it, since those
+	# layers are no macro's with a num.
+	_clt=$(ccorpus_layers "$_tm/BUILD.bazel" "$_ctwrun")
+	_cls=$(ccorpus_layers "$_sm/BUILD.bazel" "$_ctwrun")
+	_clu=$(printf '%s\n%s\n' "$_clt" "$_cls" | awk -F'\t' '$1 == "UNREADABLE" { print $2 }' | sort -u)
+	if [ -n "$_clu" ]; then
+		_ctwin_bad="$_ctwin_bad
+    the corpus layers of $_tm $_tex and $_src cannot be compared: $(printf '%s' "$_clu" | tr '\n' ' ')"
+	else
+		_clt=$(printf '%s\n' "$_clt" | awk -F'\t' -v e="$_tex" '$1 == e { print $2 }')
+		_cls=$(printf '%s\n' "$_cls" | awk -F'\t' -v e="$_sex" '$1 == e { print $2 }')
+		_ctwin_bad="$_ctwin_bad$(awk -v here="$_clt" -v there="$_cls" -v tm="$_tm" -v tex="$_tex" -v src="$_src" '
+			BEGIN {
+				n = split(here, h, "\n"); for (i = 1; i <= n; i++) if (h[i] != "") inh[h[i]] = 1
+				n = split(there, t, "\n"); for (i = 1; i <= n; i++) if (t[i] != "") ins[t[i]] = 1
+				for (l in ins) if (!(l in inh)) printf "\n    %s %s lacks a corpus layer %s has:\n      %s", tm, tex, src, l
+				for (l in inh) if (!(l in ins)) printf "\n    %s %s has a corpus layer %s has not:\n      %s", tm, tex, src, l
+			}')"
 	fi
 	IFS='
 '
@@ -5954,8 +7938,12 @@ done
 IFS=$_oldifs
 [ -z "$_ctwin_bad" ] || report "a C exercise declared a twin (c_twin), and the two have drifted" \
 	"$_ctwin_bad" \
-	"A fix made to one copy is still to be made to the other: the twin's tests" \
-	"and cases are the exercise's it repeats, with its own number."
+	"A fix made to one copy is still to be made to the other: the twin's tests," \
+	"cases, c_diff sizes, seeds and counts, c_cycles budgets and the layers that" \
+	"replay a corpus are the exercise's it repeats, with its own number (a" \
+	"layer's name with the number left out). The arguments are compared as" \
+	"written, so a default spelled out on one call and left out of the other" \
+	"differs: spell each the same way in both."
 # Undeclared: a tests/exNN folder of three files or more, every one byte for
 # byte a file of another module's tests/exMM, the same names -- read with the
 # name of a prototype.h's include guard left out, which every module spells
@@ -6188,6 +8176,217 @@ ladder_copies=$(
 	"drifts with nothing to notice."
 
 # ---------------------------------------------------------------------------
+# N. No shipped file cites a section or an item of TODO.md or HISTORY.md.
+#
+# The template ships without the maintainer's backlog and record, so a pointer
+# into either -- a section's number, a lead's or a package's tag after the
+# file's name, an item of the old board by number -- sends a cloner to a page
+# they do not have. On main it outlives what it points at: on 2026-10-10
+# forty-one such pointers were found, most of them to sections since moved,
+# renumbered or closed. A shipped file says the thing itself, or names a tag
+# (V111, WP-92, finding 041) bare, as a name. Naming the files is fine:
+# AGENTS.md says where a lead goes.
+#
+# Not read: the two files themselves, the others the template build removes,
+# and the passages it strips (_pv_s to _pv_e). A citation wrapped after the
+# file's name, or after "board", is read across the line break, the next
+# line's comment marker set aside.
+_ct_re='(TODO|HISTORY)[.]md[,;:]?[[:space:]]*(§|section[[:space:]]+[0-9]|item[[:space:]]+[0-9]|[VDGR][0-9]|WP-[0-9])|(TODO|board)[[:space:]]+item[[:space:]]+[0-9]'
+_ct_skip="TODO.md HISTORY.md"
+_ct_hits=$(
+	text_files -exec grep -lIE 'TODO|HISTORY|board' {} + | sort | while IFS= read -r _f; do
+		case " $_ct_skip " in *" ${_f#./} "*) continue ;; esac
+		LC_ALL=C awk -v re="$_ct_re" -v f="${_f#./}" \
+			-v fe='(TODO|HISTORY)[.]md[,;:]?[[:space:]]*$' \
+			-v fs='^(§|section[[:space:]]+[0-9]|item[[:space:]]+[0-9]|[VDGR][0-9]|WP-[0-9])' \
+			-v be='(TODO|board)[[:space:]]*$' -v bs='^item[[:space:]]+[0-9]' \
+			-v lead='^[[:space:]]*(#+|//+|[*]+|--|<!--)?[[:space:]]*' \
+			-v s="$_pv_s" -v e="$_pv_e" '
+			s != "" && $0 ~ s { blk = 1; prev = ""; next }
+			e != "" && $0 ~ e { blk = 0; prev = ""; next }
+			blk { next }
+			{
+				if ($0 ~ re) printf "    %s:%d: %s\n", f, FNR, $0
+				else if (prev != "") {
+					t = $0; sub(lead, "", t)
+					if ((prev ~ fe && t ~ fs) || (prev ~ be && t ~ bs))
+						printf "    %s:%d: %s\n", f, FNR - 1, prev
+				}
+				prev = $0
+			}' "$_f"
+	done
+)
+[ -z "$_ct_hits" ] || report \
+	"a shipped file cites a section or an item of TODO.md or HISTORY.md" \
+	"$_ct_hits" \
+	"The template ships without either file, so the pointer leads nowhere" \
+	"there, and on main it outlives what it points at. Say the thing itself," \
+	"or name the tag bare (V111, WP-92)."
+
+# ---------------------------------------------------------------------------
+# N. A comment points into a file by a name, never by a line number.
+#
+# A path with a line number after it is right the day it is written and wrong
+# after the next edit above that line, with nothing to notice: tools/prime.sh
+# pointed at two lines of .bazelrc whose text had moved, and of the four such
+# pointers then left in tools/, all four missed (a runaway guard, a fixture,
+# two rows of a table). Point by what does not move: a function, a heading, a
+# phrase the reader can search for.
+#
+# Read: every comment line of a file of code under tools/ (one that starts
+# with #, //, /* or *, and a .bzl or .py docstring), and every line of a page
+# under docs/ outside its fenced blocks. A data file (an expected output, a
+# corpus, a table) holds no comments and is not read; nor is a comment after
+# code on its line.
+#
+# What a comment QUOTES is no pointer -- a compiler's, Bazel's or grep -n's
+# output -- and it is told apart by shape, not by its words:
+#   * a colon after the number, the way every diagnostic prints a place
+#     (file, line, column, message, each after a colon);
+#   * a quote, "..." or `...`, that holds more than the path and its number,
+#     or that opened on an earlier line or closes on a later one: a message
+#     quoted whole. A quote holding the pointer alone is still a pointer.
+# Nor is what only looks like a path: a version or a host whose last part is
+# no file kind of this tree (v1.2:3, proxy.example.com:3128), a time, a Bazel
+# label or a URL. A name with no slash is a file only when it ends in an
+# extension some file of the tree has, or is a build file named bare, as
+# BUILD is.
+_pt_ext=" $(text_files -print | sed -n 's|^.*/[^/]*[.]\([A-Za-z0-9_]*\)$|\1|p' | sort -u | tr '\n' ' ')"
+_pt_hits=$(text_files \( -path './tools/*' -o -path './docs/*' \) \
+	\( -name '*.sh' -o -name '*.bzl' -o -name '*.py' -o -name '*.bazel' -o -name BUILD \
+	-o -name '*.c' -o -name '*.h' -o -name '*.rs' -o -name Makefile -o -name '*.md' \) -print |
+	sort | while IFS= read -r _f; do
+		case "$_f" in *.md) _md=1 ;; *) _md=0 ;; esac
+		case "$_f" in *.bzl | *.py) _py=1 ;; *) _py=0 ;; esac
+		LC_ALL=C awk -v md="$_md" -v py="$_py" -v f="${_f#./}" -v exts="$_pt_ext" '
+			function count(s, q,   n, i) {
+				n = 0
+				for (i = 1; i <= length(s); i++) if (substr(s, i, 1) == q) n++
+				return n
+			}
+			# Is the text at p, l long, a message quoted with q?
+			function quoted(line, p, l, q,   before, after, a, b, inner) {
+				before = substr(line, 1, p - 1); after = substr(line, p + l)
+				if (count(before, q) % 2 == 0) return count(after, q) % 2 == 1
+				a = before
+				while (index(a, q)) a = substr(a, index(a, q) + 1)
+				b = index(after, q)
+				if (!b) return 1
+				inner = a substr(line, p, l) substr(after, 1, b - 1)
+				gsub(/^[ \t(]+|[ \t).,;]+$/, "", inner)
+				return inner != substr(line, p, l)
+			}
+			FNR == 1 { fence = 0; doc = 0 }
+			md && /^[ \t]*(```|~~~)/ { fence = !fence; next }
+			md && fence { next }
+			{ src = $0; rd = md || doc || /^[ \t]*(#|\/\/|\/\*|\*)/ }
+			# A docstring is read from the """ that opens it to the one that
+			# closes it, on those two lines too: what is outside it on them
+			# is code.
+			py && /"""/ && (doc || !/^[ \t]*#/) {
+				k = split($0, sg, /"""/); src = ""
+				for (i = 1; i <= k; i++) { if (doc) src = src " " sg[i]; if (i < k) doc = !doc }
+				rd = src ~ /[^ \t]/
+			}
+			!rd { next }
+			{
+				line = src; off = 0; s = line
+				while (match(s, /[A-Za-z0-9_.\/-]*[A-Za-z0-9_]:[0-9]+(-[0-9]+)?/)) {
+					p = off + RSTART; l = RLENGTH
+					off = p + l - 1; s = substr(line, off + 1)
+					t = substr(line, p, l); sub(/:[0-9-]+$/, "", t)
+					# A path: a dot or a slash in it, or a file named bare.
+					if (t !~ /[.\/]/ && t !~ /^(BUILD|Makefile|MODULE|WORKSPACE)$/) continue
+					# Not a version, an address, a time, a label or a URL.
+					if (t !~ /[A-Za-z]/ || t ~ /^\/\// || substr(line, p - 1, 1) == ":") continue
+					# Not a host or a version: no slash, and no extension a file has.
+					x = t; sub(/^.*[.]/, "", x)
+					if (t !~ /\// && x != t && !index(exts, " " x " ")) continue
+					if (substr(line, p + l, 1) == ":") continue
+					if (quoted(line, p, l, "\"") || quoted(line, p, l, "`")) continue
+					printf "    %s:%d: %s\n", f, FNR, $0
+					break
+				}
+			}' "$_f"
+	done)
+[ -z "$_pt_hits" ] || report \
+	"a comment points into a file by a line number" \
+	"$_pt_hits" \
+	"The number is right until the next edit above that line, and nothing" \
+	"notices when it goes stale. Point by what does not move: a function, a" \
+	"heading, a phrase to search for. Output a comment quotes is not read:" \
+	"keep it in quotes with its message, or with the colon after the number."
+
+# ---------------------------------------------------------------------------
+# N. No file says a CI runs the checks while the repo has none.
+#
+# Nothing under .github/workflows/ runs anything: the checks run only when
+# someone runs them (a maintainer's forced sweep is --test_env=NO_SKIP=1). A
+# sentence saying a gate is set, or a check made, by the CI tells its reader
+# of a safety net that is not there, and lets a layer that quietly stopped
+# measuring look watched. Two such sentences outlived a third that was
+# reworded (V118). A sentence saying there is none is fine. The day a
+# workflow lands this rule stands down, and the sentences it found are each
+# read again.
+#
+# Not read: TODO.md and HISTORY.md, which quote what they record. Wrapped
+# after "in", the next line is read with its comment marker set aside.
+_ci_re='(^|[^A-Za-z])[Ii]n[[:space:]]+CI([^A-Za-z]|$)'
+_ci_wf=$(text_files -path './.github/workflows/*' -print | head -n 1)
+_ci_hits=""
+[ -n "$_ci_wf" ] || _ci_hits=$(
+	text_files ! -path ./TODO.md ! -path ./HISTORY.md -exec grep -lIE 'CI([^A-Za-z]|$)' {} + | sort |
+	while IFS= read -r _f; do
+		LC_ALL=C awk -v re="$_ci_re" -v f="${_f#./}" \
+			-v lead='^[[:space:]]*(#+|//+|[*]+|--|<!--)?[[:space:]]*' '
+			{
+				t = $0; sub(lead, "", t)
+				if ($0 ~ re) printf "    %s:%d: %s\n", f, FNR, $0
+				else if (prev ~ /(^|[^A-Za-z])[Ii]n[[:space:]]*$/ && t ~ /^CI([^A-Za-z]|$)/)
+					printf "    %s:%d: %s\n", f, FNR - 1, prev
+				prev = $0
+			}' "$_f"
+	done
+)
+[ -z "$_ci_hits" ] || report \
+	"a file says a CI runs the checks, and the repo has none" \
+	"$_ci_hits" \
+	"No workflow runs anything here: say who runs it (a maintainer's forced" \
+	"sweep, --test_env=NO_SKIP=1), or that nothing does."
+
+# ---------------------------------------------------------------------------
+# N. A full run's size is said in one place.
+#
+# How much room a full run takes was measured once and quoted, as one figure,
+# in thirteen places across eight files; the suite more than doubled and every
+# copy went stale together. tools/drives.sh keeps the figure, with when and how
+# it was measured, as DRIVES_FULL_GB: setup.sh's warnings and the campus warning
+# print it, and the rest point there. A line elsewhere that puts a gigabyte
+# figure beside a full run, a full build, a build tree or a footprint is a
+# second copy, and goes stale the same way.
+#
+# Not read: tools/drives.sh, the one place, and TODO.md and HISTORY.md, which
+# quote what they record.
+_fp_hits=$(
+	text_files ! -path ./TODO.md ! -path ./HISTORY.md ! -path ./tools/drives.sh \
+		-exec grep -lIE '[0-9][[:space:]]?GB' {} + | sort |
+	while IFS= read -r _f; do
+		LC_ALL=C awk -v f="${_f#./}" '
+			{
+				t = tolower($0)
+				if (t ~ /[0-9]([.][0-9]+)?[[:space:]]?gb([^a-z]|$)/ &&
+				    t ~ /full[[:space:]]+(run|build)|build[[:space:]]+tree|footprint/)
+					printf "    %s:%d: %s\n", f, FNR, $0
+			}' "$_f"
+	done
+)
+[ -z "$_fp_hits" ] || report \
+	"a file quotes a full run's size, which tools/drives.sh keeps" \
+	"$_fp_hits" \
+	"Print DRIVES_FULL_GB where a message needs the number, and point at" \
+	"tools/drives.sh where a comment or a page does."
+
+# ---------------------------------------------------------------------------
 # N. The REMOTES table in tools/submit.sh holds no URL.
 #
 # Every row there is REPLACE_ME, always: the table is the list of modules, and
@@ -6329,7 +8528,7 @@ done)
 # A page's commands are copied and run as they stand, on trees nobody here has
 # seen, and a script runs on every clone. `for f in $(git ls-files ...)` splits
 # every name at its blanks, and a tree holds such names -- a file manager's
-# `ft_x copy.c`, the macro fixtures' `toy_twice (1).c`: a runbook's loop for
+# `ft_x copy.c`, the macro fixtures' `toy_twice (1).c`: a page's loop for
 # "what still needs stubbing" reported `.../ex05/toy_twice` twice, a file that
 # does not exist, and never looked at the two that do. stub_check.sh walked its
 # lists the same way and passed a staged answer with a blank in its name. So no
@@ -6349,9 +8548,6 @@ _list_loops=$(text_files \( -name '*.md' -o -name '*.sh' \) ! -path ./TODO.md ! 
 	-exec awk -v bq="$(printf '\140')" '
 	BEGIN {
 		split("ls-files ls-tree grep diff", g, " "); for (i in g) lists[g[i]] = 1
-		# A string, not a /regex/: the require-list scanner above reads a
-		# word after a ( as a command, and git is not one this script runs.
-		gitls = "(^|[^A-Za-z0-9_-])git([[:blank:]]+-C[[:blank:]]+[^[:blank:]]+)?[[:blank:]]+(ls-files|ls-tree)([[:blank:]]|$)"
 	}
 	FNR == 1 { pipe = ""; at = 0 }
 	function where() { f = FILENAME; sub(/^\.\//, "", f); return f }
@@ -6372,7 +8568,7 @@ _list_loops=$(text_files \( -name '*.md' -o -name '*.sh' \) ! -path ./TODO.md ! 
 		l = $0
 		# A comment, and a Markdown table row, which ends in a | too.
 		if (pipe == "" && l !~ /^[[:blank:]]*[#|]/ &&
-		    l ~ gitls &&
+		    l ~ /(^|[^A-Za-z0-9_-])git([[:blank:]]+-C[[:blank:]]+[^[:blank:]]+)?[[:blank:]]+(ls-files|ls-tree)([[:blank:]]|$)/ &&
 		    l !~ /(^|[[:blank:]])-z([[:blank:]]|$)/ && l !~ /--error-unmatch/) {
 			pipe = l; at = FNR; text = $0
 		} else if (pipe != "")
@@ -7092,11 +9288,13 @@ fi
 # which generate rebuilds) in one message and "next to BUILD.bazel" in another;
 # rush-02's dictionary "wherever you like" while the subject's one-argument
 # form reads it from a fixed place (findings 016, 161). So, per row: the path is
-# inside the project and outside tests/; every file in named-in names the exact
-# path; and every consumer is a label in the project (the target itself is run
-# by the cold-clone rehearsal, which checks that it SKIPs naming the path). And
-# anywhere a student reads: no line pairs a registered name with "its folder",
-# "the exercise's folder" or "wherever you like".
+# inside the project and ends in the file's name, which the template strip and
+# the ignore rule go by (under tests/ or not: the strip takes the exact name
+# anywhere); every file in named-in names the exact path; and every consumer
+# is a label in the project (the target itself is run by the cold-clone
+# rehearsal, which checks that it SKIPs naming the path). And anywhere a
+# student reads: no line pairs a registered name with "its folder", "the
+# exercise's folder" or "wherever you like".
 #
 # AND HOW EACH BUILD FILE NAMES IT, read as Starlark rather than as lines. The
 # file is absent from the template, so a BUILD file that names it as a bare
@@ -7301,7 +9499,7 @@ else
 		NF != 8 { print "a row has " NF " columns, not 8: " $0; next }
 		$4 != "harness" && $4 != "turn-in" { print $2 ": role \"" $4 "\" is neither harness nor turn-in" }
 		index($3, $1 "/") != 1 { print $2 ": path " $3 " is not inside " $1 }
-		$3 ~ /(^|\/)tests\// { print $2 ": path " $3 " is under tests/, which the template strip spares" }')
+		substr($3, length($3) - length($2)) != "/" $2 { print $2 ": path " $3 " does not end in /" $2 ", the name the template strip and the ignore rule go by" }')
 	[ -z "$_bad" ] || report "tools/resources.tsv has malformed rows" "$_bad"
 	_names=""
 	_oldifs=$IFS
@@ -7385,6 +9583,7 @@ else
 			[ "$_nf" = "-" ] && continue
 			# The template build applies the patch and deletes it, so on the
 			# template its passages are the README's.
+			# conventions: private-name -- reads the patch where it exists
 			[ "$_nf" = tools/template_docs.patch ] && [ ! -f "$_nf" ] && _nf=README.md
 			if [ ! -f "$_nf" ]; then
 				report "tools/resources.tsv: $_rf is to be named in $_nf, which does not exist"
@@ -7399,6 +9598,7 @@ else
 '
 	done
 	IFS=$_oldifs
+	# conventions: private-name -- reads the patch where it exists
 	set -- README.md docs/*.md tools/*.sh tools/template_docs.patch
 	find . -path './bazel-*' -prune -o -path '*/tests/*' -name '*.sh' -print 2> /dev/null | sort > "$lex_d/files"
 	while IFS= read -r _tf; do
@@ -7558,8 +9758,8 @@ done
 # ---------------------------------------------------------------------------
 # N. CHANGELOG.md has one dated line per publish, newest first.
 #
-# The template is published as a chain a colleague pulls (docs/publishing.md),
-# and this file is how they learn what a pull cannot do for them. The template
+# The template is published as a chain a colleague pulls, and this file is
+# how they learn what a pull cannot do for them. The template
 # build's --chain refuses a publish without exactly one new dated line; this
 # keeps the file in the shape that check reads between publishes: every entry
 # "- YYYY-MM-DD: ..." except at most one "- next publish: ...", first.
@@ -7652,10 +9852,11 @@ if [ -f tools/pins.tsv ]; then
 			"The shell layer runs the fetched shellcheck, so this version decides" \
 			"which warnings exist and therefore which submissions are red."
 	fi
-	# buildifier is pinned in two places for two audiences: MODULE.bazel for
-	# `bazel run //:buildifier`, the Dockerfile for the editor extension's copy
-	# on PATH. A student formatting in the editor and the repo checking in CI
-	# must be running the same formatter.
+	# buildifier is pinned in two places for two audiences: MODULE.bazel
+	# (buildifier_prebuilt) for the copy //tools:conventions runs, the
+	# Dockerfile for the editor extension's copy on PATH. A student formatting
+	# in the editor and //tools:conventions checking the repo must be running
+	# the same formatter.
 	_bw=$(pin_want buildifier | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
 	_bd=$(sed -n 's/^ARG BUILDIFIER_VERSION=v//p' .devcontainer/Dockerfile | head -n 1)
 	if [ "$_bw" != "$_bd" ]; then
@@ -7924,16 +10125,23 @@ fi
 # the first commands a newcomer met ran it: init's closing line, README's flow
 # line and triage example, testing.md's triage, and the editor's default test
 # task (finding 006). Each names one module's suite now. A `bazel test //...`
-# a doc still shows in a code block says, on its own line, that it needs
-# memory to spare -- the reader copying it is the one who needs to know.
+# a doc still shows in a code block is introduced by a paragraph that says it
+# needs memory to spare -- the reader copying it is the one who needs to know.
+# It used to be said on the command's own line, behind a '#', which zsh hands
+# to the command as more words: the paragraph is the one place that is read
+# and never pasted. The paragraph is the prose right above the block's opening
+# fence, a blank line between them or not, and a block that follows another
+# block has none.
 # TODO.md and HISTORY.md are records, not instructions. In .vscode/tasks.json
 # the default test task never runs //..., and a task that does says so in its
 # label, which is all a menu shows.
 _wr=$(text_files -name '*.md' ! -path ./TODO.md ! -path ./HISTORY.md \
 	-exec awk '
-		FNR == 1 { f = FILENAME; sub(/^\.\//, "", f); fe = 0 }
-		/^[[:blank:]]*```/ { fe = !fe; next }
-		fe && /bazel test([[:blank:]]+-[^[:blank:]]+)*[[:blank:]]+\/\/\.\.\.([[:blank:]]|$)/ && !/memory/ {
+		FNR == 1 { f = FILENAME; sub(/^\.\//, "", f); fe = 0; para = ""; gap = 0 }
+		/^[[:blank:]]*```/ { if (!fe) intro = para; fe = !fe; para = ""; next }
+		!fe && /^[[:blank:]]*$/ { gap = 1; next }
+		!fe { if (gap) para = ""; gap = 0; para = para " " $0; next }
+		/bazel test([[:blank:]]+-[^[:blank:]]+)*[[:blank:]]+\/\/\.\.\.([[:blank:]]|$)/ && intro !~ /memory/ {
 			printf "    %s:%d: %s\n", f, FNR, $0
 		}' {} + | sort -t: -k1,1 -k2,2n)
 [ -z "$_wr" ] || report \
@@ -7941,28 +10149,36 @@ _wr=$(text_files -name '*.md' ! -path ./TODO.md ! -path ./HISTORY.md \
 	"$_wr" \
 	"On a campus box (about 2.5 GB free) bazel test //... is more than the" \
 	"machine has; one module's suite (bazel test //<course>/<project>:basic) is" \
-	"what to show. Where the whole repo is the point, say on that line, in a" \
-	"comment, that it needs memory to spare."
+	"what to show. Where the whole repo is the point, say in the sentence that" \
+	"introduces the block that it needs memory to spare, never in a '#' note on" \
+	"the command's line."
 # And what a runner prints. A SKIP paragraph is the first command many a
 # newcomer copies, and five of them printed `bazel test //...
 # --test_env=NO_SKIP=1` (review of WP-83). An echo or printf of tools/*.sh
-# that shows a whole-repo test is reported as a doc's is, unless its line
-# says it needs memory; tools/runner_lib.sh's rl_noskip_cmd names the test
-# itself.
+# that shows a whole-repo test is reported as a doc's is, unless the line
+# just before it is an echo or printf that says it needs memory -- the
+# sentence that introduces the command, as a doc's paragraph does. A note
+# on the command's own line does not count: behind a '#' it is what zsh
+# runs as words of the command (the rule on a script's '#' notes, below).
+# tools/runner_lib.sh's rl_noskip_cmd names the test itself.
 _wp=$(for _f in tools/*.sh; do
 	[ -f "$_f" ] || continue
 	awk -v f="$_f" '
-		/^[[:blank:]]*#/ { next }
-		/(^|[[:blank:];&|(])(echo|printf)[[:blank:]]/ &&
-			/bazel test([[:blank:]]+-[^[:blank:]]+)*[[:blank:]]+\/\/\.\.\.([^A-Za-z0-9_\/:.-]|$)/ && !/memory/ {
+		/^[[:blank:]]*#/ { said = 0; next }
+		{ pr = /(^|[[:blank:];&|(])(echo|printf)[[:blank:]]/ }
+		pr && /bazel test([[:blank:]]+-[^[:blank:]]+)*[[:blank:]]+\/\/\.\.\.([^A-Za-z0-9_\/:.-]|$)/ && !said {
 			printf "    %s:%d: %s\n", f, FNR, $0
-		}' "$_f"
+		}
+		{ said = pr && /memory/ }' "$_f"
 done)
 [ -z "$_wp" ] || report \
 	"a runner prints a whole-repo test without saying it needs memory to spare" \
 	"$_wp" \
 	"Name the test instead: \$(rl_noskip_cmd) prints \`bazel test <this target>" \
-	"--test_env=NO_SKIP=1\`, which runs the one test the reader is looking at."
+	"--test_env=NO_SKIP=1\`, which runs the one test the reader is looking at." \
+	"Where the whole repo is the point, print the sentence that says it needs" \
+	"memory to spare on the line before the command, never in a '#' note on" \
+	"the command's line."
 if [ -f .vscode/tasks.json ]; then
 	# One task is one object of the "tasks" list, a "{" and a "}" alone on
 	# their lines, as the file is laid out; a task's inner objects ("group",
@@ -8029,8 +10245,215 @@ if [ -f .vscode/tasks.json ]; then
 		"$(printf '%s' "$_labels" | tr '\t' '\n' | sed '/^$/d; s/^/    /')"
 fi
 
+# ---------------------------------------------------------------------------
+# N. A shell block in a page holds what is typed, and never a '#' note.
+#
+# zsh, the campus login shell, has interactive_comments off by default: a line
+# pasted into it is not cut at a '#'. `make && make   # the second run must do
+# nothing` hands '#' and every word after it to the second make, a line that
+# is only `# a note` says "zsh: command not found: #", and `echo complete >
+# .submit-level   # this clone, permanently` wrote the note into the file.
+# bash ignores both, so the page reads fine to whoever wrote it. README.md
+# tells a student to leave such a note out, and the pages followed suit: a
+# note goes in the prose around its block.
+#
+# Read: every fenced block marked sh, bash, shell, zsh or console, the fence
+# indented inside a list or not, in every page outside the zone, the
+# maintainer's records too, whose commands are pasted as well. A '#' is a
+# note where a shell would read one: at the start of a word (the line's start,
+# or after a blank), outside quotes, and not part of a heredoc's body. A
+# quote is followed across lines, and a backslash escapes what follows it
+# outside single quotes. `#!` is a script's first line, never a note.
+_zc=$(text_files -name '*.md' -exec awk '
+	FNR == 1 { f = FILENAME; sub(/^\.\//, "", f); inb = 0 }
+	!inb {
+		if (match($0, /^[ \t]*(```+|~~~+)/)) {
+			fence = substr($0, RSTART, RLENGTH); sub(/^[ \t]*/, "", fence)
+			info = tolower(substr($0, RSTART + RLENGTH)); sub(/^[ \t{.]*/, "", info)
+			sub(/[^a-z].*/, "", info)
+			inb = 1; q = ""; hd = ""
+			sh = (info ~ /^(sh|bash|shell|zsh|console)$/)
+		}
+		next
+	}
+	{
+		# The block ends at a fence of its own character, at least as long.
+		t = $0; sub(/^[ \t]*/, "", t); sub(/[ \t]*$/, "", t)
+		u = t
+		if (substr(fence, 1, 1) == "`") gsub(/`/, "", u)
+		else gsub(/~/, "", u)
+		if (t != "" && u == "" && length(t) >= length(fence)) { inb = 0; next }
+	}
+	!sh { next }
+	hd != "" { t = $0; if (hdtab) sub(/^\t*/, "", t); if (t == hd) hd = ""; next }
+	{
+		n = length($0); prev = " "
+		for (i = 1; i <= n; i++) {
+			c = substr($0, i, 1)
+			if (q == "\047") { if (c == "\047") q = ""; prev = c; continue }
+			if (c == "\\") { i++; prev = "x"; continue }
+			if (q == "\"") { if (c == "\"") q = ""; prev = c; continue }
+			if (c == "\047" || c == "\"") { q = c; prev = c; continue }
+			if (c == "<" && substr($0, i, 2) == "<<" && substr($0, i, 3) != "<<<") {
+				r = substr($0, i + 2); hdtab = (substr(r, 1, 1) == "-"); sub(/^-?[ \t]*/, "", r)
+				if (match(r, /^(\047[^\047]*\047|"[^"]*"|\\?[A-Za-z_0-9]+)/)) {
+					hd = substr(r, 1, RLENGTH); gsub(/[\047"\\]/, "", hd)
+				}
+				prev = c; continue
+			}
+			if (c == "#" && (prev == " " || prev == "\t") && substr($0, i + 1, 1) != "!") {
+				printf "    %s:%d: %s\n", f, FNR, $0
+				break
+			}
+			prev = c
+		}
+	}' {} + | sort -t: -k1,1 -k2,2n)
+[ -z "$_zc" ] || report \
+	"a shell block in a page holds a '#' note, which zsh runs as words of the command" \
+	"$_zc" \
+	"zsh, the campus shell, does not read '#' as a comment when a line is" \
+	"pasted into it: the note becomes arguments, or a command named '#'. Say" \
+	"what the note said in the prose before or after the block, and keep in" \
+	"the block only what is typed."
+
+# A shell block never expands a variable it set to several words unquoted.
+#
+# zsh does not split an unquoted expansion into words: after `m='//a/...
+# //b/...'`, `bazel test $m` hands Bazel one pattern holding a blank, which sh
+# and bash split into two. A block a student or the maintainer pastes into
+# zsh writes the words out on the command line instead. Read: the blocks the
+# rule above reads. A variable set at a word's start to a quoted value that
+# holds a blank is reported where the same block expands it outside quotes.
+_zw=$(text_files -name '*.md' -exec awk '
+	FNR == 1 { f = FILENAME; sub(/^\.\//, "", f); inb = 0 }
+	!inb {
+		if (match($0, /^[ \t]*(```+|~~~+)/)) {
+			fence = substr($0, RSTART, RLENGTH); sub(/^[ \t]*/, "", fence)
+			info = tolower(substr($0, RSTART + RLENGTH)); sub(/^[ \t{.]*/, "", info)
+			sub(/[^a-z].*/, "", info)
+			inb = 1; split("", mw)
+			sh = (info ~ /^(sh|bash|shell|zsh|console)$/)
+		}
+		next
+	}
+	{
+		t = $0; sub(/^[ \t]*/, "", t); sub(/[ \t]*$/, "", t)
+		u = t
+		if (substr(fence, 1, 1) == "`") gsub(/`/, "", u)
+		else gsub(/~/, "", u)
+		if (t != "" && u == "" && length(t) >= length(fence)) { inb = 0; next }
+	}
+	!sh { next }
+	{
+		s = $0
+		while (match(s, /(^|[ \t;&|(])[A-Za-z_][A-Za-z_0-9]*=(\047[^\047]*\047|"[^"]*")/)) {
+			a = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+			sub(/^[ \t;&|(]/, "", a); k = index(a, "=")
+			if (substr(a, k + 1) ~ /[ \t]/) mw[substr(a, 1, k - 1)] = 1
+		}
+		n = length($0); q = ""
+		for (i = 1; i <= n; i++) {
+			c = substr($0, i, 1)
+			if (q == "\047") { if (c == "\047") q = ""; continue }
+			if (c == "\\") { i++; continue }
+			if (c == "\047" || c == "\"") { if (q == "") q = c; else if (q == c) q = ""; continue }
+			if (c != "$" || q != "") continue
+			if (!match(substr($0, i + 1), /^\{?[A-Za-z_][A-Za-z_0-9]*/)) continue
+			v = substr($0, i + 1, RLENGTH); sub(/^\{/, "", v)
+			if (v in mw) { printf "    %s:%d: %s\n", f, FNR, $0; break }
+		}
+	}' {} + | sort -t: -k1,1 -k2,2n)
+[ -z "$_zw" ] || report \
+	"a shell block expands a variable it set to several words, which zsh does not split" \
+	"$_zw" \
+	"zsh hands an unquoted \$m to the command as one word, blanks and all, where" \
+	"sh and bash split it. Write the words out on each command line that uses" \
+	"them, and keep the block what is typed."
+
+# And what a script tells its reader to type: the usage lines of its header,
+# which --help prints for some, and a command a runner echoes for a student to
+# paste. A '#' note there breaks in zsh as it does in a page. Read: every
+# script outside the zone and outside tools/tests/ (the harness's own tests,
+# whose fixtures print such lines on purpose); a line of the header (the
+# comment block the file opens with) whose first word is sh, bash, bazel, 42,
+# git or python3, or any word ending in .sh, with a '#' after a word and a
+# blank, itself followed by a blank or the line's end; and an echo or printf
+# whose quoted text has a '#' after a word and a blank and before a blank (a
+# C preprocessor line it quotes, '# define', excepted).
+# A '# Usage:' block is read whatever word its lines start with: `make`,
+# `cc`, `norminette` or `./prog` is typed as surely as `sh`. Its lines are
+# the indented header lines (two blanks or a tab after the '#') right under
+# the '# Usage:' line, up to the first that is not -- a bare '#' or a
+# heading. Every one of them is read as typed, an indented line of prose
+# that goes on from a command included (tools/cycles_check.sh holds some).
+_zn=$(text_files -name '*.sh' ! -path './tools/tests/*' -exec awk '
+	FNR == 1 { f = FILENAME; sub(/^\.\//, "", f); hdr = 1; us = 0 }
+	hdr && FNR > 1 && !/^#/ { hdr = 0 }
+	hdr {
+		w = $0; sub(/^#[ \t]*/, "", w); sub(/[ \t].*/, "", w)
+		if (us && !/^#(\t|[ \t][ \t])/) us = 0
+		if ((us || index(" sh bash bazel 42 git python3 ", " " w " ") || w ~ /\.sh$/) &&
+			$0 ~ /[^ \t#][ \t]+#([ \t]|$)/)
+			printf "    %s:%d: %s\n", f, FNR, $0
+		if (/^#[ \t]*Usage:/) us = 1
+		next
+	}
+	/^[ \t]*(echo|printf)[ \t]/ {
+		s = $0; sub(/^[ \t]*(echo|printf)[ \t]+(-[-a-z]*[ \t]+)*/, "", s)
+		q = substr(s, 1, 1)
+		if (q != "\"" && q != "\047") next
+		s = substr(s, 2); i = index(s, q); if (i) s = substr(s, 1, i - 1)
+		if (s ~ /[^ \t][ \t]+#[ \t]/ &&
+			s !~ /#[ \t]*(define|include|if|ifdef|ifndef|endif|else|elif|undef|pragma)([^a-z]|$)/)
+			printf "    %s:%d: %s\n", f, FNR, $0
+	}' {} + | sort -t: -k1,1 -k2,2n)
+[ -z "$_zn" ] || report \
+	"a script shows a command to type with a '#' note, which zsh runs as words of it" \
+	"$_zn" \
+	"Put the note on the line before the command, or on its own line in the" \
+	"text around it, and keep on the command's line only what is typed."
+
+# And a session in an unmarked block: the page rule above reads only blocks
+# marked as shell, but a block that shows a session marks what is
+# typed with its prompt -- `$ ` for a shell, `(gdb) ` or `(lldb) ` for a
+# debugger -- and that is pasted too. Neither debugger reads a note after a
+# command: lldb's `run   # ...` hands the words to the program as arguments,
+# so the crash it was typed to show never comes, and gdb's `bt   # ...`
+# stops on "Invalid character '#'". Read: a prompt line of every unmarked
+# block in a page outside the zone, its quoted strings set aside, with a '#'
+# at a word's start after the prompt.
+_zd=$(text_files -name '*.md' -exec awk '
+	FNR == 1 { f = FILENAME; sub(/^\.\//, "", f); inb = 0 }
+	!inb {
+		if (match($0, /^[ \t]*(```+|~~~+)/)) {
+			fence = substr($0, RSTART, RLENGTH); sub(/^[ \t]*/, "", fence)
+			info = substr($0, RSTART + RLENGTH); gsub(/[ \t]/, "", info)
+			inb = 1
+		}
+		next
+	}
+	{
+		t = $0; sub(/^[ \t]*/, "", t); sub(/[ \t]*$/, "", t)
+		u = t
+		if (substr(fence, 1, 1) == "`") gsub(/`/, "", u)
+		else gsub(/~/, "", u)
+		if (t != "" && u == "" && length(t) >= length(fence)) { inb = 0; next }
+	}
+	info != "" { next }
+	match($0, /^[ \t]*(\$|\(gdb\)|\(lldb\))[ \t]/) {
+		r = substr($0, RSTART + RLENGTH)
+		gsub(/\047[^\047]*\047|"[^"]*"/, "", r)
+		if (r ~ /(^|[ \t])#/) printf "    %s:%d: %s\n", f, FNR, $0
+	}' {} + | sort -t: -k1,1 -k2,2n)
+[ -z "$_zd" ] || report \
+	"a session in a page's block holds a '#' note after a prompt, which runs as words" \
+	"$_zd" \
+	"zsh, gdb and lldb all hand a note after a command to it, as arguments" \
+	"or as an error. Say what the line shows in the prose after the" \
+	"block, and keep after each prompt only what is typed."
+
 # EVERY RUST COMPILE DENIES WARNINGS. A warning rustc prints is not a red
-# build, so it lands -- a needless `mut` in oracle/src/c08.rs printed "1
+# build, so it lands -- a needless `mut` in the oracle's C 08 arms printed "1
 # warning emitted" in the middle of every cold build -- and the first person
 # to read it is a student on their first run, in output that is not theirs.
 # With -Dwarnings it is a red build on the author's machine instead, and the
@@ -8432,7 +10855,25 @@ fi
 # those modules live in (a project not in the table yet is still a project),
 # and the toy exercises' package. And every .bzl file under tools/, since that
 # is where a macro that builds a student's code is written.
-COURSE_DIRS=$(for _m in $MODULES; do printf '%s\n' "${_m%%/*}"; done | sort -u)
+#
+# The course folders are those of the table's modules, and every top-level
+# folder holding a project of its own: a <course>/<project>/ whose BUILD file
+# opens a subject() contract or which holds a deliverable/ or generators/
+# folder (AGENTS.md section 4: a project per folder, inside its course's).
+# Taken from the table alone, a new course's first project was walked by none
+# of the rules below until it had a row there, and the rule that asks for the
+# row was one of them.
+COURSE_DIRS=$({
+	for _m in $MODULES; do printf '%s\n' "${_m%%/*}"; done
+	for _b in */*/BUILD.bazel; do
+		case "$_b" in bazel-*) continue ;; esac
+		[ -f "$_b" ] || continue
+		if grep -q '^subject(' "$_b" || [ -d "${_b%/BUILD.bazel}/deliverable" ] ||
+			[ -d "${_b%/BUILD.bazel}/generators" ]; then
+			printf '%s\n' "${_b%%/*}"
+		fi
+	done
+} | sort -u)
 TURNIN_BUILDS=$({
 	for _m in $MODULES; do printf '%s/BUILD.bazel\n' "$_m"; done
 	for _c in $COURSE_DIRS cursus; do
@@ -8802,7 +11243,7 @@ _sq_bad=$(find . \( -name BUILD.bazel -o -name '*.bzl' \) -not -path './bazel-*'
 # on its own, often from the answer beside it. They disagreed: C 12 ex08's
 # header was optional to one layer and a build input to the rest, C 09 ex01
 # compiled the grader's srcs/ as the student's work, BSQ turned in under an
-# ex00/ its subject never names (findings 096, 128, 177; TODO.md §23). Now
+# ex00/ its subject never names (findings 096, 128, 177). Now
 # each project's BUILD file opens with subject() (tools/subject.bzl), the
 # macros read everything from it, and the parameters that took a second copy
 # are gone. c_levels() fails in a package without a contract; these two rules
@@ -8969,6 +11410,247 @@ for f in $TURNIN_BUILDS; do
 done
 
 # ---------------------------------------------------------------------------
+# N. A program a project builds is ignored where it lands.
+#
+# A hand-run of make or cc in the turn-in leaves the program beside its
+# sources, and with no extension for *.o, *.a or *.out to match, the next
+# `git add -A` commits a binary: C 10's four programs, C 11's do-op and
+# Rush 01's rush01 were in no .gitignore. So every program a project's BUILD
+# file names -- each c_make's artifact, and each c_program's name where no
+# c_make builds that exercise (with a Makefile, what it builds is the
+# artifact) -- is ignored in the exercise's turn-in folder, which
+# tools/first_red.sh reads from the contract (--turnin, which the rule on
+# the contract above runs too). The .gitignore files read are the root's and
+# each project folder's (one anywhere else outside the zone is said, below),
+# with git's rules for a line: the last match wins, a pattern with no slash
+# matches a name at any depth, one with a slash is anchored to its file's
+# folder, and a trailing slash matches a folder only. The toy exercises
+# under tools/ are the harness's own, and nobody builds them by hand.
+gi_unread=""
+: > "$lex_d/gi_want"
+for f in $TURNIN_BUILDS; do
+	case "$f" in tools/*) continue ;; esac
+	grep -q '^subject(' "$f" || continue
+	_gm=${f%/BUILD.bazel}
+	# "LINE KIND NUM NAME" per program the file builds, a value the call
+	# does not give as one string read as "?".
+	awk '
+		# code(l): l without its comment, strings kept whole.
+		function code(l,   i, c, out, q) {
+			out = ""; q = 0
+			for (i = 1; i <= length(l); i++) {
+				c = substr(l, i, 1)
+				if (q) {
+					out = out c
+					if (c == "\\") { i++; out = out substr(l, i, 1) }
+					else if (c == "\"") q = 0
+					continue
+				}
+				if (c == "#") break
+				if (c == "\"") q = 1
+				out = out c
+			}
+			return out
+		}
+		# depth(t): brackets opened and not closed in t, outside strings.
+		function depth(t,   i, ch, q, d) {
+			q = 0; d = 0
+			for (i = 1; i <= length(t); i++) {
+				ch = substr(t, i, 1)
+				if (q) {
+					if (ch == "\\") i++
+					else if (ch == "\"") q = 0
+					continue
+				}
+				if (ch == "\"") q = 1
+				else if (ch ~ /[([{]/) d++
+				else if (ch ~ /[])}]/) d--
+			}
+			return d
+		}
+		# take(): the call in text, its num and the keyword that names
+		# its program, each from the call itself and never from a list or
+		# a dict inside it (a case is a dict with a "name" of its own).
+		function take(   i, ch, q, d, rest, key, v, num, prog, want) {
+			want = (kind == "c_make") ? "artifact" : "name"
+			num = "?"; prog = "?"; q = 0; d = 0
+			for (i = 1; i <= length(text); i++) {
+				ch = substr(text, i, 1)
+				if (q) {
+					if (ch == "\\") i++
+					else if (ch == "\"") q = 0
+					continue
+				}
+				if (ch == "\"") { q = 1; continue }
+				if (ch ~ /[([{]/) { d++; continue }
+				if (ch ~ /[])}]/) { d--; continue }
+				if (d != 1 || ch !~ /[a-z_]/ || substr(text, i - 1, 1) ~ /[A-Za-z0-9_]/) continue
+				rest = substr(text, i)
+				if (!match(rest, /^[a-z_]+[ \t]*=[^=]/)) continue
+				key = rest; sub(/[ \t]*=.*/, "", key)
+				v = substr(rest, RLENGTH); sub(/^[ \t]*/, "", v)
+				if (match(v, /^"[^"\\]*"[ \t]*[,)]/)) {
+					v = substr(v, 2); sub(/".*/, "", v)
+				} else v = "?"
+				if (key == "num") num = v
+				else if (key == want) prog = v
+				i += length(key) - 1
+			}
+			nc++; K[nc] = kind; N[nc] = num; P[nc] = prog; L[nc] = at
+			if (kind == "c_make") made[num] = 1
+		}
+		!inc && /^[ \t]*(c_make|c_program)\(/ {
+			inc = 1; at = NR; text = ""
+			kind = $0; sub(/^[ \t]*/, "", kind); sub(/\(.*/, "", kind)
+		}
+		inc {
+			text = text " " code($0)
+			if (depth(text) <= 0) { take(); inc = 0 }
+		}
+		END {
+			for (k = 1; k <= nc; k++)
+				if (K[k] == "c_make" || !(N[k] in made))
+					print L[k], K[k], N[k], P[k]
+		}' "$f" > "$lex_d/gi_calls"
+	while read -r _gl _gk _gn _gp; do
+		if [ "$_gn" = "?" ] || [ "$_gp" = "?" ]; then
+			gi_unread="$gi_unread
+    $f:$_gl: a $_gk call whose num or program name is not one string"
+			continue
+		fi
+		# conventions: harness tool -- first_red.sh --turnin reads a BUILD file and runs nothing
+		if ! _gt=$(sh "$_frsh" --turnin "$_gm" "ex$_gn" < /dev/null 2> /dev/null); then
+			gi_unread="$gi_unread
+    $f:$_gl: a $_gk call for ex$_gn, which subject() gives no turn-in folder"
+			continue
+		fi
+		printf '%s %s/%s/%s\n' "$f:$_gl" "$_gm" "$_gt" "$_gp" >> "$lex_d/gi_want"
+	done < "$lex_d/gi_calls"
+done
+# The ignore files, shallowest first, so a deeper one's line is read later
+# and wins, as it does in git. Symbolic links too: under `bazel test` every
+# file of the tree is one. Only the root's and a project folder's are read:
+# those are the ones `bazel test` sees (the root's conventions_srcs lists
+# one, and c_levels() globs the other in its package's), so one anywhere
+# else -- a course's folder, a project's tests/ -- is said instead, and its
+# lines keep nothing here, run by hand or under Bazel alike.
+: > "$lex_d/gi_files"
+if [ -f .gitignore ]; then
+	echo .gitignore >> "$lex_d/gi_files"
+fi
+gi_stray=""
+for _c in $COURSE_DIRS cursus; do
+	[ -d "$_c" ] || continue
+	find "$_c" \( -name deliverable -o -name generators \) -prune -o \
+		-name .gitignore \( -type f -o -type l \) -print
+done | awk -F/ '{ print NF, $0 }' | sort -n -k1,1 | sed 's/^[0-9]* //' > "$lex_d/gi_found"
+while IFS= read -r _gf; do
+	if [ -f "${_gf%/.gitignore}/BUILD.bazel" ] &&
+		grep -q '^subject(' "${_gf%/.gitignore}/BUILD.bazel"; then
+		echo "$_gf" >> "$lex_d/gi_files"
+	else
+		gi_stray="$gi_stray
+    $_gf"
+	fi
+done < "$lex_d/gi_found"
+gi_ops=""
+while IFS= read -r _gf; do
+	_gb=${_gf%.gitignore}
+	gi_ops="$gi_ops base=${_gb%/} $_gf"
+done < "$lex_d/gi_files"
+# shellcheck disable=SC2086 # base=DIR FILE pairs, no blank in either: the paths are the repo's own
+gi_bad=$(awk -v want="$lex_d/gi_want" '
+	# lit(c): c as an ERE matches it.
+	function lit(c) {
+		if (c == "^" || c == "\\") return "\\" c
+		if (c ~ /[.+(){}|$]/) return "[" c "]"
+		return c
+	}
+	# re(p): the gitignore glob p as an anchored ERE.
+	function re(p,   i, c, j, cls, out) {
+		out = ""
+		for (i = 1; i <= length(p); i++) {
+			c = substr(p, i, 1)
+			if (substr(p, i, 3) == "**/") { out = out "(.*/)?"; i += 2 }
+			else if (substr(p, i, 2) == "**") { out = out ".*"; i++ }
+			else if (c == "*") out = out "[^/]*"
+			else if (c == "?") out = out "[^/]"
+			else if (c == "[" && (j = index(substr(p, i + 1), "]")) > 0) {
+				cls = substr(p, i + 1, j - 1)
+				if (substr(cls, 1, 1) == "!") cls = "^" substr(cls, 2)
+				out = out "[" cls "]"; i += j
+			}
+			else if (c == "\\" && i < length(p)) { i++; out = out lit(substr(p, i, 1)) }
+			else out = out lit(c)
+		}
+		return "^" out "$"
+	}
+	# hits(k, rel): line k matches rel or a folder rel is in.
+	function hits(k, rel,   n, c, i, cand) {
+		n = split(rel, c, "/")
+		cand = ""
+		for (i = 1; i <= n; i++) {
+			cand = (i == 1) ? c[1] : cand "/" c[i]
+			if (i == n && PD[k]) continue
+			if (PA[k] ? (cand ~ PR[k]) : (c[i] ~ PR[k])) return 1
+		}
+		return 0
+	}
+	FILENAME != want {
+		l = $0
+		sub(/\r$/, "", l)
+		if (l ~ /^#/) next
+		sub(/[ \t]+$/, "", l)
+		if (l == "") next
+		neg = 0
+		if (substr(l, 1, 1) == "!") { neg = 1; l = substr(l, 2) }
+		else if (substr(l, 1, 1) == "\\") l = substr(l, 2)
+		dir = (l ~ /\/$/)
+		sub(/\/+$/, "", l)
+		np++; PB[np] = base; PN[np] = neg; PD[np] = dir
+		PA[np] = (index(l, "/") > 0)
+		sub(/^\//, "", l)
+		PR[np] = re(l)
+		next
+	}
+	{
+		where = $1; path = substr($0, length($1) + 2); ign = 0
+		for (k = 1; k <= np; k++) {
+			rel = path
+			if (PB[k] != "") {
+				if (index(path, PB[k] "/") != 1) continue
+				rel = substr(path, length(PB[k]) + 2)
+			}
+			if (hits(k, rel)) ign = !PN[k]
+		}
+		if (!ign) printf "    %s (%s)\n", path, where
+	}' $gi_ops "$lex_d/gi_want")
+[ -z "$gi_bad" ] || report \
+	"No .gitignore keeps a program the project builds out of commits" \
+	"$gi_bad" \
+	"Name each in the root .gitignore, from the root, beside the programs it" \
+	"already names (or in the project's own .gitignore, from the project's" \
+	"folder). Each line above is the program's path, then the call that names" \
+	"it. A hand-run of make or cc in the turn-in leaves the program there, and" \
+	"nothing else keeps the next git add -A from committing a binary."
+[ -z "$gi_unread" ] || report \
+	"A program the project builds cannot be read from its BUILD file" \
+	"${gi_unread#?}" \
+	"Write num and the program's name (c_make's artifact, c_program's name) as" \
+	"one string each, and give the exercise an entry in subject(): this check" \
+	"reads them to find where the program lands, and a call it cannot read is" \
+	"a program no .gitignore is held to."
+[ -z "$gi_stray" ] || report \
+	"A .gitignore is neither the root's nor one at the top of a project's folder" \
+	"${gi_stray#?}" \
+	"Under bazel test only the root's .gitignore and a project folder's are" \
+	"there to read (the root's conventions_srcs lists one, c_levels() in" \
+	"tools/defs.bzl globs the other), so the check above reads no other, and a" \
+	"program kept by this one only is reported as kept by none. Move its lines" \
+	"to the root's .gitignore or the project's, or declare it in a" \
+	"conventions_srcs and teach this check to read it."
+
+# ---------------------------------------------------------------------------
 # N. No runner names the grader; the project's contract does.
 #
 # Who grades a project is a fact of its subject: the Moulinette (a program,
@@ -9091,7 +11773,7 @@ for f in $TURNIN_BUILDS; do
 			continue ;;
 	esac
 	[ -d "$d/tests" ] || continue
-	hits=$(grep -rn 'Moulinette' "$d/tests" 2> /dev/null | sed 's/^/    /')
+	hits=$(grep -Rn 'Moulinette' "$d/tests" 2> /dev/null | sed 's/^/    /')
 	[ -z "$hits" ] || report \
 		"$d is graded at a defense, and its tests/ says Moulinette" \
 		"$hits" \
@@ -9111,11 +11793,11 @@ done
 # where a project declares the test. BSQ's BUILD file said its fixtures were
 # "generated from //oracle's first record, so the two cannot drift", and
 # nothing held them to it. So an arm answering to "<name>_fixtures" -- the
-# name, as a string literal, in oracle/src/*.rs -- is passed as `--fn` by a
-# test in some BUILD.bazel that runs //tools:oracle_fixtures.sh: a reference
-# that writes files nothing compares is a fixture free to drift. The converse
-# needs no rule: a --fn that names no arm gets no record, which the runner
-# refuses (exit 2).
+# name, as a string literal, in a file of the oracle's source -- is passed as
+# `--fn` by a test in some BUILD.bazel that runs //tools:oracle_fixtures.sh: a
+# reference that writes files nothing compares is a fixture free to drift. The
+# converse needs no rule: a --fn that names no arm gets no record, which the
+# runner refuses (exit 2).
 fixture_arms=$(find oracle/src -name '*.rs' 2> /dev/null | sort | while IFS= read -r f; do
 	grep -v '^[[:blank:]]*//' "$f" | grep -o '"[a-z0-9_]*_fixtures"' | tr -d '"' |
 		sed "s#\$# $f#"
@@ -9187,6 +11869,47 @@ _tf=$(awk -v t='-type' '
 	"Under bazel test the tree it reads is runfiles, every file a symlink, so" \
 	"a find for regular files alone finds none, and the rule passes having" \
 	"read nothing. Ask for both: \\( -type f -o -type l \\)."
+
+# And a grep here that walks a tree follows its links. GNU grep's -r follows
+# a symlink named on its command line and none it meets on the way down, so
+# over a runfiles tree it reads no file at all: the rule naming a raised
+# target at another level, and the one naming the Moulinette in a defense
+# project's tests/, passed under the test while `bazel run` reported the
+# line each was written for. -R follows them. A grep's options are read up
+# to the end of its command (a pipe, a ;, a && or ||, a parenthesis), its
+# continued lines joined, so a sort -r after it is not one of them. It has
+# two limits: a grep reached through a variable ($GREP -r) is not seen, and
+# its words are split at blanks whatever the quotes, so a pattern word shaped
+# like an option (grep -- -r, grep 'x -r y') is reported.
+_gr=$(awk -v g='grep' '
+	/^[[:blank:]]*#/ && c == "" { next }
+	{
+		if (c == "") { n = FNR; f = $0 }
+		c = c " " $0
+		if (sub(/\\$/, "", c)) next
+		l = c; c = ""
+		gsub(/\|\||&&|[|;()`]/, "\n", l)
+		ns = split(l, seg, "\n")
+		for (s = 1; s <= ns; s++) {
+			nw = split(seg[s], w, /[[:blank:]]+/)
+			on = 0
+			for (i = 1; i <= nw; i++) {
+				if (!on) { on = (w[i] == g || w[i] ~ ("/" g "$")); continue }
+				if (w[i] ~ /^-[A-Za-z]*r[A-Za-z]*$/ || w[i] == "--recursive" || w[i] ~ /^--directories=recurse/ ||
+					(w[i] == "-d" && w[i + 1] == "recurse")) {
+					t = f; sub(/^[[:blank:]]+/, "", t)
+					printf "    tools/conventions.sh:%d: %s\n", n, t
+					s = ns; break
+				}
+			}
+		}
+	}' "$_tfs") || report "tools/conventions.sh could not be read to check its own greps" \
+	"Looked for at $_tfs."
+[ -z "$_gr" ] || report "tools/conventions.sh walks a tree with a grep that skips symlinks" \
+	"$_gr" \
+	"Under bazel test the tree it reads is runfiles, every file a symlink," \
+	"and a recursive grep follows none it meets on the way down: it reads" \
+	"nothing, and the rule passes. Spell it grep -R, which follows them."
 
 # ---------------------------------------------------------------------------
 # A CR IN A FILE GIT WOULD REWRITE.
@@ -9781,7 +12504,7 @@ fi
 # ---------------------------------------------------------------------------
 # N. TODO.md's retro-audit has a row for every item of docs/new-project.md.
 #
-# The retro-audit (TODO.md section 23) holds each rule of the new-project
+# The retro-audit (a table in TODO.md) holds each rule of the new-project
 # checklist against every project, so the projects written before a rule are
 # checked for it too, and each gap is a follow-up (WP-74's decision). An item
 # added to the checklist without its row is a rule nobody held the old
@@ -9851,6 +12574,108 @@ _unreg=$(printf '%s\n' "$_unreg" | sed '/^$/d')
 	"Add a row <path>=REPLACE_ME to the REMOTES table in tools/submit.sh (the" \
 	"URL goes in .submit-remotes), and the module's label to _MODULES in" \
 	"tools/tests/BUILD.bazel, so every check, the test and //tools:submit see it."
+
+# ---------------------------------------------------------------------------
+# N. A script that walks the course folders by name lists every one of them.
+#
+# The course folders this script walks are found in the tree (COURSE_DIRS,
+# above). The header re-stamp, the stub check's look beside each project and
+# the template build walk them by a list written by hand, and a course folder
+# left off one is a folder that script never opens, without a word: its
+# headers keep a login, the files beside its projects go unread. So every
+# tools/*.sh with a COURSE_NAMES="..." line is held to COURSE_DIRS, and
+# each script that walks them (_cn_must) must have that line: a list
+# spelled any other way is held to nothing.
+_cn_must="tools/reset_headers.sh tools/stub_check.sh"
+_cn_bad=""
+_cn_none=""
+for _f in tools/*.sh; do
+	[ -f "$_f" ] || continue
+	_cn_line=$(sed -n 's/^[[:blank:]]*COURSE_NAMES="\([^"]*\)"[[:blank:]]*$/\1/p' "$_f" | tr '\n' ' ')
+	if [ -z "$_cn_line" ]; then
+		case " $_cn_must " in
+			*" $_f "*)
+				_cn_none="$_cn_none
+    $_f" ;;
+		esac
+		continue
+	fi
+	for _c in $COURSE_DIRS; do
+		case " $_cn_line " in
+			*" $_c "*) continue ;;
+		esac
+		_cn_bad="$_cn_bad
+    $_f: $_c"
+	done
+done
+_cn_bad=$(printf '%s\n' "$_cn_bad" | sed '/^$/d')
+_cn_none=$(printf '%s\n' "$_cn_none" | sed '/^$/d')
+[ -z "$_cn_bad" ] || report \
+	"a script's COURSE_NAMES misses a course folder of the tree" \
+	"$_cn_bad" \
+	"The script walks the course folders named on that line, and never opens" \
+	"one left off it. Add the folder to the line."
+[ -z "$_cn_none" ] || report \
+	"a script walks the course folders by a list this check cannot read" \
+	"$_cn_none" \
+	"Write its course folders as one line, COURSE_NAMES=\"...\", and walk that:" \
+	"a list spelled any other way is held to nothing, and a new course goes" \
+	"unwalked by it."
+
+# ---------------------------------------------------------------------------
+# N. //tools:generate names every project with a generators/ folder, and no
+#    other.
+#
+# `bazel run //tools:generate` regenerates every generated exercise, from the
+# projects its args name, and those are written by hand in tools/BUILD.bazel
+# (a target cannot glob another package's folders). A project that gains a
+# generators/ folder and no arg there is skipped by it without a word, and an
+# arg left behind by a project that lost its generators names nothing to
+# generate. So the args are read from the generate target's own call -- from
+# its line `name = "generate",` to the `)` closing it, every string inside
+# `args = [...]` -- and held to PROJECT_DIRS (the rule above) that hold a
+# generators/ folder. Under `bazel test` a project's generators come in with
+# its :conventions_srcs, so the test sees the folders the run sees. A tree
+# with no tools/BUILD.bazel (a selftest's toy) has no target to hold to them.
+_gen_bad=""
+if [ -f tools/BUILD.bazel ]; then
+	_gen_args=$(awk '
+		/^[A-Za-z_][A-Za-z_0-9]*\(/ { inb = 1; g = 0; ina = 0; n = 0; next }
+		inb && /^\)/ {
+			if (g) for (i = 1; i <= n; i++) print a[i]
+			inb = 0; next
+		}
+		!inb { next }
+		{ s = $0; sub(/#.*/, "", s) }
+		s ~ /^[ \t]*name[ \t]*=[ \t]*"generate"[ \t]*,/ { g = 1 }
+		s ~ /^[ \t]*args[ \t]*=[ \t]*\[/ { ina = 1; sub(/^[ \t]*args[ \t]*=[ \t]*\[/, "", s) }
+		ina {
+			while (match(s, /"[^"]*"/)) {
+				a[++n] = substr(s, RSTART + 1, RLENGTH - 2)
+				s = substr(s, RSTART + RLENGTH)
+			}
+			if (s ~ /\]/) ina = 0
+		}' tools/BUILD.bazel)
+	for _p in $PROJECT_DIRS; do
+		[ -d "$_p/generators" ] || continue
+		printf '%s\n' "$_gen_args" | grep -qxF "$_p" && continue
+		_gen_bad="$_gen_bad
+    $_p: has a generators/ folder, and //tools:generate does not name it"
+	done
+	for _p in $_gen_args; do
+		[ -d "$_p/generators" ] && printf '%s\n' "$PROJECT_DIRS" | grep -qxF "$_p" && continue
+		_gen_bad="$_gen_bad
+    $_p: named by //tools:generate, and no project with a generators/ folder"
+	done
+	_gen_bad=$(printf '%s\n' "$_gen_bad" | sed '/^$/d')
+fi
+[ -z "$_gen_bad" ] || report \
+	"//tools:generate's args and the projects with a generators/ folder disagree" \
+	"$_gen_bad" \
+	"Its args, in tools/BUILD.bazel, are the projects it regenerates: one per" \
+	"project with a generators/ folder, by its path from the repository root" \
+	"(c-piscine/c-piscine-shell-00). Add the one it skips, remove the one that" \
+	"has nothing to generate, and say so in the comment above the target."
 
 # ---------------------------------------------------------------------------
 # N. A group project, and every Common Core project, has a page of its own.
@@ -10111,23 +12936,23 @@ if [ -f tools/42.sh ] || [ -f tools/fortytwo/commands.tsv ]; then
 					}
 					c = index(l, ":")
 					if (c == 0) { print "    line " FNR " names " w[i] ", which names no target (//PKG:NAME)"; continue }
-					pk = substr(l, 1, c - 1); tgt = substr(l, c + 1)
+					pk = substr(l, 1, c - 1); nm = substr(l, c + 1)
 					if (pk == "<project>") {
 						ok = 0
-						m = split(tname[tgt], ps, " ")
-						for (j = 1; j <= m; j++) if (ps[j] in project) { ok = 1; covered["<project>:" tgt] = 1 }
-						if (!ok) print "    line " FNR " names " w[i] ", and no project declares :" tgt
+						m = split(tname[nm], ps, " ")
+						for (j = 1; j <= m; j++) if (ps[j] in project) { ok = 1; covered["<project>:" nm] = 1 }
+						if (!ok) print "    line " FNR " names " w[i] ", and no project declares :" nm
 						continue
 					}
-					if (!((pk ":" tgt) in declared)) print "    line " FNR " names " w[i] ", which " pk "/BUILD.bazel does not declare"
-					covered[pk ":" tgt] = 1
+					if (!((pk ":" nm) in declared)) print "    line " FNR " names " w[i] ", which " pk "/BUILD.bazel does not declare"
+					covered[pk ":" nm] = 1
 				}
 			}
 			END {
 				for (k in bin) {
-					c = index(k, ":"); pk = substr(k, 1, c - 1); tgt = substr(k, c + 1)
+					c = index(k, ":"); pk = substr(k, 1, c - 1); nm = substr(k, c + 1)
 					if (k in covered) continue
-					if ((pk in project) && (("<project>:" tgt) in covered)) continue
+					if ((pk in project) && (("<project>:" nm) in covered)) continue
 					print "    //" k " is a run target no row names"
 				}
 			}' "$lex_d/cmd_names" "$lex_d/cmd_modules" tools/fortytwo/commands.tsv | sort)

@@ -124,7 +124,7 @@ gdb	campus	GNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1	gdb --version	.devcontain
 lldb-12	campus	lldb version 12.0.1	lldb-12 --version	.devcontainer/Dockerfile
 norminette	campus	3.3.58	norminette-version	tools/requirements.txt	HERMETIC_NORMINETTE
 diff	campus	diff (GNU diffutils) 3.8	diff --version	MODULE.bazel (deb_archive)	HERMETIC_DIFF
-cc-std	campus	201710L gnu	default-std cc	.bazelrc + tools/defs.bzl (_COPTS pins -std=gnu17)
+cc-std	campus	201710L gnu	default-std cc	tools/defs.bzl (_COPTS pins -std=gnu17)
 gcc-10-std	campus	201710L gnu	default-std gcc-10	tools/defs.bzl (_COPTS pins -std=gnu17)
 glibc	campus	ldd (Ubuntu GLIBC 2.35-0ubuntu3.13) 2.35	ldd --version	NOT PINNED -- observed only, see the note in the header
 shellcheck	fetched	version: 0.10.0	shellcheck --version	MODULE.bazel (http_archive)	HERMETIC_SHELLCHECK

@@ -77,7 +77,13 @@ subject's sentence itself: not a shared runner, which speaks to every project
 that calls it, and not one only one project calls either (the owner's ruling,
 2026-10-09). Rush 01's and BSQ's runners restated their subject in words of
 their own, with no page beside them; they now print the sentence their
-`BUILD.bazel` hands them (`runner_quotes()`).
+`BUILD.bazel` hands them (`runner_quotes()`). A shared runner did it in a
+branch only one exercise's option opens, which is as good as one project's.
+What a runner may say of "the subject" is what its call site passed it, read
+back ("the files the subject asks for", over the list the contract supplies),
+and a comment above that line names the option that brought it. A runner
+only one project calls has no such read-back: the sentence it prints is the
+one its call site quotes.
 
 The same rule governs file lists: pinning a filename the subject leaves free
 invents a requirement, which is why several modules glob their sources instead.
@@ -253,8 +259,11 @@ reading, never the reading, and never where the oracle's source is (the
 owner's ruling of 2026-10-09). One label is what lets a machine hold part of
 it: `//tools:conventions` refuses a reading named by another name, the label
 in a hint a test other than a strict one prints, and the label or a path of
-`oracle/src` in a project's BUILD comment; a reading stated in other words is
-still the author's to catch.
+the oracle's source in a project's BUILD comment. It refuses that path in
+any other file that ships too, comments included, everywhere but the
+oracle's own folder: a test file, a fixture's header, a runner's comment
+and what it prints, a page of docs/ (the owner's answer of 2026-10-10). A
+reading stated in other words is still the author's to catch.
 
 Nor does a hint about a value that does not fit name a type to widen into:
 C promises `long` only 32 bits, and the `ilp32` layer fails the `long` a
@@ -271,7 +280,7 @@ author's job.
 
 ## The levels exist so the suite fits the person running it
 
-A beginner must not be drowned in seventeen layers of red; someone further along
+A beginner must not be drowned in a wall of red layers; someone further along
 must not be capped at what the grader happens to check. So layers are
 levelled, most people live at `basic`, and the rest is opt-in. Place a new layer
 at the level that matches **who needs it**: one that informs but never gates

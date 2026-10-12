@@ -40,7 +40,7 @@
 # was seen is a fact about the users, read from the oracle's lists before the
 # program runs; where it was not, the check says so with ck_skipped, which
 # NO_SKIP=1 turns red: nothing checked the comma.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-print_groups.sh}

@@ -21,6 +21,8 @@ c_function(num = "00", fn = "ft_ft", test = "test_ft.c", labeled = True, clues =
 
 c_function(num = "01", fn = "ft_ultimate_ft", test = "test_ultimate_ft.c", labeled = True, clues = "clues.tsv")
 
+# no c_diff on ex00, ex01: ZERO-INPUT (a pointer, not an input space).
+#
 # ex00 and ex01 carry NO differential arm, and that is a decision rather than an
 # omission. Both write the CONSTANT 42 through a pointer -- `ft_ft(int *nbr)`
 # and `ft_ultimate_ft(int *********nbr)` -- so their input space is one value:
@@ -73,7 +75,8 @@ c_diff(
     # 200000, not 100000: as many as the ASan twin replays, so each case it
     # checks for memory is value-checked here too (V34, the owner's choice,
     # 2026-10-04); c_diff refuses a twin larger than its plain replay.
-    count = 200000,    diff_clues = "diff_clues.txt",
+    count = 200000,
+    diff_clues = "diff_clues.txt",
 )
 
 c_function(num = "06", fn = "ft_strlen", test = "test_strlen.c", labeled = True, clues = "clues.tsv")
@@ -117,6 +120,10 @@ c_cycles(
     harness = "diff_strlen.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    # The corpus's strings of 4100 and 5000 bytes test capacity (finding
+    # 041; the diff layers judge them) and are left out here, as C 02's are:
+    # the budget below was measured on the usual case.
+    max_unit = 1000,
     # A number, not a reference implementation: it says where you stand without
     # saying how to get there.
     budget = 3.5,
@@ -130,6 +137,10 @@ c_cycles(
     harness = "diff_putstr.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    # The corpus's strings of 4100 and 5000 bytes test capacity (finding
+    # 041; the diff layers judge them) and are left out here, as C 02's are:
+    # the budget below was measured on the usual case.
+    max_unit = 1000,
     # A number, not a reference implementation: it says where you stand without
     # saying how to get there.
     budget = 4.5,

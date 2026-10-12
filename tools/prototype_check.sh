@@ -331,14 +331,17 @@ NAMES_AWK
 		[ "$RC" -eq 0 ] || continue
 		if [ -z "$where" ]; then
 			echo "prototype_check: FAIL — no file here defines $fn(), so there is no"
+			# conventions: the call site's --proto -- the declarations transcribed from the subject
 			echo "                 parameter to name. The subject asks for it."
 			RC=1
 			continue
 		fi
 		if [ "$have" != "$want" ]; then
 			echo "prototype_check: FAIL — $where defines $fn($(printf '%s' "$have" | sed 's/ /, /g')),"
+			# conventions: the call site's --names -- set where the call site says the names are fixed
 			echo "                 and the subject names its parameters $fn($(printf '%s' "$want" | sed 's/ /, /g'))."
 			echo ""
+			# conventions: the call site's --names -- set where the call site says the names are fixed
 			echo "  The subject fixes the names as well as the types: the declaration it"
 			echo "  prints, with its names, is in $(basename "$PROTO"), which quotes the sentence."
 			echo "  A name changes nothing the program does, which is why this sits at"
@@ -348,6 +351,7 @@ NAMES_AWK
 		fi
 		echo "prototype_check: $where: $fn($(printf '%s' "$want" | sed 's/ /, /g')) -- the subject's names."
 	done < "$WORK/want"
+	# conventions: the call site's --names -- set where the call site says the names are fixed
 	[ "$RC" -eq 0 ] && echo "prototype_check: OK — every parameter is named as the subject names it."
 	exit $RC
 fi
@@ -470,13 +474,16 @@ for src in $SRCS; do
 		echo "  that header does. A definition a header holds is shared by"
 		echo "  including the header; written out a second time where the header"
 		echo "  is also read, it is defined twice. Which of the two places is the"
+		# conventions: the call site's --proto -- the declarations transcribed from the subject
 		echo "  one the subject asks for?"
 		echo ""
 		what_said
 	elif [ -n "$_lf" ]; then
 		echo "prototype_check: FAIL — the structure in your $HDR is not the one"
+		# conventions: the call site's --layout -- the structure transcribed from the subject
 		echo "                 the subject prints."
 		echo ""
+		# conventions: the call site's --layout -- the structure transcribed from the subject
 		echo "  The subject gives the structure your header must hold, field for"
 		echo "  field, and the grader's own code is built on it. A field retyped,"
 		echo "  reordered, added or removed changes where each one sits in memory,"
@@ -490,6 +497,7 @@ for src in $SRCS; do
 		echo "prototype_check: FAIL — your $HDR does not name its structure as the"
 		echo "                 subject prints it."
 		echo ""
+		# conventions: the call site's --layout-tag -- the names transcribed from the subject
 		echo "  The subject prints the structure's tag (the name after \`struct\`)"
 		echo "  and the type of each field that points to another node. Code"
 		echo "  written against the subject's header names the structure that way"
@@ -502,8 +510,10 @@ for src in $SRCS; do
 		what_said
 	else
 		echo "prototype_check: FAIL — $f does not match the signature"
+		# conventions: the call site's --proto -- the declarations transcribed from the subject
 		echo "                 the subject specifies."
 		echo ""
+		# conventions: the call site's --proto -- the declarations transcribed from the subject
 		echo "  The subject fixes each function's return type and parameter list."
 		echo "  C has no name mangling, so a different signature still LINKS: the"
 		echo "  harness declares one shape, your file defines another, and the"
@@ -528,6 +538,7 @@ if [ "$RC" -eq 0 ]; then
 	elif [ -n "$PROTO" ]; then
 		echo "prototype_check: OK — signatures match the subject."
 	else
+		# conventions: the call site's --layout -- the structure transcribed from the subject
 		echo "prototype_check: OK — $HDR holds the structure the subject prints."
 	fi
 fi

@@ -60,13 +60,20 @@ In the order your program meets candidates, which of the two does it meet first?
 The subject says the lines of a map are "separated by the usual newline character". Does that sentence decide whether the last row needs one? Which other sentence would you point to?	no_final_newline
 Whichever verdict you choose, this case accepts it: "map error", or the solved map. What does every line of your output end with, the last one included?	no_final_newline
 #
+# The full_in_body case: a row of the map holds the full character. The subject
+# leaves this file's verdict open too, so these rows ask which sentence decides
+# and never settle it; the output is what every reading agrees on.
+A row of this map holds the "full" character. The subject describes a map's lines as holding "empty" and "obstacle" characters, and its validity list allows the characters "introduced in the first line": does either sentence decide this file? Which one would you point to at the evaluation?	full_in_body
+Whichever verdict you choose, this case accepts it: "map error", or the solved map. If you solve it, which characters does the subject let your program replace, and is the "full" character already in this map one of them?	full_in_body
+#
 # The stdin_invalid case: an invalid map, on standard input.
 With no argument, where does the subject say the map comes from? Is anything it says about an invalid map different when the map arrives that way?	stdin_invalid
 This is the ragged_line case's file, given on standard input instead of by name. If that case passes, what does your program do differently with a map it reads from standard input?	stdin_invalid
 #
-# ex00_readings, at strict: the subject leaves these open, and the target takes ONE
-# reading of each (BUILD.bazel, oracle/src/bsq.rs). They state that reading, which is
-# what a strict target is for; no basic target holds you to it.
-This harness's reading of the count, at strict, never the subject's: decimal digits only, with a positive value that fits an int. Under it, "09" counts nine lines, and "+9", " 9" and "9 " are map error. Which sentence of the subject would you point to if you read them another way?	readings
+# ex00_readings, at strict: the subject leaves these open, and the target
+# takes ONE reading of each (the module's BUILD file lists the questions).
+# They state that reading, which is what a strict target is for; no basic
+# target holds you to it.
+This harness's reading of the count, at strict, never the subject's: decimal digits only, with a positive value that fits an int. Under it, "09" counts nine lines, and "+9", " 9" and "9 " are map error; each sits over nine rows, so only the reading decides. Which step of your program reads the number, and what does it do with a character that is not a digit?	readings
 This harness's reading of the last row, at strict: the subject says lines are "separated" by a newline, so the last row needs none of its own, and the map is solved. Does your program need the newline to know a row has ended?	readings
-Every one of these files is certain under its reading alone: "+9" sits over nine rows, so the line count agrees with it. Which step of your program reads the number, and what does it do with a character that is not a digit?	readings
+This harness's reading of the "full" character, at strict, never the subject's: the subject describes a map's lines as holding "empty" and "obstacle" characters, so a row that holds the "full" one is map error. Which sentence of the subject would you point to if you read it another way?	readings

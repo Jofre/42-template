@@ -2,6 +2,7 @@
   One number per tree.
     * an empty tree           -> the subject fixes that count
     * a single node           -> whether a lone node is depth 0 or 1
-    * unbalanced trees        -> which of the two subtree answers is used; only
-                                 one of them describes the tree
-    * off by one everywhere   -> what the node itself adds to its subtrees
+    * unbalanced trees        -> a tree whose two sides differ in depth: which
+                                 side does your answer describe?
+    * off by one everywhere   -> every answer one away: does your count include
+                                 the level each node itself sits on?

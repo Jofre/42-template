@@ -82,6 +82,10 @@ c_diff(num = "05", fn = "ft_strlcat", harness = "diff_strlcat.c", oracle_fn = "c
 
 c_levels()
 
+# Every corpus below holds strings of 4100 and 5000 bytes, which test
+# capacity (finding 041; the diff layers judge them), each with a first
+# string past 1000 bytes. Each c_cycles call leaves them out (max_unit =
+# 1000), as C 02's do: its budget was measured on the usual case.
 c_cycles(
     num = "00",
     fn = "ft_strcmp",
@@ -89,6 +93,7 @@ c_cycles(
     harness = "diff_strcmp.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # A number, not a reference implementation: it says where you stand without
     # saying how to get there.
     budget = 6,
@@ -102,6 +107,7 @@ c_cycles(
     harness = "diff_strncmp.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # compare archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 6,
     syscall_budget = 0,
@@ -114,6 +120,7 @@ c_cycles(
     harness = "diff_strcat.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # copy archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 6,
     syscall_budget = 0,
@@ -126,6 +133,7 @@ c_cycles(
     harness = "diff_strncat.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # copy archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 6,
     syscall_budget = 0,
@@ -138,6 +146,7 @@ c_cycles(
     harness = "diff_strstr.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # compare archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 6,
     syscall_budget = 0,
@@ -150,6 +159,7 @@ c_cycles(
     harness = "diff_strlcat.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    max_unit = 1000,
     # copy archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 6,
     syscall_budget = 0,

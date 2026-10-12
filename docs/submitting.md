@@ -9,30 +9,57 @@ per module, and whatever you push there is what gets graded: by the Moulinette,
 or by the evaluators at a defense for a rush, whose subject says no program
 grades it. So each
 module is submitted as its **own** git repo, pushed from a campus machine whose
-SSH key is registered on your intranet profile. `42 submit` automates that
-from one file of URLs.
+SSH key is registered on your intranet profile. `42 submit` automates that,
+once it has each module's URL.
 
-**1. Write down the URLs.** Create a file named `.submit-remotes` in the top
-folder of your copy (the one holding `README.md`), with one `KEY=URL` line per
-module: each module's Vogsphere git URL. The key is the module's path
-(`c-piscine/c-piscine-c-00`) or its folder's name alone (`c-piscine-c-00`); the
-short `c-00` that `42` takes on the command line does not work here. Grab the
-URLs from the intranet ahead of time; you only need to be on a campus machine
-for the push itself. A module with no line is **skipped, not an error**. It is
-a file, written in your editor, not commands to type. Its name starts with a
-dot, which hides it from most file browsers and from `ls`; `ls -a` shows it.
-Its lines look like this:
+**1. Give it each module's URL, once.** The intranet shows each module's
+Vogsphere git URL. The first time you submit a module, add it after
+`42 submit`, in the module's folder (the URL here is a made-up one; yours is
+the one the intranet shows):
+
+```sh
+42 submit -n git@git.example.com:you/c-00.git
+42 submit git@git.example.com:you/c-00.git
+```
+
+The first line shows what would happen, as step 2 says, and saves nothing.
+The second saves the URL, then tests and pushes the module, so from then on
+`42 submit` alone pushes there; a URL given again replaces the one saved.
+From another folder, name the module with it (`42 submit c-00 URL`). A URL is
+one module's repository: `42 submit` refuses one given with `--all` or with
+two modules.
+
+You only need a campus machine for the push itself, so you can copy the URLs
+from the intranet ahead of time and save them without pushing:
+
+```sh
+42 config set remote.c-00 git@git.example.com:you/c-00.git
+```
+
+`42 config list` shows the ones you have saved, and
+`42 config unset remote.c-00` forgets one. A module with no URL is
+**skipped, not an error**.
+
+Both save into one file, `.submit-remotes`, in the top folder of your copy
+(the one holding `README.md`), and you can also write it yourself, in your
+editor. Its name starts with a dot, which hides it from most file browsers and
+from `ls`; `ls -a` shows it. It holds one `KEY=URL` line per module. The key
+is the module's path (`c-piscine/c-piscine-c-00`), its folder's name alone
+(`c-piscine-c-00`), or the short name `42` takes on the command line
+(`c-00`):
 
 ```
 c-piscine/c-piscine-c-00=git@vogsphere...:...c-piscine-c-00...
 c-piscine-c-01=git@vogsphere...:...c-piscine-c-01...   # the project name works too
+c-02=git@vogsphere...:...c-piscine-c-02...             # and so does the short name
 ```
 
-Blank lines and `#` comments are ignored. A key that names no module, or two
-lines for the same module, fails the run instead of guessing. The list of
-modules is the `REMOTES` block at the top of `tools/submit.sh`; it is shared
-harness and never needs editing, and every module in it stays `REPLACE_ME`
-there.
+Blank lines and `#` comments are ignored. A key that names no module, a key
+that names two, or two lines for the same module, fails the run instead of
+guessing. `42 config set` and `42 submit URL` replace every line for the
+module with one, and refuse what is not a repository URL. The list of modules
+is the `REMOTES` block at the top of `tools/submit.sh`; it is shared harness
+and never needs editing, and every module in it stays `REPLACE_ME` there.
 
 `.submit-remotes` is handled like `.submit-level` (below): not gitignored, so
 you can commit it in your own clone and it follows you to every machine, and
@@ -57,7 +84,31 @@ module that has a URL with `42 submit --all`.
 
 The gate runs every test of the module at your level, so a module with an
 exercise you have not started is `BLOCKED` too: an unwritten exercise is red.
-To push without the gate, add `-- --no-gate` (`42 submit -- --no-gate`), and
+To push the exercises you have written anyway, add `--written-only`:
+
+```sh
+42 submit --written-only
+```
+
+An exercise the test report calls *not written yet* (its files still the stub
+they started as, its output red) then does not block, and every other test of
+the module still has to pass: a red in an exercise you have written, or in a
+test of the whole module, still blocks it. The run names each exercise it let
+through, and those go to 42 as they are on disk, stubs included. When the
+test report cannot be read, nothing is let through, and the run says so, with
+the command that shows the report. It is off unless you ask for it.
+
+It pushes what you have written, never nothing: when every exercise of the
+module is still a stub, it refuses before any test runs. Some subjects say where
+their mandatory part ends (C 00, Shell 00 and Shell 01 each print a sentence
+saying so, right after that part's last exercise), and for those modules it also
+refuses while an exercise of that part is still a stub, naming it. A run without
+`--written-only` that is blocked says the same. And when that part is all
+written and only the exercises after it are not, the blocked run says so and
+names them: that is your warning, and `42 submit --written-only` pushes the
+module without them.
+
+To push without any gate, add `-- --no-gate` (`42 submit -- --no-gate`), and
 the module goes to 42 as it is, red exercises included. What follows `--` goes
 to the script `42 submit` runs, `//tools:submit`
 ([bazel.md](bazel.md#42-submit)).
@@ -146,10 +197,10 @@ file sets it in every terminal):
 export SUBMIT_GATE=complete
 ```
 
-For this clone, permanently, typed in its top folder:
+For this clone, permanently (it writes the `.submit-level` file):
 
 ```sh
-echo complete > .submit-level
+42 config set level complete
 ```
 
 `42 test` chooses its level the same way, so the level it runs is the one the

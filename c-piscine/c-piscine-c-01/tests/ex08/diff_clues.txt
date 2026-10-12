@@ -2,7 +2,11 @@
     * arrays with equal elements differ  -> a comparison that is strict where it
                                             should not be, or the reverse
     * length 0 or 1 differ               -> a loop that cannot run zero times
-    * only nearly-sorted input passes    -> the pass count, or the inner bound
-    * the largest element is misplaced   -> the inner loop's upper bound
+    * only nearly-sorted input passes    -> input far from sorted needs more
+                                            work than input nearly there: what
+                                            tells your code it is finished?
+    * the largest element is misplaced   -> one end of the array: does your
+                                            code ever compare, or move, the
+                                            element at the last index?
     * negatives sort after positives     -> comparing something other than the
                                             signed values

@@ -3,8 +3,9 @@
   result are a terminator that was never written.
     * the join point is wrong            -> where the appending starts; it is
                                             not the start of the destination
-    * one byte of the destination is lost -> the terminator of the FIRST string
-                                            is the position to write at
+    * one byte of the destination is lost -> which byte of the destination
+                                            does the source's first byte land
+                                            on? (man strcat)
     * an empty source diverges           -> a loop that cannot run zero times
     * the result is unterminated         -> the second terminator, the one you
                                             write yourself

@@ -22,6 +22,15 @@
 # given the case's own arguments, with the script as --bin. The differ keeps
 # this test's time budget (RL_DEADLINE, exported by tools/runner_lib.sh).
 #
+# NO ANSWER. A reference answers with status 0. Any other status says it has
+# no answer for the run -- a run the subject leaves open -- with why on its
+# standard error. The differ cannot see that: it compares output, and
+# printing nothing is an answer a program can give, so an empty expected file
+# would pass, and a case would settle at basic what the subject leaves open.
+# So the script notes the status, and a case that made such a run fails here
+# with the reference's reason, unless it is a survive case, which compares
+# no output and so asks the reference for none.
+#
 # Usage:
 #   reference_cases.sh --oracle PATH --program NAME --differ PATH
 #                      --case-run NAME COUNT ARG... [--case-run ...]
@@ -37,9 +46,11 @@
 #                    compared, how the program is run, `--`, its argv.
 #                    Counted rather than ended by a marker, so an argument
 #                    can be anything a case can hold. Repeatable; the three
-#                    options above come first.
+#                    options above come first. A --survive before the `--`
+#                    makes it a survive case (NO ANSWER, above).
 #
-# Exit status: 0 the reference passes every case, 1 it fails one, 2 the
+# Exit status: 0 the reference passes every case, 1 it fails one or has no
+# answer for a case that is not a survive case, 2 the
 # harness broke (no reference for the program, a malformed --case-run, a
 # case the differ could not judge).
 set -u
@@ -100,9 +111,18 @@ while [ $# -gt 0 ]; do
 			N=$((N + 1))
 			printf '%s' "$_name" > "$WORK/case$N.name"
 			# Each argument as one shell word that gives back its exact bytes
-			# (rl_cmdline), for the eval below.
+			# (rl_cmdline), for the eval below. A --survive among the differ's
+			# options, before the `--` that starts the program's argv, marks a
+			# survive case.
 			_w=""
+			_argv=0
 			while [ "$_n" -gt 0 ]; do
+				if [ "$_argv" = 0 ]; then
+					case "$1" in
+						--) _argv=1 ;;
+						--survive) : > "$WORK/case$N.survive" ;;
+					esac
+				fi
 				_w="$_w $(rl_cmdline "$1")"
 				shift
 				_n=$((_n - 1))
@@ -131,10 +151,18 @@ if ! "$ORACLE" run --has "$PROGRAM" > /dev/null 2>&1; then
 	exit 2
 fi
 
-# The program the differ runs: by path, or copied into a run folder.
+# The program the differ runs: by path, or copied into a run folder. It
+# passes the reference's standard error on, after its run, and notes a
+# status other than 0 with that error (NO ANSWER, above): in files of $WORK,
+# by absolute path, which a copy run from another folder still reaches.
+case "$WORK" in /*) ;; *) WORK="$(pwd)/$WORK" ;; esac
 mkdir "$WORK/ref" || { echo "reference_cases.sh: cannot make $WORK/ref" >&2; exit 2; }
 REF="$WORK/ref/prog"
-printf '#!/bin/sh\nexec %s run %s "$@"\n' "$(rl_cmdline "$ORACLE")" "$(rl_cmdline "$PROGRAM")" > "$REF" &&
+NOANS="$WORK/no_answer"
+REFERR="$WORK/ref_err"
+printf '#!/bin/sh\n%s run %s "$@" 2> %s\n_rc=$?\ncat %s >&2\n[ "$_rc" = 0 ] || { echo "status $_rc" >> %s; cat %s >> %s; }\nexit "$_rc"\n' \
+	"$(rl_cmdline "$ORACLE")" "$(rl_cmdline "$PROGRAM")" "$(rl_cmdline "$REFERR")" \
+	"$(rl_cmdline "$REFERR")" "$(rl_cmdline "$NOANS")" "$(rl_cmdline "$REFERR")" "$(rl_cmdline "$NOANS")" > "$REF" &&
 	chmod +x "$REF" || { echo "reference_cases.sh: cannot write $REF" >&2; exit 2; }
 
 # --show-run: the report of a case that fails opens with the run it made,
@@ -151,13 +179,26 @@ run_case() {
 echo "reference_cases: every case, with \`oracle run $PROGRAM\` in the program's place;"
 echo "  a RAN line below calls it $PROGRAM, the program's name, with the case's arguments"
 FAILS=0
+NONE=0
 BROKEN=0
 i=1
 while [ "$i" -le "$N" ]; do
 	_name=$(cat "$WORK/case$i.name")
 	_words=$(cat "$WORK/case$i.words")
+	rm -f "$NOANS"
 	eval "run_case $_words" > "$WORK/out" 2>&1
 	_rc=$?
+	# A run with no answer, in a case that is not a survive case: whatever
+	# the differ said, the case holds an output to a run the reference has
+	# none for. A differ that could not judge it (2) still says so below.
+	if [ -s "$NOANS" ] && [ ! -e "$WORK/case$i.survive" ] && [ "$_rc" != 2 ]; then
+		FAILS=$((FAILS + 1))
+		NONE=$((NONE + 1))
+		echo "  FAIL   $_name: the reference has no answer for this run; it said"
+		rl_excerpt "$NOANS" 10 "reference_cases.$_name.no_answer.txt" "         "
+		i=$((i + 1))
+		continue
+	fi
 	case "$_rc" in
 		0) echo "  ok     $_name" ;;
 		1)
@@ -185,10 +226,16 @@ if [ "$FAILS" -eq 0 ]; then
 	exit 0
 fi
 echo "reference_cases: FAIL — the reference does not pass $FAILS of $N case(s)."
+if [ "$NONE" -gt 0 ]; then
+	echo "  $NONE of them run what the reference has no answer for: a run the"
+	echo "  subject leaves open, whose output no expected file can hold, not even"
+	echo "  an empty one. Such a case asks only that the program ends by itself"
+	echo "  (\"survive\")."
+fi
 echo "  These are the harness's own cases, never a student's: a case's arguments,"
 echo "  its argument file or run folder, or the expected file it names was changed"
 echo "  without the rest, or the reference changed. Make the case in the project's"
-echo "  BUILD.bazel run what its expected file answers -- that file is the"
-echo "  reference's, written by its fixtures arm -- and read the report above for"
-echo "  what the reference printed instead."
+echo "  BUILD.bazel run what its expected file answers -- where the project has"
+echo "  a fixtures arm, that file is the reference's, written by it -- and read"
+echo "  the report above for what the reference printed instead."
 exit 1

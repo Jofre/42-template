@@ -15,6 +15,8 @@ subject(
         "07": exercise(page = 15, dir = "ex07/", files = ["ft_putnbr.c"], allowed = ["write"]),
         "08": exercise(page = 16, dir = "ex08/", files = ["ft_print_combn.c"], allowed = ["write"]),
     },
+    mandatory = ["00", "01", "02", "03", "04"],
+    mandatory_quote = "C 00, p.12: \"You have reached the end of the mandatory exercises required to validate this project.\"",
 )
 
 c_function(num = "00", fn = "ft_putchar", test = "test_putchar.c", clues = "clues.tsv")
@@ -66,7 +68,8 @@ c_diff(
     # 200000, not 100000: as many as the ASan twin replays, so each case it
     # checks for memory is value-checked here too (V34, the owner's choice,
     # 2026-10-04); c_diff refuses a twin larger than its plain replay.
-    count = 200000,    diff_clues = "diff_clues.txt",
+    count = 200000,
+    diff_clues = "diff_clues.txt",
 )
 
 c_function(num = "08", fn = "ft_print_combn", test = "test_print_combn.c", clues = "clues.tsv")
@@ -77,6 +80,8 @@ c_function(num = "08", fn = "ft_print_combn", test = "test_print_combn.c", clues
 c_mem_check(num = "08", fn = "ft_print_combn", probe = "mem_print_combn.c")
 
 # ------------------------------------------- layers this module does NOT carry
+#
+# no c_diff on ex01, ex02, ex03, ex05, ex06: ZERO-INPUT.
 #
 # NO differential arm for ex01, ex02, ex03, ex05 and ex06, and that is a decision
 # rather than an omission — the same decision c-piscine/c-piscine-c-05/BUILD.bazel records
@@ -98,6 +103,8 @@ c_mem_check(num = "08", fn = "ft_print_combn", probe = "mem_print_combn.c")
 # bodies "never contain 0x00 or 0x0a". So the fixture covers strictly more of
 # the interesting domain than a corpus could, and the remaining 254 values
 # differ from '~' in no way a one-byte write can express.
+#
+# no c_diff on ex08: SMALL-INPUT-SPACE.
 #
 # ex08 is not the zero-input case either, and it is left out for a related but
 # separate reason: its SPECIFIED input space is nine values wide, not 2^32. The subject
@@ -136,11 +143,11 @@ c_mem_check(num = "08", fn = "ft_print_combn", probe = "mem_print_combn.c")
 #
 # Four of the five are not unsanitised, though, and this paragraph used to say
 # they were — "no sanitizer at all for ex01, ex02, ex03 and ex05" — with
-# c_mem_check called for every one of those four a hundred lines above (:7,
-# :11, :15, :25). A wrong reason is worse than a missing one here, because this
-# repo's whole defence against weak testing is that every absence carries a
-# written reason, and one that is checkably false teaches the next reader to
-# skim them all.
+# c_mem_check called for every one of those four above (the ex01, ex02, ex03
+# and ex05 c_mem_check calls). A wrong reason is worse than a missing one here,
+# because this repo's whole defence against weak testing is that every absence
+# carries a written reason, and one that is checkably false teaches the next
+# reader to skim them all.
 #
 # So: ex01, ex02, ex03 and ex05 each carry a c_mem_check probe, the ASan layer
 # that needs no corpus. ex00 carries neither, and correctly — ft_putchar writes

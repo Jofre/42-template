@@ -1,7 +1,7 @@
 /*
  * The PDF's styles, laid over page.html5's own (tools/exam_guide.sh inlines
  * both). Local fonts only -- the PDF is built offline -- A4, every answer
- * shown, nothing that scrolls.
+ * shown at the end of its chapter, nothing that scrolls.
  *
  * Two traps this file steps around, both measured on WeasyPrint 54:
  *  - tables are `table-layout: fixed`, with widths the build computes per
@@ -69,3 +69,5 @@ nav#TOC a::after { content: leader('.') target-counter(attr(href), page); }
    one page and the answer at the head of the next. */
 .answer { border-left: 3px solid #135f7d; padding-left: 0.8em; margin: 0.6em 0; page-break-inside: avoid; }
 .answer-label { font-weight: 700; font-size: 0.85em; color: #135f7d; margin: 0; page-break-after: avoid; }
+/* Under each question, the link to its answer at the end of the chapter. */
+.answer-link { font-size: 0.85em; margin-top: 0; }

@@ -45,7 +45,8 @@
 #                   --valgrind PATH --valgrind-tools FILE --callgrind-annotate PATH
 #                   [--count N] [--unit-expr AWK] [--unit-name TEXT]
 #                   [--max-unit N]
-#                   [--gate-differ P --gate-bin P --gate-expected P ...]
+#                   [--gate-differ P --gate-bin P --gate-expected P ...
+#                    [--gate-label NAME]]
 #   cycles_check.sh --harness FILE --src FILE... [--inc DIR]... [--lib FILE]...
 #                   --cc PATH [--cc-lib FILE]... [--cc-under FILE]
 #                   --ld PATH --ld-lib FILE...
@@ -64,6 +65,11 @@
 #                  the bytes of C 07's split corpus, and the figure per byte
 #                  measured their mix of words rather than the function's
 #                  usual cost; the report says how many were left out.
+#
+#   --gate-label NAME  the output test the gate is, by name, for its SKIP line.
+#                  Any --gate-* without all of --gate-differ, --gate-bin and
+#                  --gate-expected is a wiring mistake, refused (runner_lib.sh's
+#                  rl_gate_whole).
 set -u
 
 # The external commands this runner takes from PATH. See diff_output.sh for why
@@ -98,7 +104,7 @@ case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esa
 BIN=""; ORACLE=""; FN=""; SYM=""; COUNT="3000"
 HARNESS=""; SRCS=""; INCS=""; LIBS=""; OPT="${CYCLES_OPT:--O2}"
 UNIT_EXPR=""; UNIT_NAME="case"; BUDGET=""; SYSCALL_BUDGET=""; MAX_UNIT=""
-GATE_DIFFER=""; GATE_BIN=""; GATE_EXPECTED=""; GATE_PASS=""
+GATE_DIFFER=""; GATE_BIN=""; GATE_EXPECTED=""; GATE_PASS=""; GATE_NAME=""
 
 # `--flag` with nothing after it used to die as "2: parameter not set" from
 # `set -u` -- the right exit code wrapped in raw shell. Same loop in every
@@ -139,6 +145,7 @@ while [ $# -gt 0 ]; do
 		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
+		--gate-label) need "$1" "$#"; GATE_NAME="$2"; shift 2 ;;
 		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
 		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
 		--cc-under) need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
@@ -147,6 +154,9 @@ while [ $# -gt 0 ]; do
 		*) echo "cycles_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole cycles_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS$GATE_NAME"
 
 [ -n "$ORACLE" ] && [ -n "$FN" ] && [ -n "$SYM" ] || {
 	echo "cycles_check.sh: need --oracle, --oracle-fn and --symbol" >&2
@@ -246,7 +256,11 @@ if [ "${NO_SKIP:-0}" != "1" ] && [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] &&
 		echo "cycles_check: the output gate could not be evaluated (exit $_gate_rc),"
 		echo "              so this layer is running anyway rather than going quiet."
 	elif [ "$_gate_rc" -eq 1 ]; then
-		echo "cycles_check: SKIP — this exercise's output fixture is not passing yet."
+		if [ -n "$GATE_NAME" ]; then
+			echo "cycles_check: SKIP — $GATE_NAME, this exercise's output fixture, is not passing yet."
+		else
+			echo "cycles_check: SKIP — this exercise's output fixture is not passing yet."
+		fi
 		echo "              Counting the instructions of a wrong answer is not useful;"
 		echo "              this starts measuring once the *_output layer is green."
 		exit 0
@@ -438,7 +452,9 @@ fi
 # student's -- so the call counts and the allocator's cost below are the
 # function's, whichever of its own functions made the call. (Recursion is
 # handled: collection is on from the outermost entry to its return.)
-rl_run "$VALGRIND" --tool=callgrind --toggle-collect="$SYM" \
+# --vgdb=no: no FIFOs in TMPDIR for a gdb that never comes, which a run killed
+# at its time limit would leave behind.
+rl_run "$VALGRIND" --tool=callgrind --vgdb=no --toggle-collect="$SYM" \
 	--callgrind-out-file="$T/cg" "$BIN" < "$T/corpus" \
 	> /dev/null 2>"$T/vg.err"
 VG_RC=$?
@@ -682,9 +698,9 @@ if [ -n "$SYSCALL_BUDGET" ]; then
 				print "  Syscalls: none, which is the budget for this function."
 			} else {
 				printf "  %d write() call(s), against a budget of NONE.\n", total
-				print "  This function is not budgeted for a single syscall: talking to the"
-				print "  kernel is not part of the job the subject gives it. Re-read what it"
-				print "  says this function produces, and where that result is meant to go."
+				print "  This function is not budgeted for a single syscall: this target"
+				print "  measures it as a job that never talks to the kernel. Re-read what"
+				print "  your subject says it produces, and where that result is meant to go."
 			}
 			exit
 		}

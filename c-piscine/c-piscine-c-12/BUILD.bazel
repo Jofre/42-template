@@ -96,21 +96,18 @@ c_diff(
 # holes in an otherwise deliberate policy, with no comment recording a reason.
 # That is indistinguishable from an oversight, so treat it as one and close it.
 #
-# What it buys, concretely: an OUTPUT-IDENTICAL leak. Hoist the ft_create_elem
-# call out of the empty/non-empty branch, forget to delete the one still inside
-# the empty branch, and you allocate twice and link one -- the orphan is not in
-# the list, so nothing that walks the list can see it. Measured on exactly that
-# mutant: every row of tests/ex01/expected.txt and tests/ex04/expected.txt PASS, the
-# 400k diff OK and the 200k diff_asan OK for both exercises. Only valgrind says
+# What it buys, concretely: an OUTPUT-IDENTICAL leak. A node allocated and
+# never linked is not in the list, so nothing that walks the list can see it.
+# Measured on a toy variant that allocates one node more than it links: every
+# row of tests/ex01/expected.txt and tests/ex04/expected.txt PASS, the 400k
+# diff OK and the 200k diff_asan OK for both exercises. Only valgrind says
 # "16 bytes in 1 blocks are definitely lost". It has to be valgrind: the ASan
 # arms cannot substitute, because tools/rust_diff.sh, tools/asan_run.sh and
 # tools/asan_check.sh all export detect_leaks=0 ON PURPOSE, each with a comment
 # saying leaks are the valgrind layer's finding and not theirs.
 #
-# ex04 invites the bug harder than ex01: its empty-list case is naturally an
-# early-return branch, which is precisely where a hoisted allocation gets
-# stranded. Both fixtures free every node they reach, so a correct
-# implementation exits 0 under --error-exitcode -- verified before landing this.
+# Both fixtures free every node they reach, so a correct implementation exits
+# 0 under --error-exitcode -- verified before landing this.
 #
 # ex01 is also the EARLIEST point in the piscine where the student hands
 # ownership of heap memory to a caller, so it is the earliest place where "the
@@ -422,12 +419,11 @@ c_function(
     clues = "clues.tsv",
 )
 
-# The differential arms for the two exercises that had none, and were the
-# reason TODO item 2 existed: a sorted-invariant insertion and a merge are
-# exactly the shapes a short expected.txt cannot pin down. A wrong seam -- one
-# element dropped, one duplicated, the boundary between the two lists mishandled
-# -- looks perfectly plausible in a five-line fixture and shows up in the first
-# few hundred generated cases.
+# The differential arms for the two exercises that had none: a sorted-invariant
+# insertion and a merge are exactly the shapes a short expected.txt cannot pin
+# down. A wrong seam -- one element dropped, one duplicated, the boundary
+# between the two lists mishandled -- looks perfectly plausible in a five-line
+# fixture and shows up in the first few hundred generated cases.
 #
 # The corpora are SORTED on the way out of the reference, because being handed
 # an ordered list is the precondition both subjects state; an unsorted corpus

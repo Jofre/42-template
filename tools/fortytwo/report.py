@@ -132,13 +132,15 @@ def pick_label(nxt, bep):
     return with_log[0] if with_log else None
 
 
-def log_path(ws, label, bep):
+def log_path(label, bep):
+    """The test.log this run names for label, or None when it names none or no file holds it.
+
+    Never bazel-testlogs/<package>/<name>/test.log in its place: when this
+    run's log is not on disk, that one is the same file or an earlier run's,
+    and an earlier run's log under this run's red explains another state.
+    """
     p = bep.logs.get(label)
-    if p and os.path.isfile(p):
-        return p
-    pkg, _, name = label[2:].partition(":")
-    p = os.path.join(ws, "bazel-testlogs", pkg, name, "test.log")
-    return p if os.path.isfile(p) else None
+    return p if p and os.path.isfile(p) else None
 
 
 def log_body(path, cap=LOG_CAP):

@@ -40,9 +40,9 @@ int	main(void)
 		x++;
 	}
 	/* every buffer/counter ceiling and its neighbours, wide and tall: this is
-	 * where "char line[80];" is actually overrun. Same list as the CEILINGS in
-	 * oracle/src/rush00.rs, so a failure here and a divergence there name the
-	 * same sizes. */
+	 * where "char line[80];" is actually overrun. Same list as the ceilings
+	 * the reference's corpus draws, so a failure here and a divergence there
+	 * name the same sizes. */
 	i = 0;
 	while (i < (int)(sizeof(g_ceilings) / sizeof(g_ceilings[0])))
 	{

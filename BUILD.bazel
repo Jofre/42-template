@@ -2,13 +2,15 @@
 # This module's exercises are under c-piscine/c-piscine-c-*/BUILD.bazel.
 
 # The files //tools:conventions reads that belong to no module and no package of
-# their own: the devcontainer's setup script, the root BUILD file itself, the
-# top-level docs and rc files, the CHANGELOG a publish adds a line to, what
-# .github holds, and the Markdown in a course folder that is not a package
-# (cursus/README.md, the exam guide). Everything else it scans arrives through a module's
-# :conventions_srcs (emitted by c_levels) or through //tools, //tools/tests and
-# //oracle. A glob stops at a package, so a project folder with a BUILD file of
-# its own is its c_levels' to declare, not this one's.
+# their own: the devcontainer (its setup script, and the Dockerfile whose
+# versions the pin checks compare), .bazelversion, the editor's tasks, the root
+# BUILD file itself, the top-level docs and rc files, the CHANGELOG a publish
+# adds a line to, what .github holds, and the Markdown in a course folder that
+# is not a package (cursus/README.md, the exam guide). Everything else it scans
+# arrives through a module's :conventions_srcs (emitted by c_levels) or through
+# //tools, //tools/tests and //oracle. A glob stops at a package, so a project
+# folder with a BUILD file of its own is its c_levels' to declare, not this
+# one's.
 filegroup(
     name = "conventions_srcs",
     srcs = [
@@ -19,6 +21,10 @@ filegroup(
         # Read by the check that a CR a fixture needs survives a commit.
         ".gitattributes",
         ".bazelrc.local.example",
+        # The Bazel bazelisk runs, held to tools/pins.tsv.
+        ".bazelversion",
+        # The editor's tasks, which the rules for what a task runs read.
+        ".vscode/tasks.json",
         # README.md links to it, and the rule that a page's links resolve
         # sees, under `bazel test`, only the files declared here and in the
         # other conventions_srcs.
@@ -30,7 +36,10 @@ filegroup(
             # maintainer's TODO.md (whose TO VERIFY leads conventions holds to
             # a number each) and HISTORY.md, which the template ships without.
             "*.md",
-            ".devcontainer/*.sh",
+            # The setup script, the Dockerfile whose versions and man pages
+            # the pin checks compare, and devcontainer.json, which the rules
+            # that read every file read.
+            ".devcontainer/*",
             "docs/*.md",
         ],
         allow_empty = False,
@@ -65,6 +74,17 @@ filegroup(
             ".bazelrc.local.example",
         ],
     ),
+    visibility = ["//tools/tests:__pkg__"],
+)
+
+# The dev container's first-run script, which //tools/tests:selftest runs in a
+# toy checkout for the disk cache it gives the container, and the editor's
+# tasks, whose default it runs in a toy checkout for the module it finds.
+exports_files(
+    [
+        ".devcontainer/postcreate.sh",
+        ".vscode/tasks.json",
+    ],
     visibility = ["//tools/tests:__pkg__"],
 )
 

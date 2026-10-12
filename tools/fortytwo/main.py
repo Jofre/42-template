@@ -2,7 +2,9 @@
 
 Every command runs a Bazel target, or Bazel itself; tools/fortytwo/commands.tsv
 says which, and `42 help` is printed from it. 42 adds no check of its own:
-what a run reports is first_red.sh's and the tests' own logs.
+what a run reports is first_red.sh's and the tests' own logs. The one command
+that runs no Bazel is `42 config` (config.py), which reads and writes the
+files the others read: it has to work when Bazel does not.
 """
 
 import os
@@ -13,6 +15,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import argparse  # noqa: E402
+import re  # noqa: E402
 import shutil  # noqa: E402
 import textwrap  # noqa: E402
 import time  # noqa: E402
@@ -21,7 +24,7 @@ import bazel  # noqa: E402
 import report  # noqa: E402
 import taint  # noqa: E402
 import workspace  # noqa: E402
-from workspace import LEVELS, UsageError, Workspace, resolve_level  # noqa: E402
+from workspace import LEVELS, UnknownWord, UsageError, Workspace, resolve_level  # noqa: E402
 
 VERSION = "1"
 
@@ -125,12 +128,19 @@ def print_help(ctx, every=False, command=None):
         row = next((r for r in rows if r["command"] == command), None)
         if row is None:
             raise UsageError("no command %r. `42 help` lists them." % command)
-        ctx.out.say("42 %s %s\n\n  %s\n  Runs: %s" % (command, row["usage"], row["text"], row["runs"]))
+        ctx.out.say("42 %s %s\n\n  %s\n  Runs: %s" % (
+            command, row["usage"], row["text"],
+            row["runs"] or "no Bazel command; 42 reads and writes the files itself"))
         if command in ("test", "watch", "clues"):
             ctx.out.say(WORDS_HELP % {"projects": wrap(ctx.W.project_list(), 16),
                                       "layers": wrap(" ".join(ctx.W.layers()), 16)})
         if command == "test":
             ctx.out.say(TEST_FLAGS_HELP % {"levels": " ".join(LEVELS)})
+        if command == "submit":
+            ctx.out.say(SUBMIT_FLAGS_HELP % {"levels": " ".join(LEVELS)})
+        if command == "config":
+            import config
+            ctx.out.say(config.help_text(ctx))
         return 0
     ctx.out.say("42 -- run this repo's tests the way you think about them.\n")
     ctx.out.say(here_line(ctx) + "\n")
@@ -146,9 +156,12 @@ def print_help(ctx, every=False, command=None):
     ctx.out.say(
         "\n  Levels: %s. Yours comes from --level, then\n"
         "  SUBMIT_GATE, then the .submit-level file, else basic.\n"
-        "  Every command takes --show_bazel, which prints the Bazel command it\n"
-        "  runs, and --dry-run, which prints it and runs nothing; docs/bazel.md\n"
-        "  takes those commands apart.\n"
+        "  Every command that runs Bazel takes --show_bazel, which prints the\n"
+        "  Bazel command it runs, and --dry-run, which prints it and runs\n"
+        "  nothing; docs/bazel.md takes those commands apart. `42 config` runs\n"
+        "  none, and its --dry-run writes nothing. --plain leaves out the line\n"
+        "  that counts the seconds while Bazel runs; a pipe or a log file never\n"
+        "  gets it.\n"
         "  More: 42 help <command>%s, and docs/testing.md.\n"
         "  Stuck? The peer next to you, the subject and `man` come first." % (
             ", ".join(LEVELS), "" if every else ", 42 help --all"))
@@ -176,7 +189,25 @@ TEST_FLAGS_HELP = """
   Its flags:
     --level L   that level instead of yours (%(levels)s)
     --fresh     every test again, even one whose result Bazel has cached
-    --all       in what is still red, one line per exercise"""
+    --all       in what is still red, one line per exercise
+    --show_starlark
+                which BUILD.bazel line and macro declare each test; runs none"""
+
+SUBMIT_FLAGS_HELP = """
+  A URL is where the one project named goes, or the project you are in:
+  pushed there now, and saved in .submit-remotes for the next time (-n
+  saves nothing). `42 config set remote.c-05 URL` saves one without a push.
+  Its flags:
+    --all            every project with a URL in .submit-remotes
+    --level L        gate at that level instead of yours:
+                     %(levels)s
+    --written-only   an exercise not written yet does not block the push;
+                     every other test still has to pass, and the run names
+                     what it let through. It refuses a project with nothing
+                     written, or with an exercise its subject calls
+                     mandatory not written yet
+    -n              show what it would push, and push nothing
+  Words after -- go to //tools:submit itself (docs/submitting.md)."""
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +252,7 @@ def changed_files(ws, paths, when):
 
 
 def repair_notice(ws, paths, project, first):
-    """What 42 says before it repairs a run an edit raced (TODO.md V111): a taint has a project."""
+    """What 42 says before it repairs a run an edit raced (V111): a taint has a project."""
     then = ("runs %s again without the cache, then the rest" % ", ".join(first) if first
             else "runs these tests again, without the cache")
     return "%s\n  %s" % (changed_files(ws, paths, "while an earlier run was going"), wrap(
@@ -285,7 +316,7 @@ class Run:
         ctx, out = self.ctx, self.ctx.out
         self.say_header()
         if self.tainted and self.project:
-            # TODO.md V111: a program built while its file changed can be
+            # V111: a program built while its file changed can be
             # the other contents' program, and only building it again fixes that.
             ctx.show_line("rm -rf \"$(bazel info execution_root)\"/bazel-out/*/bin/" + self.project.rel)
         for ex in self.first:
@@ -407,11 +438,13 @@ def show_next_log(ctx, scope, bep, next_path):
     if nxt is None:
         return
     label = report.pick_label(nxt, bep)
-    path = report.log_path(ctx.ws, label, bep) if label else None
+    path = report.log_path(label, bep) if label else None
+    out = ctx.out
     if not path:
+        if label and bep.logs.get(label):
+            out.say("\n  The log of %s is not shown: its test.log could not be found." % label)
         return
     lines, more = report.log_body(path)
-    out = ctx.out
     out.say("\n  THE LOG OF %s\n" % label)
     out.say("\n".join(lines))
     if more:
@@ -468,46 +501,103 @@ def cmd_clues(ctx):
     exe = ctx.bazel()
     rundir = bazel.run_dir(ctx.env)
     try:
+        def run(argv, out_path, doing):
+            # Each attempt a new child: one that found Bazel busy ran nothing,
+            # and waits as `42 test` waits.
+            return while_busy(out, lambda: bazel.run_foreground(
+                bazel.Child(argv, ctx.ws, out_path, ctx.env), tick=lambda t, s: out.tick("  %s... %ds" % (doing, t))))
+
         # What failed: the same selection as `42 test`, so a cached run costs
         # nothing. Then only those labels again, with the hints asked for: a
         # --test_env change re-runs every test of its invocation, so the
         # passing ones are left out of it.
         bep_path = os.path.join(rundir, "bep1.json")
+        out1 = os.path.join(rundir, "out1")
+        next_path = os.path.join(rundir, "next.tsv")
         argv = bazel.with_startup([exe] + bazel.test_argv(patterns, filt)[1:]) + bazel.plumbing(bep_path, bazel.new_invocation())
         ctx.show(bazel.test_argv(patterns, filt))
-        rc = bazel.run_foreground(bazel.Child(argv, ctx.ws, os.path.join(rundir, "out1"), ctx.env),
-                                  tick=lambda t, s: out.tick("  finding what failed... %ds" % t))
+        rc = run(argv, out1, "finding what failed")
         out.clear_tick()
-        failed = bazel.read_bep(bep_path).failed()
-        if rc == bazel.OK or not failed:
+        # A run that did not finish (busy, refused, nothing selected,
+        # stopped) says nothing of what failed: `42 test`'s words for it.
+        if rc not in (bazel.OK, bazel.BUILD_FAILED, bazel.TESTS_FAILED):
+            return report_run(ctx, scope, level, rc, out1, bep_path, next_path, False)
+        bep1 = bazel.read_bep(bep_path)
+        failed = bep1.failed()
+        # A target that does not build ran no test and printed no hint, so
+        # failed() never names it: Bazel 9 gives it no test summary, and
+        # does_not_build() counts a FAILED_TO_BUILD one as none. When
+        # it is all that is red, the run is reported as `42 test` reports it,
+        # by first_red, never as "nothing failed".
+        broken = bep1.does_not_build()
+        if rc != bazel.OK and not failed:
+            text, _ = report.first_red(ctx.ws, out1, next_path)
+            out.say(text.rstrip("\n"))
+            out.say("\n  No hint to show: what is red here never ran, so it printed none.")
+            return rc
+        if rc == bazel.OK:
             out.say("Nothing failed in %s at %s: no hint to show." % (scope.describe(), level))
             return rc
         bep2 = os.path.join(rundir, "bep2.json")
+        out2 = os.path.join(rundir, "out2")
         shown = bazel.test_argv(failed, None, ["--test_env=CLUE_MODE=" + hints])
         ctx.show(shown)
         argv = bazel.with_startup([exe] + shown[1:]) + bazel.plumbing(bep2, bazel.new_invocation())
-        rc = bazel.run_foreground(bazel.Child(argv, ctx.ws, os.path.join(rundir, "out2"), ctx.env),
-                                  tick=lambda t, s: out.tick("  running %d test(s) again with %s hints... %ds" % (len(failed), hints, t)))
+        rc2 = run(argv, out2, "running %d test(s) again with %s hints" % (len(failed), hints))
         out.clear_tick()
+        # Its test.logs are then an earlier run's, or none: no hint is read.
+        if rc2 not in (bazel.OK, bazel.BUILD_FAILED, bazel.TESTS_FAILED):
+            return report_run(ctx, scope, level, rc2, out2, bep2, os.path.join(rundir, "next2.tsv"), False)
         bep = bazel.read_bep(bep2)
+        lost = []
         for label in failed:
-            path = report.log_path(ctx.ws, label, bep)
-            block = hint_block(path) if path else []
+            # Only the test.log this run names: bazel-testlogs may hold an
+            # earlier run's, without the hints asked for, when the target
+            # stopped building between the two runs. A test this run gave
+            # no result did not run: no summary, or one that says so
+            # (NO_STATUS, FAILED_TO_BUILD). One it did may still name a log
+            # no file holds (a remote cache's), and that is all it lacks.
+            if bep.status.get(label, "NO_STATUS") in ("NO_STATUS", "FAILED_TO_BUILD"):
+                broken.append(label)
+                continue
+            path = bep.logs.get(label)
+            if not (path and os.path.isfile(path)):
+                lost.append(label)
+                continue
+            block = hint_block(path)
             out.say("\n  %s" % label)
             out.say("\n".join(block) if block else "   (this test prints no hints)")
-        return rc
+        if lost:
+            out.say("\n  These ran, but their test.log could not be found, so no hint is shown:\n"
+                    + "\n".join("    " + l for l in lost))
+        if broken:
+            out.say("\n  These did not run, so they printed no hints (`42 test` says why):\n"
+                    + "\n".join("    " + l for l in broken))
+        # The exit is the first run's, the one whose reds the hints explain,
+        # as `42 test` gives it for the same selection: a test that passes
+        # again (a flaky one) does not make it green, and what did not build
+        # is red whatever the second run did. Only a target that stopped
+        # building between the two runs says more.
+        return rc2 if rc2 == bazel.BUILD_FAILED else rc
     finally:
         shutil.rmtree(rundir, ignore_errors=True)
 
 
+# The headings rl_clues (tools/runner_lib.sh) opens a block of hints with:
+# "HINTS:", and "HINTS (...):" when none matches the case or the hints were
+# written for another test. Matched whole, so a line of a program's output
+# that only begins with the word starts nothing.
+HINTS_HEADING = re.compile(r"HINTS( \(.*\))?:")
+
+
 def hint_block(path):
-    """The HINTS block of a test.log, verbatim, up to the rule that closes it."""
+    """The hints of a test.log, verbatim, from their heading to the end of the log or a rule."""
     lines, _ = report.log_body(path, cap=10 ** 6)
     out = []
     for l in lines:
         if out and set(l.strip()) == {"-"}:
             break
-        if out or l.strip() == "HINTS:":
+        if out or HINTS_HEADING.fullmatch(l.strip()):
             out.append(l)
     return out
 
@@ -545,9 +635,20 @@ def run_target(ctx, label, args=(), command="run"):
     bazel.exec_foreground(argv, ctx.ws, ctx.env)
 
 
-def here_project(ctx, words, cmd):
-    """The one project named by words, else the current folder's, else None."""
-    scope = ctx.W.resolve(words)
+def here_project(ctx, words, cmd, what="a project"):
+    """The one project named by words, else the current folder's, else None. A word
+    that is not what cmd takes is refused as that: an exercise is never read as its
+    whole project, and an unknown word is not sent to `42 help test`."""
+    for w in words:
+        if re.match(r"ex\d+$", w):
+            raise UsageError("42 %s takes a project, not %s." % (cmd, w))
+    try:
+        scope = ctx.W.resolve(words)
+    except UnknownWord as e:
+        close = ctx.W.close_projects(e.word)
+        hint = (" Did you mean %s?" % " or ".join(close)) if close else ""
+        raise UsageError("%s\nThe projects:\n  %s" % (
+            wrap("%r is not %s.%s" % (e.word, what, hint), 0, 76), wrap(ctx.W.project_list(), 2)))
     if scope.layer or scope.label:
         raise UsageError("42 %s takes a project, not %s." % (cmd, scope.layer or scope.label))
     return scope
@@ -556,29 +657,81 @@ def here_project(ctx, words, cmd):
 def cmd_submit(ctx):
     a = ctx.args
     args = []
+    named, urls = [], []
+    for w in a.projects:
+        # A project first, then a URL: no project is named like one. A word
+        # shaped like a URL (a ':', an '@', a leading '/') that is no good URL
+        # gets the URL's error, any other the project's.
+        try:
+            named.append(here_project(ctx, [w], "submit", "a project or a repository URL"))
+        except UsageError:
+            if not (":" in w or "@" in w or w.startswith("/")):
+                raise
+            import config
+            urls.append(config.check_url(w))
+    if len(urls) > 1:
+        raise UsageError("two URLs, %s: a project is pushed to one repository." % " and ".join(urls))
+    url = urls[0] if urls else None
     if a.all:
-        if a.projects:
+        if url:
+            raise UsageError("a URL is one project's repository, and --all pushes every project:\n"
+                             "name the project with it (42 submit c-05 URL), or leave it out.")
+        if named:
             raise UsageError("--all or project names, not both.")
     else:
         projects = []
-        for w in a.projects or [None]:
-            scope = here_project(ctx, [w] if w else [], "submit")
+        for scope in named or [here_project(ctx, [], "submit")]:
             if scope.project is None:
+                if url:
+                    raise UsageError("42 submit URL pushes the project you are in, and you are not in one:\n"
+                                     "name it (42 submit c-05 URL).")
                 raise UsageError(
                     "42 submit pushes the project you are in, and you are not in one.\n"
                     "Name the projects (42 submit c-05 c-06), or push every one with a\n"
                     "remote set: 42 submit --all")
-            if scope.project.rel not in projects:
-                projects.append(scope.project.rel)
-        args += projects
+            if scope.project.rel not in [p.rel for p in projects]:
+                projects.append(scope.project)
+        if url and len(projects) > 1:
+            raise UsageError("a URL is one project's repository: name one project with it, not %d."
+                             % len(projects))
+        args += [p.rel for p in projects]
     if a.level:
         if a.level not in LEVELS:
             raise UsageError("--level %s is not a level: %s." % (a.level, ", ".join(LEVELS)))
         args += ["--gate-level", a.level]
+    if url:
+        if save_url(ctx, projects[0], url, a.n) != 0:
+            return 1
+        args += ["--url", url]
+    if a.written_only:
+        args.append("--written-only")
     if a.n:
         args.append("-n")
     args += a.rest
     return run_target(ctx, "//tools:submit", args)
+
+
+def save_url(ctx, project, url, n):
+    """The URL `42 submit` was given, written to .submit-remotes through `42 config`'s writer,
+    so the next `42 submit` needs no URL: 0, or 1 when the file could not be written."""
+    import config
+    s = config.find(ctx, "remote." + project.rel)
+    s.check(ctx, url)
+    old = s.get(ctx)
+    if old is not None and old.value == url and len(s.rows(ctx)) == 1:
+        return 0
+    if n or ctx.args.dry_run:
+        ctx.out.say(config.wrap("42: %s saves nothing: without it, %s's URL is written to .submit-remotes "
+                                "for the next time." % ("-n" if n else "--dry-run", project.short), 4))
+        return 0
+    try:
+        s.write(ctx, url)
+    except config.Failed as e:
+        ctx.out.err("42: %s" % e)
+        return 1
+    ctx.out.say("42: saved for %s in .submit-remotes, for the next time:\n    %s%s" % (
+        project.short, url, "\n    (it was %s)" % old.value if old else ""))
+    return 0
 
 
 def cmd_norm(ctx):
@@ -645,6 +798,11 @@ def cmd_init(ctx):
     if a.email:
         args += ["--email", a.email]
     return run_target(ctx, "//tools:init", args)
+
+
+def cmd_config(ctx):
+    import config
+    return config.run(ctx, ctx.args.words, ctx.args.all, ctx.args.dry_run)
 
 
 def cmd_stop(ctx):
@@ -722,9 +880,39 @@ def cmd_stubcheck(ctx):
 
 class Parser(argparse.ArgumentParser):
     def error(self, message):
-        raise UsageError("%s. `42 help %s` says how to call it." % (message, self.prog.split()[-1]))
+        # The top parser's prog is "42", and `42 help 42` is no command.
+        name = self.prog.split()[-1]
+        raise UsageError("%s. `42 help%s` says how to call it." % (message, "" if name == "42" else " " + name))
+
+    def take_words(self, ns, words):
+        """Give words that followed a `--` to this command's one positional argument."""
+        found = [a for a in self._actions if not a.option_strings]
+        if not found or (found[0].nargs == "?" and (getattr(ns, found[0].dest) is not None or len(words) > 1)):
+            self.error("unrecognized arguments: %s" % " ".join(words))
+        a = found[0]
+        setattr(ns, a.dest, words[0] if a.nargs == "?" else (getattr(ns, a.dest) or []) + words)
 
     def parse_args(self, args=None, namespace=None):
+        # A command's own parser reads its words and its flags in any order.
+        # Read by the top parser, a command's words ended at its first flag:
+        # `42 config set --dry-run level strict` lost "level strict", and
+        # `42 test c-05 --level strict ex00` lost "ex00".
+        # A `--` ends the flags, and all that follows it is words, whatever
+        # they look like. parse_intermixed_args (Python 3.10) read a flag
+        # after it as a flag and refused a word that looks like one, so it
+        # reads what comes before, and the rest goes to the command's words.
+        args = list(sys.argv[1:] if args is None else args)
+        command = getattr(self, "commands", {}).get(args[0]) if args else None
+        if command is not None:
+            words, after = args[1:], []
+            if "--" in words:
+                i = words.index("--")
+                words, after = words[:i], words[i + 1:]
+            ns = command.parse_intermixed_args(words, namespace)
+            ns.command = args[0]
+            if after:
+                command.take_words(ns, after)
+            return ns
         # A flag no command takes is reported by the top parser, whose prog is
         # "42", and `42 help 42` is no command: name the command it came with.
         ns, extra = self.parse_known_args(args, namespace)
@@ -766,6 +954,7 @@ def parser():
     p.add_argument("projects", nargs="*")
     p.add_argument("--all", action="store_true")
     p.add_argument("--level")
+    p.add_argument("--written-only", action="store_true")
     p.add_argument("-n", action="store_true")
 
     p = add("norm")
@@ -785,6 +974,10 @@ def parser():
     p.add_argument("--login")
     p.add_argument("--email")
 
+    p = add("config")
+    p.add_argument("words", nargs="*")
+    p.add_argument("--all", action="store_true")
+
     p = add("doctor")
     p.add_argument("--drift", action="store_true")
     p.add_argument("--report", action="store_true")
@@ -796,12 +989,14 @@ def parser():
     p = add("stubcheck")
     p.add_argument("where", nargs="*")
     p.add_argument("--file")
+    top.commands = sub.choices
     return top
 
 
 COMMANDS = {
     "test": cmd_test, "watch": cmd_watch, "clues": cmd_clues, "submit": cmd_submit,
     "norm": cmd_norm, "generate": cmd_generate, "header": cmd_header, "init": cmd_init,
+    "config": cmd_config,
     "doctor": cmd_doctor, "stop": cmd_stop, "selftest": cmd_selftest,
     "conventions": cmd_conventions, "stubcheck": cmd_stubcheck,
 }
@@ -843,7 +1038,7 @@ def main(argv=None, environ=None):
         return 2
     except KeyboardInterrupt:
         print("", file=sys.stderr)
-        return 8
+        return bazel.INTERRUPTED
     except BrokenPipeError:
         # `42 help | head`: the reader left; say nothing more to it.
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())

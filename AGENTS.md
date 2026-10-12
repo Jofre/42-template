@@ -117,7 +117,7 @@ fixtures, clues, tooling. That is why the no-answers rule above guards the repo'
 did not write themselves, and one the template can leak to everyone downstream.
 
 The test layers are **levelled on purpose** — `basic` / `strict` / `robust` /
-`complete`, the ladder in §4. A beginner must not be drowned in seventeen layers of red;
+`complete`, the ladder in §4. A beginner must not be drowned in a wall of red layers;
 an advanced student must not be capped at what the project's grader — the Moulinette,
 or the evaluators at a defense — happens to check. Most will live at `basic`, a few
 will want everything, and giving them the *option* is the point. So place a new layer
@@ -356,6 +356,10 @@ encouraged; fixing *the student's exercise so the test passes* is not.
     the student; it never replaces one. A new action is a Bazel target plus a row
     in `tools/fortytwo/commands.tsv`, which `//tools:conventions` holds to the
     BUILD files (a target no `42` command runs gets an `internal` row saying why).
+    The one exception is `42 config`, which runs in `42` itself and no target: it
+    reads and writes the files the settings live in, and has to work when Bazel
+    does not (the owner's ruling, 2026-10-12). Another is the owner's to allow,
+    never an agent's.
 - **Shell exercises use a generator model**: the answer is `generators/exNN.sh`;
   never hand-edit a generated `deliverable/exNN/`.
 - **Grading**: each project's `subject()` contract names its grader. Evaluators at

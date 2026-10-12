@@ -12,7 +12,7 @@
  * 7..15 window. The file cannot be replaced -- that needs root, and a mount
  * namespace is refused inside the dev container -- so the program is handed
  * the fixture when it asks for the path, and every step is seen on every
- * machine (finding 026, TODO.md §23).
+ * machine (finding 026).
  *
  * HOW. Loaded into the student's run through LD_PRELOAD, by shell_check.sh's
  * ck_run, only when the exercise's BUILD call declares a redirect (defs.bzl's

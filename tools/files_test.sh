@@ -212,8 +212,10 @@ if [ -n "$STRAY" ]; then
 	printf '%s\n' "$ACT" | sed 's/^/    /'
 	echo ""
 	echo "  If it is an exercise's work under the wrong number, it belongs in"
+	# conventions: the call site's --stray -- the exercises the contract lists
 	echo "  the folder the subject names for that exercise. If not, delete it."
 	echo ""
+	# conventions: the call site's --stray -- the exercises the contract lists
 	echo "  RESULT: FAIL — the subject asks for its own exercises' folders, and"
 	echo "  this is none of them."
 	exit 1
@@ -246,6 +248,7 @@ if [ -n "$OUTSIDE" ]; then
 	echo "  the name is the subject's, exactly. Move each file into the exercise"
 	echo "  folder it belongs to, or delete it."
 	echo ""
+	# conventions: the call site's --outside -- the exercises the contract lists
 	echo "  RESULT: FAIL — the subject asks for its exercises' folders and"
 	echo "  nothing beside them."
 	exit 1
@@ -255,6 +258,7 @@ printf '  %-28s %s\n' "----------------------------" "----------"
 
 MISSING=0
 UNMADE=0
+# conventions: the call site's --required -- none given: the contract lists no file
 [ -n "$REQ$EXP" ] || printf '  %-28s %s\n' "(the subject names no file)" "-"
 while IFS= read -r f; do
 	[ -n "$f" ] || continue
@@ -334,6 +338,7 @@ fi
 
 if [ -n "$ALLOWED" ]; then
 	echo ""
+	# conventions: the call site's --optional -- the files the contract allows without listing them
 	echo "  ALLOWED, NOT REQUIRED: files the subject lets the turn-in hold without"
 	echo "  naming them:"
 	printf '%s\n' "$ALLOWED" | sed 's/^/    /'
@@ -341,6 +346,7 @@ fi
 
 if [ -n "$GRADERS" ]; then
 	echo ""
+	# conventions: the call site's --provided -- the files the contract says the grader brings
 	echo "  FILES THE GRADER BRINGS, which the subject says it supplies itself:"
 	printf '%s\n' "$GRADERS" | sed 's/^/    /'
 	echo "  Delete them from the turn-in: the grader uses its own copy, and"
@@ -384,11 +390,10 @@ if [ -n "$UNBUILT" ]; then
 			*) printf '    %s\n' "$f" ;;
 		esac
 	done
-	echo "  The subject asks for the Makefile and the files it needs. A source"
-	echo "  the Makefile never compiles is not one of them -- a test main, an"
-	echo "  old version, a bonus it builds only on request -- and it is pushed"
-	echo "  with the rest. Does the program need it? Then the Makefile has to"
-	echo "  name it. If not, delete it."
+	echo "  This layer counts a source as turned in only when the Makefile compiles it."
+	echo "  One it never compiles -- a test main, an old version, a bonus it builds"
+	echo "  only on request -- is pushed with the rest all the same. Does the"
+	echo "  program need it? Then the Makefile has to name it. If not, delete it."
 fi
 case "$BUILT_NOTE" in
 	unknown)
@@ -423,6 +428,7 @@ fi
 echo ""
 if [ "$MISSING" -gt 0 ]; then
 	echo "  RESULT: FAIL — $MISSING required file(s) missing."
+	# conventions: the call site's --required -- the files the contract lists
 	echo "  The subject names the files it wants, exactly. A file that is not"
 	echo "  there cannot be graded, whatever the rest of the module does."
 	exit 1
@@ -441,10 +447,12 @@ if [ -n "$BUILT_PROG" ]; then
 	echo "  A BUILT PROGRAM, left in the turn-in:"
 	printf '%s\n' "$BUILT_PROG" | sed 's/^/    /'
 	echo "  It is named as the program this exercise builds: what a build left"
+	# conventions: the call site's --program -- a program the contract does not list
 	echo "  behind, not a file the subject asks for, and //tools:submit refuses to"
 	echo "  push a module holding one. Run your cleaning rule, or delete it."
 	if [ "$STRICT" -eq 0 ]; then
 		echo ""
+		# conventions: the call site's --program -- a program the contract does not list
 		echo "  RESULT: FAIL — a built program is no file the subject asks for, even"
 		echo "  where it leaves the rest of its file list open."
 		exit 1
@@ -458,6 +466,7 @@ if [ -n "$EXTRA$GRADERS$UNBUILT" ]; then
 	fi
 	echo "  RESULT: PASS (with a warning)"
 	if [ "$UNMADE" -gt 0 ]; then
+		# conventions: the call site's --expected -- the files the contract lists that a build makes
 		echo "  What the subject asks for and was not produced is the output"
 		echo "  layer's to report. The extra one(s) above are not a"
 	else
@@ -469,6 +478,7 @@ if [ -n "$EXTRA$GRADERS$UNBUILT" ]; then
 			echo "  sometimes justifiable. Be ready to say WHY it exists at the"
 			echo "  evaluation, and remember //tools:submit pushes it too." ;;
 		*)
+			# conventions: the call site's --strict -- not given: the contract allows files beyond its list
 			echo "  failure: the subject leaves the rest of its file list open. A"
 			echo "  program grades this project, and nobody can tell it why a file is"
 			echo "  there -- //tools:submit pushes it with the rest, so if the"
@@ -490,9 +500,11 @@ if [ -z "$REQ$EXP" ]; then
 	exit 0
 fi
 if [ -n "$ALLOWED" ]; then
+	# conventions: the call site's --required -- the files the contract lists
 	echo "  RESULT: PASS — every file the subject names is here, and the rest are"
 	echo "  files it allows without naming them (above)."
 	exit 0
 fi
+# conventions: the call site's --required -- the files the contract lists
 echo "  RESULT: PASS — exactly the files the subject asks for."
 exit 0

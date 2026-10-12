@@ -652,6 +652,7 @@ if [ -s "$TMP/bad" ]; then
 	echo ""
 	echo "  That list is not the harness's opinion: it is the \"Allowed functions\""
 	echo "  line of this exercise's subject, copied as written, plus any variable"
+	# conventions: the call site's --allowed -- the functions and variables the contract lists
 	echo "  the subject allows by name. Calling anything outside it is an outright"
 	echo "  KO $(rl_at) — a zero on the exercise no matter how right the output"
 	echo "  looks — not a style remark you can defend later. Re-read that line in"

@@ -32,7 +32,7 @@
 //! agrees on, bytes above 0x7f among them where they decide nothing: in a
 //! base invalid by a rule the lists state, or in a string ft_atoi_base reads.
 
-use crate::common::{bench_lines, sink, to_hex, unhex, Rng};
+use crate::common::{bench_lines, long_text, sink, to_hex, unhex, widest_hex, Rng};
 use std::io::{self, Write};
 
 /// The isspace(3) bytes atoi / atoi_base skip and reject inside a base.
@@ -322,7 +322,42 @@ fn atoi_structured() -> Vec<Vec<u8>> {
     let mut ws = WS.to_vec();
     ws.extend_from_slice(b"-123");
     v.push(ws);
+    // Capacity cases (finding 041): every string above and every random one
+    // is at most 30 bytes, so a function that copied the string into room of
+    // a round size (16, 64, 256, 1024, 4096) passed every case. Each run the
+    // subject allows to be any length, past 4096: whitespace, signs (an odd
+    // count of '-'), leading zeros, and what follows the number.
+    v.extend(long_runs(b"-2147483648", b"123", b"2147483647", b'0'));
+    let mut tail = b"42a".to_vec();
+    tail.extend_from_slice(&long_text(5000, 5000));
+    v.push(tail);
     v
+}
+
+/// Three strings for the atoi capacity cases, each from its index alone:
+/// 5000 whitespace bytes then `after_ws`, 4101 signs alternating from '-'
+/// (2051 of them, so the number is negated) then `after_signs`, and 5000
+/// `zero`s then `after_zeros`.
+fn long_runs(after_ws: &[u8], after_signs: &[u8], after_zeros: &[u8], zero: u8) -> Vec<Vec<u8>> {
+    let mut a: Vec<u8> = (0..5000).map(|i| WS[i % WS.len()]).collect();
+    a.extend_from_slice(after_ws);
+    let mut b: Vec<u8> = (0..4101).map(|i| if i % 2 == 0 { b'-' } else { b'+' }).collect();
+    b.extend_from_slice(after_signs);
+    let mut c = vec![zero; 5000];
+    c.extend_from_slice(after_zeros);
+    vec![a, b, c]
+}
+
+/// A base for the capacity cases: the 92 printable symbols but '+' and '-',
+/// in an order of their own, a valid base past every round capacity under
+/// 92 (16, 64); and 5000 bytes of them in turn, which repeat a symbol and
+/// so make a base past 4096 bytes that is invalid by a rule the subject's
+/// lists state.
+fn wide_bases() -> (Vec<u8>, Vec<u8>) {
+    let p = printable_pool();
+    let valid: Vec<u8> = (0..p.len()).map(|i| p[(i * 37) % p.len()]).collect();
+    let long: Vec<u8> = (0..5000).map(|i| valid[i % valid.len()]).collect();
+    (valid, long)
 }
 
 fn gen_putnbr(seed: u64, count: usize) {
@@ -349,9 +384,8 @@ fn gen_putnbr(seed: u64, count: usize) {
     }
 }
 
-fn gen_atoi(seed: u64, count: usize) {
+fn gen_atoi<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let structured = atoi_structured();
     let mut done = 0usize;
     let mut idx = 0usize;
@@ -411,6 +445,16 @@ fn putnbr_base_structured() -> Vec<(i32, Vec<u8>)> {
         for &n in &[42i32, 0, -42] {
             v.push((n, base.to_vec()));
         }
+    }
+    // Capacity cases (finding 041): every base above and every random one is
+    // at most 20 bytes. A valid base of 92 symbols, and an invalid one of
+    // 5000 bytes, which prints nothing (wide_bases).
+    let (valid, long) = wide_bases();
+    for &n in &[0i32, 42, -42, i32::MIN, 2147483647] {
+        v.push((n, valid.clone()));
+    }
+    for &n in &[42i32, -42] {
+        v.push((n, long.clone()));
     }
     v
 }
@@ -516,6 +560,24 @@ fn atoi_base_structured() -> Vec<(Vec<u8>, Vec<u8>)> {
     p(b"\x02\x01\x02", b"\x01\x02");
     p(b"  \xff\xff", b"0123456789abcde\xff");
     p(b"+\x80\xff\x7f", b"\x7f\x80\xff");
+    // Capacity cases (finding 041): every string and base above and every
+    // random one is a few dozen bytes at most. Each run the subject allows to be any
+    // length, past 4096 (whitespace, signs with an odd count of '-', leading
+    // zero digits) and what follows the number; a valid base of 92 symbols;
+    // an invalid one of 5000 bytes, which reads 0 (wide_bases).
+    for s in long_runs(b"-101", b"7fffffff", b"7fffffff", b'0') {
+        p(&s, b"0123456789abcdef");
+    }
+    let mut tail = b"1012".to_vec();
+    tail.extend_from_slice(&long_text(5000, 5000));
+    p(&tail, b"01");
+    let (valid, long) = wide_bases();
+    let n = encode_base(2147483647, &valid);
+    p(&n, &valid);
+    let mut neg = b"-".to_vec();
+    neg.extend_from_slice(&encode_base(123456, &valid));
+    p(&neg, &valid);
+    p(b"101", &long);
     v
 }
 
@@ -587,7 +649,7 @@ fn atoi_base_corpus<W: Write>(w: &mut W, seed: u64, count: usize, part: bool) {
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
         "c04_putnbr" => gen_putnbr(seed, count),
-        "c04_atoi" => gen_atoi(seed, count),
+        "c04_atoi" => gen_atoi(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c04_putnbr_base" => putnbr_base_corpus(&mut io::BufWriter::new(io::stdout()), seed, count, false),
         "c04_atoi_base" => atoi_base_corpus(&mut io::BufWriter::new(io::stdout()), seed, count, false),
         "c04_putnbr_base_readings" => putnbr_base_corpus(&mut io::BufWriter::new(io::stdout()), seed, count, true),
@@ -600,6 +662,45 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
 /// Self-check: hand-verified cases + properties. Returns the failure count.
 pub fn check() -> usize {
     let mut fails = 0usize;
+
+    // ---- every unbounded input past the round capacities (finding 041) ----
+    // Each corpus holds a case past every capacity a function is usually
+    // given room for (16, 64, 256, 1024, 4096), read back from what its
+    // generator writes: the string read, and the base. A base with no
+    // duplicate holds at most 92 printable symbols, so the bases are held to
+    // an invalid one past 4096 bytes and a valid one past 64 symbols, which
+    // prints something.
+    {
+        let past = 4096usize;
+        let head = |g: &dyn Fn(&mut Vec<u8>)| -> Vec<u8> {
+            let mut v = Vec::new();
+            g(&mut v);
+            v
+        };
+        let mut want = |ok: bool, arm: &str, what: &str| {
+            if !ok {
+                eprintln!("CHECK FAIL c04 {} corpus holds no {}", arm, what);
+                fails += 1;
+            }
+        };
+        // A line's base field past 64 bytes, and a result that is not the
+        // invalid base's (nothing printed, or 0).
+        let valid_wide = |c: &[u8], res: &[u8]| {
+            c.split(|&b| b == b'\n').any(|l| {
+                let f: Vec<&[u8]> = l.split(|&b| b == b'\t').collect();
+                f.len() == 3 && f[1].len() / 2 > 64 && f[2] != res
+            })
+        };
+        let c = head(&|w| gen_atoi(w, 1, 200));
+        want(widest_hex(&c, 0) > past, "atoi", "string past 4096 bytes");
+        let c = head(&|w| putnbr_base_corpus(w, 1, 200, false));
+        want(widest_hex(&c, 1) > past, "putnbr_base", "base past 4096 bytes");
+        want(valid_wide(&c, b""), "putnbr_base", "valid base past 64 symbols");
+        let c = head(&|w| atoi_base_corpus(w, 1, 200, false));
+        want(widest_hex(&c, 0) > past, "atoi_base", "string past 4096 bytes");
+        want(widest_hex(&c, 1) > past, "atoi_base", "base past 4096 bytes");
+        want(valid_wide(&c, b"0"), "atoi_base", "valid base past 64 symbols");
+    }
 
     // ---- putnbr ----
     let pn: &[(i32, &[u8])] = &[

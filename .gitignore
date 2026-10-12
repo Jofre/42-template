@@ -2,8 +2,9 @@
 .idea
 
 # Bazel convenience symlinks (bazel-42, bazel-bin, bazel-out, bazel-testlogs).
-# They point into ~/.cache/bazel/...; the execroot they target symlinks .git
-# back here, which makes editors detect a phantom second repository.
+# They point into Bazel's output root (docs/environment.md, "Where the state
+# goes"); the execroot they target symlinks .git back here, which makes editors
+# detect a phantom second repository.
 /bazel-*
 
 # C build artifacts (e.g. from `make`/manual cc inside deliverable while testing)
@@ -11,13 +12,26 @@
 *.a
 *.out
 
-# These executables are named by their subjects and have no extension, so none
-# of the rules above cover them. Running `make` by hand in the deliverable
-# leaves one where the next `git add -A` would commit a binary. These rules
-# keep it out of YOUR commits only: //tools:submit pushes deliverable/ as it is
-# on disk, ignored files included, and leaves out only *.o *.a *.out *.gch --
-# so delete the program (make fclean) before submitting. docs/submitting.md,
-# "What gets pushed".
+# The programs the projects build have no extension, so none of the rules above
+# cover them. Running `make` or `cc -o` by hand in the deliverable leaves one
+# where the next `git add -A` would commit a binary. Each is a program a
+# project's BUILD file names (a c_make's artifact, or a c_program's name where
+# no Makefile builds it), and //tools:conventions holds this list, with
+# Reloaded's own .gitignore, to every one. These rules keep it out of YOUR
+# commits only: //tools:submit pushes deliverable/ as it is on disk, ignored
+# files included, and leaves out only *.o *.a *.out *.gch -- so delete the
+# program (make fclean) before submitting. docs/submitting.md, "What gets
+# pushed".
+c-piscine/c-piscine-c-06/deliverable/ex00/ft_print_program_name
+c-piscine/c-piscine-c-06/deliverable/ex01/ft_print_params
+c-piscine/c-piscine-c-06/deliverable/ex02/ft_rev_params
+c-piscine/c-piscine-c-06/deliverable/ex03/ft_sort_params
+c-piscine/c-piscine-c-10/deliverable/ex00/ft_display_file
+c-piscine/c-piscine-c-10/deliverable/ex01/ft_cat
+c-piscine/c-piscine-c-10/deliverable/ex02/ft_tail
+c-piscine/c-piscine-c-10/deliverable/ex03/ft_hexdump
+c-piscine/c-piscine-c-11/deliverable/ex05/do-op
+c-piscine/c-piscine-rush-01/deliverable/ex00/rush01
 c-piscine/c-piscine-rush-02/deliverable/ex00/rush-02
 c-piscine/c-piscine-bsq/deliverable/bsq
 
@@ -32,7 +46,7 @@ c-piscine/c-piscine-shell-*/deliverable/
 
 
 # Per-checkout Bazel overrides (where Bazel's state goes, etc.), written by
-# tools/setup.sh. The right value differs per machine and per user, and every
+# tools/setup.sh and `42 config set bazel.*`. The right value differs per machine and per user, and every
 # clone and worktree has its own, so unlike .submit-level this one is not shared.
 .bazelrc.local
 

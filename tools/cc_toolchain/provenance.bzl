@@ -1,6 +1,6 @@
 """toolchain_provenance_test: prove the C++ toolchain Bazel RESOLVES is the pinned one.
 
-§21 in HISTORY.md records why this is a rule and not a script. A check that asks
+This is a rule and not a script. A check that asks
 which file got exec'd first proves nothing: a two-line wrapper that execs the
 box's clang passes it, and so does a pinned driver that loads the box's
 libclang-cpp. So this resolves the toolchain the way every cc_binary does --

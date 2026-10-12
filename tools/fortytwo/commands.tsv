@@ -7,7 +7,8 @@
 #
 #   COMMAND    the word after `42`; `-` for a target that is no command
 #   USAGE      what follows the command word in `42 help`
-#   RUNS       the labels (or `bazel <command>`, `sh <script>`) it runs
+#   RUNS       the labels (or `bazel <command>`, `sh <script>`) it runs; empty
+#              for `config`, the one command that runs none (AGENTS.md, 4)
 #   AUDIENCE   student (in `42 help`), maintainer (in `42 help --all`), internal
 #   TEXT       one line of help; for an internal row, the reason
 #
@@ -15,11 +16,12 @@
 test	[project] [exNN] [layer] [--level L] [--fresh] [--all]	bazel test	student	Run the tests of where you are, at your level.
 watch	[project] [exNN] [layer] [--level L] [--tmux]	bazel test	student	Run them again every time you save a file.
 clues	[project] [exNN] [N|all]	bazel test	student	Run what failed again, with more hints.
-submit	[project...|--all] [--level L] [-n]	//tools:submit	student	Push the projects whose tests pass to Vogsphere.
+submit	[project...|--all] [URL] [--level L] [--written-only] [-n]	//tools:submit	student	Push the projects whose tests pass to Vogsphere.
 norm	[file...]	//tools:norminette	student	The pinned norminette; with no file, the norm tests of where you are.
 generate	[project]	//tools:generate //<project>:generate	student	Write a shell project's deliverables from its generators.
-header	FILE | --reset [where|--all] [-n]	//tools:gen_header //tools:reset_headers	student	Print a 42 header for FILE; --reset re-stamps the headers of your files.
+header	FILE | --reset [where|--all] [-n] [-k]	//tools:gen_header //tools:reset_headers	student	Print a 42 header for FILE; --reset re-stamps the headers of your files.
 init	[--login L --email E]	//tools:init	student	Set your 42 login and email (headers, git identity).
+config	[list [--all] | get NAME | set NAME VALUE | unset NAME]		student	Show or change a setting: login, email, level, remotes, Bazel's CPUs.
 doctor	[--drift] [--report]	//tools:env_drift sh tools/env-audit.sh	student	Is this machine ready to run the tests?
 stop		bazel shutdown	student	Stop this checkout's Bazel server and free its memory.
 selftest	[--harness]	//tools/tests:fortytwo_test //tools/...	maintainer	The tests of 42 itself; --harness adds every test of //tools.

@@ -2,8 +2,9 @@
     * an empty list           -> pushing onto nothing still has to produce a
                                  list, and the caller has to see it
     * the caller's head unchanged -> what a double pointer is for
-    * the list is one element long afterwards -> the old head is being dropped
-                                 rather than linked behind the new one
+    * the list is one element long afterwards -> only the new element is left:
+                                 where does its next point, and where did the
+                                 old head go?
     * the ORDER is reversed   -> front and back
     * every case, even the simplest -> the ft_create_elem linked here is the
                                  grader's, built on the subject's t_list:

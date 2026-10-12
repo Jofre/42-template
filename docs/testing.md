@@ -75,10 +75,11 @@ in it is red. Seven lines instead of three hundred, and that is the part that
 stops a full run reading as hopeless.
 
 For the whole picture, one line per exercise with its red layers counted
-(`output x5 build`, not six separate targets):
+(`output x5 build`, not six separate targets), run over the whole repo, which
+needs memory to spare:
 
 ```sh
-bazel test //... 2>&1 | sh tools/first_red.sh --all   # the whole repo: needs memory to spare
+bazel test //... 2>&1 | sh tools/first_red.sh --all
 ```
 
 On a tree with 106 red, that is 95 lines against Bazel's 318 — and the exercise,
@@ -171,8 +172,11 @@ still learning the exercise: **a stub is trivially memory-safe**, so the memory
 layers are green on code that does nothing at all. They only start telling you
 something once there is a real implementation to check.
 
-Nothing is downgraded by this. Every layer still runs, every red still counts,
-and `//tools:submit` will not push a module with any test failing.
+Nothing is downgraded by this. Every layer still runs and every red still shows.
+`//tools:submit` will not push a module that has a test failing at its gate's
+level: `basic` unless you choose another
+([submitting.md](submitting.md#how-strict-is-the-gate)). A red above that level is
+printed as a NOTE and does not block the push.
 
 ## Layers whose point is not obvious
 
@@ -341,15 +345,29 @@ first. A debug line left in is what that note is for.
 
 **A generated case can be run again.** The layers that replay a generated
 corpus (`exNN_argv_diff`, `exNN_file_diff`, BSQ's `ex00_bsq_*`, Rush 01's
-`ex00_sweep`, Rush 02's corpus) print each failing case whole: its input
-with every byte visible, what was expected and what came out, and the
-command line that runs it again. The input it ran on — a map, a dictionary,
-the files a C 10 program read — is kept under
+`ex00_sweep`, Rush 02's corpus) print each failing case with its input and
+what came out. All but Rush 01's sweep also print what was expected and the
+command line that runs the case again. The input it ran on — a map, a
+dictionary, the files a C 10 program read — is kept under
 `bazel-testlogs/<package>/<target>/test.outputs/`, which is where that
-command line expects to be run. The report prints
-the first `DIFF_MAX_ROWS` failing cases (40) and tallies the rest; every one
-of them is in `test.outputs/differences.txt`, and
-`--test_env=DIFF_MAX_ROWS=0` prints them all.
+command line expects to be run. A long value is cut where it is shown,
+never where it is run or compared, and each layer cuts its own way.
+`exNN_argv_diff` shows a case's first 20 arguments, each to its first
+`RL_EXCERPT_WIDTH` bytes (300), and counts the rest; of what was expected
+and what was printed it shows the first six lines, each cut to the same
+width, and counts the rest. Rush 02's corpus shows its number and each
+output to their first 300 bytes. In both, a command line longer than that
+is kept as `replay-case-N.sh` and named rather than printed.
+`exNN_file_diff` shows its input files and both outputs by their size, and
+the outputs from just before their first differing byte, and keeps each
+file whole as `case-N-fileK`. BSQ keeps each map a case ran on, and shows
+the output's line count and widths, and a window around the first
+difference. Rush 01's sweep prints the case's whole argument (its only
+input), its clues by side when they are well formed, what was wrong, and
+up to the first eight lines its program printed. The report prints the
+first `DIFF_MAX_ROWS` failing cases (40) and tallies the rest; every one of
+them is in `test.outputs/differences.txt`, and `--test_env=DIFF_MAX_ROWS=0`
+prints them all.
 
 **A generated corpus runs under the memory checkers too.** Each fixed case
 of a program has its own `_asan` and `_valgrind` arm, but the inputs only a
@@ -428,6 +446,9 @@ wrong before its time ran out, and one in which some run had already run out
 of its own limit: it says how many, and first_red files it with the failures,
 because a busy machine slows a program down but does not change what it
 prints, and a run's own limit counts its own time, not its wait for a CPU.
+A replay of many cases counts such a run apart from the ones it judged, as
+`29/30 agree, and 1 did not finish within 2s each`: it stays red, but what
+it would have printed was never seen, so it is never called a difference.
 
 Output a test cuts short says how much it left out, and where the rest is:
 
@@ -446,12 +467,19 @@ AddressSanitizer and UBSan, which stop it at the first access outside a block
 it owns, or the first undefined operation. The report opens with what it was
 — `heap-buffer-overflow`, `READ of size 1` — then one frame per line, the top
 one being where the access happened, then which block was overrun and by how
-much (`0 bytes to the right of 3-byte region`). Each frame names a function,
+much (`0 bytes to the right of 3-byte region`). They also stop it at a misuse
+of `malloc` and `free` that touches no memory at all: a block freed twice
+(`double-free`), a size too large to allocate (`allocation-size-too-big`). The
+line above the report says which it was, in words and by the report's own
+name, and for those the frame to read is the first one in your file, below
+`free` or `malloc`. Each frame names a function,
 and where it is yours, a file and a line: the harness symbolises it with the
 pinned `llvm-symbolizer` (campus's 12.0.1 build; `tools/pins.tsv`), never one
 found on your `PATH`, so the report reads the same on every machine. The
-shadow-memory map ASan prints under it is left out; the whole report is saved
-beside the test's log, and the log says where.
+shadow-memory map ASan prints under it, and its HINT lines (advice for whoever
+runs the sanitizer, such as how to switch a check off), are left out; when
+either is, the whole report is saved beside the test's log, and the log says
+where.
 
 `diff_asan` also says which generated case it was on (`It happened on corpus
 case #N`), shows that line, and prints the same column legend and hints as
@@ -534,10 +562,11 @@ has and some passing cases lack:
 Layers skip rather than repeat a failure you can already see — [which waits for
 which](reference.md#which-layers-wait-for-which) is a table. That keeps the red
 list short and readable, but **a layer that is quiet looks exactly like a layer
-that has nothing to say.**
+that has nothing to say.** Over one module (or `//...` for the whole repo, with
+memory to spare),
 
 ```sh
-bazel test //c-piscine/c-piscine-c-05/... --test_env=NO_SKIP=1   # //... for the whole repo, with memory to spare
+bazel test //c-piscine/c-piscine-c-05/... --test_env=NO_SKIP=1
 ```
 
 forces every gate open. Nothing is suppressed: the differential replays its
@@ -561,10 +590,11 @@ harness further up the ladder. Where a target the filter dropped is built and
 fails, the only sign is an `ERROR:` line above "All tests passed but there were
 other errors during the build.": no test line names it. And a harness that
 does not compile is normally a stand-in rather than a build error (below). So
-a broken harness can stay invisible to every run, filtered or not:
+a broken harness can stay invisible to every run, filtered or not. Compiling
+every test program,
 
 ```sh
-bazel build //... --action_env=STUDENT_BUILD_STRICT=1   # every test program, compiled
+bazel build //... --action_env=STUDENT_BUILD_STRICT=1
 ```
 
 is the check, on a tree whose exercises compile (the stubs, or answers), and
@@ -577,7 +607,7 @@ when no file of the student's reaches it (the builder asks the preprocessor
 which headers it read); one that includes a turn-in header is a stand-in,
 because a header that does not declare what the subject says fails there
 first. With it, every file of the HARNESS that does not compile fails the
-build again, as it should. `docs/publishing.md` runs it on the template. This is not hypothetical: a `t_list *head` used in one c-12 diff
+build again, as it should. Every publish of the template runs it, on the stubs. This is not hypothetical: a `t_list *head` used in one c-12 diff
 harness and never declared survived a full `lvl_strict` sweep, which never ran
 it: that harness is a level-3 target.
 
@@ -586,13 +616,15 @@ it: that harness is a level-3 target.
 The whole suite is more than you need while writing one function, and on a
 memory-tight box it is more than you can afford
 ([environment.md](environment.md)). Ask for the narrowest suite that answers
-your question:
+your question. From the narrowest to the widest: one exercise, every layer;
+one module, what is a KO where it is graded; the same plus what `strict` adds
+([reference.md](reference.md)); the module, everything:
 
 ```sh
-bazel test //c-piscine/c-piscine-c-05:ex00      # one exercise, every layer
-bazel test //c-piscine/c-piscine-c-05:basic     # one module, what is a KO where it is graded
-bazel test //c-piscine/c-piscine-c-05:strict    # + what strict adds (reference.md)
-bazel test //c-piscine/c-piscine-c-05/...       # the module, everything
+bazel test //c-piscine/c-piscine-c-05:ex00
+bazel test //c-piscine/c-piscine-c-05:basic
+bazel test //c-piscine/c-piscine-c-05:strict
+bazel test //c-piscine/c-piscine-c-05/...
 ```
 
 `//<module>:exNN` is the one to live in while writing an exercise. It exists
@@ -618,14 +650,19 @@ module; in an exercise's folder (`deliverable/exNN` or `tests/exNN`), that
 exercise; at the root it asks which. Words narrow it, in any order: a module
 (`c-05`), an exercise (`ex03`), a layer (`norm`, `valgrind`), as in
 `42 test ex03 valgrind`. The level is `--level`, else `SUBMIT_GATE`, else
-`.submit-level`, else `basic`, which is how `//tools:submit`'s gate chooses
-it, and `42 test` selects the same tests that gate does: a module that is
+`.submit-level` (which `42 config set level` writes), else `basic`, which is
+how `//tools:submit`'s gate chooses it, and `42 test` selects the same tests that gate does: a module that is
 green under `42 test` is one submit will not block. A layer named runs whatever
 its level, as naming one target does.
 
 **`42 clues`** asks the tests that failed for all of their hints, and
 `42 clues 5` for five ([Reading a failure](#reading-a-failure) explains how
-hints are rationed). It never re-runs a test that passed.
+hints are rationed). It never re-runs a test that passed. A test that does
+not build never ran, so it has no hints to ask for: `42 clues` names it,
+exits non-zero for it as `42 test` does, and when nothing else is red,
+prints the report `42 test` would. A run that does not finish (Bazel
+still busy after two minutes, or stopped with Ctrl-C) gets `42 test`'s
+words for it, and no hint.
 
 **`42 watch`** runs the tests again each time you save a file they read: the
 exercise's turn-in folder, or the module's, and a shell exercise's
@@ -658,6 +695,17 @@ Bazel is already warm (`--drift` asks for it anyway), and `--report` writes the
 campus report (`tools/env-audit.sh`). **`42 stop`** stops this checkout's Bazel
 server, which gives its memory back. The other commands (`submit`, `norm`,
 `generate`, `header`, `init`) each run one target, and `42 help` names it.
+
+**`42 config`** shows and changes the settings the other commands read: your
+login and email, your level, the repository each project is pushed to, and
+two Bazel settings, how many CPUs it uses and how long its server waits idle.
+`42 config list` shows what you have set, `42 config list --all` every
+setting with where its value comes from, and `42 config --help` what each
+one does. `set` checks a value before it writes it. Each setting stays in the
+file its readers read (`.submit-level`, `.submit-remotes`,
+`.vscode/settings.json`, `.bazelrc.local`), so editing that file by hand still
+works. It is the one command that runs no Bazel: it has to work when Bazel
+does not.
 
 ## The two cost layers
 
@@ -757,11 +805,12 @@ run `bazel shutdown`, then the same command with
 
 A few targets are tagged `manual`: no suite but their module's `:manual` runs
 them, and `bazel test //...` leaves them out. Naming one runs it; so does the
-module's `:manual`, which runs them all:
+module's `:manual`, which runs them all (the first line below), and the second
+line lists them:
 
 ```sh
-bazel test //c-piscine/c-piscine-rush-02:manual              # run them all
-bazel query 'tests(//c-piscine/c-piscine-rush-02:manual)'    # list them
+bazel test //c-piscine/c-piscine-rush-02:manual
+bazel query 'tests(//c-piscine/c-piscine-rush-02:manual)'
 ```
 
 Which they are, and why each is left out, is
@@ -774,13 +823,17 @@ exclude it does work: `-manual` drops a manual target even one you name.
 
 For `c-piscine-shell-NN`, and for Piscine Reloaded's ex00–ex05, the answer is
 the **generator** — `generators/exNN.sh` — and `deliverable/` is produced from
-it and gitignored. Never hand-edit a shell deliverable:
+it and gitignored. Never hand-edit a shell deliverable. Write the commands in
+`generators/exNN.sh`, check it, fix the generator and repeat:
 
 ```sh
-# 1. write the commands in generators/exNN.sh
-bazel test //c-piscine/c-piscine-shell-00:ex01_output # 2. check it
-# 3. fix the generator and repeat
-bazel run //c-piscine/c-piscine-shell-00:generate     # to look at what it makes
+bazel test //c-piscine/c-piscine-shell-00:ex01_output
+```
+
+and to look at what it makes:
+
+```sh
+bazel run //c-piscine/c-piscine-shell-00:generate
 ```
 
 The tests never read `deliverable/`. Each one runs `generators/exNN.sh` in a
@@ -822,9 +875,9 @@ that module's `BUILD.bazel`.
   that asserts an absence (no spaces, no look-alike) would otherwise pass on
   nothing.
 - `name parses under /bin/sh (sh -n)`: the test runs your script with
-  `/bin/sh`, as the subject requires, not through its `#!` line. A construct
-  only bash knows can work in your terminal and fail here; the shell's own
-  message is printed under the line.
+  `/bin/sh`, not through its `#!` line. A construct only bash knows can work
+  in your terminal and fail here; the shell's own message is printed under
+  the line.
 - `ran: sh name`: printed only when a run exited non-zero or wrote to stderr,
   with the exit status and the first five lines of that stderr; what it
   leaves out is counted, and kept whole in the test's `test.outputs/`. It is printed

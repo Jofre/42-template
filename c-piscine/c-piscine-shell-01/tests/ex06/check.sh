@@ -11,7 +11,7 @@
 # in a file anyone can open. The full-listing match stays a plain pass/fail. The
 # trailing-newline behavior and the "every other line" structure are spec
 # properties, so asserting them reveals nothing.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-skip.sh}

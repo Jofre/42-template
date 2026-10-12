@@ -99,7 +99,7 @@ static void	probe(const char *label, t_btree *root, const char *path)
 
 /* Where the subject's rule (lower on the left, higher or equal on the right)
  * puts 5 3 8 1 4 7 9 2 6 inserted in that order, worked out by hand one insert
- * at a time, and checked again by the oracle's model (oracle/src/c13.rs,
+ * at a time, and checked again by the oracle's model (`oracle check`, its
  * "ex04 fixture routes"). NODES lists the items' paths in insertion order;
  * EMPTY lists every child slot of that tree that must stay empty -- an extra
  * node anywhere hangs off one of them. Together they pin the whole tree, which

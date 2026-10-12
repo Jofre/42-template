@@ -38,12 +38,13 @@ subject does not say how a rule exits.
 Nothing but the Makefile goes in `deliverable/ex01/` — a copy of the grader's
 files there, or anything else under a `srcs/` or `includes/` of your own, would
 be pushed with it, and the build test fails when it finds one.
-To try your Makefile by hand, build it somewhere else, from the repository root:
+To try your Makefile by hand, build it somewhere else, from the repository
+root. The last line runs `make` twice, and the second run must do nothing:
 
 ```sh
 rm -rf /tmp/c09-ex01 && cp -r c-piscine/c-piscine-c-09/tests/ex01/grader /tmp/c09-ex01
 cp c-piscine/c-piscine-c-09/deliverable/ex01/Makefile /tmp/c09-ex01/
-make -C /tmp/c09-ex01 && make -C /tmp/c09-ex01     # the second run must do nothing
+make -C /tmp/c09-ex01 && make -C /tmp/c09-ex01
 ```
 
 The library that comes out is built from placeholders: it proves the Makefile,
@@ -51,9 +52,12 @@ not the functions.
 
 ## Running the tests
 
+The first line runs what is a KO at the Moulinette; the second, every layer of
+one exercise:
+
 ```sh
-bazel test //c-piscine/c-piscine-c-09:basic   # what is a KO at the Moulinette
-bazel test //c-piscine/c-piscine-c-09:ex01    # one exercise, every layer
+bazel test //c-piscine/c-piscine-c-09:basic
+bazel test //c-piscine/c-piscine-c-09:ex01
 ```
 
 In the `basic` suite, a stub fails ex00's `output` and `build`, ex01's `build`

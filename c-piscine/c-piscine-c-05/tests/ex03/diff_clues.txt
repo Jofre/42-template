@@ -1,5 +1,10 @@
   Same contract as the iterative one.
     * power 0 diverges        -> the base case
-    * negative powers         -> checked before recursing, not after
-    * only large results      -> overflow
+    * negative powers         -> the subject says what those return: does your
+                                 function reach that answer before it calls
+                                 itself?
+    * only large results      -> every answer here fits in an int: does
+                                 anything your code computes on the way to it
+                                 not fit? (What C promises about each type's
+                                 width: docs/testing.md, under ilp32.)
     * one multiplication too many or few -> the base case, off by one

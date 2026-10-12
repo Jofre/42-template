@@ -3,7 +3,9 @@
                                  MATCH, not the mismatch
     * everything is applied   -> the same test, the other way round
     * the empty list          -> a loop that cannot run zero times
-    * only the first match    -> a loop that returns instead of continuing
+    * only the first match    -> f reaches the first matching element and no
+                                 other: what does your code do once it has
+                                 applied f?
     * f is never applied, though values match -> the order the subject writes
                                  cmp's arguments in: this harness's cmp
                                  matches only that one

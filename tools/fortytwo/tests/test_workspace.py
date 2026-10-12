@@ -29,7 +29,21 @@ def submit_gate_tags(level):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+def shell_short_name(path, fn_pattern, call):
+    """A short-name rule written in one of the scripts, run over a project's path."""
+    with open(os.path.join(WS, "tools", path), encoding="utf-8") as f:
+        text = f.read()
+    fn = re.search(fn_pattern, text, re.M | re.S).group(0)
+    r = subprocess.run(["sh", "-c", call % fn, "sh"] + list(Projects.rels()),
+                       stdout=subprocess.PIPE, universal_newlines=True, check=True)
+    return r.stdout.splitlines()
+
+
 class Projects(unittest.TestCase):
+    @staticmethod
+    def rels():
+        return [p.rel for p in Workspace(WS, WS).projects()]
+
     def setUp(self):
         self.W = Workspace(WS, WS)
 
@@ -49,10 +63,40 @@ class Projects(unittest.TestCase):
             for word in (p.short, p.name, p.rel, p.rel + "/"):
                 self.assertIs(self.W.project_named(word), p, word)
 
+    def test_the_scripts_short_names_are_42s(self):
+        # submit.sh reads .submit-remotes keys, and first_red.sh words its
+        # report, by the short name 42 takes: the same rule in each.
+        want = [workspace.short_name("//" + rel) for rel in self.rels()]
+        self.assertEqual(shell_short_name(
+            "submit.sh", r"^short_name\(\) \{.*?^\}",
+            '%s\nfor m; do short_name "$m"; printf "%%s\\n" "$_sn"; done'), want)
+        self.assertEqual(shell_short_name(
+            "first_red.sh", r"^\tfunction shortname\(.*?^\t\}",
+            "awk '%s\nBEGIN { for (i = 1; i < ARGC; i++) print shortname(\"//\" ARGV[i]) }' \"$@\""),
+            want)
+
     def test_short_name_rule(self):
         self.assertEqual(workspace.short_name("//c-piscine/c-piscine-c-05"), "c-05")
         self.assertEqual(workspace.short_name("//c-piscine-reloaded/c-piscine-reloaded"), "reloaded")
         self.assertEqual(workspace.short_name("//cursus/libft"), "cursus/libft")
+
+    def test_short_name_is_first_reds(self):
+        # first_red.sh's own shortname(), cut out of the script and run: a
+        # command it suggests must name the project the way 42 reads it.
+        with open(os.path.join(WS, "tools", "first_red.sh"), encoding="utf-8") as f:
+            m = re.search(r"^\s*function shortname\(.*?^\s*\}$", f.read(), re.M | re.S)
+        self.assertIsNotNone(m, "tools/first_red.sh has no function shortname( any more")
+        projects = self.W.projects()
+        self.assertTrue(projects)
+        labels = [p.label for p in projects] + ["//cursus/libft", "//tools/tests", "c-piscine-c-05"]
+        r = subprocess.run(["awk", m.group(0) + "\n{ print shortname($0) }"], input="\n".join(labels) + "\n",
+                           stdout=subprocess.PIPE, universal_newlines=True, check=True)
+        theirs = r.stdout.splitlines()
+        self.assertEqual(len(theirs), len(labels), r.stdout)
+        for label, short in zip(labels, theirs):
+            self.assertEqual(workspace.short_name(label), short, label)
+        for p, short in zip(projects, theirs):
+            self.assertEqual(p.short, short, p.label)
 
     def test_contract_reading(self):
         text = (

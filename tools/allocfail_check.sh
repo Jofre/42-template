@@ -210,6 +210,8 @@ GATE_DIFFER=""
 GATE_BIN=""
 GATE_EXPECTED=""
 GATE_PASS=""
+# Set by an option that describes the gate; checked by rl_gate_whole.
+GATE_SAID=""
 LEAKS=0
 PROG=""
 PSTDIN=""
@@ -256,15 +258,15 @@ while [ $# -gt 0 ]; do
 		--cwd-file) need "$1" "$#"; CWD_FILES="$CWD_FILES
 $2"; rl_list_add GATE_PASS --cwd-file "$2"; shift 2 ;;
 		--show-run) need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
-		--gate-expected-alt) need "$1" "$#"; rl_list_add GATE_PASS --expected-alt "$2"; shift 2 ;;
+		--gate-expected-alt) need "$1" "$#"; rl_list_add GATE_PASS --expected-alt "$2"; GATE_SAID=1; shift 2 ;;
 		--) shift; break ;;
 		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
 		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
 		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
-		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; shift 2 ;;
-		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
-		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
+		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-sanitize) rl_list_add GATE_PASS --sanitize; GATE_SAID=1; shift ;;
+		--gate-labeled) rl_list_add GATE_PASS --labeled; GATE_SAID=1; shift ;;
 		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
 		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
 		--cc-under) need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
@@ -273,6 +275,9 @@ $2"; rl_list_add GATE_PASS --cwd-file "$2"; shift 2 ;;
 		*) echo "allocfail_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole allocfail_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_SAID"
 
 # Wiring mistakes are exit 2, never a student verdict: a missing data dep or a
 # $(location) that resolved to nothing is not something a deliverable did.
@@ -734,7 +739,7 @@ af_points() {
 # beside it (c_program's exNN_bin_allocfail), on one case's argv and stdin.
 #
 # What it asks, after each refused allocation, is what every reading of a
-# subject's rule for errors agrees on (TODO.md §23, WP-92): the program ends by
+# subject's rule for errors agrees on (WP-92): the program ends by
 # itself -- no signal, within its time -- and its output is bounded. It asserts
 # no text and no exit status: what a program prints or returns on this path is
 # its subject's to say, and the subject is the call site's to quote (--rule),

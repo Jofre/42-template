@@ -17,6 +17,11 @@ subject(
         "07": exercise(page = 14, dir = "ex07/", files = ["r_dwssap.sh"], allowed = []),
         "08": exercise(page = 15, dir = "ex08/", files = ["add_chelou.sh"], allowed = []),
     },
+    # Exercises 00 to 05 come before the sentence quoted below. Exercise 00
+    # (sign up for the exam) has no turn-in box, so it has no entry above and
+    # no place in this list.
+    mandatory = ["01", "02", "03", "04", "05"],
+    mandatory_quote = "Shell 01, p.12: \"You’ve completed the mandatory exercises for this project.\"",
 )
 
 # Rebuild this module's deliverable/ from the generators:
@@ -39,10 +44,10 @@ sh_binary(
 # shell_exercise in //tools:defs.bzl.
 #
 # stable = False on every check-mode call: no turn-in here is one fixed file
-# the subject has every run write again (Shell 00 ex03's key is), so a
-# generator that writes it differently from one run to the next is not
-# graded for it. The call says so rather than defaulting it, so the next
-# exercise is decided (see stable in shell_exercise).
+# the subject has every run write again, so a generator that writes it
+# differently from one run to the next is not graded for it. The call says so
+# rather than defaulting it, so the next exercise is decided (see stable in
+# shell_exercise).
 #
 # tags = ["env"]: the groups are read from the machine's user database, so
 # what the check can see depends on the machine, and it is checked on every
@@ -152,7 +157,7 @@ shell_exercise(num = "06", mode = "check", script = "./name", stable = False)
 # locale's collation (LC_ALL=en_US.UTF-8, .bazelrc), and ex07_literal (strict)
 # takes one reading, which tests/ex07/literal.sh states.
 #
-# Not manual (board item 9): it passes under the ordinary sandbox. `env` stays
+# Not manual: it passes under the ordinary sandbox. `env` stays
 # -- it is a true statement about this exercise, and nothing filters on it.
 shell_exercise(
     num = "07",

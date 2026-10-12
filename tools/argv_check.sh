@@ -381,19 +381,48 @@ classify() {  # classify EXPECTED-FILE GOT-FILE (after rl_sweep_ran)
 # show_argv ARG... -- a failing case's arguments: each byte visible (rl_vis),
 # then as a command line that gives the program exactly these bytes again
 # (rl_shword), to replay the case by hand.
+#
+# CUT TO WHAT A READER CAN READ. C 06's corpora hold an argument of 5000
+# bytes and a list of 1100 arguments (finding 041), and one failing case
+# printed every argument whole, twice: a first red log of tens of KB. The
+# argv: line shows the first SHOW_ARGS arguments, each to its first SHOW_W
+# bytes (rl_vis's WIDTH), and counts the rest. The replay line cannot be cut
+# and still run, so one longer than SHOW_W bytes is kept as a file, which
+# the line names. Only what is shown is cut: the case ran as the corpus
+# holds it.
+SHOW_W=${RL_EXCERPT_WIDTH:-300}
+SHOW_ARGS=20
 show_argv() {
 	printf '    argv:     '
 	if [ "$#" -eq 0 ]; then
 		printf '(none)'
 	else
+		_sa_i=0
 		for _a in "$@"; do
-			printf '[%s] ' "$(printf '%s' "$_a" | rl_vis arg)"
+			[ "$_sa_i" -lt "$SHOW_ARGS" ] || break
+			printf '[%s] ' "$(printf '%s' "$_a" | rl_vis arg "" "$SHOW_W")"
+			_sa_i=$((_sa_i + 1))
 		done
+		[ "$#" -le "$SHOW_ARGS" ] || printf '... and %d more arguments' "$(($# - SHOW_ARGS))"
 	fi
-	printf '\n    replay:   ./a.out'
-	for _a in "$@"; do
-		printf ' %s' "$(printf '%s' "$_a" | rl_shword)"
-	done
+	printf '\n'
+	{
+		printf './a.out'
+		for _a in "$@"; do
+			printf ' %s' "$(printf '%s' "$_a" | rl_shword)"
+		done
+		printf '\n'
+	} > "$WORK/replay"
+	_sa_n=$(($(wc -c < "$WORK/replay") - 1))
+	if [ "$_sa_n" -le "$SHOW_W" ]; then
+		printf '    replay:   %s' "$(cat "$WORK/replay")"
+	elif rl_save "$WORK/replay" "replay-case-$SEEN.sh"; then
+		printf '    replay:   sh %s (a command line of %d bytes, kept there;' "$RL_SAVED" "$_sa_n"
+		printf ' run it where ./a.out is)'
+	else
+		printf '    replay:   (a command line of %d bytes, too long to show; only a run' "$_sa_n"
+		printf ' under bazel test keeps it)'
+	fi
 	printf '\n'
 }
 
@@ -439,6 +468,7 @@ while IFS= read -r line; do
 		{
 			printf '\n  case %d  [%s]  %s\n' "$SEEN" "$tag" "$RL_MEM_KIND"
 			show_argv "$@"
+			# conventions: rl_mem_report without --as -- the program is given arguments, never a file; what rl_save keeps is the replay line
 			rl_mem_report
 		} > "$WORK/block"
 		rl_block "$WORK/block" >> "$WORK/report"
@@ -508,8 +538,8 @@ while IFS= read -r line; do
 		printf '\n  case %d  [%s]  %s\n' "$CHECKED" "$tag" "$_fault"
 		show_argv "$@"
 		if [ "$EXIT_ONLY" = 0 ]; then
-			printf '    expected: '; rl_vis lines < "$WORK/want"
-			printf '\n    got:      '; rl_vis lines < "$WORK/got"
+			printf '    expected: '; rl_vis lines "" "$SHOW_W" < "$WORK/want"
+			printf '\n    got:      '; rl_vis lines "" "$SHOW_W" < "$WORK/got"
 			printf '\n'
 			case "$RL_CAUSE" in
 				ok | "exit") ;;
@@ -564,10 +594,10 @@ exit_note() {
 	[ "$NONZERO" -gt 0 ] || return 0
 	echo ""
 	echo "  note: $NONZERO of $CHECKED cases returned a non-zero exit status ($NZ_FIRST)."
-	echo "        The subject names no exit status, so this layer does not fail on"
-	echo "        it. Its robust twin, the _argv_diff_exit target, replays these same"
-	echo "        cases and does, because a program that did its job conventionally"
-	echo "        returns 0 from main."
+	echo "        No sentence this harness quotes from your subject names an exit"
+	echo "        status, so this layer does not fail on it. Its robust twin, the"
+	echo "        _argv_diff_exit target, replays these same cases and does, because"
+	echo "        a program that did its job conventionally returns 0 from main."
 }
 
 if [ "$FAILED" -eq 0 ] && [ -z "$RL_STOP" ]; then
@@ -633,26 +663,40 @@ if [ -n "$RL_STOP" ]; then
 	# The cases judged wrong before the sweep stopped, not counting the one
 	# the time ran out in (counted in $FAILED, but cut short, not wrong): a verdict,
 	# which keeps the report from reading as "ran out of time" alone. Nor any
-	# that ran out of its own limit (RL_HANGS, in $FAILED too): not judged
-	# (ruling R4), and rl_sweep_stopped names them apart (V84).
-	_wrong=$((FAILED - RL_HANGS))
-	[ "$RL_STOP" != budget ] || _wrong=$((_wrong - 1))
-	rl_sweep_stopped "$CHECKED" "$CASES" "$_wrong"
+	# that ran out of its own limit (both in RL_DNF, and in $FAILED too): not
+	# judged (ruling R4), and rl_sweep_stopped names them apart (V84).
+	rl_sweep_stopped "$CHECKED" "$CASES" "$((FAILED - RL_DNF))"
 	# Out of time with nothing wrong so far: said as that, not as "0 differ".
 	if [ "$FAILED" -eq 0 ]; then
 		echo "  None of the $CHECKED case(s) that ran differed from the reference."
 		exit 1
 	fi
 fi
-if [ "$EXIT_ONLY" = 1 ]; then
-	echo "argv_check: FAIL — $FAILED of $CHECKED cases did not return 0."
+# A run that did not finish (RL_DNF, in $FAILED too) is said apart, and
+# never as a case that differs or did not return 0: it was not seen to its
+# end (V85).
+WRONG=$((FAILED - RL_DNF))
+_differ=$((WRONG - NOISY_ONLY))
+rl_dnf_said "$CASE_TMO"
+_and=${RL_DNF_SAID:+, and $RL_DNF_SAID}
+if [ "$EXIT_ONLY" = 1 ] && [ "$WRONG" -eq 0 ]; then
+	echo "argv_check: FAIL — $((CHECKED - FAILED)) of $CHECKED cases returned 0$_and."
+elif [ "$EXIT_ONLY" = 1 ]; then
+	echo "argv_check: FAIL — $WRONG of $CHECKED cases did not return 0$_and."
+elif [ "$WRONG" -eq 0 ]; then
+	echo "argv_check: FAIL — $((CHECKED - FAILED)) of $CHECKED cases agree with the reference$_and."
 elif [ "$NOISY_ONLY" -eq 0 ]; then
-	echo "argv_check: FAIL — $FAILED of $CHECKED cases differ from the reference."
-elif [ "$NOISY_ONLY" -eq "$FAILED" ]; then
+	echo "argv_check: FAIL — $WRONG of $CHECKED cases differ from the reference$_and."
+elif [ "$_differ" -eq 0 ] && [ "$RL_DNF" -eq 0 ]; then
 	echo "argv_check: FAIL — $FAILED of $CHECKED cases wrote to standard error; their output was right."
+elif [ "$_differ" -eq 0 ]; then
+	echo "argv_check: FAIL — $FAILED of $CHECKED cases: $NOISY_ONLY had the right output and wrote to standard error$_and."
+elif [ "$RL_DNF" -eq 0 ]; then
+	echo "argv_check: FAIL — $FAILED of $CHECKED cases: $_differ differ from the reference, and $NOISY_ONLY more had the right output and wrote to standard error."
 else
-	echo "argv_check: FAIL — $FAILED of $CHECKED cases: $((FAILED - NOISY_ONLY)) differ from the reference, and $NOISY_ONLY more had the right output and wrote to standard error."
+	echo "argv_check: FAIL — $FAILED of $CHECKED cases: $_differ differ from the reference, $NOISY_ONLY more had the right output and wrote to standard error$_and."
 fi
+rl_dnf_note "$WRONG"
 cat "$WORK/report"
 rl_tally
 echo ""
@@ -672,10 +716,10 @@ rl_stderr_note
 if [ "$EXIT_ONLY" = 1 ]; then
 	echo ""
 	echo "  Each case above is one invocation, and only how it ended is judged here:"
-	echo "  what it printed is the _argv_diff target's business. The subject names no"
-	echo "  exit status. This is the robust check, which applies the C convention: a"
-	echo "  program that did its job returns 0 from main. A signal is a crash, and fails"
-	echo "  at every level."
+	echo "  what it printed is the _argv_diff target's business. No sentence this"
+	echo "  harness quotes from your subject names an exit status. This is the robust"
+	echo "  check, which applies the C convention: a program that did its job returns"
+	echo "  0 from main. A signal is a crash, and fails at every level."
 	echo ""
 	echo "  In the argv: line every byte is visible."
 	rl_shown_legend '^    argv: +'

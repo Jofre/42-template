@@ -54,13 +54,14 @@ loads, that each toy's program is a real one or a stand-in of the right kind,
 and that every layer is emitted as layers.expected lists it -- a NOT TURNED IN
 test where nothing was turned in, and only there. The toys cover c_function,
 c_files, c_program (plain and Makefile, and a Makefile turned in at the root
-of deliverable/ with srcs/ and includes/), c_header, c_make and shell_exercise;
-the other macros (c_libft, c_mem_check, c_diff, c_perf, c_cycles,
-c_reference_cost, c_argv_table, the rush macros, student_lib) are covered by
-the modules that use them and by the rules below, not by a toy. A toy module
-of its own (tools/tests/macro_fixtures/levels) proves c_levels() and
-hand_test(): how exercises are found, a folder that is no exercise, the audit
-passed by a test declared after the call, and the kinds of a program case.
+of deliverable/ with srcs/ and includes/), c_header, c_make, c_mem_check,
+c_argv_table, rush_common and shell_exercise; the other macros (c_libft,
+c_perf, c_cycles, c_reference_cost, c_twin, rush_variant, student_lib) are
+covered by the modules that use them and by the rules below, not by a toy. A
+toy module of its own (tools/tests/macro_fixtures/levels) proves c_levels()
+and hand_test(): how exercises are found, a folder that is no exercise, the
+audit passed by a test declared after the call, and the kinds of a program
+case. It also holds the c_diff and c_issued toys.
 The VERDICT of each toy's layers cannot be checked by a test; it is measured
 by hand, with the command in that BUILD file:
 
@@ -96,7 +97,7 @@ load(
 # tools/subject.bzl.
 exercise = _exercise
 
-def subject(grader, group, exercises, strict = True, name = "subject"):
+def subject(grader, group, exercises, strict = True, mandatory = None, mandatory_quote = None, name = "subject"):
     """A project's subject contract (tools/subject.bzl's subject()), and who waits for each output.
 
     The contract, as tools/subject.bzl declares it; then the finalizer that
@@ -111,9 +112,19 @@ def subject(grader, group, exercises, strict = True, name = "subject"):
         group: the same.
         exercises: the same.
         strict: the same.
+        mandatory: the same.
+        mandatory_quote: the same.
         name: the same.
     """
-    _subject(grader = grader, group = group, exercises = exercises, strict = strict, name = name)
+    _subject(
+        grader = grader,
+        group = group,
+        exercises = exercises,
+        strict = strict,
+        mandatory = mandatory,
+        mandatory_quote = mandatory_quote,
+        name = name,
+    )
 
     # Public, as the contract is: //tools/tests reads the macro fixtures'.
     _waiting(name = _WAITING, visibility = ["//visibility:public"])
@@ -149,7 +160,7 @@ _ASAN_COPTS = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-g"
 # noisy "Cannot export local symbol 'asan_extra_spill_area'" warning per binary
 # when the toolchain defaults to it. The bare name resolves to the PINNED ld.bfd:
 # //tools/cc_toolchain puts its linker wrappers first on clang's program search,
-# so this no longer reaches /usr/bin/ld.bfd through PATH (HISTORY.md §21, #3).
+# so this no longer reaches /usr/bin/ld.bfd through PATH.
 _ASAN_LINKOPTS = ["-fsanitize=address,undefined", "-fuse-ld=bfd"]
 
 # Unbuffered stdout for the harness's own output fixtures: see
@@ -280,11 +291,6 @@ def _harness_prototype_problem(name, harness, prototype):
              "this harness calls (\"exNN_prototype\", as _prototype_test() returns " +
              "it), or say why there is none: \"none: <the reason>\".") % (name, prototype))
 
-# Every test these macros emit runs in well under a second (norminette, one
-# compile, an output diff, valgrind on a tiny program, a small make). Declaring
-# them "small" gives a 60s timeout — a runaway loop in a student's code fails fast
-# instead of hanging for the 5-min "moderate" default — and tells Bazel they are
-# cheap, so it schedules more of them in parallel. New tests inherit this default.
 # Which gate level each layer belongs to. Same ladder //tools:submit uses:
 #   1 basic    — every layer whose failure is an outright KO wherever the project
 #                is graded: at the Moulinette, or at a defense (the rushes)
@@ -380,10 +386,14 @@ _LAYER_LEVEL = {
     # red in this suite and green at the gate every fork actually submits
     # against. `bazel run //tools:submit` pushed it.
     #
-    # Both exercises that enable this layer cite a contract for it. c-08 ex04's
-    # subject says "It should return a NULL pointer if an error occurs"; c-07
-    # ex00's says "Reproduce the behavior of the function strdup (man strdup)",
-    # and that man page states the NULL return. Neither is this repo inventing a
+    # Every c_function that enables this layer at its own level cites a contract
+    # for it. c-08 ex04's subject says "It should return a NULL pointer if an
+    # error occurs"; c-07 ex02's says "The size of range should be returned (or
+    # -1 on error)"; c-07 ex00's, and Reloaded's ex20, which is the same
+    # exercise, say "Reproduce the behavior of the function strdup (man
+    # strdup)", and that man page states the NULL return. (c_program's sweeps
+    # share the layer but sit at robust by suffix, _program_allocfail in
+    # _SUFFIX_LAYER, and state their own rule.) None is this repo inventing a
     # requirement, which is the only thing level 1 has to be protected from --
     # and the layer stays DELIBERATELY OPT-IN per exercise, so an exercise with
     # no such sentence never meets it at all (see c_function's `allocfail`, and
@@ -494,6 +504,7 @@ _SUFFIX_LAYER = {
 # macro fixtures' entries (tools/tests/...) prove the mechanism and are not
 # documented.
 _RAISED = {
+    "c-piscine-reloaded/c-piscine-reloaded:ex19_high_bytes_argv_diff": 3,
     "c-piscine-reloaded/c-piscine-reloaded:ex22_double_arg_output": 2,
     "c-piscine-reloaded/c-piscine-reloaded:ex22_long_arg_output": 2,
     "c-piscine-reloaded/c-piscine-reloaded:ex23_int_fields_output": 4,
@@ -636,7 +647,7 @@ def _suffix_of(name):
             best = s
     return best
 
-def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, oracle = None, makefiles = None, malloc = None, clues = None, diffio = None):
+def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, oracle = None, makefiles = None, malloc = None, clues = None, diffio = None, suites = None, programs = None):
     """What c_levels()' audit fails a package for, as a list of messages.
 
     A value before it is a fail(), like every contract check: contract_problem()
@@ -657,7 +668,7 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
     macro that does not read the folder (only c_function does, through
     _layouts()) drops it without a word, and the structure it holds is then
     checked by nothing while docs/reference.md says the prototype layer
-    checks it (WP-47, TODO.md section 23).
+    checks it (WP-47).
 
     Args:
         pkg: the package, as "c-piscine/c-piscine-c-05".
@@ -688,11 +699,20 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
             test hands a runner (`$(location FILE)` among its args) is a
             set of hints nobody is shown: Reloaded ex24's and C 09 ex01's,
             the hints of two exercises that are a Makefile alone, were
-            printed by nothing, since c_make took no clue file (TODO.md, TO
-            VERIFY V4).
+            printed by nothing, since c_make took no clue file (V4).
         diffio: the student_binary rules that link //tools:diffio, whose
             malloc fills each block it hands out (tools/dirty_malloc.c). No
             memcheck layer may run one (_diffio_memcheck_problems).
+        suites: every test_suite of the package, as {name: {"tags": [...],
+            "tests": [the names it lists]}} (_audit_suites). A manual one
+            named N is asked for by name, to run what N_* names: it lists
+            every test of the package so named (_suite_problems).
+        programs: every student_binary that names its program, as {binary:
+            the name its program_name= tag gives} (_audit_programs).
+            c_program's exNN_bin names the program it runs, and where a
+            c_make judges the same exercise its exNN_build's --artifact is
+            the program the Makefile builds: the two are one program, and
+            one name.
 
     Returns:
         The messages, in a stable order; empty when the package is sound.
@@ -868,6 +888,9 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
     # PASSED beside it while they wait (_WAITING).
     problems += _waiting_problems(tests)
 
+    # A SUITE ASKED FOR BY NAME RUNS EVERY TEST OF THAT NAME.
+    problems += _suite_problems(tests, suites or {})
+
     # A HINT FILE NO TEST PRINTS. Read from the args, as a runner is handed
     # it: in a test's data alone it is staged and never shown.
     handed = {}
@@ -898,6 +921,25 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
                              "wildcards or a relink. Call c_make for it, deciding each " +
                              "check it runs.") % (ex, ex, ex[2:]))
 
+    # ...and the program it builds has one name. c_program's `name` and
+    # c_make's `artifact` were two words for one program, and nothing
+    # compared them: given two, the files layer refused both in the turn-in
+    # as build products (_built_programs), and the .gitignore check read the
+    # artifact alone.
+    for b in sorted(programs or {}):
+        ex = b[:4]
+        if b != ex + "_bin" or not _is_ex(ex) or ex + "_build" not in tests:
+            continue
+        a = list(tests[ex + "_build"].get("args") or [])
+        built = [a[i + 1] for i in range(len(a) - 1) if a[i] == "--artifact"]
+        if built and built[0] != programs[b]:
+            problems.append(("%s: c_program(num = \"%s\") names its program \"%s\", and " +
+                             "c_make(num = \"%s\") builds \"%s\" (its artifact): one " +
+                             "program under two names, each refused in the turn-in as a " +
+                             "build product, and one alone kept out of commits by the " +
+                             ".gitignore check. Give both the name the subject gives " +
+                             "the program.") % (b, ex[2:], programs[b], ex[2:], built[0]))
+
     # EVERY CORPUS REPLAY HAS ITS MEMORY TWINS (finding 113).
     problems.extend(_corpus_memory_problems(tests, malloc or []))
 
@@ -915,6 +957,9 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
 
     # ...and so is every gate that replays the case its layer runs.
     problems.extend(_case_gate_problems(tests))
+
+    # ...and a gate whose runner can name it in its SKIP line does.
+    problems.extend(_gate_label_problems(tests))
     return problems
 
 def _argv_guard_replay_problems(tests, fixtures):
@@ -1065,7 +1110,7 @@ def _memory_rule_reach_problems(tests):
 def _keyed_clue_problems(tests, clues):
     """An exercise whose hints are keyed to its cases, with a hint file per case beside them.
 
-    ONE KEYED clues.tsv PER EXERCISE (TODO.md section 23, ruling R7). A test
+    ONE KEYED clues.tsv PER EXERCISE (ruling R7). A test
     that is a case of its own -- a c_program case, a corpus runner's target --
     hands its runner its name (--case), and a row of clues.tsv keyed to that
     name fires there and nowhere else (tools/runner_lib.sh, rl_clues). The
@@ -1203,6 +1248,11 @@ def _gate_problems(tests):
         gate = _gate_run(tests[n].get("args") or [])
         if gate == None or gate in cases:
             continue
+        if not gate["bin"] or not gate["expected"]:
+            # A gate given in part runs nothing to match: every corpus runner
+            # that takes a gate is one of _GATE_LABEL_RUNNERS, whose audit
+            # (_gate_label_problems) or the waiting audit names it.
+            continue
         how = " ".join(gate["words"]) or "no argument"
         if gate["argv_file"]:
             how = "the arguments in " + gate["argv_file"]
@@ -1225,6 +1275,19 @@ def _gate_problems(tests):
 _CASE_GATE_RUNNERS = [
     "//tools:allocfail_check.sh",
     "//tools:valgrind_test.sh",
+]
+
+# THE RUNNERS WHOSE GATE IS WRITTEN OUT WHOLE in its --gate-* options, and
+# handed nothing of the run they gate: run_check.sh (a rush variant's own
+# main.c, which waits for the variant's table) and diff_output.sh (its
+# defense case, which waits so too through --gate-bin, and a survive case,
+# which waits for its exercise's case on its own program). c_levels()' audit
+# holds each such gate to an output test of the package the same way
+# (_case_gate_problems): program, expected file, stream, comparison,
+# standard input, --labeled and the words of --gate-arg.
+_WHOLE_GATE_RUNNERS = [
+    "//tools:diff_output.sh",
+    "//tools:run_check.sh",
 ]
 
 def _compared_run(args, gate):
@@ -1260,6 +1323,36 @@ def _compared_run(args, gate):
         "words": args[args.index("--") + 1:] if "--" in args else [],
     }
 
+def _whole_gate_run(args):
+    """The run a gate of _WHOLE_GATE_RUNNERS makes, in _compared_run()'s fields; None where none is given.
+
+    Each field is read from the --gate-* options alone: the runner hands its
+    gate no argument file, no run folder and none of the words after its
+    own "--". Without --gate-bin, diff_output.sh's gate runs the case's own
+    program (--bin): a survive case's, which waits for its exercise's case.
+    """
+    opts = args[:args.index("--")] if "--" in args else args
+    if "--gate-expected" not in opts:
+        return None
+
+    def one(o):
+        v = _opt_values(opts, o)
+        return v[0] if v else None
+
+    return {
+        "argv_file": None,
+        "bin": one("--gate-bin") or one("--bin"),
+        "cwd_files": [],
+        "expected": one("--gate-expected"),
+        "expected_alt": [],
+        "labeled": "--gate-labeled" in opts,
+        "run_as": None,
+        "sanitize": "--gate-sanitize" in opts,
+        "stdin": one("--gate-stdin"),
+        "stream": one("--gate-stream"),
+        "words": _opt_values(opts, "--gate-arg"),
+    }
+
 def _case_gate_problems(tests):
     """A gate that replays a case some other way than any output test of the package does.
 
@@ -1271,7 +1364,10 @@ def _case_gate_problems(tests):
     every correct program the gate was red and the sweep SKIPped, green. Each
     gate of _CASE_GATE_RUNNERS is matched here with a diff_output.sh test: the
     same program, expected file(s), stream, comparison, standard input,
-    arguments, argument file and run folder.
+    arguments, argument file and run folder. So is each gate of
+    _WHOLE_GATE_RUNNERS (_whole_gate_run): Rush 00's _main and _defense wait
+    for their variant's table, and a gate there fed another file than the
+    table's would SKIP on every correct tree.
     """
     outputs = []
     for n in sorted(tests):
@@ -1283,9 +1379,12 @@ def _case_gate_problems(tests):
     unmatched = {}
     for n in sorted(tests):
         srcs = tests[n].get("srcs") or []
-        if not srcs or srcs[0] not in _CASE_GATE_RUNNERS:
+        if srcs and srcs[0] in _CASE_GATE_RUNNERS:
+            gate = _compared_run(tests[n].get("args") or [], True)
+        elif srcs and srcs[0] in _WHOLE_GATE_RUNNERS:
+            gate = _whole_gate_run(tests[n].get("args") or [])
+        else:
             continue
-        gate = _compared_run(tests[n].get("args") or [], True)
         if gate == None or gate in outputs:
             continue
         how = ["on \"%s\"" % " ".join(gate["words"]) if gate["words"] else "with no argument"]
@@ -1297,15 +1396,75 @@ def _case_gate_problems(tests):
             how.append("as ./%s from a folder holding %s" % (gate["run_as"], ", ".join(gate["cwd_files"]) or "only it"))
         else:
             how.append("from the test's own folder")
-        what = "%s %s, against %s" % (gate["bin"], ", ".join(how), gate["expected"])
+        what = "%s %s, against %s%s" % (gate["bin"], ", ".join(how), gate["expected"], " (--labeled)" if gate["labeled"] else "")
         unmatched.setdefault(what, []).append(n)
     return [
         ("%s: the gate runs %s, and no output test of this package runs the program " +
          "that way, so the gate can be red on a program whose case passes, and the " +
          "layer would SKIP on every correct program. Hand the runner the case's run " +
          "flags (_case_run), which it forwards to its gate, and --gate-stdin for its " +
-         "standard input.") % (", ".join(unmatched[what]), what)
+         "standard input; a gate written out whole (run_check.sh, diff_output.sh) " +
+         "takes all of that test's run in its --gate-* options.") %
+        (", ".join(unmatched[what]), what)
         for what in sorted(unmatched)
+    ]
+
+# THE RUNNERS THAT NAME THEIR GATE'S OUTPUT TEST IN THEIR SKIP LINE, given
+# --gate-label (RL_GATE_NAME, tools/runner_lib.sh; cycles_check.sh's own).
+# Without it the line falls back to "this exercise's own output fixture",
+# which names no test. The macros pass it on every gate they write; a
+# hand-written BSQ or rush target that lost the pair still built (its
+# waiting list still found it through `waits`), and its SKIP named nothing.
+# diff_output.sh takes --gate-label too, for a survive case, but runs its
+# own gate and so takes no --gate-differ. tools/conventions.sh holds this
+# list to the runners whose option loop takes both.
+_GATE_LABEL_RUNNERS = [
+    "//tools:asan_run.sh",
+    "//tools:bsq_check.sh",
+    "//tools:cycles_check.sh",
+    "//tools:method_check.sh",
+    "//tools:run_check.sh",
+    "//tools:rush01_check.sh",
+    "//tools:rush02_check.sh",
+]
+
+def _gate_label_problems(tests):
+    """A gated test of one of _GATE_LABEL_RUNNERS that passes no --gate-label, as messages.
+
+    Grouped by the output test the gate resolves to (_waits_for), which the
+    message names as the fix. Where none resolves and the waiting audit says
+    why, that audit names the test, and a second message here would only name
+    it again with no test to pass. Where none resolves and it says nothing,
+    the gate is --gate-differ alone, which no other audit names and the
+    runner refuses only when the test runs: that is said here.
+    """
+    outputs = _waiting_outputs(tests)
+    missing = {}
+    partial = []
+    for n in sorted(tests):
+        srcs = tests[n].get("srcs") or []
+        args = tests[n].get("args") or []
+        if not srcs or srcs[0] not in _GATE_LABEL_RUNNERS:
+            continue
+        if "--gate-differ" not in args or "--gate-label" in args:
+            continue
+        o, why = _waits_for(n, tests[n], outputs)
+        if o:
+            missing.setdefault(o, []).append(n)
+        elif not why:
+            partial.append(n)
+    return [
+        ("%s: each one's runner takes --gate-label and none is passed, so the SKIP " +
+         "line each prints while its gate is red names no test. Pass --gate-label %s " +
+         "beside --gate-differ (in the shared gate list, if they share one).") %
+        (", ".join(missing[o]), o)
+        for o in sorted(missing)
+    ] + [
+        ("%s: its gate is --gate-differ alone, with no program (--gate-bin) and no " +
+         "expected file (--gate-expected) for it to run, which its runner refuses " +
+         "(exit 2) when the test runs. Pass the whole gate, and --gate-label with " +
+         "the output test it waits for.") % n
+        for n in partial
     ]
 
 def _corpus_memory_problems(tests, malloc):
@@ -1456,9 +1615,62 @@ def _audit_inputs(rules):
                     diffio.append(n)
     return tests, fixtures, {"owners": owners, "reads": reads}, diffio
 
+def _audit_suites(rules):
+    """_audit_problems' suites, read from a package's rules (native.existing_rules()).
+
+    Each test_suite as {"tags", "tests"}, a listed test by its name alone: a
+    label as the rule holds it may name the package (":x", "//pkg:x").
+    """
+    suites = {}
+    for n, r in rules.items():
+        if r["kind"] == "test_suite":
+            suites[n] = {
+                "tags": list(r.get("tags") or []),
+                "tests": [str(x).split(":")[-1] for x in (r.get("tests") or [])],
+            }
+    return suites
+
+def _audit_programs(rules):
+    """_audit_problems' programs, read from a package's rules (native.existing_rules()).
+
+    Each student_binary carrying a program_name= tag (_PROGRAM_NAME_TAG, the
+    one c_program puts on its exNN_bin), as {binary: the name it gives}.
+    """
+    programs = {}
+    for n, r in rules.items():
+        if r["kind"] == "student_binary":
+            for t in r.get("tags") or []:
+                if t.startswith(_PROGRAM_NAME_TAG):
+                    programs[n] = t[len(_PROGRAM_NAME_TAG):]
+    return programs
+
+def _suite_problems(tests, suites):
+    """_audit_problems' word on the manual suites: each lists every test of its name.
+
+    A manual suite is one a run asks for by name, and its name says what it
+    runs: rush_variant's ex00_rush03 is "every layer, one variant"
+    (docs/rushes.md). Its list was written by hand, and four layers added to
+    the macro after it (_prototype, _prototype_names, _defense, _main_exit)
+    never reached it, so the suite ran 13 of a variant's 17 tests and said
+    nothing. A suite that is not manual is not held to it: the :exNN suites
+    select by tag and leave the manual tests out on purpose, and :manual
+    lists the manual tests of a module, none of them named manual_*.
+    """
+    problems = []
+    for s in sorted(suites):
+        if "manual" not in suites[s]["tags"]:
+            continue
+        left = [n for n in sorted(tests) if n.startswith(s + "_") and n not in suites[s]["tests"]]
+        if left:
+            problems.append(("%s: a manual suite, asked for by name to run every test named " +
+                             "%s_*, and it leaves out %s, which nothing it promises then " +
+                             "runs. List each one in its tests.") % (s, s, ", ".join(left)))
+    return problems
+
 def _levels_audit_impl(name, visibility, exercises, layouts, makefiles, malloc, clues):
     """c_levels()' finalizer: the audit, then the module's :manual suite."""
-    tests, fixtures, oracle, diffio = _audit_inputs(native.existing_rules())
+    rules = native.existing_rules()
+    tests, fixtures, oracle, diffio = _audit_inputs(rules)
     problems = _audit_problems(
         native.package_name(),
         tests,
@@ -1470,6 +1682,8 @@ def _levels_audit_impl(name, visibility, exercises, layouts, makefiles, malloc, 
         malloc = malloc,
         clues = clues,
         diffio = diffio,
+        suites = _audit_suites(rules),
+        programs = _audit_programs(rules),
     )
     if problems:
         fail(("c_levels: //%s breaks %d module-wide rule(s) (tools/defs.bzl, " +
@@ -1518,8 +1732,8 @@ _levels_audit = macro(
 # corpus; --gate-label: a survive case) says SKIP and exits 0 while that
 # output is red, and Bazel 9.2 has no way for a test that ran to report itself
 # skipped: the summary of a first red showed them PASSED beside the one red
-# test, and they were read as "tests that pass because it compiles" (TODO.md's
-# V2). Which output test each one waits for is known here, once the package is
+# test, and they were read as "tests that pass because it compiles" (V2).
+# Which output test each one waits for is known here, once the package is
 # declared (_waits_for): the one its call names (_test's `waits`, a
 # _WAITS_TAG; a survive case's --gate-label), or else the one output test
 # that runs the same program against the same expected file -- its gate's
@@ -2073,6 +2287,7 @@ _CORPUS_RUN_OPTS = {
     "--gate-bin": 1,
     "--gate-differ": 1,
     "--gate-expected": 1,
+    "--gate-label": 1,
     "--gate-number": 1,
     "--guarded-argv": 0,
     "--label": 1,
@@ -2222,6 +2437,13 @@ def _standin_runner_problem(name, data, runner, pkg):
              "standin_check before running it, then list it there.") %
             (name, ", ".join(built), runner))
 
+# size defaults to "small": almost every test these macros emit (norminette, one
+# compile, an output diff, a small make) runs in well under a second. "small"
+# gives a 60s timeout, so a runaway loop in a student's code fails fast instead
+# of hanging for the 5-min "moderate" default, and it tells Bazel the test is
+# cheap, so it schedules more of them in parallel. A test that cannot fit in
+# that budget (a corpus or a whole program under memcheck, finding 066) passes
+# size = "medium" at its own call site and says why there.
 def _test(size = "small", level = None, turnin = None, turnin_where = None, gated = False, refusals = None, waits = None, **kwargs):
     """A test, placed on the gate ladder by its layer tag.
 
@@ -2570,7 +2792,7 @@ def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample 
         layer = "diff_asan",
         tags = tags + ([_NO_VALGRIND_TAG] if no_valgrind != None else []),
         size = size,
-        srcs = [runner],
+        srcs = [runner],  # one of _CORPUS_RUNNERS
         args = ["--bin", "$(location %s)" % asan_bin] + args + ["--sanitized"] + guarded + _symbolizer_args(),
         data = _uniq([asan_bin, runner] + data + _SYMBOLIZER_DATA),
         waits = waits,
@@ -2596,7 +2818,7 @@ def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample 
             # Rush 01's readings samples took 18-23s with two suites on the
             # machine, a third of "small"'s 60 (finding 066).
             size = "medium" if size == "small" else size,
-            srcs = [runner],
+            srcs = [runner],  # one of _CORPUS_RUNNERS
             args = ["--bin", "$(location %s)" % bin] + args + _valgrind_args() +
                    ["--sample", str(sample)] + rule_args,
             # valgrind_test.sh judges each sampled case; the runner finds it
@@ -2608,7 +2830,7 @@ def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample 
 def _no_orphan_prototype(ex, macro):
     """Refuse a tests/exNN/prototype.h that the calling macro will never read.
 
-    _function_layers()'s `required` guard exists because "deliberately opted out"
+    _prototype_test()'s `required` guard exists because "deliberately opted out"
     and "nobody wrote it yet" were indistinguishable for a MISSING prototype
     layer. This is the mirror: a contract header that is WRITTEN and wired to
     nothing. c-08 ex01 carried one for months; it did not even compile — a stray
@@ -2723,7 +2945,7 @@ def _no_entry_problem(num, what, contract):
 # fail()s on an entry that has one (_linked_reader_problem), so a macro written
 # tomorrow cannot ignore the key without a word: a program it built without the
 # grader's library would not link, and the red would read as the student's
-# code (WP-78, TODO.md section 23). A reader goes in here
+# code (WP-78). A reader goes in here
 # only once it links _linked(num).libs into every program it builds -- or
 # builds none.
 _TAKES_LINKED = {
@@ -2901,18 +3123,21 @@ def contract_problem(check, args):
                                    ({binary with a harness: the prototype
                                    test its tag names, or None for no
                                    tag}), makefiles (the exNN whose
-                                   contract names a Makefile) and malloc
-                                   (the exNN whose contract allows it):
+                                   contract names a Makefile), malloc
+                                   (the exNN whose contract allows it) and
+                                   suites ({name: {"tags", "tests"}}):
                                    c_levels()' audit of a whole package,
                                    fed an invented one (_audit_problems); its
                                    messages joined with " | "
             "audit_rules"          package, exercises, rules ({name: the
                                    attributes existing_rules() gives it:
-                                   kind, tags, srcs, args, harness, deps}), and
+                                   kind, tags, srcs, args, harness, deps,
+                                   and a test_suite's tests}), and
                                    optionally layouts, makefiles and
                                    malloc: the same audit fed
                                    rules rather than what it reads from
-                                   them (_audit_inputs), so the reading of
+                                   them (_audit_inputs, _audit_suites,
+                                   _audit_programs), so the reading of
                                    a tag or an argument is proven too
             "harness_prototype"    name, harness, prototype: _student_bin's
                                    check of its `prototype` against its
@@ -2992,6 +3217,7 @@ def contract_problem(check, args):
             makefiles = args.get("makefiles"),
             malloc = args.get("malloc"),
             clues = args.get("clues"),
+            suites = args.get("suites"),
         )) or None
     if check == "waiting":
         # Not a problem but what _waiting writes, as one line: each output
@@ -3012,6 +3238,8 @@ def contract_problem(check, args):
             makefiles = args.get("makefiles"),
             malloc = args.get("malloc"),
             diffio = diffio,
+            suites = _audit_suites(args["rules"]),
+            programs = _audit_programs(args["rules"]),
         )) or None
     if check == "harness_prototype":
         return _harness_prototype_problem(args["name"], args.get("harness"), args.get("prototype"))
@@ -3049,6 +3277,14 @@ def turnin_dir(num):
     """
     d = _entry(num, "turnin_dir")["dir"]
     return "deliverable" if d == None else "deliverable/" + d.rstrip("/")
+
+def mandatory_exercises():
+    """exNN for each exercise the contract's `mandatory` names, in its order; [] for none.
+
+    The part `submit --written-only` will not push without (tools/subject.bzl's
+    subject(mandatory)).
+    """
+    return ["ex" + n for n in _contract("mandatory_exercises")["mandatory"]]
 
 def _where(ex):
     """turnin_dir() for a target's `exNN` prefix, where the contract has it."""
@@ -3903,6 +4139,10 @@ def c_levels(name = None):
                 # check reads them, and a README is where a new project's
                 # author writes one.
                 "*.md",
+                # The project's own ignore rules (Reloaded's), which the check
+                # that a program the project builds is ignored reads beside
+                # the root's.
+                ".gitignore",
                 "generators/*.sh",
                 "tests/**/*.sh",
                 # Every C file of the harness, not only the test_*.c mains:
@@ -3949,6 +4189,18 @@ def c_levels(name = None):
     names_file(
         name = "turnin_dirs",
         names = ["ex%s %s" % (n, turnin_dir(n)) for n in sorted(contract["exercises"])],
+        visibility = ["//tools/tests:__pkg__"],
+    )
+
+    # THE CONTRACT'S MANDATORY PART (subject(mandatory)), one exNN line per
+    # exercise of it, and none where the subject names none. `submit
+    # --written-only` will not push the project while one is a stub, and
+    # tools/first_red.sh --written reads which they are from the text of this
+    # file, as it reads the turn-in folders; //tools/tests:macro_fixtures_test
+    # holds that reading to these lines for every module.
+    names_file(
+        name = "mandatory",
+        names = mandatory_exercises(),
         visibility = ["//tools/tests:__pkg__"],
     )
 
@@ -4121,23 +4373,6 @@ def _forbidden_test(name, srcs, allowed, hdrs = None, extra_tags = None, provide
         turnin = srcs if turnin == None else turnin,
     )
 
-# The 42 campus box compiles with clang-12 (its `cc`) and has gcc-10.5. Compile
-# every C exercise under BOTH, with -Wall -Wextra -Werror, so a warning only one
-# compiler emits still fails locally instead of surfacing on the Moulinette. A
-# well-formed stub compiles cleanly, exactly like the norm layer.
-# The two compilers every C exercise is checked under, because the Moulinette
-# has both and their -Werror sets differ.
-#
-# clang is FETCHED -- campus's exact 12.0.1-19ubuntu3, pinned by sha256 in
-# MODULE.bazel -- so this layer's verdict no longer depends on which box you sat
-# at. That is the whole rule: a check whose answer changes with the machine is
-# not a check. The libdirs go with it and are not optional; a 100 KB driver that
-# cannot find libclang-cpp either fails to start or, far worse, loads the BOX's
-# copy and quietly stops being the pinned compiler.
-#
-# gcc-10 is still the box's. There is no gcc in the LLVM packages and Ubuntu's
-# gcc-10 is spread across cpp-10, gcc-10-base, libgcc-10-dev and the fixed
-# headers -- a bigger assembly than this one, and the next item in TODO 14.
 # The pinned diff, and the two runners that hand a unified diff straight to a
 # student. Everything else here compares bytes itself -- the diff LAYER never
 # shells out, despite the name -- so this is the whole surface.
@@ -4154,9 +4389,10 @@ _SHELLCHECK = "@shellcheck_linux_x86_64//:shellcheck"
 # files the program is made of (tools/student_build.bzl stages it).
 _MAKE = "@make_ubuntu//:usr/bin/make"
 
-# The pinned clang, for the four runners that COMPILE something themselves --
-# forbidden, symbols, prototype and the header layer. Each shells out to a
-# compiler and each defaulted to `cc` from PATH.
+# The pinned clang, for every runner that compiles at test time
+# (_PINNED_CC_RUNNERS below). Each shells out to a compiler. The first four
+# (forbidden, symbols, prototype and the header layer) defaulted to `cc` from
+# PATH.
 #
 # WHAT THAT COST, measured: with a PATH holding 580 coreutils and no compiler,
 # 116 forbidden + 102 symbols + 96 prototype + 7 header targets reported SKIP
@@ -4165,9 +4401,9 @@ _MAKE = "@make_ubuntu//:usr/bin/make"
 # //c-piscine/c-piscine-rush-02:ex00_forbidden went FAIL -> PASS, hiding "CALLED BUT NOT
 # AUTHORISED: printf".
 #
-# defs.bzl:435 already argues the rule these four were exempt from: "a check
-# whose answer changes with the machine is not a check". The runners all
-# accepted --cc already; nothing ever passed it.
+# The campus-compiler note above _CAMPUS_CCS argues the rule these four were
+# exempt from: "a check whose answer changes with the machine is not a check".
+# The runners all accepted --cc already; nothing ever passed it.
 #
 # The libs travel with it. A fetched clang that cannot find libclang-cpp does
 # not fail -- the loader falls back to this machine's copy and the layer reports
@@ -4378,6 +4614,22 @@ def _pinned_nm_args():
 
 _PINNED_NM_DATA = [_PINNED_NM, "@binutils_x86_64_linux_gnu//:runtime"] + _PINNED_NM_LIBS
 
+# The two compilers the 42 campus box and the Moulinette have: clang-12 (its
+# `cc`) and gcc-10.5. Every C exercise compiles under BOTH, with -Wall -Wextra
+# -Werror, because their -Werror sets differ: a warning only one compiler emits
+# still fails locally instead of surfacing on the Moulinette. A well-formed stub
+# compiles cleanly, exactly like the norm layer.
+#
+# clang is FETCHED -- campus's exact 12.0.1-19ubuntu3, pinned by sha256 in
+# MODULE.bazel -- so this layer's verdict no longer depends on which box you sat
+# at. That is the whole rule: a check whose answer changes with the machine is
+# not a check. The libdirs go with it and are not optional; a 100 KB driver that
+# cannot find libclang-cpp either fails to start or, far worse, loads the BOX's
+# copy and quietly stops being the pinned compiler.
+#
+# gcc is fetched the same way, from Ubuntu's gcc-10 source package where clang
+# comes from its llvm-toolchain-12 one (MODULE.bazel's gcc_10_ubuntu: campus's
+# 10.5.0-1ubuntu1~22.04.3 gcc-10, cpp-10, gcc-10-base and libgcc-10-dev).
 _CAMPUS_CCS = [
     {
         "label": "clang",
@@ -4396,7 +4648,7 @@ _CAMPUS_CCS = [
             "@clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1",
         ],
         "under": "@clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12",
-        # None: clang assembles internally, so there is no subprogram to point
+        # No progs: clang assembles internally, so there is no subprogram to point
         # at and -print-prog-name=as would answer "as" whatever we passed.
         "progs": "",
     },
@@ -4776,11 +5028,12 @@ def _case_stem(ex, cases, cname):
 
     A lone scenario takes the plain name every other exercise in the repo uses.
     The infix earns its place only when there is more than one scenario to tell
-    apart -- c-10 ex03 has 11 and c-11 ex05 has 17, where naming them is the
-    whole point. Before this rule the only infixed-but-single targets anywhere
-    were c-08's ex00_compile_output, ex02_run_output and ex03_compile_output,
-    which made the one module a student meets a header exercise in look as
-    though it followed different conventions from the rest of the repo.
+    apart -- c-10 ex03 and c-11 ex05 each run a score of them, where naming
+    them is the whole point. Before this rule the only infixed-but-single
+    targets anywhere were c-08's ex00_compile_output, ex02_run_output and
+    ex03_compile_output, which made the one module a student meets a header
+    exercise in look as though it followed different conventions from the rest
+    of the repo.
 
     It lives here because THREE loops emit per-case targets and they have to
     agree: _emit_cases() runs a prebuilt program through diff_output.sh,
@@ -4902,6 +5155,68 @@ def _model_problem(ex, model, cases):
         return (("c_program(%s): model, and no case has one expected file for it to " +
                  "answer (an \"any_of\" or \"survive\" case compares none that one " +
                  "run makes). Take model off.") % ex)
+    return None
+
+def _reference_exit_problem(ex, reference, cases):
+    """None, or why a c_program(reference = True) case is one its reference cannot pass.
+
+    The reference's contract is its status: 0 is an answer, any other
+    status says it has no answer for the run (tools/reference_cases.sh, NO
+    ANSWER). A case whose output test compares a status other than 0
+    (_case_exit's basic value: the subject names it, or a quoted sentence is
+    read as naming it) asks the reference for a status it cannot give with
+    an answer: the reference fails it with an answer, and with none it is
+    reported as a run it has no answer for -- the case's fault, said of a
+    case that may be right. A survive case is no way out: it asks for no
+    answer, and a status the reference gives for having none says nothing
+    of the one the subject names.
+    """
+    if reference != True or type(cases) != "list":
+        return None
+    for c in cases:
+        if type(c) != "dict" or _case_exit_error(ex, c):
+            continue
+        basic_exit, _ = _case_exit(ex, c)
+        if basic_exit != None and basic_exit != 0:
+            return (("c_program(%s): reference = True, and case %r has its output test " +
+                     "compare the status %d. The reference answers a run with " +
+                     "status 0 and says it has no answer with any other " +
+                     "(tools/reference_cases.sh), so no status but 0 can be held to " +
+                     "it: the case would fail with a correct answer. Take reference " +
+                     "off, or give //oracle's reference programs a way to say they " +
+                     "have no answer that no status of a program collides with.") %
+                    (ex, c.get("name", "run"), basic_exit))
+    return None
+
+def _argv_model_problem(ex, model, no_model):
+    """None, or why c_argv_table's table is not held to a model, or not said why.
+
+    A table.txt is emitted once with `argv_table.sh --emit` from a reference
+    program, and C 06's three and Reloaded's two were then held to nothing:
+    an edited row, or a scenario changed without its row, would first show
+    as a correct program going red. So a call names the //oracle command the
+    table is (`model`, which exNN_model holds it to), or says why there is
+    none (`no_model`).
+    """
+    if model == None and no_model == None:
+        return (("c_argv_table(%s): the table was emitted from a reference program, " +
+                 "and nothing holds it to one. Name the //oracle command it is, as " +
+                 "model (C 06 ex01: [\"c06_run\", \"print\"]), and %s_model holds the " +
+                 "committed table to what that command makes; or say why there is none " +
+                 "in no_model.") % (ex, ex))
+    if model != None and no_model != None:
+        return (("c_argv_table(%s): model and no_model, and they say opposite things: " +
+                 "keep the one that is true.") % ex)
+    if no_model != None:
+        if type(no_model) != "string" or not no_model.strip():
+            return (("c_argv_table(%s): no_model is a sentence saying why no //oracle " +
+                     "command made the table; it is %r.") % (ex, no_model))
+        return None
+    if (type(model) != "list" or not model or
+        [w for w in model if type(w) != "string" or not w or " " in w or "$" in w or "'" in w]):
+        return (("c_argv_table(%s): model is the //oracle command the table was " +
+                 "emitted from, as a list of words with no blank, quote or '$' (C 06 " +
+                 "ex01: [\"c06_run\", \"print\"]). It is %r.") % (ex, model))
     return None
 
 def _emit_model(ex, cases, model, prog):
@@ -5434,6 +5749,36 @@ def starlark_selftest(name):
             None,
         ),
         (
+            "an argument table held to no model, with no reason, is refused",
+            _argv_model_problem("ex01", None, None),
+            "nothing holds it to one",
+        ),
+        (
+            "and one that says both",
+            _argv_model_problem("ex01", ["c06_run", "print"], "a toy"),
+            "say opposite things",
+        ),
+        (
+            "an argument table's model is a list of words",
+            _argv_model_problem("ex01", "c06_run print", None),
+            "as a list of words",
+        ),
+        (
+            "and an empty reason is none",
+            _argv_model_problem("ex01", None, " "),
+            "no_model is a sentence",
+        ),
+        (
+            "an argument table with its model is accepted",
+            _argv_model_problem("ex01", ["c06_run", "print"], None),
+            None,
+        ),
+        (
+            "and one that says why there is none",
+            _argv_model_problem("ex01", None, "the toy's table is its own"),
+            None,
+        ),
+        (
             "a file_check call that says nothing of stderr is refused",
             _runner_choice_problem("ex00_file_diff", "//tools:file_check.sh", ["--bin", "x", "--fn", "f"]),
             "Pass exactly one of --stderr-empty, --stderr-ignored; this call has none",
@@ -5774,6 +6119,11 @@ def _emit_cases(ex, binname, cases, prog, valgrind = False, memory_rule = None):
             # A survive case has no fixture to gate on: its "output" is that
             # it ended, and the memory report of a run that ended is news. So
             # its arm runs ungated, as it does where a gate cannot answer.
+            #
+            # The options that describe the gate go with it, never alone: a
+            # survive case fed standard input was handed --gate-stdin with no
+            # gate to run, which valgrind_test.sh now refuses as the wiring
+            # mistake it is.
             gate, _ = _expected_args(ex, k, "--gate-expected", "--gate-expected-alt", None)
             if gate:
                 vargs += [
@@ -5782,22 +6132,23 @@ def _emit_cases(ex, binname, cases, prog, valgrind = False, memory_rule = None):
                     "--gate-bin",
                     "$(location :%s)" % binname,
                 ] + gate
-            if c.get("stream"):
-                vargs += ["--gate-stream", c["stream"]]
-            if c.get("sanitize"):
-                vargs.append("--gate-sanitize")
-            if c.get("labeled"):
-                vargs.append("--gate-labeled")
+                if c.get("stream"):
+                    vargs += ["--gate-stream", c["stream"]]
+                if c.get("sanitize"):
+                    vargs.append("--gate-sanitize")
+                if c.get("labeled"):
+                    vargs.append("--gate-labeled")
 
-            # stdin was never forwarded, so a case that feeds the program input
-            # ran a DIFFERENT path here than under the output layer — it read
-            # EOF immediately. The runner forwards the argument file and the
-            # run folder to its gate itself; stdin has its own gate flag.
-            if c.get("stdin"):
-                vargs += [
-                    "--gate-stdin",
-                    "$(location %s)" % c["stdin"],
-                ]
+                # stdin was never forwarded, so a case that feeds the program
+                # input ran a DIFFERENT path here than under the output layer
+                # — it read EOF immediately. The runner forwards the argument
+                # file and the run folder to its gate itself; stdin has its
+                # own gate flag.
+                if c.get("stdin"):
+                    vargs += [
+                        "--gate-stdin",
+                        "$(location %s)" % c["stdin"],
+                    ]
 
             # The same clues.tsv the output arm gets. c_function has wired this
             # since the renderer was written, with the reason stated there --
@@ -5844,6 +6195,13 @@ def _reference_cases_test(ex, cases, prog):
     -- less what only a student's report needs (the RAN line, the hints, the
     exit-status note). A case's arguments travel as `--case-run NAME COUNT
     ARG...`, so an argument can be anything a case can hold, `--` included.
+
+    The reference's status means what a program's does not: 0 says it has
+    an answer, any other that it has none (tools/reference_cases.sh, NO
+    ANSWER). Only a survive case may make a run the reference has no answer
+    for, since it compares no output; any other case that makes one fails,
+    with the reason the reference gave. For the same reason no case may have
+    its output test compare a status other than 0 (_reference_exit_problem).
 
     WHY. A named case binds an input to an expected file, and when the files
     come from //oracle (oracle_fixtures.sh) that binding was still kept twice
@@ -6351,12 +6709,12 @@ def c_function(
             other (see _deliverable_srcs, _turnin_files). When there are none,
             the exercise's programs are stand-ins saying so and its static
             layers are "not turned in" tests; nothing fails to build.
-            Nothing in the repo overrides it, and c-07 ex04
+            No project overrides it, and c-07 ex04
             -- the one exercise whose subject asks for two files -- carries a
             comment saying not to: the file set is written down once, in the
             project's subject() contract, to be CHECKED against the directory
             rather than copied into the build.
-        hdrs: more headers to stage as part of the turn-in. No call site
+        hdrs: more headers to stage as part of the turn-in. No project
             needs one: the headers the contract's `files` names (C 12's and
             C 13's ft_list.h / ft_btree.h, which the subject dictates the
             contents of but still asks for) come first, and every other one
@@ -6546,13 +6904,14 @@ def c_function(
             It exists because the justification for this layer is per-exercise
             and _LAYER_LEVEL can hold only one number. The layer sits where the
             exercises that CITE a contract put it: c-08 ex04's subject states
-            the NULL return in its own words, and c-07 ex00's says "reproduce
-            the behavior of strdup (man strdup)", where the man page states it.
+            the NULL return and c-07 ex02's the -1 return in their own words,
+            and c-07 ex00's and Reloaded ex20's say "reproduce the behavior of
+            strdup (man strdup)", where the man page states it.
             An exercise enabled on a weaker hook than that -- this repo's own
             rigour rather than a sentence anyone can point at -- raises itself
             here instead of dragging the cited ones up with it. Default None,
-            and no call site needs it today, because both live ones cite a
-            contract.
+            and no project needs it today, because every exercise with the
+            layer on cites a contract.
         readings: the readings of a sentence the subject leaves open, each a
             case dict (keys: _CASE_KEYS["reading"], and its kind) run by a
             harness of its own over the same unit, at strict or above. D3 puts
@@ -6950,13 +7309,17 @@ def c_function(
             "--shim",
             "$(location //tools:method_shim.c)",
             # Gated on the exercise's own fixture: a stub calls nothing twice,
-            # and a wrong answer has no method worth reading yet.
+            # and a wrong answer has no method worth reading yet. Its SKIP
+            # line names that output test (--gate-label), which the audit
+            # holds to the gate's program and file (_waits_for).
             "--gate-differ",
             "$(location //tools:diff_output.sh)",
             "--gate-bin",
             "$(location :%s)" % binname,
             "--gate-expected",
             "$(location %s)" % expected_f,
+            "--gate-label",
+            ex + "_output",
         ]
         # The gate compares the fixture as the output test does, or a
         # sanitized or labeled one would read red on a right answer and the
@@ -7176,23 +7539,23 @@ def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name
             an unimplemented stub survives them (it touches nothing, so it
             cannot overrun anything), which is why this layer needs no
             correctness gate of the kind valgrind and allocfail carry. Say at
-            the CALL SITE which fault the probe is aimed at -- every existing
-            call site does -- and put the details in the probe's own header
-            comment.
+            the CALL SITE which fault the probe is aimed at, and put the
+            details in the probe's own header comment.
         srcs: the deliverable sources compiled together with the probe.
-            Defaults to a GLOB of deliverable/exNN/*.c; when there is none, the
+            Defaults to a GLOB of the .c files the contract names or allows in
+            the turn-in directory (see _deliverable_srcs); when there is none, the
             probe layers are "not turned in" tests and the memcheck program is
             a stand-in that says so (see _test and _student_bin). Override it
             only when the probe cannot be built from one exercise's directory
-            alone; no call site does. A function the grader brings (the
+            alone; no project does. A function the grader brings (the
             contract's `linked`: c-12 ex05's real push_strs builds its nodes
             with the grader's ft_create_elem) is linked into both probe
             builds without it: the runner takes the library's archive with
             --lib, and the memcheck program links it.
         hdrs: headers the probe or the sources include but which do not live
-            beside them -- the sibling exercise's ft_list.h that the srcs
-            override above dragged in. What the grader brings (the contract's
-            `provided`: C 08's ft_stock_str.h, Reloaded's ft_putchar.c) is
+            beside them; no project passes one today. What the grader
+            brings (the contract's `provided`: C 08's ft_stock_str.h,
+            Reloaded's ft_putchar.c) is
             added on its own: a header is staged and on the -I list, a source
             is linked into both probe builds. Each is staged as a data dependency and its DIRECTORY is added
             to -I; none of them is compiled. With `srcs` left at its default,
@@ -7421,9 +7784,9 @@ def c_diff(
         oracle_fn: which arm of //oracle:oracle generates the corpus, e.g.
             "c07_strdup". The reference is run as `oracle <oracle_fn> <seed>
             <count>`; an unknown name exits 2 and this layer fails rather than
-            quietly comparing nothing. Each arm's exact line format is
-            documented beside it in oracle/src/<module>.rs, and the harness has
-            to reprint the input fields byte for byte or every case "diverges".
+            quietly comparing nothing. Each arm's exact line format is what
+            `oracle <oracle_fn> 1 5` prints, and the harness has to reprint
+            the input fields byte for byte or every case "diverges".
         seed: default 1. Seeds the reference's SplitMix64, so seed and count fix
             the corpus exactly: same cases every run, on every machine, no
             wall-clock and no test-time entropy anywhere. Change it only to
@@ -7857,7 +8220,7 @@ def c_perf(
         prototype = None,
         length = None,
         name = None):
-    """Performance layer (tag "perf") — SCAFFOLDING, informative by default.
+    """Performance layer (tag "perf"), at `complete`: it reports, and fails only past a gate.
 
     No other layer asks how much WORK the answer cost. This one runs the
     exercise's existing diff harness over N, 2N and 4N cases and fits the growth
@@ -7894,12 +8257,14 @@ def c_perf(
     a passing exercise as red and skip forever. gate_labeled is cosmetic (it
     only picks the CASE column) and is accepted for symmetry.
 
-    enabled: False (the default) tags the target "manual", so it is built and
-      runnable but stays out of `bazel test //...` and out of the submit gate.
-      Flip to True per exercise once its thresholds have been calibrated.
+    c_diff emits this layer for every exercise it declares (perf = True, its
+      default, passes enabled = True); only a c_perf written out by hand
+      starts "manual" (see enabled below).
     baseline_bin: a binary that REPLAYS the corpus, to enable ratio mode.
       //oracle:oracle is NOT one — it generates rather than replays (see the
-      header of tools/perf_test.sh). Leave None until `oracle bench` exists.
+      header of tools/perf_test.sh). Leave None and the reference baseline is
+      `oracle bench <oracle_fn>`, which this macro asks for with
+      --baseline-oracle.
     harness: defaults to the diff harness c_diff already declares for this
       exercise, i.e. the :exNN_diffbin target.
 
@@ -7910,7 +8275,7 @@ def c_perf(
             derived from that stem (:exNN_bin, :exNN_diffbin,
             :exNN_diffbin_asan), so a wrong num misses all of them at once. In
             practice it arrives from the exercise's c_diff call, which is this
-            macro's only caller in the repo.
+            macro's only caller in every project.
         fn: the exercise's function, e.g. "ft_is_prime". It names the unit
             linked in when this macro builds its own reader binary (see
             harness), and it supplies the "exNN/fn" label the report is headed
@@ -8063,7 +8428,7 @@ def c_perf(
             would recommend one (C 12's cost comment). Keys:
               "oracle_fn": an //oracle arm run as `oracle <arm> <seed> <cases>
                   <length>`, writing <cases> lines whose one input has exactly
-                  <length> elements (oracle/src/length.rs);
+                  <length> elements;
               "harness": a file under tests/exNN/ that reads those lines, of
                   any length, calls the function and CHECKS its result,
                   exiting 3 at the first wrong one (a wrong result is not
@@ -8159,8 +8524,8 @@ def c_perf(
     # ---- the correctness gate: output, then differential, then memory safety.
     # Defaults point at the very targets c_function/c_diff already build for
     # this exercise, so the gate cannot drift out of sync with the layers it is
-    # gating on. Pass explicit values only where an exercise is hand-wired (e.g.
-    # c-09 ex00, whose functional target is ex00_func_test/ex00_func_bin).
+    # gating on. Pass explicit values only for an exercise whose layers do not
+    # follow that naming (c_libft's docstring says why every shape keeps it).
     if gate_bin == None:
         gate_bin = ":" + ex + "_bin"
     if gate_asan_bin == None:
@@ -8215,7 +8580,10 @@ def c_twin(num, of):
     the repeat instead, and //tools:conventions holds the pair to each other
     -- the two tests/ folders file for file and byte for byte, and two
     c_program calls' `cases` token for token, in any layout, but for the
-    exercise's number --
+    exercise's number, and so two c_diff calls' size, seed and counts, two
+    c_cycles calls' budgets and count, and the layers that replay a corpus
+    (hand_test and corpus_memory calls naming one of _CORPUS_RUNNERS), as
+    written --
     and reports a tests/ folder that is all a copy of another module's with
     no such line. It emits nothing.
 
@@ -8266,11 +8634,23 @@ def c_program(
             exercise to a macro that reads one.
         name: the program's name, as the subject gives it ("Executable
             name: rush-02"). Unlike a rule's `name` it names no target --
-            every target comes from `num` -- and no file is looked for under
-            it: an empty deliverable/exNN makes the program a stand-in that
-            says there is no .c file (see _student_bin), not a Bazel error
-            about a file named after it. A "cwd_files" case runs the program
-            under it, as ./<name>, so there it must be a file name.
+            every target comes from `num` -- and no source is looked for
+            under it: an empty deliverable/exNN makes the program a stand-in
+            that says there is no .c file (see _student_bin), not a Bazel
+            error about a file named after it. A "cwd_files" case runs the
+            program under it, as ./<name>, so there it must be a file name.
+            It is read in three more places, so a name other than the
+            subject's is wrong in each: exNN_files fails a file of that name
+            in the turn-in as a build product (_built_programs, at basic,
+            and //tools:submit refuses to push it); with reference = True
+            it is the program `oracle run` is given; and //tools:conventions
+            holds a .gitignore to keep it out of commits, where no c_make
+            builds the exercise. Where one does (makefile = True or
+            "once_written"), it is the same program the Makefile builds:
+            give c_make's `artifact` here too. The build runs on the
+            Makefile and never on this name, and the .gitignore check reads
+            the artifact there, so a name that differs is a second program
+            the files layer refuses: c_levels()' audit fails the package.
         cases: the argv invocations to run, as a list of dicts. Default None
             emits no run at all, leaving the static layers and the two
             binaries; that is a real configuration rather than an oversight,
@@ -8538,22 +8918,21 @@ def c_program(
             given beside such a case fails too, as one given where the
             contract does not allow open: a reason that is not true is worse
             than none.
-        model: where the cases' expected files came from, when a model of
-            the tool the program imitates made them: the //oracle command a
-            case's "args" follow, as a list of words (C 10 ex01: ["c10_run",
+        model: where the cases' expected files came from, when a model of the
+            tool the program imitates made them: the //oracle command a case's
+            "args" follow, as a list of words (C 10 ex01: ["c10_run",
             "--prog", "ex01_bin", "cat"]). Default None. With it, each case
             with one expected file also gets exNN[_case]_model (layer oracle,
             complete; tools/model_check.sh), which runs that command on the
             case from where its program runs -- the same arguments, standard
             input, argument file, run folder and name that will not open --
-            and fails when the file, on
-            the stream the case compares, or the status it names in "exit",
-            is not what the model answers. It runs nothing of the student's.
-            A fixture made once and never re-made drifts in silence: a later
-            fix to the model, or an edit by hand, showed first as a correct
-            program going red (review of WP-50). Refused with no case that
-            has one expected file, and beside a "sanitize" case
-            (_model_problem).
+            and fails when the file, on the stream the case compares, or the
+            status it names in "exit", is not what the model answers. It runs
+            nothing of the student's. A fixture made once and never re-made
+            drifts in silence: a later fix to the model, or an edit by hand,
+            showed first as a correct program going red (review of WP-50).
+            Refused with no case that has one expected file, and beside a
+            "sanitize" case (_model_problem).
         reference: default False. True when //oracle holds this program's
             reference, run as `oracle run <name> ARG...`: it then emits
             exNN_reference_cases (tag "oracle", complete), which runs EVERY
@@ -8567,11 +8946,15 @@ def c_program(
             oracle's pairs, which write the files, and the cases here -- and
             an edited number passed, since no correct program ran on the
             owner's tree: the reference now runs the case as written.
+            Its status says whether it has an answer, so a case whose output
+            test compares a status other than 0 is refused
+            (_reference_exit_problem).
         refusals: for tools/tests/macro_fixtures only, where a list: a refusal
             this macro makes once its arguments are read (no_missing_file_case
-            and the case it asks for, `model`) is appended there instead of
-            failing the load, and nothing is emitted -- so a fixture can
-            watch the real macro refuse (_refuse). Anywhere else it fails.
+            and the case it asks for, `model`, `reference`'s statuses) is
+            appended there instead of failing the load, and nothing is
+            emitted -- so a fixture can watch the real macro refuse
+            (_refuse). Anywhere else it fails.
         allocfail: the name of one of `cases`, replayed with ONE of the
             program's own malloc() calls refused per run (allocfail_check.sh
             --bin): exNN_program_allocfail, at robust; or a list of them, one
@@ -8586,13 +8969,12 @@ def c_program(
             errors agrees on: the run ends by itself -- no signal, within its
             time -- with bounded output. No text and no status are asserted:
             what a program prints or returns on this path is its subject's to
-            say, and this target reads nothing into it. ROBUST, not basic: no 42
-            grader refuses a program an allocation, so this is the repo's
-            rigour (TODO.md §23, WP-92, finding 150). Gated on the case's own
-            output, like its valgrind arm; a large count of requests is
-            sampled, first ones then spread to the last. Needs a subject that
-            lets the program allocate (`malloc`) and `allocfail_rule`;
-            default None, no target.
+            say, and this target reads nothing into it. ROBUST, not basic: no
+            42 grader refuses a program an allocation, so this is the repo's
+            rigour (WP-92, finding 150). Gated on the case's own output, like
+            its valgrind arm; a large count of requests is sampled, first ones
+            then spread to the last. Needs a subject that lets the program
+            allocate (`malloc`) and `allocfail_rule`; default None, no target.
         allocfail_rule: why this program is asked it, as one string, required
             with `allocfail` (allocfail_rule_problem): the subject's own
             sentence, quoted, or -- for a subject with none, as C 10's -- what
@@ -8661,6 +9043,8 @@ def c_program(
     if _refuse(_missing_file_problem(ex, allowed, cases, no_missing_file_case), refusals, "c_program(%s)" % ex):
         return
     if _refuse(_model_problem(ex, model, cases), refusals, "c_program(%s)" % ex):
+        return
+    if _refuse(_reference_exit_problem(ex, reference, cases), refusals, "c_program(%s)" % ex):
         return
     if _refuse(_memory_rule_problem(num, malloc, cases, memory_rule), refusals, "c_program(%s)" % ex):
         return
@@ -9004,19 +9388,24 @@ def _program_allocfail(ex, num, prog, cases, cnames, rule, leaks_rule, binname, 
                 "$(location :%s)" % binname,
             ] + gate
             data += [":" + binname] + gate_fs
-        if c.get("stream"):
-            args += ["--gate-stream", c["stream"]]
-        if c.get("sanitize"):
-            args.append("--gate-sanitize")
-        if c.get("labeled"):
-            args.append("--gate-labeled")
-        # The runner hands its gate the argument file and the run folder
-        # itself (as valgrind_test.sh does); stdin has its own gate flag.
-        if c.get("stdin"):
-            args += [
-                "--gate-stdin",
-                "$(location %s)" % c["stdin"],
-            ]
+
+            # The options that describe the gate go with it, never alone: a
+            # survive case has no gate, and its options with none are a
+            # wiring mistake allocfail_check.sh refuses.
+            if c.get("stream"):
+                args += ["--gate-stream", c["stream"]]
+            if c.get("sanitize"):
+                args.append("--gate-sanitize")
+            if c.get("labeled"):
+                args.append("--gate-labeled")
+
+            # The runner hands its gate the argument file and the run folder
+            # itself (as valgrind_test.sh does); stdin has its own gate flag.
+            if c.get("stdin"):
+                args += [
+                    "--gate-stdin",
+                    "$(location %s)" % c["stdin"],
+                ]
         args += run_flags
         # The rule each target prints reaches the runner as a file (--rule FILE,
         # as c_function's allocfail_rule and valgrind's memory_rule do), since
@@ -9453,7 +9842,7 @@ def c_cycles(
     differently. Say it here because the alternative reading is available: a
     syscall_budget of 0 reads like the assertion "this function must not enter
     the kernel", and it is a statement, not an assertion. If you ever want it to
-    gate, run all 24 syscall_budget = 0 targets first — a function that
+    gate, run every syscall_budget = 0 target first — a function that
     legitimately writes would become a brand-new false red.
 
     It builds its own binary at -O2 rather than reusing Bazel's: `fastbuild` is
@@ -9484,13 +9873,16 @@ def c_cycles(
         harness: the reader harness under tests/exNN/, in practice the very
             diff_*.c file c_diff uses: it reads corpus lines on stdin, calls fn
             and prints. //tools:diffio.h is on its include path. It is rebuilt
-            here rather than reused, for the -O2 reason above, and the rebuild
-            is the harness and srcs and nothing else -- the harness without
-            debug information and srcs with it, which is how the runner tells
-            the student's calls (a helper's write() or malloc()) from the
-            harness's (a callback it hands over) -- there is no library to
-            pass, so a harness that needs one (as c-12's diff harnesses need
-            the grader's ft_create_elem) cannot be measured by this layer.
+            here rather than reused, for the -O2 reason above, from the
+            harness, srcs, what the grader brings (the contract's `provided`)
+            and the grader's own archives (the contract's `linked`, passed as
+            --lib and linked after the sources). The harness and srcs are
+            built with debug information, and the harness's alone is marked
+            (cycles_check.sh's -fdebug-prefix-map). That mark is how the
+            runner tells the student's calls (a helper's write() or malloc(),
+            or a grader function such as C 12's ft_create_elem that the
+            subject makes them call) from the harness's (a callback it hands
+            over).
         unit_expr: an awk expression over ONE tab-separated corpus line, summed
             across the corpus to give the denominator of the per-unit figure.
             Default None means one unit per case, i.e. a per-call number, which
@@ -9545,7 +9937,7 @@ def c_cycles(
             never for a callback the harness hands over.
         srcs: the deliverable sources compiled with the harness at -O2. Default
             None globs deliverable/exNN/*.c through _deliverable_srcs(), which
-            is what every call site relies on today; the parameter survives as
+            is what every project relies on today; the parameter survives as
             the escape hatch for a deliverable that is not simply that
             directory. Read _deliverable_srcs()'s docstring before setting it:
             naming files at one macro's call site while leaving another at its
@@ -9597,7 +9989,7 @@ def c_cycles(
         gate_stdin: a file LABEL fed to the gate run's stdin, for an exercise
             whose fixture reads input rather than taking argv. Passed through
             as given -- unlike gate_expected it is not resolved under
-            tests/exNN/. No call site passes one today; it is wired to `data`
+            tests/exNN/. No project passes one today; it is wired to `data`
             the way c_diff and c_perf wire theirs, because it used to expand the
             label with $(location) and NOT declare it, which would have failed
             analysis for whoever passed the first one.
@@ -9647,6 +10039,10 @@ def c_cycles(
         "$(location :%s_bin)" % ex,
         "--gate-expected",
         "$(location %s)" % expected_f,
+        # The output test that gate is, named in the SKIP line; the audit
+        # holds it to the gate's program and file (_waits_for).
+        "--gate-label",
+        ex + "_output",
     ]
     for src in srcs:
         args += ["--src", "$(location %s)" % src]
@@ -9751,9 +10147,9 @@ def c_reference_cost(
     Tagged "cycles" and NOT given a tag of its own, deliberately. It is the same
     kind of measurement (callgrind, instructions, per unit of work, level
     `complete`), and a new layer tag is not free: it needs an _LAYER_LEVEL entry,
-    a row in docs/reference.md, the layer count in AGENTS.md bumped, and a decision about
-    where it sits in the submit gate's ladder. None of that would buy anything
-    here.
+    a row in docs/reference.md (tools/conventions.sh holds the two together),
+    and a decision about where it sits in the submit gate's ladder. None of
+    that would buy anything here.
 
     Args:
       num: exercise number, e.g. "08".
@@ -9794,8 +10190,8 @@ def c_reference_cost(
 
     Gate wiring is derived, not parameterised: :exNN_bin and
     tests/exNN/expected.txt, the very targets c_function already declares. There
-    are deliberately no gate_labeled / gate_sanitize / gate_stdin knobs — the one
-    caller needs none of them, and a pass-through nobody has ever run is how a
+    are deliberately no gate_labeled / gate_sanitize / gate_stdin knobs — no
+    project needs them, and a pass-through nobody has ever run is how a
     gate ends up silently misreading a passing exercise as red and skipping
     forever. Add them WITH a caller that exercises them.
     """
@@ -9897,7 +10293,7 @@ def c_reference_cost(
         gated = True,
     )
 
-def c_argv_table(num, scenarios = "scenarios.tsv", expected = "table.txt", clues = "clues.tsv", asan = True, name = None):
+def c_argv_table(num, scenarios = "scenarios.tsv", expected = "table.txt", clues = "clues.tsv", asan = True, model = None, no_model = None, refusals = None, name = None):
     """One labelled table for an argv program run against many invocations.
 
     Emits exNN_output (tag "output"), driven by //tools:argv_table.sh: the
@@ -9956,9 +10352,23 @@ def c_argv_table(num, scenarios = "scenarios.tsv", expected = "table.txt", clues
             <output> is that run's stdout LINES joined with " | ". Generate it
             rather than typing it: running argv_table.sh --emit by hand prints
             exactly this stream from a trusted reference program, and refuses
-            to if that program crashed, hung or flooded. Still required by the
-            asan arm even though nothing is compared there -- its size is what
-            sizes the runaway-output budget for each run.
+            to if that program crashed, hung, flooded or returned a status
+            other than 0. Still required by the asan arm even though nothing
+            is compared there -- its size is what sizes the runaway-output
+            budget for each run.
+        model: the //oracle command the table was emitted from, as a list of
+            words (C 06 ex01: ["c06_run", "print"]). It emits exNN_model
+            (layer oracle, complete): tools/model_check.sh --argv-table runs
+            argv_table.sh --emit with the model as the program, and fails
+            when the stream it prints is not the committed table. It runs
+            nothing of the student's and is green on every turn-in. Without
+            it, a table emitted once was held to nothing afterwards: an edited
+            row, or a scenario changed without its row, first showed as a
+            correct program going red.
+        no_model: a sentence saying why no //oracle command made the table,
+            in place of `model`. The call names exactly one of the two
+            (_argv_model_problem).
+        refusals: the macro fixtures' own (_refuse); never in a project.
         clues: name of the hints file under tests/exNN/, default "clues.tsv".
             There is no opt-out -- it is always passed and always declared as
             an input, so the file has to exist -- and diff_output.sh renders
@@ -9982,6 +10392,8 @@ def c_argv_table(num, scenarios = "scenarios.tsv", expected = "table.txt", clues
     """
     _entry(num, "c_argv_table")  # first: a contract error names this macro
     ex = "ex" + num
+    if _refuse(_argv_model_problem(ex, model, no_model), refusals, "c_argv_table(%s)" % ex):
+        return
     scen_f = "tests/%s/%s" % (ex, scenarios)
     exp_f = "tests/%s/%s" % (ex, expected)
     clues_f = "tests/%s/%s" % (ex, clues)
@@ -10025,6 +10437,26 @@ def c_argv_table(num, scenarios = "scenarios.tsv", expected = "table.txt", clues
         )
 
     _table_test(ex + "_output", ":%s_bin" % ex, "output")
+
+    # The table, held to the model it was emitted from (`model` above).
+    if model:
+        _test(
+            name = ex + "_model",
+            srcs = ["//tools:model_check.sh"],
+            args = [
+                "--oracle",
+                "$(location //oracle:oracle)",
+                "--expected",
+                "$(location %s)" % exp_f,
+                "--argv-table",
+                "$(location //tools:argv_table.sh)",
+                "--scenarios",
+                "$(location %s)" % scen_f,
+                "--",
+            ] + model,
+            data = ["//oracle:oracle", exp_f, scen_f, "//tools:argv_table.sh"],
+            tags = ["oracle"],
+        )
 
     # The exit status, at robust: see the docstring and docs/reference.md.
     # Named exNN_exit, not exNN_exit_output: first_red reads an `output` tail
@@ -10228,7 +10660,7 @@ def c_libft(
             not a label. It also skips make_test.sh's rule work -- the
             clean/fclean/re checks and the incremental-build ones -- which have
             no meaning for a script.
-        hdrs: headers turned in beside the sources. No caller passes one
+        hdrs: headers turned in beside the sources. No project passes one
             today: c-09 ex01's includes/ft.h was the one, and the grader
             supplies it now. Not merely staged: they are normed with the
             sources, compiled into the output layer's test program, and their
@@ -10482,7 +10914,7 @@ def c_header(num, main, hdr = None, extra_srcs = None, cases = None, norm_flags 
         extra_srcs: further .c files under tests/exNN/, compiled into each
             case's binary beside the main. Harness-side helpers, never
             deliverables -- the norm layer reads `hdr` and nothing else, so
-            these are not normed. Nothing in the repo needs one today. Default
+            these are not normed. No project needs one today. Default
             None. They do join the compile layers, and their directories join
             the include path, like every other source these runners are handed.
         cases: the runs to emit, as a list of dicts. Default None means one
@@ -11517,16 +11949,17 @@ def shell_exercise(
         says itself what reading it applies.
 
         The names in use: `literal` (the subject's words taken word for
-        word: Shell 00 ex02, ex06, ex08), `regular` ("files" read as
-        regular files only: Shell 00 ex08, Shell 01 ex02, where a directory
-        can carry a matching name) and `newest_first` (an order by date
-        that names no direction, read as `ls` sorts by time: Shell 00 ex04). A reading's name ends its target's, so
-        it is a suffix in _SUFFIX_LAYER, at strict, with its row in
-        docs/reference.md ("Target names"): c_levels()' audit fails a
-        package whose target ends in none. Reuse one before adding one.
+        word), `regular` ("files" read as regular files only, where a
+        directory can carry a matching name) and `newest_first` (an order
+        by date that names no direction, read as `ls` sorts by time). A
+        reading's name ends its target's, so it is a suffix in
+        _SUFFIX_LAYER, at strict, with its row in docs/reference.md
+        ("Target names"): c_levels()' audit fails a package whose target
+        ends in none. Reuse one before adding one; `grep -rn 'readings = {'`
+        lists where each is used.
 
         Named exNN_literal, not exNN_literal_output, although it carries the
-        output tag: //tools:first_red reads a target's layer from the END of
+        output tag: tools/first_red.sh reads a target's layer from the END of
         its name, and "..._output" would file a red reading under "your next
         exercise, not written yet" when the exercise passes at basic. A tail
         it does not know lands under "also red", which is what this is.
@@ -12022,6 +12455,7 @@ def rush_common(num = "00", clues = "clues_putchar.tsv", name = None):
     Emits: norm + both-compiler compile for main.c and ft_putchar.c, and
     ft_putchar's own output/forbidden tests — linked against ft_putchar.c ALONE,
     which is also how "the ft_putchar.c file must contain the ft_putchar
+    function" gets checked.
 
     Args:
         num: the exercise number as a two-digit string; defaults to "00", which
@@ -12059,8 +12493,7 @@ def rush_common(num = "00", clues = "clues_putchar.tsv", name = None):
             and buildifier's unnamed-macro check holds this one to it since it
             declares a rule (a program built from the student's files, see
             _student_bin). Every target here is named from `num`, so there is
-            nothing for it to control.
-    function" gets checked."""
+            nothing for it to control."""
     _entry(num, "rush_common")  # first: a contract error names this macro
     ex = "ex" + num
 
@@ -12181,7 +12614,8 @@ def rush_variant(
       <p>_prototype       void rush(int x, int y), the types (tests/ex00/prototype.h)
       <p>_prototype_names ... and the names x and y the subject gives them (strict)
       <p>_output          the curated, labelled table (tests/ex00/cases.tsv)
-      <p>_defense         the subject's defense case, rush(123, 42), in full
+      <p>_defense         the subject's defense case, rush(123, 42), in full;
+                          it waits for <p>_output, as <p>_main does
       <p>_survive         degenerate sizes: survival; counter ceilings: survival
                           and, once rush(3, 3) draws anything, the rectangle's
                           shape (tests/ex00/survive_rush.c)
@@ -12389,6 +12823,24 @@ def rush_variant(
         tags = ["output", _case_reads_tag([expected_f, cases_f])] + extra,
     )
 
+    # The output test's own run, for the tests that wait for it: _defense and
+    # _main SKIP while it is red (the owner's answer of 2026-10-10), as the
+    # memory and differential layers below do. On a stub all three were red
+    # for the one reason, and only the table has the hints. Each gate is this
+    # run, and c_levels()' audit holds it to that: the same program, expected
+    # file, standard input and --labeled as <p>_output's (_case_gate_problems),
+    # and the output test it resolves to is <p>_output (_waiting_problems).
+    output_gate = [
+        "--gate-bin",
+        "$(location :%s)" % binname,
+        "--gate-expected",
+        "$(location %s)" % expected_f,
+        "--gate-stdin",
+        "$(location %s)" % cases_f,
+        "--gate-labeled",
+    ]
+    output_gate_data = [":" + binname, expected_f, cases_f]
+
     # ---- the subject's defense case, in full --------------------------------
     # "Here is an example of a test that will be performed: rush(123, 42);" --
     # the defense runs it, so a wrong picture there is a KO: basic, the whole
@@ -12397,6 +12849,8 @@ def rush_variant(
     # ex00_oracle_fixtures). The harness reads that picture on stdin, calls
     # rush() with its size and prints ONE table row, never 5208 bytes: the
     # figures the size makes, and where the two first part (finding 141).
+    # It waits for <p>_output (output_gate): the same rush(), under the
+    # harness with the table and the hints.
     defense_expected = "%s/defense.txt" % tests
     defense_picture = "%s/defense_rush%s.txt" % (tests, variant)
     defensebin = p + "_defensebin"
@@ -12422,8 +12876,10 @@ def rush_variant(
             "--labeled",
             "--clues",
             "$(location %s)" % clues_f,
-        ],
-        data = [":" + defensebin, defense_expected, defense_picture, clues_f],
+            "--gate-label",
+            p + "_output",
+        ] + output_gate,
+        data = _uniq([":" + defensebin, defense_expected, defense_picture, clues_f] + output_gate_data),
         tags = ["output", _case_reads_tag([defense_expected, defense_picture])] + extra,
     )
 
@@ -12475,6 +12931,9 @@ def rush_variant(
     # The subject's example main returns 0 but names no exit status, so by the
     # Run contract (docs/reference.md) a plain non-zero return is only noted
     # here, and fails at robust in <p>_main_exit, which judges nothing else.
+    # It waits for <p>_output (output_gate): a main.c calling a rush() that
+    # draws nothing yet prints nothing either. <p>_main_exit does not wait:
+    # how main() returns is its own, whatever rush() draws.
     _test(
         name = p + "_main",
         srcs = ["//tools:run_check.sh"],
@@ -12490,8 +12949,13 @@ def rush_variant(
             "0",
             "--timeout",
             "20",
-        ],
-        data = [":" + mainbin],
+            "--gate-differ",
+            "$(location //tools:diff_output.sh)",
+            # Its SKIP line names the test it waits for, as _defense's does.
+            "--gate-label",
+            p + "_output",
+        ] + output_gate,
+        data = [":" + mainbin, "//tools:diff_output.sh"] + output_gate_data,
         tags = ["output"] + extra,
     )
     _test(
@@ -12688,6 +13152,8 @@ def rush_variant(
     # its tests are hidden from `//...`. The suite carries the "manual" tag too:
     # a NON-manual suite that lists manual tests drags them back into the
     # wildcard run, which is exactly what the bonus tags exist to prevent.
+    # It lists every test above, in the docstring's order: c_levels()' audit
+    # fails a manual suite that leaves out a test of its name (_suite_problems).
     native.test_suite(
         name = p,
         tests = [
@@ -12697,9 +13163,13 @@ def rush_variant(
             ":" + p + "_compile_gcc",
             ":" + p + "_forbidden",
             ":" + p + "_symbols",
+            ":" + p + "_prototype",
+            ":" + p + "_prototype_names",
             ":" + p + "_output",
+            ":" + p + "_defense",
             ":" + p + "_survive",
             ":" + p + "_main",
+            ":" + p + "_main_exit",
             ":" + p + "_valgrind",
             ":" + p + "_asan",
             ":" + p + "_diff",

@@ -2,6 +2,8 @@
     * the empty list, or one element -> already sorted; neither may crash
     * lists with EQUAL data   -> what the comparison returning zero means for
                                  the order
-    * the values are sorted but the list is short -> links being rewritten while
-                                 still being walked
+    * the values are sorted but the list is short -> what is left is in order,
+                                 but elements are missing: which ones can the
+                                 head no longer reach, and which link stopped
+                                 leading to them?
     * the order is reversed   -> the comparison's sign convention

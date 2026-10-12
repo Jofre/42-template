@@ -3,9 +3,6 @@ load("@rules_python//python:defs.bzl", "py_test")
 load("//tools:defs.bzl", "hand_test", "lvl_tags", "starlark_selftest")
 load(":starlark_unit.bzl", "starlark_unit")
 
-# Shared so :selftest and :selftest_bash cannot drift apart: the second exists
-# only to run the SAME arms under a different shell, and it stops proving that
-# the moment its inputs differ.
 # Shared for the same reason as SELFTEST_DATA below, and it earned it: these
 # were two inline copies, and the moment :selftest gained the pinned-valgrind
 # flags, :selftest_bash went on running without them -- so the cross-shell run
@@ -67,6 +64,9 @@ SELFTEST_ARGS = [
         "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
 ]
 
+# Shared so :selftest and :selftest_bash cannot drift apart: the second exists
+# only to run the SAME arms under a different shell, and it stops proving that
+# the moment its inputs differ.
 SELFTEST_DATA = [
         "@clang_12_ubuntu//:runtime",
         # What a sanitized link by the pinned clang pulls from its own tree:
@@ -120,6 +120,8 @@ SELFTEST_DATA = [
         "//tools:gen_header.sh",
         "//tools:generate.sh",
         "//tools:init.sh",
+        # Not a runner: what init.sh writes the identity with.
+        "//tools:identity.sh",
         "//tools:reset_headers.sh",
         "//tools:header_check.sh",
         "//tools:header_norm.sh",
@@ -164,9 +166,16 @@ SELFTEST_DATA = [
         # Not runners: 42's entry and the installer that puts it on PATH.
         "//tools:42.sh",
         "//tools:fortytwo/install.sh",
+        # Not a runner: the dev container's first-run script, run in a toy
+        # checkout with a home of its own for the ~/.bazelrc it writes.
+        "//:.devcontainer/postcreate.sh",
+        # Not a runner: the editor's tasks, whose default task's command is
+        # run in a toy checkout for the module it finds from a folder.
+        "//:.vscode/tasks.json",
         "//tools:defs.bzl",
         "//tools:stub_check.sh",
         "//tools:placeholder_pdf.sh",
+        "//tools:exam_guide.sh",
         "//tools:answer_scan.sh",
         "//tools:submit.sh",
         "//tools:symbols_test.sh",
@@ -247,7 +256,7 @@ SELFTEST_DATA = [
 ]
 
 # A toy reader harness linked through //tools:diffio, the library every c_diff
-# and c_perf reader links (tools/diffio_probe.c says what it reads). The
+# and c_perf reader links (tools/tests/diffio_probe.c says what it reads). The
 # selftest runs it: every block malloc hands out in such a program starts
 # holding 0xa5 (tools/dirty_malloc.c), which the library owes to its source
 # file AND its -Wl,--wrap=malloc. An arm that compiled dirty_malloc.c with the
@@ -275,9 +284,10 @@ hand_test(
     size = "small",
     # size stays "small" -- it says what this test COSTS, and Bazel schedules on
     # it. The timeout is raised separately because cost and worst-case wall clock
-    # are different things here: 66 arms, most of which compile a C fixture, and
-    # every one of those compiles competes with whatever else the suite is doing.
-    # Measured: 1.6s idle, 9.6s alongside a module, 30s in a full `bazel test
+    # are different things here: every arm is a process, most of them compile a C
+    # fixture, and every one of those compiles competes with whatever else the
+    # suite is doing. Measured, when this was one process and the file a few
+    # dozen arms: 1.6s idle, 9.6s alongside a module, 30s in a full `bazel test
     # //...`, and 69.2s in one -- which BLEW the 60s that size = "small" implies
     # and reported TIMEOUT. A timeout is indistinguishable from a real failure at
     # a glance, so the file that exists to prove the harness still works became
@@ -286,7 +296,7 @@ hand_test(
     #
     # Do not "fix" this by trimming arms. The arms are the point, and the
     # expensive layers are already split into :selftest_slow for the separate
-    # reason that a minute-long check is one nobody runs.
+    # reason of what they cost per arm and pull in (see there).
     #
     # SHARDED, and "long", because one process running every arm in turn
     # stopped fitting any timeout on a loaded box. In four full-suite runs on
@@ -369,7 +379,7 @@ hand_test(
     # timeout note above for the measured spread and why it is raised. Keeping
     # the expensive layers OUT is a separate decision from that timeout: valgrind
     # and anything needing //oracle's Rust build belong in :selftest_slow,
-    # because a check that takes a minute is one nobody runs.
+    # because their per-arm cost and dependencies would land on every run.
     data = SELFTEST_DATA,
 )
 
@@ -377,8 +387,8 @@ hand_test(
 #
 # This repo does not pin /bin/sh, and the reason it does not need to is that the
 # runners are shell-agnostic. That is a claim about behaviour, so it is executed
-# rather than asserted: `bazel test //tools/tests:selftest_bash` runs all 139
-# arms with bash reading each runner instead of the system sh (dash here and on
+# rather than asserted: `bazel test //tools/tests:selftest_bash` runs every
+# arm with bash reading each runner instead of the system sh (dash here and on
 # the campus box).
 #
 # //tools:conventions already refuses a bashism statically -- shellcheck's
@@ -405,11 +415,12 @@ hand_test(
 )
 
 # The same question as :selftest, for the runners too expensive to ask it of on
-# every build. Split rather than merged because a two-second check is one people
-# run constantly and a minute-long one is not — and a self-test nobody runs
-# protects nothing. See the script's header for why valgrind_test.sh was the
-# first one moved here: it is the only layer in the repo that can see a leak, so
-# nothing else would notice if its output-matching regex stopped matching.
+# every build. Split rather than merged so that valgrind's 20-50x, zig's
+# compiles and the //oracle build stay off the selftest people run most — a
+# self-test nobody runs protects nothing. See the script's header for why
+# valgrind_test.sh was the first one moved here: it is the only layer in the
+# repo that can see a leak, so nothing else would notice if its output-matching
+# regex stopped matching.
 #
 # medium (300s), not small: valgrind runs the program on a synthetic CPU at
 # 20-50x native. Eight tiny programs still finish well inside that.
@@ -483,8 +494,12 @@ SLOW_DATA = [
         "//tools:perf_run",
         "//tools:perf_test.sh",
         # A corpus runner, for the arms of a corpus replayed under memcheck
-        # (--valgrind, which runs each sampled case through valgrind_test.sh).
+        # (--valgrind, which runs each sampled case through valgrind_test.sh),
+        # and BSQ's and file_check's, whose memcheck reports name the scratch
+        # maps and files they hand over.
         "//tools:rush02_check.sh",
+        "//tools:bsq_check.sh",
+        "//tools:file_check.sh",
         "//tools:standin.sh",
         "//tools:student_build.sh",
         "//tools:unbuffered_stdout.c",
@@ -622,6 +637,7 @@ hand_test(
         "//tools/tests/macro_fixtures:conventions_srcs",
         "//tools/tests/macro_fixtures/root:conventions_srcs",
         "//tools/tests/macro_fixtures/levels:conventions_srcs",
+        "//tools/tests/macro_fixtures/knobs:conventions_srcs",
         "@buildifier_prebuilt//:buildifier",
         "@shellcheck_linux_x86_64//:shellcheck",
     ] + [m + ":conventions_srcs" for m in _MODULES],
@@ -634,7 +650,10 @@ hand_test(
 # drives.sh), and runs no Bazel: the end-to-end runs are docs/testing.md's.
 py_test(
     name = "fortytwo_test",
-    size = "small",
+    # 28-30 s on its own, 19 of them in eleven slow cases, 40 s beside the
+    # four selftests, and out at "small"'s 60 in the template's full suite
+    # (2026-10-12).
+    size = "medium",
     srcs = ["fortytwo_test.py"],
     data = [
         # docs/bazel.md, whose `42 ... --dry-run` lines test_docs.py runs.
@@ -659,7 +678,7 @@ filegroup(
     srcs = ["BUILD.bazel"] + glob(
         ["*.sh"],
         allow_empty = False,
-    ) + glob(["*.bzl"]),
+    ) + glob(["*.bzl"]) + glob(["*.py"]),
 )
 
 # The defs.bzl guards that fail() at loading -- an unknown case key, a
@@ -795,6 +814,8 @@ hand_test(
         # module's; the module's BUILD.bazel is beside it (conventions_srcs).
         "--module-turnin-dirs",
         "$(rootpath //tools/tests/macro_fixtures/levels:turnin_dirs)",
+        "--module-turnin-dirs",
+        "$(rootpath //tools/tests/macro_fixtures/knobs:turnin_dirs)",
     ] + [
         a
         for m in _MODULES
@@ -809,6 +830,10 @@ hand_test(
         "$(rootpath //tools/tests/macro_fixtures:redirect_args)",
         "--argvguard-builds",
         "$(rootpath //tools/tests/macro_fixtures:argvguard_builds)",
+        "--knobs",
+        "$(rootpath //tools/tests/macro_fixtures/knobs:knobs)",
+        "--expected-knobs",
+        "$(rootpath //tools/tests/macro_fixtures/knobs:knobs.expected)",
     ],
     data = [
         "//tools:diff_output.sh",
@@ -870,6 +895,19 @@ hand_test(
         "//tools/tests/macro_fixtures/root:turnin_dirs",
         "//tools/tests/macro_fixtures/levels:conventions_srcs",
         "//tools/tests/macro_fixtures/levels:turnin_dirs",
+        "//tools/tests/macro_fixtures/knobs:conventions_srcs",
+        "//tools/tests/macro_fixtures/knobs:turnin_dirs",
+        # ...and its --written reading of each module's exercises and their
+        # mandatory part, held to the same lines and to c_levels()' own
+        # :mandatory, with the judge it runs on each turn-in.
+        "//tools:stub_check.sh",
+        "//tools/tests/macro_fixtures/levels:mandatory",
+        "//tools/tests/macro_fixtures/knobs:mandatory",
+        # What each knob no project turns gave its targets, and the one
+        # program a knob is proven by.
+        "//tools/tests/macro_fixtures/knobs:knobs",
+        "//tools/tests/macro_fixtures/knobs:knobs.expected",
+        "//tools/tests/macro_fixtures/knobs:ex06_diffbin",
         # Where shell_exercise's tags and run_tags land.
         "//tools/tests/macro_fixtures:shell_tags",
         # Where shell_exercise's redirect lands, and what each guarded-argv
@@ -888,5 +926,6 @@ hand_test(
         "//tools/tests/macro_fixtures:ex00_output",
         "//tools/tests/macro_fixtures/root:ex00_output",
         "//tools/tests/macro_fixtures/levels:ex00_survive_output",
-    ] + [m + ":turnin_dirs" for m in _MODULES] + [m + ":conventions_srcs" for m in _MODULES],
+    ] + [m + ":turnin_dirs" for m in _MODULES] + [m + ":mandatory" for m in _MODULES] +
+    [m + ":conventions_srcs" for m in _MODULES],
 )

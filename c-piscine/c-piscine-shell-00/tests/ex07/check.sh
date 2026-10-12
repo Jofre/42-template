@@ -12,7 +12,7 @@
 # command in the template computes the expected b. It is strict: if sw.diff
 # does not describe an edit of this a, it refuses rather than guessing, and the
 # check below says so.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 B=${1:-b}

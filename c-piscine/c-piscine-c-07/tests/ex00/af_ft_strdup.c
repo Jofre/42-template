@@ -12,10 +12,11 @@
  * exercise that spells the same rule out in the subject text; here it arrives
  * by the reference the subject makes instead.
  *
- * That is a weaker hook than a sentence in the subject, and this layer is gated
- * accordingly: allocfail sits at level 3 (robust), so it never meets a beginner
- * at the gate they see first. It is switched on here because ignoring malloc's
- * answer is not a style question -- the next line dereferences it.
+ * That is a weaker hook than a sentence in the subject, but a hook, and
+ * allocfail sits at level 1 (basic) on the strength of it: a cited contract is
+ * not a requirement the harness invented, which is the only thing basic has to
+ * be protected from. It is switched on here because ignoring malloc's answer
+ * is not a style question -- the next line dereferences it.
  *
  * A short input on purpose. Every allocation is another whole run of the
  * program, and one is all this function should need.

@@ -11,7 +11,7 @@ ENV LC_ALL=en_US.UTF-8
 # WHICH PACKAGES CARRY A VERSION, and which deliberately do not.
 #
 # tools/pins.tsv calls itself "the single statement of which tool versions this
-# repo expects" and names THIS FILE as the pin site for cc, ar, gdb and lldb-12.
+# repo expects" and names THIS FILE as the pin site for ar, gdb and lldb-12.
 # It said so while every package here was installed unversioned, so the audit
 # and the image disagreed: pins.tsv recorded clang 12.0.1-19ubuntu3 and the
 # image installed whatever jammy served on the day it was built.
@@ -34,7 +34,8 @@ ENV LC_ALL=en_US.UTF-8
 # There is no CAMPUS observation of any of them -- the audit that produced
 # pins.tsv did not capture them -- and pinning them to whatever this container
 # happens to carry would record a number nobody measured on the box that
-# matters. Recorded in TODO.md for the next campus audit instead.
+# matters. Left for the next campus audit instead: tools/env-audit.sh captures
+# each of them (`bc`, `file`, `netstat` for net-tools, `ip` for iproute2).
 #
 # Re-enable manual pages installation and install development tools
 RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes \
@@ -49,9 +50,9 @@ RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes \
     clang-12=1:12.0.1-19ubuntu3 \
     clang \
     # binutils, named explicitly rather than left to build-essential: pins.tsv
-    # pins `ar` and `nm` here, and a version this file never mentions is not a
-    # pin. (The nm the forbidden-symbol layer runs is Bazel-fetched; this copy
-    # is the one a student gets by typing `nm`.)
+    # pins `ar` here, and a version this file never mentions is not a pin.
+    # (pins.tsv's `nm` is the Bazel-fetched one the forbidden-symbol layer runs;
+    # this copy is the one a student gets by typing `nm`.)
     binutils=2.38-4ubuntu2.12 \
     # clangd: language server for the vscode-clangd / Open VSX extension, so the
     # editor never has to prompt to download it (matches the clang 14 toolchain).
@@ -212,8 +213,9 @@ RUN ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" \
 # Same TARGETARCH-aware pattern, same pinning, same reason as bazelisk above.
 #
 # v8.5.1 is the buildifier inside buildifier_prebuilt 8.5.1.3, the version
-# MODULE.bazel already pins -- so the copy on PATH and the copy `bazel run
-# //:buildifier` uses are the same formatter. They were not: this one floated.
+# MODULE.bazel already pins -- so the copy on PATH and the copy
+# //tools:conventions runs (@buildifier_prebuilt//:buildifier) are the same
+# formatter. They were not: this one floated.
 ARG BUILDIFIER_VERSION=v8.5.1
 ARG BUILDIFIER_SHA256_AMD64=887377fc64d23a850f4d18a077b5db05b19913f4b99b270d193f3c7334b5a9a7
 ARG BUILDIFIER_SHA256_ARM64=947bf6700d708026b2057b09bea09abbc3cafc15d9ecea35bb3885c4b09ccd04

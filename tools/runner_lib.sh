@@ -38,8 +38,9 @@
 #
 # THE HELPERS, each described where it is defined:
 #
-#   the time budget    RL_DEADLINE, rl_tmo, rl_run, rl_overrun, rl_hang,
-#                      rl_sweep_next / rl_sweep_ran / rl_sweep_stopped
+#   the time budget    RL_DEADLINE, rl_ready, rl_tmo, rl_run, rl_overrun, rl_hang,
+#                      rl_sweep_next / rl_sweep_ran / rl_sweep_stopped,
+#                      RL_DNF, rl_dnf_said, rl_dnf_note
 #   signal handling    rl_traps
 #   how a run ended    rl_classify (from tools/exit_status), rl_signame
 #   lists of words     RL_NL, rl_list_add, rl_split_on / rl_split_off
@@ -49,13 +50,18 @@
 #   the invocation     rl_cmdline, rl_argv_words, rl_rundir, rl_ran
 #   long output        rl_excerpt, rl_save
 #   a report's length  rl_rows, rl_block, rl_tally (DIFF_MAX_ROWS),
-#                      rl_shown_legend
+#                      rl_shown, rl_shown_legend
+#   a layer that waits rl_gate (on another test's result), rl_noskip_cmd (the
+#                      command that forces the skip open)
 #   the other stream   rl_stderr, rl_stderr_note
 #   a corpus under a memory checker
-#                      rl_mem_opt, rl_mem_ready, rl_mem_pick, rl_mem_run,
-#                      rl_mem_report, rl_mem_tally, rl_mem_argv_note
+#                      rl_mem_opt, rl_mem_ready, rl_mem_pick, rl_mem_count,
+#                      rl_mem_run, rl_mem_report, rl_mem_tally, rl_mem_argv_note,
+#                      rl_mem_stopped
 #   sanitizer runs     rl_sanitizers (options, the pinned symbolizer),
-#                      rl_sanitized, rl_sanitizer_report
+#                      rl_sanitized, rl_sanitizer_report; what a report
+#                      is: rl_sanitizer_kind, rl_sanitizer_about,
+#                      rl_sanitizer_explain
 #   hints              rl_clues (clues.tsv), rl_legend (diff_clues.txt)
 #   who waits for it   rl_waiting, on a red exit of an output test
 #   why it is raised   rl__raised, on a red exit of a test _RAISED lists
@@ -65,6 +71,8 @@
 #                      rl_cc_wrap, the two as one command
 #   a corpus's stderr  rl_stderr_choice, rl_stderr_noisy, rl_stderr_rule
 #   who grades         rl_at (RL_GRADER, from the subject contract)
+#   a subject's quote  rl_quotes_opt, rl_quotes_ready, rl_quote (--quotes, from
+#                      runner_quotes())
 #
 # Everything here is POSIX sh and reads its inputs under `set -u`, so every
 # optional variable is written ${VAR:-}.
@@ -78,6 +86,24 @@ for _rl_t in awk cat chmod cp date dirname grep mkdir mktemp od readlink rm; do
 	exit 2
 done
 RL_NAME=${RL_NAME:-${0##*/}}
+
+# THE SCRATCH FOLDER. Bazel gives a test TEST_TMPDIR, a folder of its own that
+# it empties, and the TMPDIR of the shell that ran `bazel`, or TMPDIR=/tmp, the
+# machine's, when that shell set none (measured under Bazel 9's processwrapper
+# sandbox, which shares the host's /tmp). Most shells set none, so every mktemp
+# under `bazel test` made its file in /tmp -- about 6,600 in one run of the
+# selftest -- and whatever a run killed at its time limit left there stayed, on
+# a campus box whose /tmp every student shares. Here the scratch files of a test
+# go under TEST_TMPDIR, and so do those of everything it starts (a gate, a
+# compiler, valgrind). A TMPDIR naming any other folder was chosen, by that
+# shell or by a selftest arm that hands a runner one of its own and asks what
+# lands there, and is kept on purpose.
+# RL_HOST_TMP is the folder TMPDIR named before, for a cache meant to outlive
+# the test (ilp32_test.sh's zig cache). //tools:conventions holds every test's
+# program to this line, or to sourcing this file before its first mktemp.
+# shellcheck disable=SC2034 # RL_HOST_TMP is the caller's to read.
+RL_HOST_TMP=${TMPDIR:-/tmp}
+case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
 
 # ---------------------------------------------------------------------------
 # LISTS OF WORDS.
@@ -460,6 +486,7 @@ rl_sweep_next() {  # rl_sweep_next CAP
 rl_sweep_ran() {  # rl_sweep_ran STATUS
 	rl_classify "$1"
 	[ "$RL_CAUSE" = timeout ] || return 0
+	RL_DNF=$((RL_DNF + 1))
 	if [ "$RL_CLAMPED" = 1 ]; then
 		RL_STOP=budget
 	elif rl_hang; then
@@ -507,6 +534,57 @@ rl_sweep_stopped() {  # rl_sweep_stopped DONE TOTAL [WRONG [HUNG]]
 	esac
 }
 
+# A RUN THAT DID NOT FINISH, IN A PLAIN REPLAY, is said and never judged
+# wrong, as under a memory checker (RL_MEM_DNF, below): what it would have
+# printed next was not seen (the owner's ruling R4). RL_DNF counts them:
+# rl_sweep_ran adds every run that ran out of time, its own limit or the
+# case a budget stop cut, and a runner that reads how its runs ended itself
+# (rush01_check.sh) adds its own. The runner still counts each in its tally
+# of failing cases -- a replay with a case nobody judged has not passed --
+# and its verdict line says them apart, never as cases that differ:
+#
+#     RESULT: 29/30 agree, and 1 did not finish within 2s each.
+#
+# A plain replay's verdict line once read "29/30 agree, 1 differ", and went
+# on to say what a difference means, over a case that had only hung (V85).
+RL_DNF=0
+# rl_dnf_said CAP [COUNT] -- RL_DNF_SAID, the clause a verdict line ends
+# with: "K did not finish within CAPs each", CAP the runner's limit for one
+# run; "K did not finish in the time they had" once the test's own limit cut
+# one (RL_STOP budget, which rl_sweep_stopped has said). Empty when none did.
+# COUNT, where a runner counts a share of them (rush01_check.sh's cases, apart
+# from its probes), is K, every one of them a run that ran out of its own limit.
+RL_DNF_SAID=""
+# shellcheck disable=SC2034 # RL_DNF_SAID is the caller's, to print
+rl_dnf_said() {
+	RL_DNF_SAID=""
+	_rl_k=${2:-$RL_DNF}
+	[ "$_rl_k" -gt 0 ] || return 0
+	if [ -z "${2:-}" ] && [ "$RL_STOP" = budget ]; then
+		RL_DNF_SAID="$_rl_k did not finish in the time they had"
+	else
+		RL_DNF_SAID="$_rl_k did not finish within ${1}s each"
+	fi
+}
+# rl_dnf_note WRONG [INDENT] -- under a verdict line that counted RL_DNF runs
+# apart, what they are; WRONG is how many cases the line judged wrong. Each
+# line behind INDENT (default two spaces), the indent of the verdict's own
+# follow-on lines: rush01_check.sh's are 14. Nothing when none did not
+# finish, or when the sweep stopped: rl_sweep_stopped said it. Each sentence
+# breaks after its colon, so a line stays near 80 columns at that indent.
+rl_dnf_note() {
+	[ "$RL_DNF" -gt 0 ] && [ -z "$RL_STOP" ] || return 0
+	_rl_dni=${2-  }
+	if [ "$1" -eq 0 ]; then
+		echo "${_rl_dni}No case was judged wrong:"
+		echo "${_rl_dni}a run that did not finish was not seen to its end."
+	else
+		echo "${_rl_dni}A run that did not finish was not judged:"
+		echo "${_rl_dni}it was not seen to its end."
+	fi
+	echo "${_rl_dni}An infinite loop, or a program too slow for these inputs."
+}
+
 # ---------------------------------------------------------------------------
 # SIGNAL HANDLING.
 #
@@ -550,10 +628,13 @@ rl__cleanup" EXIT
 }
 # The library's own scratch file (rl_run's report). Its EXIT trap is set when
 # the library is sourced, and rl_traps keeps it after the caller's cleanup.
+# RL_MEM_OUT's ".as" and ".as.shown" are rl_mem_report's, which removes them
+# itself once shown: listed for a signal that lands while it writes them.
 rl__cleanup() {
 	for _rl_f in "$RL_HOWF" "${RL_LISTF:-}" "${RL_SHOWNF:-}" "${RL_SHOWNF:+$RL_SHOWNF.legend}" \
 		"${RL_ERRF:-}" "${RL_MEM_OUT:-}" \
-		"${RL_MEM_OUT:+$RL_MEM_OUT.shown}" "${RL_MEM_STDOUT:-}" "${RL_MEM_STATUS:-}"; do
+		"${RL_MEM_OUT:+$RL_MEM_OUT.shown}" "${RL_MEM_OUT:+$RL_MEM_OUT.as}" \
+		"${RL_MEM_OUT:+$RL_MEM_OUT.as.shown}" "${RL_MEM_STDOUT:-}" "${RL_MEM_STATUS:-}"; do
 		[ -z "$_rl_f" ] || rm -f "$_rl_f"
 	done
 	# rl_mem_ready's folder for the pinned symbolizer's link (--symbolizer).
@@ -793,9 +874,12 @@ rl_classify() {
 #                    backslash of a run before an x, or before a byte written
 #                    \xHH, so the text "\x01" is "\\x01", a backslash and
 #                    the byte 0x01 are "\\\x01", and \xHH always means a
-#                    byte. A carriage
-#                    return that ends the line is part of a CRLF line ending
-#                    (ssh-keygen writes them) and is dropped. Every other byte
+#                    byte. A carriage return is one of those control bytes
+#                    wherever it stands, at the line's end too: a script
+#                    saved with CRLF line ends makes dash print "can't cd
+#                    to nowhere\r", and the \x0d is the one clue to the cause
+#                    (rl_excerpt --crlf drops it, for a tool that ends its
+#                    lines with CRLF). Every other byte
 #                    stays as it is: a backslash elsewhere, a $, UTF-8 text --
 #                    and so the caret line a compiler prints under a quoted
 #                    source line still points at the right column, which a
@@ -880,7 +964,6 @@ function rl_vis_scan(t,   i, n, c) {
 	}
 }
 function rl_vis_text(s,   i, n, c, r, k, run) {
-	sub(/\r$/, "", s)
 	r = ""
 	n = length(s)
 	for (i = 1; i <= n; i++) {
@@ -914,22 +997,6 @@ function rl_vis_marks(m, n, stream) {
 }
 '
 
-# rl_vis MODE [MAXLINES] -- stdin, every byte of it rendered by rl_vis_exact
-# (above), with its newlines shown by MODE:
-#
-#   arg     \n, on one line (an argument, a field)
-#   lines   $, then one space before the next line's first byte, all on one
-#           line (a table cell)
-#   block   $, then a real newline (a multi-line output)
-#
-# In lines and block modes an unterminated last line says "(no newline at end)",
-# empty input says "(nothing)", and after MAXLINES lines (default 6 for lines,
-# 40 for block) the rest is counted, not shown.
-#
-# Read through od, not by awk lines: od sees every byte, a NUL and the last
-# newline included. The separator is written late, when the next byte arrives,
-# never trimmed afterwards: trimming the last space of a rendering once removed
-# a REAL one ("ab " shown as "ab").
 # rl_vis_legend FILE [INDENT] [STREAM] -- one line naming the marks the text
 # in FILE holds, as rl_vis and rl_vis_exact render them ("\t a tab", "\\
 # one backslash", ...), or nothing when it holds none. THE LEGEND is read off
@@ -949,31 +1016,69 @@ rl_vis_legend() {
 			print ind "(byte for byte: " s ")"
 		}' "$1"
 }
+# rl_vis MODE [MAXLINES [WIDTH]] -- stdin, every byte of it rendered by
+# rl_vis_exact (above), with its newlines shown by MODE:
+#
+#   arg     \n, on one line (an argument, a field)
+#   lines   $, then one space before the next line's first byte, all on one
+#           line (a table cell)
+#   block   $, then a real newline (a multi-line output)
+#
+# In lines and block modes an unterminated last line says "(no newline at end)",
+# empty input says "(nothing)", and after MAXLINES lines (default 6 for lines,
+# 40 for block; empty is the default) the rest is counted, not shown.
+#
+# WIDTH, when given, cuts what is SHOWN: in arg mode the value after its first
+# WIDTH bytes, then " ... (K more bytes)", as rl_diff_window's lines end; in
+# lines and block modes each line after its first WIDTH bytes, then
+# " [... line cut here, K more bytes]", as rl_excerpt's lines end, before
+# its $. The corpora hold values past the round capacities (finding 041),
+# lines of 20 to 80 KB, and one shown whole was a first red log of hundreds
+# of KB. Without it nothing is cut.
+#
+# Read through od, not by awk lines: od sees every byte, a NUL and the last
+# newline included. The separator is written late, when the next byte arrives,
+# never trimmed afterwards: trimming the last space of a rendering once removed
+# a REAL one ("ab " shown as "ab").
 rl_vis() {
 	LC_ALL=C od -An -v -tx1 | rl__vis_od "$@"
 }
-# rl__vis_od MODE [MAXLINES] -- rl_vis's table, on bytes already written out by
-# `od -An -v -tx1`: for a caller that has them that way (rl_caret).
+# rl__vis_od MODE [MAXLINES [WIDTH]] -- rl_vis's table, on bytes already
+# written out by `od -An -v -tx1`: for a caller that has them that way
+# (rl_caret).
 rl__vis_od() {
-	LC_ALL=C awk -v mode="$1" -v max="${2:-}" "$RL_AWK_VIS"'
+	LC_ALL=C awk -v mode="$1" -v max="${2:-}" -v width="${3:-}" "$RL_AWK_VIS"'
 		BEGIN { if (max == "") max = (mode == "block") ? 40 : 6 }
+		# The cut of one line (WIDTH): how many of its bytes went unshown.
+		function cutmark(   c) {
+			if (!cut) return ""
+			c = cut
+			cut = 0
+			return " [... line cut here, " c " more bytes]"
+		}
 		{
 			for (i = 1; i <= NF; i++) {
 				last = $i
 				if (stop) { more++; continue }
-				if (last == "0a") {
-					if (mode == "arg") { out = out "\\n"; continue }
-					out = out "$"
+				if (last == "0a" && mode != "arg") {
+					out = out cutmark() "$"
 					sep = 1
+					col = 0
 					if (++lines >= max + 0) stop = 1
 					continue
 				}
+				if (width != "" && col >= width + 0) { cut++; continue }
+				col++
+				if (last == "0a") { out = out "\\n"; continue }
 				if (sep) { out = out (mode == "block" ? "\n" : " "); sep = 0 }
 				out = out rl_vis_byte(last)
 			}
 		}
 		END {
-			if (mode != "arg") {
+			if (mode == "arg") {
+				if (cut) out = out " ... (" cut " more bytes)"
+			} else {
+				out = out cutmark()
 				if (last == "") out = "(nothing)"
 				else if (more) out = out (mode == "block" ? "\n" : " ") "... (" more " more bytes)"
 				else if (last != "0a") out = out " (no newline at end)"
@@ -1062,12 +1167,15 @@ rl_caret() {
 		END { s = ""; while (length(s) < n) s = s " "; printf "%s^", s }'
 }
 
-# rl_diff_window WANT GOT [INDENT] -- where file GOT first parts from file
-# WANT, for a reader: the byte, counted from 1 as cmp counts it, then each
-# side from up to 8 bytes before it, 32 bytes at most, rendered by rl_vis arg,
-# a ^ under that byte, and a legend naming the escapes the two lines hold, as
-# a table's does (rl_vis_marks). Each line starts with INDENT. Prints nothing
-# when the two are the same.
+# rl_diff_window WANT GOT [INDENT [WANT_NAME GOT_NAME]] -- where file GOT
+# first parts from file WANT, for a reader: the byte, counted from 1 as cmp
+# counts it, then each side from up to 8 bytes before it, 32 bytes at most,
+# rendered by rl_vis arg, a ^ under that byte, and a legend naming the escapes
+# the two lines hold, as a table's does (rl_vis_marks). Each line starts with
+# INDENT. Prints nothing when the two are the same. The sides are called
+# "expected" and "got" unless WANT_NAME and GOT_NAME are given: a report that
+# names them in its own words above the window passes those, so one report
+# keeps one pair of words.
 #
 #     first difference: byte 12
 #     expected, from byte 4: lo, world\n
@@ -1090,12 +1198,18 @@ rl_diff_window() {
 	_rl_from=1
 	[ "$_rl_at" -le 9 ] || _rl_from=$((_rl_at - 8))
 	_rl_in=${3:-}
+	# Each name and its comma padded to the longer one's width, so the two
+	# windows start in one column.
+	_rl_nw=${4:-expected}
+	_rl_ng=${5:-got}
+	_rl_n=${#_rl_nw}
+	[ "${#_rl_ng}" -le "$_rl_n" ] || _rl_n=${#_rl_ng}
 	printf '%sfirst difference: byte %d\n' "$_rl_in" "$_rl_at"
-	_rl_lab="expected, from byte $_rl_from: "
+	_rl_lab=$(printf '%-*s from byte %d: ' $((_rl_n + 1)) "$_rl_nw," "$_rl_from")
 	_rl_ww=$(rl__window "$1" "$_rl_from")
 	_rl_wg=$(rl__window "$2" "$_rl_from")
 	printf '%s%s%s\n' "$_rl_in" "$_rl_lab" "$_rl_ww"
-	printf '%sgot,      from byte %d: %s\n' "$_rl_in" "$_rl_from" "$_rl_wg"
+	printf '%s%-*s from byte %d: %s\n' "$_rl_in" $((_rl_n + 1)) "$_rl_ng," "$_rl_from" "$_rl_wg"
 	# The ^: the label's width, then the rendering of the bytes before the
 	# difference (WANT's; GOT's are the same bytes).
 	{
@@ -1336,7 +1450,7 @@ rl_ran() {
 # ---------------------------------------------------------------------------
 # LONG OUTPUT.
 #
-# rl_excerpt FILE N NAME [PREFIX] -- the first N lines of FILE, each behind
+# rl_excerpt [--crlf] FILE N NAME [PREFIX] -- the first N lines of FILE, each behind
 # PREFIX (default four spaces), then -- only if something was left out --
 #
 #     ... K more line(s), full text in bazel-testlogs/<package>/<target>/test.outputs/NAME
@@ -1347,15 +1461,26 @@ rl_ran() {
 # tell. Each line is rendered by rl_vis_text (THE ONE BYTE RENDERER, above), so
 # a stray escape sequence cannot repaint the terminal, and a line longer than
 # RL_EXCERPT_WIDTH (300) bytes is cut with a marker saying so.
+#
+# A carriage return is shown as \x0d wherever it stands. --crlf drops one that
+# ends a line, as part of a CRLF line ending, and only there: for the run of a
+# tool that ends its lines that way, and its caller says which tool. Dropped
+# for every excerpt, it hid the one clue to a script saved with CRLF line
+# ends, whose shell's errors end in a \r.
 rl_excerpt() {
+	_rl_crlf=0
+	if [ "${1:-}" = --crlf ]; then
+		_rl_crlf=1
+		shift
+	fi
 	[ -s "$1" ] || return 0
 	_rl_pre=${4-    }
 	_rl_w=${RL_EXCERPT_WIDTH:-300}
-	LC_ALL=C awk -v n="$2" -v pre="$_rl_pre" -v w="$_rl_w" "$RL_AWK_VIS"'
+	LC_ALL=C awk -v n="$2" -v pre="$_rl_pre" -v w="$_rl_w" -v crlf="$_rl_crlf" "$RL_AWK_VIS"'
 		NR > n { exit }
 		{
 			line = $0
-			sub(/\r$/, "", line)
+			if (crlf) sub(/\r$/, "", line)
 			extra = length(line) - w
 			if (extra > 0) line = substr(line, 1, w)
 			out = rl_vis_text(line)
@@ -1363,8 +1488,8 @@ rl_excerpt() {
 			print pre out
 		}' "$1"
 	# What was left out: lines past N, or a shown line cut at the width.
-	_rl_n=$(LC_ALL=C awk -v n="$2" -v w="$_rl_w" '
-		{ sub(/\r$/, "") }
+	_rl_n=$(LC_ALL=C awk -v n="$2" -v w="$_rl_w" -v crlf="$_rl_crlf" '
+		crlf { sub(/\r$/, "") }
 		NR <= n && length($0) > w { cut = 1 }
 		END { printf "%d %d", NR, cut + 0 }' "$1")
 	_rl_total=${_rl_n% *}
@@ -1434,27 +1559,34 @@ rl_save() {
 # once ran the program with no map at all, so every BSQ corpus SKIPped on
 # every correct program.
 #
-# Three optional settings. For a gate whose case is run in a way ARGs cannot
-# say: RL_GATE_PASS, a list (LISTS OF WORDS) of the differ's own options that
-# shape the run -- --stdin FILE, --stream S, --sanitize, --labeled -- passed
-# before the `--`; and RL_GATE_LABEL, the gating case's name, for the SKIP
-# line (asan_run.sh's survive cases, gated on their exercise's first case).
-# And RL_GATE_WHY, the paragraph under the SKIP line: why THIS layer waits,
-# in lines already indented. Unset, it is the corpus one below, which is
-# true of a layer that replays inputs and of nothing else: the method layer
-# replays nothing, and a newcomer reads this paragraph on every exercise not
-# written yet, so a layer that waits for another reason says its own.
+# Four optional settings. Two for a gate whose case is run in a way ARGs
+# cannot say: RL_GATE_PASS, a list (LISTS OF WORDS) of the differ's own
+# options that shape the run -- --stdin FILE, --stream S, --sanitize,
+# --labeled -- passed before the `--`; and RL_GATE_LABEL, the gating case's
+# name, for the SKIP line (asan_run.sh's survive cases, gated on their
+# exercise's first case). Third, RL_GATE_WHY, the paragraph under the SKIP
+# line: why THIS layer waits, in lines already indented. Unset, it is the
+# corpus one below, which is true of a layer that replays inputs and of
+# nothing else: the method layer replays nothing, and a newcomer reads this
+# paragraph on every exercise not written yet, so a layer that waits for
+# another reason says its own. Fourth, RL_GATE_NAME, the output test waited
+# for, named in the SKIP line; it changes nothing else (the --gate-label of
+# run_check.sh, method_check.sh, bsq_check.sh and both rush runners): a log
+# that says "the output fixture" sends a newcomer looking for which one,
+# and RL_GATE_LABEL would swap the paragraph for a survive case's.
 #
-# All three are reset here, when the library is sourced, and a runner sets
-# its own after that: bsq_check.sh and both rush runners set none, so a
-# value left in the environment (a --test_env, a hand run) reached their
-# gates -- an RL_GATE_LABEL there turned the corpus SKIP into a case's, and
-# an RL_GATE_PASS handed the differ options the call never gave (V36).
+# All four are reset here, when the library is sourced, and a runner sets
+# its own after that: bsq_check.sh and both rush runners set none of the
+# first three, so a value left in the environment (a --test_env, a hand
+# run) reached their gates -- an RL_GATE_LABEL there turned the corpus
+# SKIP into a case's, and an RL_GATE_PASS handed the differ options the
+# call never gave (V36).
 # //tools:conventions refuses a setting this library reads with an empty
 # default and never resets.
 RL_GATE_WHY=""
 RL_GATE_PASS=""
 RL_GATE_LABEL=""
+RL_GATE_NAME=""
 rl_gate() {
 	_rl_gn=$1 _rl_gd=$2 _rl_gb=$3 _rl_ge=$4
 	shift 4
@@ -1492,7 +1624,11 @@ rl_gate() {
 		echo "  does nothing yet does that: green here would say nothing. Get that case"
 		echo "  green and this one starts checking."
 	else
-		echo "$_rl_gn: SKIP — this exercise's own output fixture is not passing yet."
+		if [ -n "${RL_GATE_NAME:-}" ]; then
+			echo "$_rl_gn: SKIP — $RL_GATE_NAME, this exercise's own output fixture, is not passing yet."
+		else
+			echo "$_rl_gn: SKIP — this exercise's own output fixture is not passing yet."
+		fi
 		echo ""
 		if [ -n "${RL_GATE_WHY:-}" ]; then
 			printf '%s\n' "$RL_GATE_WHY"
@@ -1506,6 +1642,24 @@ rl_gate() {
 	fi
 	echo "  ($(rl_noskip_cmd) runs it anyway.)"
 	exit 0
+}
+
+# rl_gate_whole NAME DIFFER BIN EXPECTED SAID -- refuse a gate given in part.
+# A gate is DIFFER, BIN and EXPECTED together (--gate-differ, --gate-bin,
+# --gate-expected); SAID is not empty when the call gave an option that
+# describes that gate (--gate-stdin, --gate-labeled, --gate-label, ...).
+# Any of them without all three is a wiring mistake, refused with exit 2 as
+# diff_output.sh and run_check.sh refuse their own: every gate fails open on
+# a missing piece, so the run went on as if none had been asked for, and the
+# option was dropped in silence -- a survive case's valgrind arm was handed
+# --gate-stdin with no gate, and asan_run.sh given --gate-label alone said OK.
+# Called right after a runner reads its options.
+rl_gate_whole() {
+	[ -n "$2$3$4$5" ] || return 0
+	[ -n "$2" ] && [ -n "$3" ] && [ -n "$4" ] && return 0
+	echo "$1.sh: a gate needs --gate-differ, --gate-bin and --gate-expected together;" >&2
+	echo "  the other --gate-* options describe that gate, and say nothing without it" >&2
+	exit 2
 }
 
 # rl_noskip_cmd -- the command that runs THIS test with its skip forced open
@@ -1539,6 +1693,10 @@ rl_noskip_cmd() {
 # rl_block FILE -- one failing case's report, from FILE: printed while fewer
 #     than RL_ROWS have been, and kept whole either way. A block printed is
 #     also kept apart (RL_SHOWNF), for rl_shown_legend.
+# rl_shown FILE -- a block that is no failing case, printed whole and kept
+#     for rl_shown_legend as rl_block keeps the ones it prints, never counted
+#     against RL_ROWS: a difference a runner shows as information and passes
+#     (rush02_check.sh --settled's compositions).
 # rl_tally [NAME] -- under the report, when some were left out: how many,
 #     where all of them are (test.outputs/NAME, default differences.txt), and
 #     how to print more.
@@ -1571,6 +1729,13 @@ rl_block() {
 	fi
 	cat "$1" >> "$RL_LISTF"
 	[ "$RL_ROWS" -ne 0 ] && [ "$RL_BLOCKS" -gt "$RL_ROWS" ] && return 0
+	cat "$1"
+	if [ -z "$RL_SHOWNF" ]; then
+		RL_SHOWNF=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
+	fi
+	cat "$1" >> "$RL_SHOWNF"
+}
+rl_shown() {
 	cat "$1"
 	if [ -z "$RL_SHOWNF" ]; then
 		RL_SHOWNF=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
@@ -1699,6 +1864,7 @@ rl_stderr_note() {
 #     rl_sweep_next "$CAP" || break        # time left to start it
 #     rl_mem_run [--stdin FILE] -- ARG...  # BIN under the checker
 #     [ "$RL_MEM_BAD" = 0 ] || { <the case, how to replay it>; rl_mem_report; }
+#                                          # --as SCRATCH KEPT per input kept
 #     ...
 #     rl_mem_tally DONE M                  # the verdict line, 0 or 1
 #     rl_mem_argv_note GUARDED [HOW]       # input in argv: what ASan saw of it
@@ -1958,15 +2124,89 @@ rl__mem_count() {  # the case rl_mem_run just made, into the tallies
 	RL_MEM_FAILS=$((RL_MEM_FAILS + 1))
 	[ "$RL_MEM_KIND" != timeout ] || RL_MEM_DNF=$((RL_MEM_DNF + 1))
 }
-# rl_mem_report -- under a failing case's own lines: what went wrong, and the
-# checker's report.
+# rl_mem_report [--as SCRATCH KEPT]... -- under a failing case's own lines:
+# what went wrong, and the checker's report.
+#
+# --as names a scratch file the runner handed the program (BSQ's map, C 10's
+# files, Rush 02's generated dictionary) and the name the case keeps it under
+# in test.outputs; repeat it for each. A report that prints the path --
+# memcheck's "Open file descriptor 4: /tmp/tmp.XXXX/map" -- named a file gone
+# when the test ends, right below the lines that keep the input as
+# case-12.map and replay it under that name, and two cases named the same
+# scratch file. Each SCRATCH is replaced by its KEPT name in what is shown
+# and kept, literally (a path holds dots), the longest first where one starts
+# another (map.1, map.10), and one line above the report's own says it was.
+# A file of the test's own tree that a case keeps under another name (Rush
+# 02's fixed dictionary) is passed the same way: its path is not one a
+# student has.
 rl_mem_report() {
+	_rl_as=""
+	_rl_named=""
+	while [ "${1:-}" = --as ]; do
+		if [ "$#" -lt 3 ] || [ -z "$2" ] || [ -z "$3" ]; then
+			echo "${RL_NAME:-runner_lib}: rl_mem_report --as takes a scratch path and the name it is kept under" >&2
+			exit 2
+		fi
+		_rl_as="$_rl_as$2	$3
+"
+		shift 3
+	done
+	_rl_rep=$RL_MEM_OUT
+	if [ -n "$_rl_as" ] && [ -s "$RL_MEM_OUT" ]; then
+		_rl_rep="$RL_MEM_OUT.as"
+		_rl_named=$(RL_AS=$_rl_as LC_ALL=C awk -v out="$_rl_rep" '
+			BEGIN {
+				n = split(ENVIRON["RL_AS"], s, "\n")
+				for (i = 1; i <= n; i++) {
+					t = index(s[i], "\t")
+					if (t) { k++; from[k] = substr(s[i], 1, t - 1); to[k] = substr(s[i], t + 1) }
+				}
+			}
+			{
+				line = $0; o = ""
+				for (;;) {
+					# The first scratch path in what is left of the line,
+					# the longest of those that start there.
+					best = 0; at = 0
+					for (i = 1; i <= k; i++) {
+						p = index(line, from[i])
+						if (p && (!at || p < at || (p == at && length(from[i]) > length(from[best])))) {
+							at = p; best = i
+						}
+					}
+					if (!best) break
+					o = o substr(line, 1, at - 1) to[best]
+					line = substr(line, at + length(from[best]))
+					hit[best] = 1
+				}
+				print o line > out
+			}
+			END {
+				close(out)
+				# In the order the runner gave them, the order of its inputs.
+				for (i = 1; i <= k; i++) if (i in hit) names = names (names == "" ? "" : ", ") to[i]
+				print names
+			}' "$RL_MEM_OUT") || _rl_named=""
+		[ -s "$_rl_rep" ] || { _rl_rep=$RL_MEM_OUT; _rl_named=""; }
+	fi
+	_rl_asnote=""
+	[ -z "$_rl_named" ] ||
+		_rl_asnote="    (each file the program was given is shown by the name it is kept under: $_rl_named)"
+	rl__mem_report "$_rl_rep" "$_rl_asnote"
+	[ "$_rl_rep" = "$RL_MEM_OUT" ] || rm -f "$_rl_rep" "$_rl_rep.shown"
+}
+rl__mem_report() {  # rl__mem_report FILE NOTE -- rl_mem_report's report, from FILE
 	case "$RL_MEM_KIND" in
 		sanitizer)
-			echo "    the sanitizer stopped it at its first finding; its report:"
-			# Without its shadow-memory map, as every sanitizer runner shows
-			# one; the whole report is kept beside it.
-			rl_sanitizer_report "$RL_MEM_OUT" 30 "memory-case-$RL_MEM_RAN.txt" "      | "
+			# What the report is, in words (rl_sanitizer_kind), read again
+			# from the file below: it is this case's, whatever ran since.
+			rl_sanitizer_kind "$1"
+			echo "    the sanitizer stopped it at its first finding: it $(rl_sanitizer_about); its report:"
+			[ -z "$2" ] || echo "$2"
+			# Without its shadow-memory map and HINT lines, as every sanitizer
+			# runner shows one; the whole report is kept beside it when either
+			# is left out.
+			rl_sanitizer_report "$1" 30 "memory-case-$RL_MEM_RAN.txt" "      | "
 			return 0 ;;
 		crash) echo "    it $RL_WHY, with no sanitizer report:" ;;
 		"timeout")
@@ -1984,7 +2224,8 @@ rl_mem_report() {
 		runaway) echo "    it $RL_WHY" ;;
 		memcheck) echo "    memcheck's report:" ;;
 	esac
-	rl_excerpt "$RL_MEM_OUT" 30 "memory-case-$RL_MEM_RAN.txt" "      | "
+	[ -z "$2" ] || echo "$2"
+	rl_excerpt "$1" 30 "memory-case-$RL_MEM_RAN.txt" "      | "
 }
 # rl_mem_tally DONE TOTAL [UNIT] -- the verdict line under the cases; returns
 # 1 when any case went wrong or did not finish, which it says apart (A RUN
@@ -2188,41 +2429,207 @@ rl_sanitizers() {
 # sanitizer's own report (V50). So where the run died of SIGABRT and the
 # report is there, RL_WHY says the sanitizer stopped it; SIGABRT's own words
 # stay for an abort with no report.
+#
+# It also says WHAT the report is (rl_sanitizer_kind, below): every runner
+# headed a report "out of bounds" or "an invalid access", and AddressSanitizer
+# also stops on what is no access at all -- a block freed twice, a request
+# bigger than the allocator allows.
 rl_sanitized() {
+	# shellcheck disable=SC2034 # RL_SAN_* are the caller's to read.
+	RL_SAN_KIND="" RL_SAN_WHAT="" RL_SAN_OOB=0
 	grep -qE 'AddressSanitizer|UndefinedBehaviorSanitizer|LeakSanitizer|runtime error:' "$1" 2> /dev/null ||
 		return 1
 	if [ "${RL_CAUSE:-}" = signal ] && [ "${RL_SIG:-}" = 6 ]; then
 		# shellcheck disable=SC2034 # RL_WHY is the caller's to read.
 		RL_WHY="was stopped by the sanitizer, at its first finding"
 	fi
+	rl_sanitizer_kind "$1"
 	return 0
 }
 
+# What rl_sanitized found, reset when the library is sourced as every setting
+# it reads with an empty default is: a value left in the environment would
+# have named a report that is not there.
+RL_SAN_KIND=""
+RL_SAN_WHAT=""
+RL_SAN_OOB=0
+
+# rl_sanitizer_kind FILE -- what the sanitizer's report in FILE is, read from
+# its own lines, for a headline a first-week student can read. Sets:
+#
+#   RL_SAN_KIND    the report's own name for it, as its SUMMARY line gives it
+#                  ("heap-buffer-overflow", "double-free",
+#                  "allocation-size-too-big", "undefined-behavior"), or as
+#                  its "ERROR: AddressSanitizer:" line spells it where there
+#                  is no SUMMARY line; empty when neither says. Letters,
+#                  digits and dashes only: it is printed as it is.
+#   RL_SAN_WHAT    the same, in words that follow "it" or "the function":
+#                  "accessed memory out of bounds", "freed the same block
+#                  twice"; "hit a memory error" for a kind it has no words for.
+#   RL_SAN_OOB     1 for the kinds that are an access past a block's bounds,
+#                  the only ones a probe's sizing explains; 0 otherwise.
+#
+# rl_sanitized calls it, and leaves the three empty (RL_SAN_OOB 0) when FILE
+# holds no report; a runner reads them after rl_sanitized.
+# shellcheck disable=SC2034 # RL_SAN_* are the caller's to read.
+rl_sanitizer_kind() {
+	# The first ERROR line's words after "AddressSanitizer: ", and the first
+	# SUMMARY line's kind: the ERROR line names some kinds in a sentence
+	# ("attempting double-free on 0x...", "requested allocation size 0x...")
+	# that its SUMMARY line names in one word.
+	RL_SAN_KIND=$(LC_ALL=C awk '
+		!sum && /SUMMARY: (AddressSanitizer|UndefinedBehaviorSanitizer|LeakSanitizer): / {
+			s = $0; sub(/.*SUMMARY: [A-Za-z]+: /, "", s); sub(/[^A-Za-z0-9_-].*/, "", s)
+			# A kind starts with a letter: a leak report has a count there
+			# ("7 byte(s) leaked"), and the kind on its ERROR line.
+			if (s ~ /^[A-Za-z]/) sum = s
+		}
+		!err && /ERROR: (AddressSanitizer|LeakSanitizer): / {
+			e = $0; sub(/.*ERROR: [A-Za-z]+: /, "", e)
+			if (e ~ /^attempting double-free/) err = "double-free"
+			else if (e ~ /^attempting free on address which was not malloc/) err = "bad-free"
+			else if (e ~ /^requested allocation size/) err = "allocation-size-too-big"
+			else if (e ~ /^calloc parameters overflow/) err = "calloc-overflow"
+			else if (e ~ /^reallocarray parameters overflow/) err = "reallocarray-overflow"
+			else if (e ~ /^allocator is out of memory/) err = "out-of-memory"
+			else if (e ~ /^detected memory leaks/) err = "memory-leak"
+			else { sub(/[^A-Za-z0-9_-].*/, "", e); err = e }
+		}
+		!ub && /runtime error: / { ub = "undefined-behavior" }
+		END { print (sum != "" ? sum : (err != "" ? err : ub)) }' "$1" 2> /dev/null)
+	RL_SAN_OOB=0
+	case "$RL_SAN_KIND" in
+		heap-buffer-overflow | stack-buffer-overflow | stack-buffer-underflow | \
+		global-buffer-overflow | dynamic-stack-buffer-overflow | container-overflow | \
+		intra-object-overflow | use-after-poison)
+			RL_SAN_OOB=1
+			RL_SAN_WHAT="accessed memory out of bounds" ;;
+		heap-use-after-free) RL_SAN_WHAT="used a block after freeing it" ;;
+		stack-use-after-return | stack-use-after-scope)
+			RL_SAN_WHAT="used a local variable after the code it belonged to had ended" ;;
+		double-free) RL_SAN_WHAT="freed the same block twice" ;;
+		bad-free) RL_SAN_WHAT="freed an address that malloc never returned" ;;
+		alloc-dealloc-mismatch)
+			RL_SAN_WHAT="released a block with a function that does not pair with the one that allocated it" ;;
+		allocation-size-too-big | calloc-overflow | reallocarray-overflow | out-of-memory | \
+		rss-limit-exceeded | malloc-limit-exceeded)
+			RL_SAN_WHAT="asked for more memory than can be allocated" ;;
+		SEGV) RL_SAN_WHAT="touched an address no block owns, a segmentation fault" ;;
+		stack-overflow) RL_SAN_WHAT="used more stack than there is" ;;
+		*-param-overlap) RL_SAN_WHAT="handed overlapping memory to a function that forbids it" ;;
+		negative-size-param) RL_SAN_WHAT="handed a negative size to a memory function" ;;
+		FPE) RL_SAN_WHAT="hit an arithmetic exception, a division by zero or one that overflows" ;;
+		undefined-behavior) RL_SAN_WHAT="hit undefined behaviour" ;;
+		memory-leak) RL_SAN_WHAT="leaked memory" ;;
+		*) RL_SAN_WHAT="hit a memory error" ;;
+	esac
+}
+
+# rl_sanitizer_about -- RL_SAN_WHAT, with RL_SAN_KIND in brackets after it
+# when the report named one: "freed the same block twice (double-free)".
+rl_sanitizer_about() {
+	if [ -n "${RL_SAN_KIND:-}" ]; then
+		printf '%s (%s)' "${RL_SAN_WHAT:-hit a memory error}" "$RL_SAN_KIND"
+	else
+		printf '%s' "${RL_SAN_WHAT:-hit a memory error}"
+	fi
+}
+
+# rl_sanitizer_explain [PREFIX] -- a few lines under a headline, saying what
+# the report's kind means and what in the report to read first, for every
+# kind but an access out of bounds (RL_SAN_OOB), which each runner explains
+# in its own terms (how its blocks are sized). Nothing for a kind it has no
+# words for: the report below says it.
+rl_sanitizer_explain() {
+	_rl_p=${1-    }
+	case "${RL_SAN_KIND:-}" in
+		heap-use-after-free)
+			echo "${_rl_p}After free, a block is no longer the program's to read or write."
+			echo "${_rl_p}The report shows where it was used, then where the block was"
+			echo "${_rl_p}freed and where it was allocated." ;;
+		stack-use-after-return | stack-use-after-scope)
+			echo "${_rl_p}A local variable lives only until the block or function that"
+			echo "${_rl_p}declares it ends; a pointer to it is not valid after that." ;;
+		double-free)
+			echo "${_rl_p}free takes only an address malloc returned, and each one once."
+			echo "${_rl_p}The report shows the free that failed, then where the block was"
+			echo "${_rl_p}freed the first time and where it was allocated." ;;
+		bad-free)
+			echo "${_rl_p}free takes only an address malloc returned, and each one once."
+			echo "${_rl_p}The report shows the free that failed and what the address was:"
+			echo "${_rl_p}on the stack, in a global, or inside a block rather than at its"
+			echo "${_rl_p}start." ;;
+		alloc-dealloc-mismatch)
+			echo "${_rl_p}Each allocator has its own release: malloc's is free. The report"
+			echo "${_rl_p}names both functions." ;;
+		allocation-size-too-big | calloc-overflow | reallocarray-overflow | out-of-memory | \
+		rss-limit-exceeded | malloc-limit-exceeded)
+			echo "${_rl_p}Under the sanitizer such a request stops the run instead of"
+			echo "${_rl_p}returning NULL. The report's first line says the size asked for:"
+			echo "${_rl_p}where did that number come from? A negative int converted to"
+			echo "${_rl_p}size_t, malloc's parameter type, is a very large number." ;;
+		SEGV)
+			echo "${_rl_p}The report says the address, and whether it was a READ or a"
+			echo "${_rl_p}WRITE: an address near 0 is a NULL pointer used as a block." ;;
+		stack-overflow)
+			echo "${_rl_p}Each call takes stack until it returns: a recursion that does not"
+			echo "${_rl_p}stop, or goes too deep, or a very large local array uses it up." ;;
+		*-param-overlap)
+			echo "${_rl_p}The report names the function and both ranges of addresses." ;;
+		undefined-behavior)
+			echo "${_rl_p}The C standard places no requirement on what such an operation"
+			echo "${_rl_p}does, so another compiler or another flag can make it do"
+			echo "${_rl_p}something else."
+			echo "${_rl_p}The report's \"runtime error:\" line names the operation." ;;
+	esac
+}
+
 # rl_sanitizer_report FILE N NAME [PREFIX] -- a sanitizer's report, the way
-# rl_excerpt shows any captured output, less its shadow-memory map: the
-# "Shadow bytes around the buggy address" block is forty lines of hex that
-# answer a question the lines above it already answered in words ("0 bytes to
-# the right of 3-byte region"), and it used to be what a cut report ended on.
-# The whole report is kept as NAME with "-full" before its extension when a
-# map was left out, and the note says where.
+# rl_excerpt shows any captured output, less two things:
+#   - its shadow-memory map: the "Shadow bytes around the buggy address" block
+#     is forty lines of hex that answer a question the lines above it already
+#     answered in words ("0 bytes to the right of 3-byte region"), and it used
+#     to be what a cut report ended on;
+#   - its HINT lines, each with the indented lines that continue it: they are
+#     written for whoever runs the sanitizer, not for whoever reads its
+#     report, and they read as advice to dismiss it ("if you don't care about
+#     these errors you may set allocator_may_return_null=1", under a request
+#     too big to allocate; "this may be a false positive if your program uses
+#     some custom stack unwind mechanism", under a stack overflow). A "Hint:"
+#     spelled so (a SEGV's "address points to the zero page") says where the
+#     address was, and stays.
+# The whole report is kept as NAME with "-full" before its extension when
+# anything was left out, and the note says what, and where.
 rl_sanitizer_report() {
 	[ -s "$1" ] || return 0
 	_rl_mapped=$(LC_ALL=C awk -v out="$1.shown" '
-		/^[[:space:]]*Shadow bytes around the buggy address/ { inmap = 1; n++; next }
-		inmap && /^[[:space:]]*(=>)?0x[0-9a-f]+:/ { n++; next }
-		{ inmap = 0; print > out }
-		END { close(out); print n + 0 }' "$1")
+		/^[[:space:]]*Shadow bytes around the buggy address/ { inmap = 1; m++; next }
+		inmap && /^[[:space:]]*(=>)?0x[0-9a-f]+:/ { next }
+		{ inmap = 0 }
+		/^(==[0-9]+==)?HINT: / { inhint = 1; h++; next }
+		inhint && /^[[:space:]]/ { next }
+		{ inhint = 0; print > out }
+		END { close(out); print (m + 0) " " (h + 0) }' "$1")
 	[ -f "$1.shown" ] || : > "$1.shown"
 	rl_excerpt "$1.shown" "$2" "$3" "${4-    }"
-	[ "${_rl_mapped:-0}" -gt 0 ] || return 0
+	_rl_hints=${_rl_mapped#* }
+	_rl_mapped=${_rl_mapped%% *}
+	case "${_rl_mapped:-0}/${_rl_hints:-0}" in
+		0/0) return 0 ;;
+		0/1) _rl_omitted="the HINT line is left out" ;;
+		0/*) _rl_omitted="the HINT lines are left out" ;;
+		*/0) _rl_omitted="the shadow-memory map is left out" ;;
+		*/1) _rl_omitted="the shadow-memory map and the HINT line are left out" ;;
+		*) _rl_omitted="the shadow-memory map and the HINT lines are left out" ;;
+	esac
 	case "$3" in
 		*.*) _rl_full="${3%.*}-full.${3##*.}" ;;
 		*) _rl_full="$3-full" ;;
 	esac
 	if rl_save "$1" "$_rl_full"; then
-		echo "${4-    }(the shadow-memory map is left out; the whole report is in $RL_SAVED)"
+		echo "${4-    }($_rl_omitted; the whole report is in $RL_SAVED)"
 	else
-		echo "${4-    }(the shadow-memory map is left out)"
+		echo "${4-    }($_rl_omitted)"
 	fi
 }
 
@@ -2390,7 +2797,7 @@ rl_clues() {
 # test.xml shows only under --test_summary=detailed, only on a run that
 # executed it -- a cached result carries no test case -- and a test.xml of
 # the runner's own replaces Bazel's, whose <system-out> holds the log; so no
-# runner writes one: HISTORY.md, V25). So the summary under a
+# runner writes one: V25). So the summary under a
 # first red listed them as PASSED beside the one red test, and they read as
 # "tests that pass because it compiles". The red log is the one a student
 # reads, and is where this is said. Called first in a runner's rl_traps
@@ -2467,7 +2874,7 @@ rl_grader_hdrs() {
 $_rl_ss
 _RL_SRCS
 		if [ -n "$_rl_own" ]; then
-			echo "  ${_rl_h##*/} is the grader's: the subject says it is provided. You keep"
+			echo "  ${_rl_h##*/} is the grader's: the grader brings its own. You keep"
 			echo "  a copy of your own beside your sources,"
 			echo "    $_rl_own"
 			echo "  and that copy is the one compiled here -- a quoted #include finds the"
@@ -2475,7 +2882,7 @@ _RL_SRCS
 			echo "    $_rl_h"
 			continue
 		fi
-		echo "  ${_rl_h##*/} is the grader's: the subject says it is provided, so it is"
+		echo "  ${_rl_h##*/} is the grader's: the grader brings its own, so it is"
 		echo "  never yours to write or to turn in. This repository keeps its copy at"
 		echo "    $_rl_h"
 		echo "  and this layer compiles with -I ${_rl_h%/*}: a compile by hand needs"

@@ -43,7 +43,9 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 #     too, which a contract with no allowed line (malloc allowed) emits,
 #     and the allocfail sweeps of both run-shaping cases, whose gates the
 #     audit holds to those cases' output tests (tools/defs.bzl,
-#     _case_gate_problems);
+#     _case_gate_problems); and a survive case fed standard input has no
+#     gate in its valgrind arm or its sweep, so neither is handed a gate's
+#     options (" gate-stdin"), which their runners refuse without a gate;
 #   * c_issued's test, for a file the contract names in `optional`;
 #   * reference = True's test, which runs every case with //oracle's
 #     reference program for the program's name;
@@ -122,7 +124,10 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 # toy_ten.h, the header ex10 turns in nothing of (its ex10_norm_header a
 # gated NOT TURNED IN, green); and ex01_staged_output stopped (exit 2), since
 # it hands diff_output.sh nothing to compare -- there for the RL_RAISED it is
-# handed (layers.expected's " raised:"), never for a verdict.
+# handed (layers.expected's " raised:"), never for a verdict. And on
+# 2026-10-11, the survive case fed standard input: ex00_survive_valgrind and
+# the new ex00_survive_program_allocfail green, each run ungated, its input
+# on the RAN line.
 # The module's :manual suite lists all of them (every fixture test
 # is manual), which `bazel query 'tests(//tools/tests/macro_fixtures/levels:manual)'`
 # shows. Re-measure after changing a macro or a runner.
@@ -155,6 +160,17 @@ subject(
         "10": exercise(page = 1, dir = "ex10/", files = ["toy_ten.h"], allowed = None),
         "11": exercise(page = 1, dir = "ex11/", files = [], optional = ["*.h"], allowed = None),
     },
+    # The part a toy subject calls mandatory, spread over lines with a note
+    # among them, as buildifier spreads a long list: first_red --written
+    # reads it from this text, and macro_fixtures_test holds that reading to
+    # c_levels()' :mandatory.
+    mandatory = [
+        "00",
+        # "01" is not: a key in a note is no key.
+        "02",
+        "03",
+    ],
+    mandatory_quote = "Toy, p.1: \"These are the mandatory exercises.\"",
 )
 
 c_program(
@@ -175,6 +191,8 @@ c_program(
     allocfail = [
         "staged",
         "argfile",
+        # And a survive case, fed standard input: no gate, so no gate options.
+        "survive",
     ],
     allocfail_rule = "A toy rule, for the macro fixtures: errors are handled.",
     cases = [
@@ -189,9 +207,14 @@ c_program(
                 "empty.txt",
             ],
         },
+        # Fed standard input: its valgrind arm runs ungated, as every survive
+        # case's does, so it is handed no --gate-stdin either (" gate-stdin"):
+        # a gate's options with no gate are a wiring mistake the runner
+        # refuses.
         {
             "name": "survive",
             "survive": True,
+            "stdin": "tests/ex00/empty.txt",
         },
         # Its own run (its argument), so its twin is its own: the same run as
         # `exact` would share exact's (ONE TWIN PER RUN, below).
@@ -334,7 +357,7 @@ hand_test(
 [hand_test(
     name = "ex%s_%s_diff" % (num, what),
     layer = "diff",
-    srcs = [runner],
+    srcs = [runner],  # one of _CORPUS_RUNNERS
     args = [
         "--bin",
         "$(location :ex00_bin)",
@@ -389,7 +412,9 @@ hand_test(
 # " clues" (a hint file it prints: --clues),
 # " stable", " sanitized" or " memcheck" (a corpus's sample: --sample),
 # " sanitize" (a dump's addresses read as --sanitize reads them, in the test
-# or its gate), and " gated" (it waits on another case: --gate-expected)
+# or its gate), " gated" (it waits on another case: --gate-expected),
+# " gate-stdin" (its gate is fed standard input: --gate-stdin) and
+# " gate-label:" and the output test its SKIP line names (--gate-label)
 # where its arguments say so, " raised:" and the level _RAISED gives it,
 # and " by:" and the RL_GRADER its
 # environment holds (../BUILD.bazel's :layers says why) -- and one per suite,
@@ -398,7 +423,7 @@ hand_test(
 names_file(
     name = "layers",
     names = sorted([
-        "%s %s @%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s by:%s" % (
+        "%s %s @%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s by:%s" % (
             r["name"],
             r["srcs"][0].split(":")[-1],
             [t for t in ["lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"] if t in r["tags"]][0][4:],
@@ -429,6 +454,11 @@ names_file(
             # A survive case's output AND its run under the sanitizer wait on
             # the exercise's first case; the sanitizer's did not.
             " gated" if "--gate-expected" in r["args"] else "",
+            # Standard input handed to its gate: never without a gate.
+            " gate-stdin" if "--gate-stdin" in r["args"] else "",
+            # The output test a gate's SKIP line names: a layer whose macro
+            # stops handing it over goes back to "the output fixture" alone.
+            "".join([" gate-label:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--gate-label"]),
             # The level _RAISED gives it, which _test() hands its runner to
             # say why it sits there (runner_lib.sh's rl__raised).
             (" raised:" + (r["env"] or {})["RL_RAISED"]) if "RL_RAISED" in (r["env"] or {}) else "",

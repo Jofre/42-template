@@ -1,12 +1,15 @@
 #!/bin/sh
-# init.sh — one-time setup after cloning this repo.    Run with:
-#     bazel run //tools:init                       # interactive prompts
+# init.sh — one-time setup after cloning this repo. Run it with interactive
+# prompts:
+#     bazel run //tools:init
+# or with the answers on the command line:
 #     bazel run //tools:init -- --login jdoe --email jdoe@student.42campus.fr
 #
 # Stores your 42 login + email where BOTH the kube.42header VS Code extension and
 # submit (tools/submit.sh) read them — the "42header.username" / "42header.email"
 # keys in .vscode/settings.json — then points this repo's LOCAL git identity at
-# the same values so your commits are attributed correctly.
+# the same values so your commits are attributed correctly. tools/identity.sh
+# does the writing, and says which values it refuses.
 #
 # Usage:
 #   bazel run //tools:init [-- --login LOGIN --email EMAIL]
@@ -43,13 +46,12 @@ require() {
 		exit 2
 	done
 }
-require awk cat dirname git grep mkdir mktemp rm sed
+require dirname git sed
 
 # Repo root: from `bazel run` it's BUILD_WORKSPACE_DIRECTORY; run directly it's the
 # parent of tools/.
 WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$WS" || exit 1
-SETTINGS=".vscode/settings.json"
 
 LOGIN=""
 EMAIL=""
@@ -84,52 +86,18 @@ trim() { printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
 LOGIN=$(trim "$LOGIN")
 EMAIL=$(trim "$EMAIL")
 
-[ -n "$LOGIN" ] || { echo "init.sh: login cannot be empty." >&2; exit 1; }
-[ -n "$EMAIL" ] || { echo "init.sh: email cannot be empty." >&2; exit 1; }
-case "$EMAIL" in
-	*@*.*) : ;;
-	*) echo "init.sh: '$EMAIL' does not look like an email address." >&2; exit 1 ;;
-esac
+# tools/identity.sh is the one writer of the two keys and the git identity,
+# which `42 config set login|email` writes through too. One call sets both,
+# all or none: neither a refused email, nor a settings.json that cannot take
+# it, nor a git config that cannot be set ever leaves a new login beside the
+# old email. Its 3 (the file cannot take a value that is fine) is this
+# script's 1: it was not done, and nothing was broken.
+sh "$WS/tools/identity.sh" set login "$LOGIN" email "$EMAIL"
+_rc=$?
+[ "$_rc" -eq 3 ] && _rc=1
+[ "$_rc" -eq 0 ] || exit "$_rc"
 
-mkdir -p .vscode
-[ -f "$SETTINGS" ] || printf '{\n}\n' > "$SETTINGS"
-
-# Escape characters that are special on the replacement side of sed.
-esc() { printf '%s' "$1" | sed 's/[&\\|]/\\&/g'; }
-
-set_key() { # set_key <42header-suffix> <value>
-	k=$1
-	v=$(esc "$2")
-	tmp=$(mktemp) || exit 1
-	if grep -q "\"42header.$k\"" "$SETTINGS"; then
-		sed "s|\(\"42header.$k\"[[:space:]]*:[[:space:]]*\"\)[^\"]*\"|\1$v\"|" "$SETTINGS" > "$tmp"
-	else
-		# insert the key right after the first opening brace
-		awk -v ins="  \"42header.$k\": \"$2\"," \
-			'!done && /{/ { print; print ins; done = 1; next } { print }' "$SETTINGS" > "$tmp"
-	fi || {
-		echo "init.sh: could not prepare the new $SETTINGS; it was left as it was." >&2
-		rm -f "$tmp"; exit 1; }
-	# Into the file, not moved over it: a mktemp file is 0600, and mv would
-	# leave settings.json with that mode. Rewriting in place keeps mode and owner.
-	# `>` empties it first, so a write that fails part-way leaves it cut short
-	# and $tmp is the only whole copy: kept, and named.
-	if ! cat "$tmp" > "$SETTINGS"; then
-		echo "init.sh: could not write $SETTINGS, which may now be cut short." >&2
-		echo "  Its full new contents are in $tmp; once it can be written again" >&2
-		echo "  (is the disk full?), put them back with:  cat '$tmp' > '$SETTINGS'" >&2
-		exit 1
-	fi
-	rm -f "$tmp"
-}
-
-set_key username "$LOGIN"
-set_key email "$EMAIL"
-
-# Local git identity (this repo only — your global ~/.gitconfig is left untouched).
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-	git config user.name "$LOGIN"
-	git config user.email "$EMAIL"
 	GIT_NOTE="local git identity set"
 else
 	GIT_NOTE="not inside a git repo — skipped git config"
@@ -162,7 +130,7 @@ esac
 # never ran for the one command every newcomer runs, while the selftest ran it
 # from tools/ and stayed green. It now runs it the way `bazel run` does too.
 if [ -r "$WS/tools/drives.sh" ]; then
-	# shellcheck source=drives.sh
+	# shellcheck source=tools/drives.sh
 	. "$WS/tools/drives.sh"
 	drives_campus
 	if [ "$DRIVES_CAMPUS" = 1 ]; then

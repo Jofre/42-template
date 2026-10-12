@@ -4,4 +4,7 @@
     * every index off by one  -> the sequence is being started one step early or
                                  late
     * negative indexes        -> the subject says what those return
-    * only large indexes      -> the result stops fitting in an int
+    * only large indexes      -> every answer here fits in an int: does
+                                 anything your code computes on the way to it
+                                 not fit? (What C promises about each type's
+                                 width: docs/testing.md, under ilp32.)

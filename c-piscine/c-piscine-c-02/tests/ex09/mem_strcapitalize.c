@@ -1,13 +1,13 @@
 /* Memory-safety probe for ft_strcapitalize — run under AddressSanitizer.
- * strcapitalize walks its string IN PLACE, upcasing the first letter of each
- * word and lowercasing the rest, up to the terminating NUL, which it must not
- * pass — even though it inspects the PREVIOUS byte for word boundaries, it must
- * never read before str[0] or write past the NUL. Each str below is a HEAP
- * buffer of EXACTLY strlen + 1 bytes (NUL-terminated); a correct strcapitalize
- * touches str[0..len] and stops, while any off-by-one that scans, writes, or
- * re-terminates one slot too far reaches str[len + 1] — one past the buffer —
- * which ASan flags as a heap-buffer-overflow. Cases include a multi-word string
- * with separators, the empty string, and length 1. A test, not a solution. */
+ * strcapitalize edits its string IN PLACE, up to the terminating NUL, which it
+ * must not pass, and the string is all it is handed: it must never read before
+ * str[0] or write past the NUL. Each str below is a HEAP buffer of EXACTLY
+ * strlen + 1 bytes (NUL-terminated); a correct strcapitalize touches
+ * str[0..len] and stops, while any off-by-one that scans, writes, or
+ * re-terminates one slot too far reaches str[len + 1], and one that reads one
+ * slot too early reaches str[-1] — both outside the buffer — which ASan flags
+ * as a heap-buffer-overflow. Cases include a multi-word string with
+ * separators, the empty string, and length 1. A test, not a solution. */
 #include <stdlib.h>
 
 char	*ft_strcapitalize(char *str);

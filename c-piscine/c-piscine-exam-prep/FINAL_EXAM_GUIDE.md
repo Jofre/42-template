@@ -16,7 +16,7 @@ If you catch yourself hunting for a finished answer to memorize, you are trainin
 
 Start with Part I, but not all of it at once. In your first weeks, read Man pages and system headers, Compiling with both compilers, Reading compiler errors and warnings, Hunts 1 and 2 of Debuggers: gdb and lldb as peers, Testing yourself (leave Reference tools and the valgrind loop at its end for later), Vim survival minimum and Practicing from a blank file. Then go to Part II. Hunts 3 and 4 and Valgrind and the sanitizers are about memory from `malloc`: come back to them after The heap and ownership. Parts II to V follow the themes in the order the Piscine's modules build them, from output and loops (C 00) through pointers, strings, numbers, recursion, argv and the heap to lists and trees (C 12–C 13), with parsing last. Part VI holds the cards to keep open beside you.
 
-Every concept chapter has six parts: Concepts; a Worked example, an invented task with full code and a real run; Questions to ask, which fit any task of the theme; a Self-check, where you answer before you open the answer; Pitfalls; and Practice and check, a task given as a spec only, with the tool recipes that check your version.
+Every concept chapter has six parts: Concepts; a Worked example, an invented task with full code and a real run; Questions to ask, which fit any task of the theme; a Self-check, where you answer before you open the answer (the PDF and the page beside this file print the answers at the end of the chapter); Pitfalls; and Practice and check, a task given as a spec only, with the tool recipes that check your version.
 
 Reading is half the work: Practicing from a blank file gives the loop that makes a chapter stick. A word you do not know is probably in Appendix G — Glossary.
 
@@ -26,7 +26,7 @@ Before any of it, the subject, `man` and the peer next to you come first. That i
 
 Most examples are whole programs that read their input from the command line. Until Programs and argv explains it, three facts are enough. `argc` counts the words on the command line, the program's name included. `argv[1]` is the first word after the name and `argv[2]` the second; each is a string you index like any other, so `argv[1][0]` is its first byte. When no word was typed, `argv[1]` is NULL, so test `argc` before using it. Test drivers also call libc freely (`printf`, `atoi`); your turn-in may not.
 
-Every output here was produced on one machine: Ubuntu 22.04, gcc 10.5.0, clang 12.0.1 (what `cc` runs there), GNU gdb 12.1, valgrind 3.18.1, GNU Make 4.3, norminette 3.3.59, and dash as `/bin/sh`. The lldb lines were checked with lldb 12.0.1 from Ubuntu's `lldb-12` package, which installs the command as `lldb-12`. Messages change between versions; check yours before you compare word for word:
+Every output here was produced on one machine: Ubuntu 22.04, gcc 10.5.0, clang 12.0.1 (what `cc` runs there), GNU gdb 12.1, valgrind 3.18.1, GNU Make 4.3, norminette 3.3.58, and dash as `/bin/sh`. The lldb lines were checked with lldb 12.0.1 from Ubuntu's `lldb-12` package, which installs the command as `lldb-12`. Messages change between versions; check yours before you compare word for word:
 
 ```sh
 cc --version
@@ -99,13 +99,11 @@ write (2)            - write to a file descriptor
 
 The `posix` pages describe the POSIX standard's version; the plain numbers, your system's. `man printf` sets the same trap: it opens the shell command.
 
-```sh
-man 2 write     # the system call: header, prototype, return value
-man 3 malloc    # malloc, free, calloc and realloc on one page
-man 7 ascii     # every character's code in octal, decimal and hex
-man isspace     # opens isalpha(3): every is* test on one page
-man -k alpha    # forgot a name? search all names and one-line summaries
-```
+- `man 2 write`: the system call, with its header, prototype and return value.
+- `man 3 malloc`: malloc, free, calloc and realloc on one page.
+- `man 7 ascii`: every character's code in octal, decimal and hex.
+- `man isspace`: opens isalpha(3), every is* test on one page.
+- `man -k alpha`: forgot a name? It searches all names and one-line summaries.
 
 #### Reading a page
 
@@ -503,10 +501,12 @@ The same hunt in lldb:
 
 ```
 $ lldb ./strip_letter
-(lldb) run                  # stops at line 12: signal SIGSEGV, fault address 0x0
-(lldb) bt                   # frame #0 strip_letter, #1 main, then libc's frames
-(lldb) frame variable src   # (char *) src = 0x0000000000000000
+(lldb) run
+(lldb) bt
+(lldb) frame variable src
 ```
+
+`run` stops at line 12 on signal SIGSEGV, fault address 0x0; `bt` shows frame #0 `strip_letter`, #1 `main`, then libc's frames; `frame variable src` prints `(char *) src = 0x0000000000000000`. Type each command bare: lldb reads no `#` note after one, and hands its words to the command, so a note after `run` reaches the program as arguments.
 
 Where lldb comes from a versioned package, as in this repository's container, the command carries the number: `lldb-12 ./strip_letter`. `which lldb lldb-12` shows which one you have; if it prints nothing, lldb is not installed, and gdb does everything this chapter shows. lldb 12 may first print `unsupported DW_FORM value: 0x1f` warnings about the system's libraries; they are harmless, and your own file's lines and variables still show.
 
@@ -935,7 +935,7 @@ Found a swap file by the name ".work.c.swp"
 [O]pen Read-Only, (E)dit anyway, (R)ecover, (D)elete it, (Q)uit, (A)bort:
 ```
 
-Press `q`, run `vim -r work.c` to get the unsaved state back, check it, save with `:w` and quit. The swap file stays behind; `rm .work.c.swp` stops the warning. `vim -r` alone lists the swap files it finds. Rehearse once on a scratch file: type a line, run `pkill -9 -x vim` from a second terminal, and recover.
+Press `q`, run `vim -r work.c` to get the unsaved state back, check it, save with `:w` and quit. The swap file stays behind; `rm .work.c.swp` stops the warning. `vim -r` alone lists the swap files it finds. Rehearse once on a scratch file: type a line, stop typing for five seconds, run `pkill -9 -x vim` from a second terminal, and recover. Vim creates the swap file when it opens the file, but copies your typing into it only once you have been idle for `updatetime` milliseconds (`:set updatetime?` says 4000) or have typed `updatecount` characters (`:set updatecount?` says 200), so a kill sooner than either recovers the file without the line you typed.
 
 `nano` is installed too (GNU nano 6.2; `nano -l` shows line numbers). Any editor that shows line numbers is enough.
 
@@ -1168,7 +1168,7 @@ C 00 is where loops and conditions arrive; every later module is built from them
 
 **Bounds and guards.** A `while` condition is the loop's bound. `&&` and `||` stop at the first operand that decides them, so `i < size && tab[i] > 0` reads `tab[i]` only when `i` is in range. In an `else if` chain the first true test wins: narrow cases first.
 
-**The Norm.** norminette 3.3.59 accepts `while`, `if`, `else`, `return`, `break` and `continue`; it rejects `for`, `switch` and `case` (FORBIDDEN_CS), `goto` (GOTO_FBIDDEN) and `?:` (TERNARY_FBIDDEN). A body holds at most 25 lines, so split off helpers with one job and a name.
+**The Norm.** norminette 3.3.58 accepts `while`, `if`, `else`, `return`, `break` and `continue`; it rejects `for`, `switch` and `case` (FORBIDDEN_CS), `goto` (GOTO_FBIDDEN) and `?:` (TERNARY_FBIDDEN). A body holds at most 25 lines, so split off helpers with one job and a name.
 
 **Exits, fenceposts, invariants.** An early `return` leaves the body to the normal case; a single exit path writes a final newline once. Seven cells need six separators, as seven fence posts hold six rails; counting one too many is a fencepost error. An invariant is true at the top of every pass ("`day` is the next day to print").
 
@@ -1715,7 +1715,7 @@ C 04 is where text becomes numbers; C 05 and C 07 compute with them.
 
 **The edges.** Here `int` runs from `INT_MIN`, -2147483648, to `INT_MAX`, 2147483647 (`<limits.h>`). Unsigned arithmetic wraps; signed overflow is undefined behavior: C promises nothing about the result, not even a wrong number, so test before it can happen, never after.
 
-**`INT_MIN` has no positive twin.** Its magnitude is `INT_MAX + 1`, so "build it positive, negate at the end" overflows on exactly one input. The known ways out stay in `int`: work on the negative side, whose range is larger, or deal with that one value before any negation. `long` is no escape: the C standard lets it be as narrow as `int`, and on 32-bit x86 it is (`gcc -m32 -dM -E - < /dev/null | grep __SIZEOF_LONG__` prints `#define __SIZEOF_LONG__ 4`).
+**`INT_MIN` has no positive twin.** Its magnitude is `INT_MAX + 1`, so negating it overflows, on exactly one input. Before any negation, ask which values can reach it, and run `-2147483648` through your code. `long` is no escape: the C standard lets it be as narrow as `int`, and on 32-bit x86 it is (`gcc -m32 -dM -E - < /dev/null | grep __SIZEOF_LONG__` prints `#define __SIZEOF_LONG__ 4`).
 
 **Digits.** Decimal text is positional: `472` is ((4 × 10) + 7) × 10 + 2, and `n * 10 + d` fits in `int` exactly when `n <= (INT_MAX - d) / 10`. What may surround the digits is each subject's rule. Backwards, `n % 10` is the last digit and `n / 10` drops it, so digits come out reversed; for negative `n`, `/` truncates toward zero and `%` takes `n`'s sign.
 
@@ -1854,7 +1854,7 @@ To the square root of `n`: a divisor above it pairs with one below, already met.
 
 <details><summary>Answer</summary>
 
-Its magnitude is `INT_MAX + 1`. Work on the negative side, or deal with that value before any negation.
+Its magnitude, 2147483648, is `INT_MAX + 1`, which no `int` holds: `-INT_MIN` is signed overflow, undefined behavior, as `./quot -2147483648 1` showed under UBSan.
 
 </details>
 
@@ -1870,7 +1870,7 @@ Replace the pair with the second number and the remainder of the first divided b
 
 | Input or situation | Classic bug | Defense |
 |---|---|---|
-| `-2147483648` | Negating it | Negative side, or that value first |
+| `-2147483648` | Negating it | Run that value through your code, under UBSan too |
 | Many digits | Overflow, then test | Test before the step |
 | Whitespace, signs | Another subject's rules | Your subject's rules |
 
@@ -1979,7 +1979,7 @@ Plain `char` is signed on x86-64: bytes above 127 turn negative, and their hex c
 
 | Input or situation | Classic bug | Defense |
 |---|---|---|
-| The value 0 | `while (n > 0)` peels no digit | Test 0 first |
+| The value 0 | `while (n > 0)` peels no digit | Run 0 itself |
 | A negative value shifted right | A shift-until-zero loop never ends | Shift `unsigned` values |
 | Bit 31 of an `int` | `1 << 31` is undefined | `1u << 31`; UBSan on the edges |
 
@@ -2082,7 +2082,7 @@ usage: digital_root DIGITS
 2
 ```
 
-`digital_root` is the two-line pattern: base case first, then the same problem on a smaller number (9875 sums to 29, then 11, then 2). `digit_sum` peels digits backwards, harmless in a sum; `sum_digits_of` validates each byte before use and keeps `main` within the Norm's 25 lines. Each digit adds at most 9, and `getconf ARG_MAX` caps a command line at 2097152 bytes here, so the sum fits `int`.
+`digital_root` answers a one-digit number itself and calls itself on the digit sum of any other, a smaller number: 9875 sums to 29, then 11, then 2. `sum_digits_of` validates each byte before use and keeps `main` within the Norm's 25 lines. Each digit adds at most 9, and `getconf ARG_MAX` caps a command line at 2097152 bytes here, so the sum fits `int`.
 
 #### Worked example: hanoi
 
@@ -2573,7 +2573,7 @@ $ nm main.o
                  U printf
 ```
 
-The first rule is the default. Each object depends on its source and the header: a touched header rebuilds both, a touched `main.c` only `main.o`. The Makefile never sets `CC`, so make's built-in default applies (`make -p -f /dev/null | grep '^CC ='` prints `CC = cc`), and `cc` is clang 12 on this machine; after `make clean`, `make CC=gcc` builds with gcc. `nm size_parse.o` shows `T parse_size` and `t scale_of`.
+The first rule is the default. Each object depends on its source and the header: a touched header rebuilds both, a touched `main.c` only `main.o`. The Makefile never sets `CC`, so make's built-in default applies (`make -p -f /dev/null 2>/dev/null | grep '^CC ='` prints `CC = cc`; the `2>/dev/null` hides make's complaint that the empty makefile has no targets), and `cc` is clang 12 on this machine; after `make clean`, `make CC=gcc` builds with gcc. `nm size_parse.o` shows `T parse_size` and `t scale_of`.
 
 The bug the header prevents — a caller that types the prototype itself, parameters swapped:
 
@@ -3685,8 +3685,8 @@ Rows for any C task.
 | `""` | Reading meaning into `str[0]` | Zero length falls through your loops |
 | `"   "` | A word scanner runs past the terminator | Every scanning loop tests for `'\0'` |
 | `NULL`, above all the empty list | Dereferencing it unchecked | An empty list is a list; elsewhere, the subject says if `NULL` can arrive |
-| `0` | `while (n > 0)` never runs, so nothing prints | Make zero explicit when a loop peels digits |
-| `-2147483648` (`INT_MIN`) | Negating it overflows: `INT_MAX` is 2147483647 | Stay in `int`: work on the negative side, or handle that one value before negating |
+| `0` | `while (n > 0)` never runs, so nothing prints | Run 0 itself and read what prints |
+| `-2147483648` (`INT_MIN`) | Negating it overflows: `INT_MAX` is 2147483647 | Run that one value through your code, under UBSan too |
 | A multi-sign string like `"--+42"` | Assuming libc's rules where the subject sets its own | Sign rules are the subject's |
 | `malloc` returns `NULL` | Using the result unchecked | Return what the subject specifies; free what you built where it allows `free` |
 | The end of an array of strings | No terminating `NULL` | A slot for the sentinel when the subject expects one |

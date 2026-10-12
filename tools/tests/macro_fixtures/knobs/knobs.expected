@@ -1,0 +1,140 @@
+c_function srcs: toy_unit_00 srcs: = :deliverable/ex00/toy_twice.c
+c_function srcs: ex00_norm data:deliverable/ = :deliverable/ex00/toy_knob.h,:deliverable/ex00/toy_twice.c
+c_function hdrs, with srcs: toy_unit_00 hdrs: = :deliverable/ex00/toy_knob.h
+c_function expected: ex00_output --expected = $(location tests/ex00/expected_knob.txt)
+c_function expected: ex00_allocfail --gate-expected = $(location tests/ex00/expected_knob.txt)
+c_function prototype = False, no header: ex00_prototype kind = not declared
+c_function prototype = False, no header: ex00_bin tags:prototype_test= = prototype_test=none
+c_function prototype = False, a header: ex01_prototype kind = sh_test
+c_function prototype = False, a header: ex01_bin tags:prototype_test= = prototype_test=ex01_prototype
+c_function ilp32 = False: ex00_ilp32 kind = not declared
+c_function ilp32 default: ex01_ilp32 kind = sh_test
+c_function allocfail_level: ex00_allocfail tags:lvl_ = lvl_complete
+c_mem_check srcs: ex00_asan --src = $(location deliverable/ex00/toy_twice.c)
+c_mem_check srcs: ex00_memprobe srcs: = :deliverable/ex00/toy_twice.c
+c_mem_check hdrs: ex00_asan --hdr = $(location deliverable/ex00/toy_knob.h)
+c_mem_check hdrs: ex00_memprobe hdrs: = :deliverable/ex00/toy_knob.h
+c_mem_check prototype: ex00_memprobe tags:prototype_test= = prototype_test=none
+c_cycles srcs: ex00_cycles --src = $(location deliverable/ex00/toy_twice.c)
+c_cycles hdrs: ex00_cycles data:toy_knob.h = :deliverable/ex00/toy_knob.h
+c_cycles count: ex00_cycles --count = 77
+c_cycles gate_expected: ex00_cycles --gate-expected = $(location tests/ex00/expected_knob.txt)
+c_cycles gate_expected: ex00_cycles --gate-label = ex00_output
+c_cycles gate_sanitize: ex00_cycles ?--gate-sanitize = present
+c_cycles gate_stdin: ex00_cycles --gate-stdin = $(location tests/ex00/stdin.txt)
+c_cycles gate_stdin: ex00_cycles data:stdin.txt = :tests/ex00/stdin.txt
+c_reference_cost srcs: ex00_refcost --src = $(location deliverable/ex00/toy_twice.c)
+c_reference_cost hdrs: ex00_refcost data:toy_knob.h = :deliverable/ex00/toy_knob.h
+c_diff seed: ex00_diff --seed = 7
+c_diff seed: ex00_diff_asan --seed = 7
+c_diff seed: ex00_perf --seed = 7
+c_diff gate_bin: ex00_diff --gate-bin = $(location :ex01_bin)
+c_diff gate_bin: ex00_perf --gate-bin = $(location :ex01_bin)
+c_diff gate_bin = "": ex01_diff ?--gate-differ = absent
+c_diff gate_expected: ex00_diff --gate-expected = $(location tests/ex00/expected_knob.txt)
+c_diff gate_expected: ex00_perf --gate-expected = $(location tests/ex00/expected_knob.txt)
+c_diff gate_stdin: ex00_diff --gate-stdin = $(location tests/ex00/stdin.txt)
+c_diff gate_stdin: ex00_diff_asan --gate-stdin = $(location tests/ex00/stdin.txt)
+c_diff gate_stdin: ex00_perf --gate-stdin = $(location tests/ex00/stdin.txt)
+c_diff perf_count: ex00_perf --count = 1234
+c_diff prototype: ex00_diffbin tags:prototype_test= = prototype_test=none
+c_diff prototype: ex00_diffbin_asan tags:prototype_test= = prototype_test=none
+c_diff sanitize = False: ex01_diff_asan kind = not declared
+c_diff sanitize = False: ex01_diffbin_asan kind = not declared
+c_diff perf = False: ex06_perf kind = not declared
+c_perf harness: ex01_perf --student-bin = $(location :ex01_perfbin)
+c_perf harness: ex01_perfbin harness: = :tests/ex01/perf_toy.c
+c_perf harness: ex01_perfbin tags:manual = manual
+c_perf prototype: ex01_perfbin tags:prototype_test= = prototype_test=none
+c_perf seed: ex01_perf --seed = 5
+c_perf baseline_bin: ex01_perf --baseline-bin = $(location :ex00_bin)
+c_perf baseline_bin default: ex00_perf --baseline-bin = absent
+c_perf gate_exponent: ex01_perf --gate-exponent = 1.5
+c_perf gate_slowdown: ex01_perf --gate-slowdown = 9
+c_perf gate_memory: ex01_perf --gate-memory = 3
+c_perf gate_asan_bin = "": ex01_perf --gate-asan-bin = absent
+c_perf gate_asan_bin default: ex00_perf --gate-asan-bin = $(location :ex00_diffbin_asan)
+c_perf gate_count: ex01_perf --gate-count = 99
+c_perf enabled = False: ex01_perf tags:manual = manual,manual
+c_perf enabled = True: ex00_perf tags:manual = manual
+c_program srcs: ex02_bin srcs: = :deliverable/ex02/toy_prog.c
+c_program srcs: ex02_norm data:deliverable/ = :deliverable/ex02/toy_prog.c,:deliverable/ex02/toy_prog.h
+c_program hdrs, with srcs: ex02_bin hdrs: = :deliverable/ex02/toy_prog.h
+c_program case sanitize: ex02_output ?--sanitize = present
+c_program case sanitize: ex02_valgrind ?--gate-sanitize = present
+c_program case sanitize: ex02_program_allocfail ?--gate-sanitize = present
+c_program case sanitize: ex02_reference_cases ?--sanitize = present
+c_program case labeled: ex02_output ?--labeled = present
+c_program case labeled: ex02_valgrind ?--gate-labeled = present
+c_program case labeled: ex02_program_allocfail ?--gate-labeled = present
+c_program case labeled: ex02_reference_cases ?--labeled = present
+corpus_memory sample: ex02_sweep_valgrind --sample = 7
+c_files label: ex02_files --label = toy/heading
+exercise strict = True: ex02_files ?--strict = present
+subject strict = False: ex00_files ?--strict = absent
+c_header hdr: ex03_fed_output --hdr = $(location deliverable/ex03/toy_b.h)
+c_header hdr: ex03_norm data:deliverable/ = :deliverable/ex03/toy_b.h
+c_header extra_srcs: ex03_fed_output --src = $(location tests/ex03/helper.c)
+c_header extra_srcs: ex03_compile_clang data:helper.c = :tests/ex03/helper.c
+c_header case stdin: ex03_fed_output --stdin = $(location tests/ex03/in.txt)
+c_header case stdin: ex03_fed_output tags:case_reads= = case_reads=tests/ex03/empty.txt,tests/ex03/in.txt
+c_header case exit_quote: ex03_quoted_output --exit-quote = 'The toy subject: “it returns 0.”'
+c_header case exit_quote: ex03_quoted_output --exit-source = subject
+c_argv_table scenarios: ex04_output --scenarios = $(location tests/ex04/scen_knob.tsv)
+c_argv_table expected: ex04_output --expected = $(location tests/ex04/table_knob.txt)
+c_argv_table clues: ex04_output --clues = $(location tests/ex04/clues_knob.tsv)
+c_argv_table clues: ex04_exit --clues = $(location tests/ex04/clues_knob.tsv)
+c_argv_table asan = False: ex04_asan kind = not declared
+c_argv_table asan = False: ex04_argv_asan kind = not declared
+c_argv_table asan = False: ex04_argvguard_bin_asan kind = not declared
+c_argv_table model: ex04_model --argv-table = $(location //tools:argv_table.sh)
+c_libft hdrs: ex05_output data:toy_lib.h = :deliverable/ex05/inc/toy_lib.h
+c_libft hdrs: ex05_norm data:deliverable/ = :deliverable/ex05/inc/toy_lib.h,:deliverable/ex05/toy_a.c
+c_libft includes: ex05_output --inc = tools/tests/macro_fixtures/knobs/deliverable/ex05/inc
+c_libft includes: ex05_bin includes: = deliverable/ex05/inc
+c_libft expected: ex05_output --expected = $(location tests/ex05/lib_knob.txt)
+c_libft expected: ex05_ilp32 --expected = $(location tests/ex05/lib_knob.txt)
+c_libft clues: ex05_output --clues = $(location tests/ex05/clues_knob.tsv)
+c_libft exports: ex05_symbols --expect = toy_a,toy_b
+c_libft prototype = False: ex05_prototype kind = not declared
+c_libft prototype = False: ex05_bin tags:prototype_test= = prototype_test=none
+c_libft labeled: ex05_output ?--labeled = present
+c_libft labeled: ex05_ilp32 ?--labeled = present
+student_lib hdrs: toy_six_unit hdrs: = :deliverable/ex06/inc/toy_six.h
+student_lib includes: toy_six_unit includes: = deliverable/ex06/inc
+shell_exercise deliverable: ex07_output --deliverable = toy_b.sh
+shell_exercise deliverable: ex07_files --turnin = toy_b.sh
+shell_exercise expected: ex07_output --expected = $(location tests/ex07/expected_knob.txt)
+shell_exercise run: ex07_output ?--run = present
+shell_exercise interp: ex07_output --interp = bash
+shell_exercise env: ex07_output --env = TOY=1
+shell_exercise env: ex07_files --env = TOY=1
+shell_exercise check: ex08_output --check = $(location tests/ex08/check_knob.sh)
+rush_variant num: ex09_rush03_output kind = sh_test
+rush_variant exports: ex09_rush03_symbols --expect = rush,rush_helper
+rush_variant seed: ex09_rush03_diff --seed = 3
+rush_variant seed: ex09_rush03_diff_asan --seed = 3
+rush_variant count: ex09_rush03_diff --count = 50
+rush_variant asan_count: ex09_rush03_diff_asan --count = 40
+rush_variant clues: ex09_rush03_output --clues = $(location tests/ex09/clues_knob.tsv)
+rush_variant clues: ex09_rush03_defense --clues = $(location tests/ex09/clues_knob.tsv)
+rush_variant clues: ex09_rush03_survive --clues = $(location tests/ex09/clues_knob.tsv)
+rush_variant clues: ex09_rush03_valgrind --clues = $(location tests/ex09/clues_knob.tsv)
+rush_variant diff_clues: ex09_rush03_diff --clues = $(location tests/ex09/diff_knob.txt)
+rush_variant diff_clues: ex09_rush03_diff_asan --clues = $(location tests/ex09/diff_knob.txt)
+rush_variant output gate: ex09_rush03_defense --gate-label = ex09_rush03_output
+rush_variant output gate: ex09_rush03_defense --gate-bin = $(location :ex09_rush03_bin)
+rush_variant output gate: ex09_rush03_defense --gate-expected = $(location tests/ex09/rush03.txt)
+rush_variant output gate: ex09_rush03_defense --gate-stdin = $(location tests/ex09/cases.tsv)
+rush_variant output gate: ex09_rush03_defense ?--gate-labeled = present
+rush_variant output gate: ex09_rush03_main --gate-label = ex09_rush03_output
+rush_variant output gate: ex09_rush03_main --gate-differ = $(location //tools:diff_output.sh)
+rush_variant output gate: ex09_rush03_main --gate-bin = $(location :ex09_rush03_bin)
+rush_variant output gate: ex09_rush03_main --gate-expected = $(location tests/ex09/rush03.txt)
+rush_variant output gate: ex09_rush03_main --gate-stdin = $(location tests/ex09/cases.tsv)
+rush_variant output gate: ex09_rush03_main ?--gate-labeled = present
+rush_variant output gate: ex09_rush03_main_exit ?--gate-differ = absent
+rush_variant output gate: ex09_rush03_output --bin = $(location :ex09_rush03_bin)
+rush_variant output gate: ex09_rush03_output --expected = $(location tests/ex09/rush03.txt)
+rush_variant output gate: ex09_rush03_output --stdin = $(location tests/ex09/cases.tsv)
+rush_variant output gate: ex09_rush03_output ?--labeled = present

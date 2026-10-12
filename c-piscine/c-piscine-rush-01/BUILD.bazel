@@ -161,6 +161,11 @@ subject(
 #                    arm had run before.
 SUBJECT_ARGV = "tests/ex00/subject.argv"
 
+# The subject case's output test, which every gate below runs and names in
+# its SKIP line (--gate-label); c_levels()' audit holds the name to the
+# gate's program and file (tools/defs.bzl, _waits_for).
+SUBJECT_OUTPUT = "ex00_subject_output"
+
 # Each case has a valgrind arm, because the subject authorises malloc and free
 # (c_program reads that from the contract): a program that allocates is expected, and this is
 # the module where a leak or a double free is a live possibility rather than a
@@ -186,8 +191,8 @@ SUBJECT_ARGV = "tests/ex00/subject.argv"
 # more. Measure again when a case is added. The sentence
 # allocfail_rule quotes allows any message or none, so it asks only that the
 # run end by itself, within its time, with bounded output; no text, no status.
-# No 42 grader refuses a program an allocation: the repo's rigour (TODO.md §23,
-# WP-92). No leak target: this subject states no freeing rule.
+# No 42 grader refuses a program an allocation: the repo's rigour (WP-92). No
+# leak target: this subject states no freeing rule.
 c_program(
     num = "00",
     name = "rush01",
@@ -333,12 +338,6 @@ RUSH01_QUOTES = runner_quotes(
     },
 )
 
-# INTEGRATION NOTE: //tools:rush01_check.sh has to be listed in
-# tools/BUILD.bazel's exports_files, next to the other runner scripts, or the
-# targets below are an analysis error and take the whole `bazel test //...` down
-# with them. That file belongs to the harness, not to this module, so it is not
-# edited from here — but the two land together or not at all.
-#
 hand_test(
     name = "ex00_sweep",
     layer = "output",
@@ -357,14 +356,15 @@ hand_test(
         # the 438 solvable vectors; it only shapes the unsolvable tail.
         #
         # WHY THE BONUS SIZES ARE IN THE *MANDATORY* SWEEP. They are not graded
-        # here — --max-size stays at its default of 4 — but they have to be RUN
-        # here, because "attempted the bonus and got it wrong" is only visible if
-        # a bonus-size input is actually put in front of the program. Answering
-        # Error passes (a 4x4-only program cannot do anything else, and Error is
-        # the correct answer for an input it does not accept); answering with a
-        # GRID is judged in full. So this stays green for a student who ignored
-        # the bonus, and reddens for one whose bonus is broken — which is the
-        # whole point. The stricter 9x9 target is ex00_bonus_9x9 below.
+        # here — --max-size is left at its default (0: only the mandatory 4x4 is
+        # required) — but they have to be RUN here, because "attempted the bonus
+        # and got it wrong" is only visible if a bonus-size input is actually
+        # put in front of the program. Answering Error passes (a 4x4-only
+        # program cannot do anything else, and Error is the correct answer for
+        # an input it does not accept); answering with a GRID is judged in full.
+        # So this stays green for a student who ignored the bonus, and reddens
+        # for one whose bonus is broken — which is the whole point. The
+        # stricter 9x9 target is ex00_bonus_9x9 below.
         #
         # AND SO A WRONG BONUS GRID FAILS BASIC, and with it the submit gate.
         # That is not requiring the bonus -- Error still passes every one of
@@ -411,6 +411,8 @@ hand_test(
         "$(location tests/ex00/subject.txt)",
         "--gate-arg-file",
         "$(location %s)" % SUBJECT_ARGV,
+        "--gate-label",
+        SUBJECT_OUTPUT,
     ] + RUSH01_STDERR + RUSH01_QUOTES,
     data = [
         ":ex00_bin",
@@ -463,6 +465,8 @@ hand_test(
         "$(location tests/ex00/subject.txt)",
         "--gate-arg-file",
         "$(location %s)" % SUBJECT_ARGV,
+        "--gate-label",
+        SUBJECT_OUTPUT,
     ] + RUSH01_STDERR + RUSH01_QUOTES,
     data = [
         ":ex00_bin",
@@ -500,9 +504,10 @@ hand_test(
 # verdict on a clue vector, and it changes one thing: whether "Error" is an
 # acceptable answer to a bonus-size input.
 #
-#   ex00_sweep (--max-size 4, the default) RUNS every bonus-size case and lets
-#       Error pass, so a 4x4-only program sails through while a broken 9x9
-#       attempt — anything that prints a grid — is still caught and judged.
+#   ex00_sweep (no --max-size, so its default 0: only the 4x4 is required) RUNS
+#       every bonus-size case and lets Error pass, so a 4x4-only program sails
+#       through while a broken 9x9 attempt — anything that prints a grid — is
+#       still caught and judged.
 #   this target (--max-size 9) REQUIRES them: Error is now a false-error, so the
 #       bonus must actually be solved.
 #
@@ -552,6 +557,8 @@ hand_test(
         "$(location tests/ex00/subject.txt)",
         "--gate-arg-file",
         "$(location %s)" % SUBJECT_ARGV,
+        "--gate-label",
+        SUBJECT_OUTPUT,
     ] + RUSH01_STDERR + RUSH01_QUOTES,
     data = [
         ":ex00_bin",
@@ -610,6 +617,8 @@ corpus_memory(
         "$(location tests/ex00/subject.txt)",
         "--gate-arg-file",
         "$(location %s)" % SUBJECT_ARGV,
+        "--gate-label",
+        SUBJECT_OUTPUT,
     ],
     data = [
         ":ex00_bin",
@@ -647,6 +656,8 @@ corpus_memory(
         "$(location tests/ex00/subject.txt)",
         "--gate-arg-file",
         "$(location %s)" % SUBJECT_ARGV,
+        "--gate-label",
+        SUBJECT_OUTPUT,
     ],
     data = [
         ":ex00_bin",

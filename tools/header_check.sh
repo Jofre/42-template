@@ -290,18 +290,20 @@ if [ "$_cc_rc" -ne 0 ]; then
 		echo ""
 		echo "  The test program is the harness's file, not yours. It calls every"
 		echo "  function this exercise bundles and reaches them only through what"
+		# conventions: the call site's --hdr -- the header the contract lists, where it lists one
 		echo "  you turned in: your sources, and your header where the subject asks"
 		echo "  for one. So this is the exercise failing, not a broken test: every"
 		echo "  diagnostic is something it looked for there and did not find, or"
-		echo "  found with a different shape than the subject specifies."
+		echo "  found with a different shape than the test program expects."
 	else
 		echo "header_check: FAIL — the test program does not compile against your header."
 		echo ""
 		echo "  This exercise's deliverable IS the header, so this is the exercise"
 		echo "  itself failing, not a broken test. The program below was written to"
+		# conventions: the call site's --main -- the test program, written to the contract's header
 		echo "  use everything the subject says your header must declare; every"
 		echo "  diagnostic is something it asked for and did not find, or found with"
-		echo "  a different shape than the subject specifies."
+		echo "  a different shape than it asked for."
 	fi
 	echo ""
 	echo "  ---------------- what the compiler said ----------------"

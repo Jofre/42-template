@@ -5,5 +5,6 @@
     * every negative, or every positive -> the comparison is the wrong way round
     * everything, one character         -> the character written, or a missing
                                           newline, rather than the decision
-    * only INT_MIN                      -> negating before comparing; INT_MIN has
-                                          no positive counterpart
+    * only INT_MIN                      -> INT_MIN has no positive counterpart
+                                          in an int: does your code compute
+                                          anything from it that would need one?

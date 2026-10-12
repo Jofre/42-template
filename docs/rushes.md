@@ -24,8 +24,8 @@ in it is evaluated at the defense. This harness is built around one clone. So:
 
 - **Bring the work together in one clone**, one member's, and run the tests
   there: what is evaluated is the combined turn-in, not anyone's half of it.
-- **One member runs `//tools:submit`** from that clone, with the team's URL in
-  their `.submit-remotes` ([submitting.md](submitting.md)).
+- **One member runs `42 submit`** from that clone, with the team's URL
+  ([submitting.md](submitting.md)).
 - **Submit never force-pushes.** It fetches the repository and commits on top of
   what is there, so a teammate's push is never erased from the history. But
   what is evaluated is the tip, and a submit makes the tip exactly the
@@ -69,11 +69,12 @@ deleted has no targets at all — with one exception, the Norm. The subject says
 bonus files "are included in the norm check, and you will receive a score of 0
 if there is a norm error", so a `rush0N.c` that is there is normed at `basic`,
 whatever `ASSIGNED` says; an untouched stub passes it. You can still work on a
-bonus variant:
+bonus variant: the first line runs every layer of one variant, the second just
+its labelled table:
 
 ```sh
-bazel test //c-piscine/c-piscine-rush-00:ex00_rush03            # every layer, one variant
-bazel test //c-piscine/c-piscine-rush-00:ex00_rush03_output     # just the labelled table
+bazel test //c-piscine/c-piscine-rush-00:ex00_rush03
+bazel test //c-piscine/c-piscine-rush-00:ex00_rush03_output
 ```
 
 Every target a rush does not run by default -- rush-00's bonus variants,
@@ -176,8 +177,10 @@ FAULT [clue] column 1 is seen as 4 from the top, but clue 1 asks for 1.
 FAULT [latin-row] row 2 holds the height 3 twice.
 ```
 
+The sweep runs about 970 generated clue vectors:
+
 ```sh
-bazel test //c-piscine/c-piscine-rush-01:ex00_sweep     # ~970 generated clue vectors
+bazel test //c-piscine/c-piscine-rush-01:ex00_sweep
 ```
 
 **The sweep is `basic`.** It asserts nothing but the subject's own rules: any
@@ -208,10 +211,11 @@ reading of the subject (the mandatory part wants `Error` there, the bonus a
 grid that meets every view), so nothing about it is open. A bonus-size board that runs out of time is counted neither way, since
 slowness on an optional part is not a verdict; but after three of them the
 other bonus sizes are not tried, and the report says how many it skipped. The
-4x4 boards are always all judged. To be held to it instead of merely tolerated:
+4x4 boards are always all judged. To be held to it instead of merely tolerated,
+run the manual target below, where `Error` no longer passes:
 
 ```sh
-bazel test //c-piscine/c-piscine-rush-01:ex00_bonus_9x9    # manual: Error no longer passes
+bazel test //c-piscine/c-piscine-rush-01:ex00_bonus_9x9
 ```
 
 Rectangular boards are outside the subject: its one clue string cannot say which
@@ -223,10 +227,12 @@ nothing here asks for one.
 ## rush-02 — numbers into words
 
 Reads a **dictionary file** and a number, and prints the number written out.
+The first line below prints forty two, with 42's `numbers.dict`; the second,
+one hundred thousand, with the dictionary you name:
 
 ```sh
-./rush-02 42                      # forty two, with 42's numbers.dict
-./rush-02 numbers.dict 100000     # one hundred thousand, with the one you name
+./rush-02 42
+./rush-02 numbers.dict 100000
 ```
 
 **Two different failures, and telling them apart is half the exercise.** `Error`
@@ -344,7 +350,9 @@ alone; a round number like the subject's "one hundred thousand", its group
 one key other than one, is the group's value and the scale's -- keys of
 `ref.dict` only: whether a key a dictionary adds, such as 45, is used is a
 question the subject leaves open), nothing at
-all, and a run that does not end by itself. `ex00_settled_words_diff`'s
+all, a crash, or output without end. A run that does not finish within its
+time is red too, and never judged: what it would have printed next was not
+seen. `ex00_settled_words_diff`'s
 corpus opens with those shapes. Any other difference from the reference —
 your composition, which this target does not judge — is shown, marked
 `passes:`, and passes. Neither judges standard error: the

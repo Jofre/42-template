@@ -32,15 +32,17 @@ c_program(
 
 c_program(num = "01", name = "ft_print_params")
 
-c_argv_table(num = "01")
+# Each table was emitted from //oracle's program (`model`), and its exNN_model
+# holds the committed table to what that program makes, row for row.
+c_argv_table(num = "01", model = ["c06_run", "print"])
 
 c_program(num = "02", name = "ft_rev_params")
 
-c_argv_table(num = "02")
+c_argv_table(num = "02", model = ["c06_run", "rev"])
 
 c_program(num = "03", name = "ft_sort_params")
 
-c_argv_table(num = "03")
+c_argv_table(num = "03", model = ["c06_run", "sort"])
 
 # THE EMPTY-ARGUMENT ROWS. The bug this module is really about is printing the
 # newline BETWEEN parameters instead of AFTER each one, which leaves the output

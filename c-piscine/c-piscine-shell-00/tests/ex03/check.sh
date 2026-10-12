@@ -10,7 +10,7 @@
 # all the same. So the fingerprint checks alone do NOT catch the classic KO of
 # turning in the private key. We add public-key-format assertions that a PEM
 # private key ("-----BEGIN OPENSSH PRIVATE KEY-----", multi-line) fails.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 KEY=${1:-id_ed25519_pub}
@@ -20,9 +20,12 @@ ck_require "file id_ed25519_pub exists" test -f "$KEY"
 
 # Through ck_run, so ssh-keygen's own complaint ("... is not a public key
 # file") is shown when it has one: it is the line that explains the checks
-# below failing, as file(1)'s is in ex09.
+# below failing, as file(1)'s is in ex09. --crlf: ssh-keygen ends its lines
+# on stderr with CRLF ("... is not a public key file.\r\n", seen from
+# OpenSSH 8.9p1), so that carriage return is its line ending, not a byte the
+# turn-in put there.
 T=$(mktemp -d)
-ck_run "$T/info" ssh-keygen -l -f "$KEY"
+ck_run --crlf "$T/info" ssh-keygen -l -f "$KEY"
 info=$(cat "$T/info")
 ck "ssh-keygen recognises it as a public key" test -n "$info"
 

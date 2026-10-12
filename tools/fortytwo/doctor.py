@@ -23,6 +23,7 @@ import textwrap
 
 import bazel
 import report
+import workspace
 
 MARK = "# 42 shim, written by tools/fortytwo/install.sh"
 
@@ -186,18 +187,7 @@ def check_memory(c, ws, proc="/proc"):
 
 
 def check_identity(c, ws, env):
-    keys = {}
-    try:
-        with open(os.path.join(ws, ".vscode", "settings.json"), encoding="utf-8") as f:
-            for line in f:
-                for k in ("username", "email"):
-                    tag = '"42header.%s"' % k
-                    if tag in line and ":" in line:
-                        v = line.split(":", 1)[1].strip().rstrip(",").strip().strip('"')
-                        if v:
-                            keys[k] = v
-    except OSError:
-        pass
+    keys = workspace.read_identity(ws)
     genv = dict(bazel.child_env(env), GIT_CONFIG_NOSYSTEM="1")
     mail = subprocess.run(["git", "-C", ws, "config", "--local", "--get", "user.email"],
                           env=genv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,

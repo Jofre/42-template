@@ -16,12 +16,14 @@
 # DESTRUCTIVE: edits files in place. Run on a clean git tree so you can review the
 # diff (it should only ever touch lines 1-11 of each file).
 #
-# Usage:
-#   tools/reset_headers.sh                    # every deliverable/ .c/.h under the
-#                                             # course folders (rushes included)
-#   tools/reset_headers.sh <file|dir> ...     # ONLY the given files/dirs (per-folder)
-#   tools/reset_headers.sh -n [targets]       # dry-run: list what would change
-#   tools/reset_headers.sh -k [targets]       # keep each file's Created (--keep-created)
+# Usage: every deliverable/ .c/.h under the course folders (rushes included),
+#   tools/reset_headers.sh
+# ONLY the given files/dirs (per-folder):
+#   tools/reset_headers.sh <file|dir> ...
+# Dry-run, listing what would change:
+#   tools/reset_headers.sh -n [targets]
+# Keep each file's Created (--keep-created):
+#   tools/reset_headers.sh -k [targets]
 #
 # Per-folder, for natural staggered timestamps (run each module as you finish it):
 #   bazel run //tools:reset_headers -- c-piscine/c-piscine-c-00
@@ -68,14 +70,21 @@ else
 	# "every header" and quietly skips some is worse than one that never ran --
 	# the template build calls this to scrub identity before publishing, so the
 	# files it missed kept a real login. Hence the floor below as well.
+	#
+	# The course folders by name, one line, which //tools:conventions holds
+	# to the course folders the tree holds: a new course left out of it is
+	# one whose headers keep the old login.
+	COURSE_NAMES="c-piscine c-piscine-reloaded cursus"
 	COURSES=""
-	for _c in c-piscine c-piscine-reloaded cursus; do
+	_named=""
+	for _c in $COURSE_NAMES; do
 		[ -d "$_c" ] && COURSES="$COURSES $_c"
+		_named="${_named:+$_named, }$_c/"
 	done
 	# shellcheck disable=SC2086
 	TARGETS="$(find $COURSES -path '*/deliverable/*' -type f \( -name '*.c' -o -name '*.h' \) 2> /dev/null | sort)"
 	if [ -z "$TARGETS" ]; then
-		echo "reset_headers.sh: no course folder (c-piscine/, c-piscine-reloaded/, cursus/)" >&2
+		echo "reset_headers.sh: no course folder ($_named)" >&2
 		echo "  holds a deliverable .c/.h. Name the files or folders to re-stamp; paths" >&2
 		echo "  are resolved from the repo root." >&2
 		exit 1

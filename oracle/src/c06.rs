@@ -48,7 +48,7 @@
 //!   * anything about EXIT STATUS or stderr. The subject pins neither, and
 //!     three of these four exercises have no error path at all.
 
-use crate::common::{esc_posix, o_strcmp, strcmp_signed, Rng};
+use crate::common::{esc_posix, long_text, o_strcmp, strcmp_signed, Rng};
 
 /// One case: the arguments after argv[0], and what the program must print.
 ///
@@ -158,7 +158,24 @@ fn fixed_cases() -> Vec<Vec<Vec<u8>>> {
         vec![vec![0xff], s("a"), vec![0x80], s("~"), vec![0x01]],
         // A long argument beside short ones, for a fixed-size buffer.
         vec![s(&"x".repeat(300)), s("y")],
+        // Past every capacity a program is usually given room for (16, 64,
+        // 256, 1024, 4096; finding 041): an argument of 5000 bytes among
+        // short ones, beside two of 4101 that differ only in their last
+        // byte, which only ex03 tells apart; and 1100 arguments, "a0" to
+        // "a1099" in an order of their own, prefixes of each other among
+        // them. From a seed of their own and the index alone.
+        long_args(),
+        (0..1100).map(|i| format!("a{}", (i * 7919) % 1100).into_bytes()).collect(),
     ]
+}
+
+/// The capacity case of one long argument (see fixed_cases).
+fn long_args() -> Vec<Vec<u8>> {
+    let mut b = long_text(4100, 4100);
+    let mut a = b.clone();
+    b.push(b'b');
+    a.push(b'a');
+    vec![b"m".to_vec(), long_text(5000, 5000), b, a, b"m".to_vec()]
 }
 
 /// A random argument: length 0..12, bytes drawn to hit the boundaries that
@@ -258,8 +275,35 @@ fn sort_corpus(rng: &mut Rng, count: usize) -> Vec<Vec<Vec<u8>>> {
 /// prints the same way (nothing) and which tools/argv_check.sh asks of every
 /// corpus, so a program that prints a newline regardless cannot pass it. It
 /// is the fixed case, once; no random draw is empty.
+///
+/// After the fixed cases it keeps come its own two past the round capacities
+/// (high_long_cases): fixed_cases' hold no byte above 0x7f, so the filter
+/// drops them.
 fn sort_high_corpus(rng: &mut Rng, count: usize) -> Vec<Vec<Vec<u8>>> {
-    corpus_where(rng, count, |c| c.is_empty() || !sort_readings_agree(c), false)
+    let keep: fn(&[Vec<u8>]) -> bool = |c| c.is_empty() || !sort_readings_agree(c);
+    let long = high_long_cases();
+    let mut out = corpus_where(rng, count.saturating_sub(long.len()), keep, false);
+    let nfixed = fixed_cases().into_iter().filter(|c| keep(c)).count();
+    let tail = out.split_off(nfixed.min(out.len()));
+    out.extend(long);
+    out.extend(tail);
+    out
+}
+
+/// The capacity cases of the high bytes' corpus (finding 041), each one the
+/// two readings of "ASCII order" order differently: 1100 arguments, "a0" to
+/// "a1099" as fixed_cases has them, beside "a" then 0x80; and two arguments
+/// of 4101 bytes that differ only in their last byte, 0x80 in one and 'a' in
+/// the other, among one of 5000 bytes and two short ones. From the index
+/// alone, as fixed_cases' are.
+fn high_long_cases() -> Vec<Vec<Vec<u8>>> {
+    let mut many: Vec<Vec<u8>> = (0..1100).map(|i| format!("a{}", (i * 7919) % 1100).into_bytes()).collect();
+    many.insert(550, vec![b'a', 0x80]);
+    let mut b = long_text(4100, 4100);
+    let mut a = b.clone();
+    b.push(0x80);
+    a.push(b'a');
+    vec![many, vec![b"m".to_vec(), long_text(5000, 5000), b, a, b"m".to_vec()]]
 }
 
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
@@ -290,6 +334,34 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     true
 }
 
+/// `oracle c06_run print|rev|sort ARG...`: what the program prints for that
+/// argv, and status 0. The argument tables of C 06 ex01-ex03 and Piscine
+/// Reloaded ex18 and ex19 are this, run once per row by tools/argv_table.sh
+/// --emit, and their exNN_model targets hold the committed tables to it.
+/// Never returns.
+pub fn run_cmd(args: &[std::ffi::OsString]) -> ! {
+    use std::io::Write;
+    use std::os::unix::ffi::OsStrExt;
+    let Some((which, rest)) = args.split_first() else {
+        eprintln!("usage: oracle c06_run print|rev|sort ARG...");
+        std::process::exit(2);
+    };
+    let v: Vec<Vec<u8>> = rest.iter().map(|a| a.as_bytes().to_vec()).collect();
+    let out = match which.as_bytes() {
+        b"print" => o_print(&v),
+        b"rev" => o_rev(&v),
+        b"sort" => o_sort(&v),
+        _ => {
+            eprintln!("oracle c06_run: no program {:?}: print, rev or sort", which);
+            std::process::exit(2);
+        }
+    };
+    let mut o = std::io::stdout();
+    let _ = o.write_all(&out);
+    let _ = o.flush();
+    std::process::exit(0);
+}
+
 // ---------------------------------------------------------------------------
 // Self-check.
 //
@@ -299,6 +371,34 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
 pub fn check() -> usize {
     let mut fails = 0;
     let s = |t: &str| t.as_bytes().to_vec();
+
+    // EVERY CORPUS PAST THE ROUND CAPACITIES (finding 041): an argument list
+    // past 1024 arguments and an argument past 4096 bytes, in each corpus the
+    // diff layers replay, the high bytes' too.
+    let mut rng = Rng::new(1);
+    let plain = corpus(&mut rng, 200);
+    let mut rng = Rng::new(1);
+    let sorted = sort_corpus(&mut rng, 200);
+    let mut rng = Rng::new(1);
+    let high = sort_high_corpus(&mut rng, 200);
+    for (what, cases) in [
+        ("c06_print_params and c06_rev_params", &plain),
+        ("c06_sort_params", &sorted),
+        ("c06_sort_params_high", &high),
+    ] {
+        if !cases.iter().any(|c| c.len() > 1024) {
+            eprintln!("c06: {} holds no case of more than 1024 arguments", what);
+            fails += 1;
+        }
+        if !cases.iter().any(|c| c.iter().any(|a| a.len() > 4096)) {
+            eprintln!("c06: {} holds no argument past 4096 bytes", what);
+            fails += 1;
+        }
+    }
+    if high_long_cases().iter().any(|c| sort_readings_agree(c)) {
+        eprintln!("c06: a capacity case of c06_sort_params_high is one the readings agree on");
+        fails += 1;
+    }
 
     // The subject's own example, byte for byte.
     if o_print(&[s("test1"), s("test2"), s("test3")]) != s("test1\ntest2\ntest3\n") {

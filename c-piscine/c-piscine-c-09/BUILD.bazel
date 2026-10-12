@@ -148,6 +148,8 @@ c_make(
 
 # ex02: ft_split.
 #
+# no exact-size c_mem_check on ex02: RUNTIME-SIZED-ALLOC.
+#
 # No exact-size ASan probe here, and the reasoning is written out once at
 # c-piscine/c-piscine-c-07/BUILD.bazel above its own ft_split rather than repeated:
 # the function decides its allocation sizes from the input at runtime, so a

@@ -6,6 +6,7 @@ Bazel is a stand-in that writes down any call (test_main.Env): on a cold root
 
 import os
 import re
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -19,11 +20,9 @@ from test_main import Env
 class Run(unittest.TestCase):
     def setUp(self):
         self.env = Env()
+        self.addCleanup(self.env.close)
         self.root = tempfile.TemporaryDirectory()
-
-    def tearDown(self):
-        self.root.cleanup()
-        self.env.close()
+        self.addCleanup(self.root.cleanup)
 
     def doctor(self, argv, environ=None, cold=True):
         # The servers this machine runs are not the test's: Proc covers the scan.
@@ -72,13 +71,51 @@ class Run(unittest.TestCase):
             self.assertLessEqual(len(re.sub(r"/\S+", "/", line)), 80, line)
 
 
+class RunCleanup(unittest.TestCase):
+    """Run's folders go whatever fails: a setUp after them, or the removal of one."""
+
+    def test_a_set_up_that_fails_leaves_no_folder(self):
+        folders = []
+
+        class Fails(Run):
+            def setUp(self):
+                super().setUp()
+                folders.extend([self.env.tmp, self.root.name])
+                raise RuntimeError("a setUp that fails after its folders")
+
+            def runTest(self):
+                pass
+
+        result = unittest.TestResult()
+        Fails().run(result)
+        self.assertEqual(len(result.errors), 1, result.failures)
+        for d in folders:
+            self.assertFalse(os.path.exists(d), "the case left %s behind" % d)
+
+    def test_a_removal_that_fails_still_removes_the_other(self):
+        folders = []
+
+        class Removes(Run):
+            def runTest(self):
+                folders.extend([self.env.tmp, self.root.name])
+
+        def fails(self):
+            raise OSError("a removal that fails")
+
+        result = unittest.TestResult()
+        with mock.patch.object(tempfile.TemporaryDirectory, "cleanup", fails):
+            Removes().run(result)
+        shutil.rmtree(folders[1], ignore_errors=True)
+        self.assertEqual(len(result.errors), 1, result.failures)
+        self.assertIn("a removal that fails", result.errors[0][1])
+        self.assertFalse(os.path.exists(folders[0]), "the case left %s behind" % folders[0])
+
+
 class Shim(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.TemporaryDirectory()
+        self.addCleanup(self.d.cleanup)
         self.c = doctor.Check()
-
-    def tearDown(self):
-        self.d.cleanup()
 
     def put(self, text):
         p = os.path.join(self.d.name, "42")
@@ -113,6 +150,7 @@ class Proc(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.TemporaryDirectory()
+        self.addCleanup(self.d.cleanup)
         p = self.d.name
         self.proc(100, b"/usr/lib/jvm/bin/java\0-jar\0/r/install/A-server.jar\0"
                        b"--output_base=/r/abc\0--workspace_directory=/ws/a\0", 1048576)
@@ -121,9 +159,6 @@ class Proc(unittest.TestCase):
         os.makedirs(os.path.join(p, "self"))
         with open(os.path.join(p, "meminfo"), "w") as f:
             f.write("MemTotal: 8388608 kB\nMemAvailable: 2097152 kB\n")
-
-    def tearDown(self):
-        self.d.cleanup()
 
     def proc(self, pid, cmdline, rss_kb):
         d = os.path.join(self.d.name, str(pid))

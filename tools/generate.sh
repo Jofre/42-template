@@ -3,10 +3,12 @@
 # modules from their generators/. The student's answer lives in
 # generators/exNN.sh; this turns those answers into the files that get submitted.
 #
-# Run via Bazel (so it can find the repo root and write the source tree):
-#     bazel run //c-piscine/c-piscine-shell-00:generate   # one module
-#     bazel run //tools:generate     # every generated exercise: Shell 00, Shell 01
-#                                    # and Piscine Reloaded ex00-ex05
+# Run via Bazel (so it can find the repo root and write the source tree), for
+# one module:
+#     bazel run //c-piscine/c-piscine-shell-00:generate
+# or for every generated exercise (Shell 00, Shell 01 and Piscine Reloaded
+# ex00-ex05):
+#     bazel run //tools:generate
 #
 # Each generators/exNN.sh runs with its current directory set to a fresh, empty
 # scratch directory beside deliverable/ (so a previous run's leftover files / odd

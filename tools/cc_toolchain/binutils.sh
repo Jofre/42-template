@@ -7,7 +7,7 @@
 # makes it search its -B directories for `ld.bfd`, and the toolchain's link
 # flags put this directory first. That is how the bare `-fuse-ld=bfd` in
 # tools/defs.bzl and .bazelrc now resolves to a pinned linker instead of the
-# box's /usr/bin/ld.bfd -- HISTORY.md §21's refutation #3.
+# box's /usr/bin/ld.bfd.
 #
 # Binutils ships frontends: ld.bfd, ar and friends are small programs over
 # libbfd, libctf and libopcodes, named as bare sonames with no RUNPATH. So the

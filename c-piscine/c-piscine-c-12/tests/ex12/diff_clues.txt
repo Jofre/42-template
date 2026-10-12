@@ -1,7 +1,7 @@
   The list is printed after the call, then how many times free_fct was called.
     * a match at the HEAD     -> the case that changes the caller's own pointer
-    * consecutive matches     -> after removing one, the next element to test is
-                                 not the next one you advanced to
+    * consecutive matches     -> two matches in a row: after removing the first,
+                                 which element does your code test next?
     * every element matching  -> the list becomes empty, and the caller has to
                                  see that
     * the empty list          -> nothing to do and nothing to dereference

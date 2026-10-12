@@ -112,28 +112,19 @@ build --keep_going
 # That extra step IS the feature: the lock moves in a reviewable commit of its
 # own, not as a side effect of someone running the test suite.
 #
-# Do NOT reach for `bazel mod deps` to refresh it, which is the obvious guess.
-# Unlike a build, it evaluates EVERY module extension eagerly — including two
-# this repo never uses, both of them declared by our deps rather than by
-# //MODULE.bazel: rules_rust's crate_universe `cu_nr` (the oracle crate has zero
-# dependencies, so no crates.io repo is ever fetched) and pybind11_bazel's
-# `internal_configure`. Neither is in the committed lock. So under `error`
-# `bazel mod deps` exits 2 saying they "do not exist in the lockfile", which
-# reads as a broken pin when nothing is wrong; and under `update` it would write
-# both into the lock as churn unrelated to whatever you actually changed.
-# The build itself is unaffected — measured on 9.2.0, `bazel query //...`
-# resolves all 2016 targets clean under `error`, because the loading phase only
-# touches the extensions the build genuinely needs.
+# `bazel mod deps` is not needed to refresh it (measured on 9.2.0, 2026-10-10:
+# under `error` it exits 0 and leaves the lock untouched).
 common --lockfile_mode=error
 
 # ---------------------------------------------------------------------------
 # WHERE BAZEL'S STATE GOES -- deliberately not set in this file.
 #
-# A full run of this repo builds ~1300 test binaries plus 84 ASan twins,
-# measured at 8.9 GB under the output root, and a 42 machine caps $HOME at about
-# 5 GB. So the root has to be somewhere with room, and it has to be PER USER:
-# two students on one machine sharing a root collide on its lock, or the second
-# cannot write the first one's directory at all.
+# A full run of this repo builds thousands of test targets, hundreds of them
+# ASan twins. Its footprint under the output root is DRIVES_FULL_GB in
+# tools/drives.sh, which says when and how it was measured, and a 42 machine
+# caps $HOME at about 5 GB. So the root has to be somewhere with room, and it
+# has to be PER USER: two students on one machine sharing a root collide on its
+# lock, or the second cannot write the first one's directory at all.
 #
 # An rc file cannot say "per user": it expands %workspace% and nothing else, no
 # $USER, no $HOME. This file used to carry `startup
@@ -149,7 +140,8 @@ common --lockfile_mode=error
 #      command, which reads $USER and adds the root setup.sh would have chosen
 #      (tools/drives.sh): /goinfre/$USER/bazel on campus,
 #      ~/.cache/42-piscine/bazel elsewhere. Off campus, a /tmp/bazelcache that
-#      is already yours is kept, so that this change relocates nobody's state.
+#      is yours and already holds this checkout's state, when the usual place
+#      does not, is kept, so that this change relocates nobody's state.
 #
 # `bazel info output_base` says which applied: the root is the folder above
 # it. (There is no `bazel info output_user_root`.) See docs/environment.md,
@@ -200,7 +192,8 @@ common --incompatible_default_to_explicit_init_py
 #
 # Both limits below are written in Bazel's portable form, so the same line does
 # the right thing on a 6-core campus box (leaves 2 free) and on a 24-core dev
-# container (leaves 2 free). There is nothing to change per machine.
+# container (leaves 2 free). There is nothing to change per machine; to use
+# fewer anyway, `42 config set bazel.cpus N` sets both in .bazelrc.local.
 #
 #   cpu             how much CPU Bazel schedules against, for builds and tests
 #   local_test_jobs how many TESTS run at once. Capped separately because this
@@ -218,10 +211,11 @@ test --local_test_jobs=HOST_CPUS-2
 # outside the cap. On the campus box the JVM default is ~25% of 8 GB, so the
 # saving there is smaller still.
 #
-# Verified: the full suite under this cap gives the identical 1321 pass /
-# 114 fail as an unrestricted run, in 117s, with no OutOfMemory and nothing
-# timing out from the reduced parallelism. Analysing all 2016 targets fits in
-# 195 MB, so 1 GB is ample headroom; raise it only if analysis ever OOMs.
+# Verified (2026-07-29, when the suite had 2016 targets): the full suite under
+# this cap gives the identical 1321 pass / 114 fail as an unrestricted run, in
+# 117s, with no OutOfMemory and nothing timing out from the reduced
+# parallelism. Analysing all 2016 targets fits in 195 MB, so 1 GB is ample
+# headroom; raise it only if analysis ever OOMs.
 #
 # Changing a `startup` flag restarts the server, so the next command is slower.
 startup --host_jvm_args=-Xmx1024m
@@ -239,7 +233,8 @@ startup --host_jvm_args=-Xmx1024m
 #   2. `bazel shutdown` when you stop working. The server stays up after every
 #      command, holding that 1.4 GB, and by default leaves only once it has
 #      been idle for three hours (--max_idle_secs, 10800 s: `bazel help
-#      startup_options`).
+#      startup_options`). `42 config set bazel.idle_secs N` shortens that for
+#      every server started after it; a running one keeps its own.
 #
 #   3. Watch for ORPHANED servers. Each output root gets its own server, so
 #      changing --output_user_root (as this file did) leaves the previous one

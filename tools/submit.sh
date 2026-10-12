@@ -1,18 +1,24 @@
 #!/bin/sh
 # submit.sh — test, then push each module's deliverable/ to its 42 (Vogsphere) repo.
 #
-# Run with Bazel (the single entry point):
-#     bazel run //tools:submit                     # every module with a remote set
-#     bazel run //tools:submit -- c-piscine-c-00   # only the listed module(s): the
-#                                                  # project's name, or its path
-#                                                  # (c-piscine/c-piscine-c-00)
-#     bazel run //tools:submit -- -n               # dry-run: show what would happen,
-#                                                  # and list the files it would push
-#     bazel run //tools:submit -- --no-gate        # skip the pre-push test gate
+# Run with Bazel (the single entry point). Every module with a remote set:
+#     bazel run //tools:submit
+# Only the listed module(s), each the project's name or its path
+# (c-piscine/c-piscine-c-00):
+#     bazel run //tools:submit -- c-piscine-c-00
+# Dry-run, showing what would happen and listing the files it would push:
+#     bazel run //tools:submit -- -n
+# Let an exercise not written yet through the gate:
+#     bazel run //tools:submit -- --written-only
+# Skip the pre-push test gate:
+#     bazel run //tools:submit -- --no-gate
 #
 # Your Vogsphere URLs go in .submit-remotes at the repo root, one KEY=URL line
-# per module, KEY being the module's path (c-piscine/c-piscine-c-00) or its
-# project name alone (c-piscine-c-00). A module with no URL there is skipped.
+# per module, KEY being the module's path (c-piscine/c-piscine-c-00), its
+# project name alone (c-piscine-c-00), or the short name `42` takes (c-00).
+# A module with no URL there is skipped. `42 submit c-00 URL` writes its line
+# (through `42 config set remote.c-00`) and then runs this with --url URL,
+# which pushes the one module named to URL whatever the file says.
 # The REMOTES table below is the list of modules and never needs editing.
 #
 # For each module with a URL, submit:
@@ -40,13 +46,20 @@
 # Other options: -b/--branch B (default master), -m/--message M, -h/--help.
 #
 # Usage:
-#   bazel run //tools:submit [-- MODULE...] [--gate-level LEVEL] [--no-gate]
+#   bazel run //tools:submit [-- MODULE...] [--gate-level LEVEL]
+#                            [--written-only | --no-gate]
 #
 #   MODULE          which module(s) to push, by the table's path or by the
 #                   project's name alone; all configured if none
 #   --gate-level    which level must be green first (basic|strict|robust|complete)
+#   --written-only  an exercise not written yet does not block: the gate lets
+#                   through each one tools/first_red.sh's report calls "not
+#                   written yet", gates the rest, and names what it let
+#                   through. It is pushed as it is on disk.
 #   --no-gate       push without running the gate. For emergencies; the gate is
 #                   the only thing standing between a red module and 42.
+#   --url URL       push the one module named to URL, whatever .submit-remotes
+#                   says about it
 
 set -u
 
@@ -104,19 +117,11 @@ show_help() { sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; }
 
 DRY=0
 GATE=1
-# Which layers must be green before a module is pushed.
-#
-# `basic` -- every layer whose failure is a KO wherever the project is graded,
-# at the Moulinette or at a defense -- is the
-# DEFAULT here, so this suite never refuses to push work that would score fine.
-# The levels above it are worth knowing about, but "not as rigorous as I would
-# like" is not the same verdict as "not gradeable" and should not block a
-# submission for someone who did not opt in.
-#
-# Raise it for yourself WITHOUT changing what anyone else gets, by exporting the
-# variable from your shell profile (.vscode/settings.json is committed, so it is
-# the wrong place for a personal setting):
-#     export SUBMIT_GATE=complete
+# The pre-push test gate is on; --no-gate clears it.
+WRITTEN_ONLY=0
+# --url: the one named module's repository, given on the command line.
+URL_ARG=""
+URL_GIVEN=0
 
 # The tag filter for a gate level.
 #
@@ -157,17 +162,31 @@ gate_tags() {
 	esac
 }
 
-# Personal default, in order: SUBMIT_GATE, then the .submit-level file, then
-# basic. The file is optional; without one the gate is `basic`, which is the
-# level the grader actually KOs on, so nobody inherits someone else's
-# stricter personal bar by cloning.
+# Which layers must be green before a module is pushed.
 #
-# Write one (a single word: basic, strict, robust or complete) and COMMIT it if
-# you want a stricter standard to survive a new shell and follow you to every
-# machine you clone this to. That is deliberately the opposite of .bazelrc.local,
-# which is per-checkout and gitignored.
-_level_file="$(dirname "$0")/../.submit-level"
-[ -f "$_level_file" ] || _level_file="${BUILD_WORKSPACE_DIRECTORY:-.}/.submit-level"
+# In order: --gate-level, then SUBMIT_GATE, then the .submit-level file, then
+# basic. The file is optional; without one the gate is `basic` -- every layer
+# whose failure is a KO wherever the project is graded, at the Moulinette or at
+# a defense -- so this suite never refuses to push work that would score fine,
+# and nobody inherits someone else's stricter personal bar by cloning. The
+# levels above it are worth knowing about, but "not as rigorous as I would like"
+# is not the same verdict as "not gradeable" and should not block a submission
+# for someone who did not opt in.
+#
+# Raise it for yourself WITHOUT changing what anyone else gets, by exporting the
+# variable from your shell profile (.vscode/settings.json is committed, so it is
+# the wrong place for a personal setting):
+#     export SUBMIT_GATE=complete
+#
+# Write a .submit-level file (one word: basic, strict, robust or complete) and
+# COMMIT it if you want a stricter standard to survive a new shell and follow
+# you to every machine you clone this to. That is deliberately the opposite of
+# .bazelrc.local, which is per-checkout and gitignored.
+#
+# The workspace's file and no other: it was looked up beside the script first
+# ($0/../.submit-level), so a copy of this script in another tree, or one run
+# as `sh submit.sh` from inside tools/, gated on the level of the folder above.
+_level_file="$WS/.submit-level"
 if [ -z "${SUBMIT_GATE:-}" ] && [ -f "$_level_file" ]; then
 	SUBMIT_GATE=$(tr -d " \t\n\r" < "$_level_file")
 fi
@@ -214,7 +233,9 @@ while [ $# -gt 0 ]; do
 			echo "  to a group repository stays in its history. Run it again without -f." >&2
 			exit 2 ;;
 		--no-gate) GATE=0; shift ;;
+		--written-only) WRITTEN_ONLY=1; shift ;;
 		--gate-level) need "$1" "$#"; GATE_LEVEL="$2"; shift 2 ;;
+		--url) need "$1" "$#"; URL_ARG="$2"; URL_GIVEN=1; shift 2 ;;
 		-b|--branch) need "$1" "$#"; BRANCH="$2"; shift 2 ;;
 		-m|--message) need "$1" "$#"; MSG="$2"; shift 2 ;;
 		-h|--help) show_help; exit 0 ;;
@@ -262,6 +283,25 @@ if ! gate_tags "$GATE_LEVEL" >/dev/null 2>&1; then
 	exit 2
 fi
 for arg in "$@"; do add_only "$arg"; done
+if [ "$GATE" = 0 ] && [ "$WRITTEN_ONLY" = 1 ]; then
+	echo "submit.sh: --written-only narrows the gate and --no-gate skips it: pick one" >&2
+	exit 2
+fi
+# A URL is one repository, so it goes with exactly one module, named; and an
+# empty one, or REPLACE_ME, would read as "no URL" and skip the module.
+if [ "$URL_GIVEN" = 1 ]; then
+	# shellcheck disable=SC2086 # ONLY is space-separated module names
+	set -f; set -- $ONLY; set +f
+	if [ $# -ne 1 ]; then
+		echo "submit.sh: --url is one module's repository: name exactly one module" >&2
+		exit 2
+	fi
+	case "$URL_ARG" in
+		"" | REPLACE_ME | *[[:space:]]*)
+			echo "submit.sh: --url needs a repository URL, with no blank in it" >&2
+			exit 2 ;;
+	esac
+fi
 
 # Safety net: never let git's upward repo-discovery escape to the OUTER repo. If a
 # module's deliverable/.git is missing (e.g. init failed), an unguarded
@@ -271,8 +311,11 @@ export GIT_CEILING_DIRECTORIES="$PWD"
 # Commit identity: your 42 login/email, from the SAME place the kube.42header VS
 # Code extension uses — the "42header.username"/"42header.email" keys in
 # .vscode/settings.json. Override per run with LOGIN42=... EMAIL42=... .
+# In bytes (LC_ALL=C), as tools/identity.sh writes them: under UTF-8 the
+# trailing '.*' stopped at a byte that is no UTF-8, in a comment after the
+# value, and that byte was left on the end of the login.
 read_42() {
-	sed -n "s/.*\"42header.$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
+	LC_ALL=C sed -n "s/.*\"42header.$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
 		.vscode/settings.json 2>/dev/null | head -1
 }
 LOGIN42="${LOGIN42:-$(read_42 username)}"
@@ -296,7 +339,7 @@ fi
 #
 # BUT IT TRUSTS NOTHING THAT SERVER REMEMBERS. A file saved while a test ran
 # can leave a result cached for the file's other contents -- a PASS, or even a
-# compiled program -- and a later run serves it again (HISTORY.md, V111). A
+# compiled program -- and a later run serves it again (V111). A
 # watch loop that ran while you edited is exactly what leaves one, and a gate
 # that read it would push code its own tests fail. The full repair
 # docs/testing.md gives is a `bazel shutdown`, then a run with
@@ -382,17 +425,33 @@ remediate_host_key() {
 # fault — a typo in a BUILD file, a Bazel server in trouble —
 # goes unmentioned. So stderr is CAPTURED rather than discarded: for 1 it holds
 # the compiler's lines, and for the rest it is the only evidence there is.
+#
+# Stdout is kept too, in GATE_OUT, for --written-only alone: the summary, one
+# line per test that names it FAILED, is printed there and not on stderr, and
+# it is what first_red's triage reads. Read from stderr alone, a red module
+# was "nothing failed" (measured on Bazel 9.2.0, C 13 with every exercise a
+# stub: its eight FAILED lines were all on stdout).
+#
+# GATE_WHY is "mktemp" when the gate never ran Bazel because those two files
+# could not be made. Unchecked, both names were empty, Bazel's output went to
+# a redirection the shell could not open, and the gate's status was the
+# shell's error, read as Bazel's verdict. It is "nobazel" when there was no
+# bazel to run: the 2 returned then was glossed as Bazel's own "bad command
+# line", under a sentence that said bazel was not there.
 GATE_ERR=""
+GATE_OUT=""
+GATE_WHY=""
 run_gate() {
+	GATE_WHY=""
 	# Probed HERE rather than in `require`, because --no-gate is a legitimate
 	# run that needs no bazel at all. Without this a missing bazel surfaces as
 	# "Bazel exited 127", which reads as a test failure and blocks the module.
 	if ! command -v bazel > /dev/null 2>&1; then
-		printf '     bazel is not on PATH, so the gate could not run.\n' >&2
-		printf '     Install it, or re-run with --no-gate if you accept the risk.\n' >&2
+		GATE_ERR=""; GATE_OUT=""; GATE_WHY=nobazel
 		return 2
 	fi
-	GATE_ERR=$(mktemp)
+	GATE_ERR=$(mktemp) || { GATE_ERR=""; GATE_OUT=""; GATE_WHY=mktemp; return 2; }
+	GATE_OUT=$(mktemp) || { rm -f "$GATE_ERR"; GATE_ERR=""; GATE_OUT=""; GATE_WHY=mktemp; return 2; }
 	# No startup option: the output base is the one your own commands use. The
 	# server is shut down once, before the first module, and every gate trusts
 	# no cached result (BUT IT TRUSTS NOTHING THAT SERVER REMEMBERS, above). A
@@ -406,7 +465,7 @@ run_gate() {
 	# shellcheck disable=SC2086 # GATE_FLAGS is several words, none of them quoted
 	bazel test "//$1/..." \
 		--test_tag_filters="$(gate_tags "$GATE_LEVEL")" $GATE_FLAGS \
-		>/dev/null 2>"$GATE_ERR"
+		>"$GATE_OUT" 2>"$GATE_ERR"
 }
 
 # The lines of the gate's stderr that tie a build error to the student's files:
@@ -488,6 +547,118 @@ run_advisory() {
 advisory_failures() {
 	[ -s "$ADV_OUT" ] || return 0
 	sed -n 's|^\(//[^ ]*\) *FAILED.*|\1|p' "$ADV_OUT" | sort -u
+}
+
+# --written-only: the exercises the gate's reds leave unwritten, one per line
+# in UNW, when every red of the run is in one of them (0); 1 when something
+# else is red; 2 when the triage itself failed, with why in UNW_WHY.
+#
+# Which exercise is "not written yet" is first_red's verdict (its --triage),
+# the sentence its report prints: a red output over files stub_check calls a
+# stub. It is read from the gate's own output, both streams as `2>&1` would
+# hand them over, so it judges the run that just happened, and it is never
+# decided a second way here. Anything else red keeps the module BLOCKED: an
+# exercise that is written, a test of the whole module (deliverable_files),
+# one that does not build or ran out of time. So does a run first_red calls
+# incomplete (it exits 1).
+#
+# A triage that did not run is told apart from those, by UNW_WHY: first_red.sh
+# missing from the checkout ("missing"), first_red stopping before its report
+# (any other status: "stopped", with its status in UNW_STATUS and the first
+# lines of its stderr in UNW_SAID), a temporary file that could not be made
+# ("mktemp"), or nothing red read from a run Bazel calls red ("silent"). Every
+# one of them blocks too, but they say nothing about the code, and reading them
+# as "something you wrote is red" sent the student to their code for a report
+# that never ran. Only UNW_SAID is first_red's own words; the others are this
+# run's finding, and are said as that.
+#
+# Called directly, never as $(unwritten_reds): it sets four variables.
+LET_THROUGH=""
+UNW=""
+UNW_WHY=""
+UNW_STATUS=0
+UNW_SAID=""
+unwritten_reds() {
+	UNW=""
+	UNW_WHY=""
+	UNW_STATUS=0
+	UNW_SAID=""
+	# Not left to `sh` to find: its "cannot open" would be quoted as
+	# first_red's own words, and the command shown to see the report pipes
+	# into the same missing file.
+	if [ ! -f tools/first_red.sh ]; then
+		UNW_WHY=missing
+		return 2
+	fi
+	_tri=$(mktemp) || { UNW_WHY=mktemp; return 2; }
+	_trerr=$(mktemp) || { rm -f "$_tri"; UNW_WHY=mktemp; return 2; }
+	cat "$GATE_ERR" "$GATE_OUT" | sh tools/first_red.sh --triage "$_tri" > /dev/null 2> "$_trerr"
+	UNW_STATUS=$?
+	case $UNW_STATUS in
+		0)
+			if [ ! -s "$_tri" ]; then
+				UNW_WHY=silent
+				_trc=2
+			elif awk -F'\t' '$1 != "work" || $3 !~ /^ex[0-9]+$/ { bad = 1 } END { exit bad }' "$_tri"; then
+				UNW=$(awk -F'\t' '{ print $3 }' "$_tri" | sort -u)
+				_trc=0
+			else
+				_trc=1
+			fi ;;
+		1) _trc=1 ;;
+		*)
+			UNW_WHY=stopped
+			UNW_SAID=$(head -n 3 "$_trerr")
+			_trc=2 ;;
+	esac
+	rm -f "$_tri" "$_trerr"
+	return "$_trc"
+}
+
+# THE FLOOR --written-only WILL NOT PUSH BELOW, read before the gate from
+# `first_red.sh --written` (the judge whose verdict the report words as "not
+# written yet"): FLOOR_STUBS, the exercises still a stub; FLOOR_MANDATORY,
+# those of them its subject calls mandatory (the contract's `mandatory`);
+# FLOOR_WRITTEN, how many are written; FLOOR_PART, 1 when the contract names
+# a mandatory part. 0 when it was read; 2 when it was not, with first_red's
+# words, or this run's, in FLOOR_SAID.
+#
+# Nothing written is below it for every project: --written-only then pushed
+# the stubs as they were, with every red let through. A mandatory exercise
+# still a stub is below it for a project whose subject names that part.
+FLOOR_STUBS=""
+FLOOR_MANDATORY=""
+FLOOR_WRITTEN=0
+FLOOR_PART=0
+FLOOR_SAID=""
+written_floor() {  # written_floor MOD
+	FLOOR_STUBS=""
+	FLOOR_MANDATORY=""
+	FLOOR_WRITTEN=0
+	FLOOR_PART=0
+	FLOOR_SAID=""
+	if [ ! -f tools/first_red.sh ]; then
+		FLOOR_SAID="tools/first_red.sh is missing from this checkout."
+		return 2
+	fi
+	_fl=$(sh tools/first_red.sh --written "$1" 2>&1)
+	_fl_rc=$?
+	if [ "$_fl_rc" -ne 0 ]; then
+		FLOOR_SAID=$(printf '%s\n' "$_fl" | head -n 3)
+		return 2
+	fi
+	if ! printf '%s\n' "$_fl" | awk -F'\t' '
+		NF != 3 || ($1 != "written" && $1 != "stub") || $2 !~ /^ex[0-9]+$/ ||
+		($3 != "mandatory" && $3 != "optional") { bad = 1 }
+		END { exit bad }'; then
+		FLOOR_SAID=$(printf '%s\n' "$_fl" | head -n 3)
+		return 2
+	fi
+	FLOOR_STUBS=$(printf '%s\n' "$_fl" | awk -F'\t' '$1 == "stub" { printf "%s%s", s, $2; s = " " }')
+	FLOOR_MANDATORY=$(printf '%s\n' "$_fl" | awk -F'\t' '$1 == "stub" && $3 == "mandatory" { printf "%s%s", s, $2; s = " " }')
+	FLOOR_WRITTEN=$(printf '%s\n' "$_fl" | awk -F'\t' '$1 == "written" { n++ } END { print n + 0 }')
+	FLOOR_PART=$(printf '%s\n' "$_fl" | awk -F'\t' '$3 == "mandatory" { p = 1 } END { print p + 0 }')
+	return 0
 }
 
 wanted() {
@@ -772,9 +943,41 @@ submit() {
 		return 0
 	fi
 
+	# The floor (written_floor), read before any test runs and whether or not
+	# --written-only was given: below it, --written-only refuses here, and
+	# without the flag a blocked gate's hint says where the project stands.
+	FLOOR_RC=2
+	if [ "$GATE" = 1 ]; then
+		written_floor "$mod"
+		FLOOR_RC=$?
+	fi
+	if [ "$WRITTEN_ONLY" = 1 ] && [ "$FLOOR_RC" -eq 0 ] &&
+		{ [ "$FLOOR_WRITTEN" -eq 0 ] || [ -n "$FLOOR_MANDATORY" ]; }; then
+		if [ "$DRY" = 1 ]; then
+			printf '     dry-run: would be BLOCKED by --written-only -- '
+		else
+			printf '     BLOCKED by --written-only -- not pushed: '
+		fi
+		if [ "$FLOOR_WRITTEN" -eq 0 ]; then
+			printf 'nothing written to push.\n'
+			printf '              Every exercise is still the stub it started as, and\n'
+			printf '              --written-only pushes what you have written, never stubs alone.\n'
+		else
+			printf 'a mandatory exercise is\n'
+			printf '              not written yet: %s\n' "$FLOOR_MANDATORY"
+			printf '              Its subject calls it part of what validates the project, and\n'
+			printf '              --written-only does not push the project without it.\n'
+		fi
+		FAIL=$((FAIL + 1))
+		[ "$DRY" = 1 ] && list_pushed
+		return 0
+	fi
+
 	if [ "$DRY" = 1 ]; then
 		[ "$GATE" = 1 ] && printf '     dry-run: would gate on  bazel test //%s/... --test_tag_filters=%s %s  (level: %s; skip if red)\n' \
 			"$mod" "$(gate_tags "$GATE_LEVEL")" "$GATE_FLAGS" "$GATE_LEVEL"
+		[ "$WRITTEN_ONLY" = 1 ] &&
+			printf '     dry-run: --written-only: an exercise not written yet does not block; every other red does\n'
 		[ "$is_shell" = 1 ] && printf '     dry-run: would regenerate %s from generators/\n' "$dir"
 		printf '     dry-run: would fetch the remote, commit on top of its %s branch (a first\n' "$BRANCH"
 		printf '              commit if it has none) and push; never --force\n'
@@ -790,6 +993,25 @@ submit() {
 		printf '           builds and runs the tests again, trusting no cached result)\n'
 		run_gate "$mod"
 		gate_status=$?
+		# --written-only: a run whose only reds are exercises not written
+		# yet is let through, and says which, here and in the summary.
+		_unw_rc=1
+		if [ "$gate_status" -eq 3 ] && [ "$WRITTEN_ONLY" = 1 ]; then
+			unwritten_reds
+			_unw_rc=$?
+			_unw=$UNW
+			# Nothing is let through above a floor that could not be read:
+			# which exercises are mandatory is not known.
+			[ "$_unw_rc" -eq 0 ] && [ "$FLOOR_RC" -ne 0 ] && _unw_rc=3
+		fi
+		if [ "$_unw_rc" -eq 0 ]; then
+			gate_status=0
+			_unw=$(printf '%s\n' "$_unw" | tr '\n' ' ' | sed 's/ *$//')
+			printf '     gate: not written yet, let through by --written-only: %s\n' "$_unw"
+			printf '           (they go to 42 as they are on disk; every other test passed)\n'
+			LET_THROUGH="$LET_THROUGH$mod: $_unw
+"
+		fi
 		if [ "$gate_status" -ne 0 ]; then
 			# Hand over the command the gate ACTUALLY ran — including
 			# --keep_going, or the re-run stops at the first failure and shows
@@ -801,7 +1023,55 @@ submit() {
 			if [ "$gate_status" -eq 3 ]; then
 				printf '     BLOCKED: tests are FAILING — not pushed. See which, with:\n'
 				printf '                %s\n' "$gate_cmd"
-				printf '              Then fix them, or bypass the gate with --no-gate.\n'
+				if [ "$WRITTEN_ONLY" = 1 ] && [ "$_unw_rc" -eq 2 ]; then
+					printf '              --written-only let nothing through: the gate'\''s report\n'
+					printf '              could not be read, so which exercises are red, and\n'
+					printf '              whether you have written them, is not known.\n'
+					case "$UNW_WHY" in
+						missing)
+							printf '              tools/first_red.sh, which reads that report, is missing\n'
+							printf '              from this checkout. Restore it with git:\n'
+							printf '                git checkout HEAD -- tools/first_red.sh\n' ;;
+						silent)
+							printf '              Bazel said tests failed, but tools/first_red.sh found no\n'
+							printf '              failing test in its output.\n' ;;
+						mktemp)
+							printf '              submit.sh could not create a temporary file to read it\n'
+							printf '              into (mktemp failed).\n' ;;
+						*)
+							printf '              tools/first_red.sh, which reads it, stopped (exit %d) and said:\n' "$UNW_STATUS"
+							printf '%s\n' "${UNW_SAID:-(nothing)}" | sed 's/^/              | /' ;;
+					esac
+					if [ "$UNW_WHY" != missing ]; then
+						printf '              See the report with:\n'
+						printf '                %s 2>&1 | sh tools/first_red.sh\n' "$gate_cmd"
+					fi
+				elif [ "$WRITTEN_ONLY" = 1 ] && [ "$_unw_rc" -eq 3 ]; then
+					printf '              --written-only let nothing through: which exercises this\n'
+					printf '              project'\''s subject calls mandatory could not be read.\n'
+					printf '              tools/first_red.sh --written %s said:\n' "$mod"
+					printf '%s\n' "${FLOOR_SAID:-(nothing)}" | sed 's/^/              | /'
+				elif [ "$WRITTEN_ONLY" = 1 ]; then
+					printf '              --written-only lets through only an exercise not written\n'
+					printf '              yet, and something else is red: an exercise you have\n'
+					printf '              written, a test of the whole module, or a run that did\n'
+					printf '              not complete. Fix that first.\n'
+				elif [ "$FLOOR_RC" -eq 0 ] && [ "$FLOOR_WRITTEN" -eq 0 ]; then
+					printf '              Nothing of it is written yet: every exercise is still the\n'
+					printf '              stub it started as.\n'
+				elif [ "$FLOOR_RC" -eq 0 ] && [ -n "$FLOOR_MANDATORY" ]; then
+					printf '              Then fix them. A mandatory exercise is not written yet:\n'
+					printf '              %s. Its subject calls it part of what validates the\n' "$FLOOR_MANDATORY"
+					printf '              project, so --written-only does not push without it either.\n'
+				elif [ "$FLOOR_RC" -eq 0 ] && [ "$FLOOR_PART" = 1 ] && [ -n "$FLOOR_STUBS" ]; then
+					printf '              Then fix them. Every mandatory exercise is written, and\n'
+					printf '              these are not: %s. To push without them, add\n' "$FLOOR_STUBS"
+					printf '              --written-only: it lets those through and gates the rest.\n'
+				else
+					printf '              Then fix them. An exercise you have not started blocks too:\n'
+					printf '              --written-only lets those through and gates the rest, and\n'
+					printf '              --no-gate skips the gate altogether.\n'
+				fi
 				gate_files_reports
 			elif [ "$gate_status" -eq 1 ]; then
 				# 1 is a build or analysis error, and this used to share the
@@ -842,6 +1112,20 @@ submit() {
 					printf '              What stopped, and where:\n'
 				fi
 				printf '                %s 2>&1 | sh tools/first_red.sh\n' "$gate_cmd"
+			elif [ "$GATE_WHY" = nobazel ]; then
+				printf '     BLOCKED: the gate could not RUN — not pushed.\n'
+				printf '              bazel is not on PATH, so the gate never ran. This is\n'
+				printf '              NOT a verdict on your code, and --no-gate would push\n'
+				printf '              work that nothing has checked. sh tools/setup.sh installs\n'
+				printf '              it into ~/.local/bin; open a new shell if that folder is\n'
+				printf '              not on PATH yet, then run this again.\n'
+			elif [ "$GATE_WHY" = mktemp ]; then
+				printf '     BLOCKED: the gate could not RUN — not pushed. submit.sh could not\n'
+				printf '              create a temporary file for Bazel'\''s output (mktemp failed),\n'
+				printf '              so Bazel was never run. This is NOT a verdict on your\n'
+				printf '              code, and --no-gate would push work that nothing has\n'
+				printf '              checked. See that the temporary folder (TMPDIR, or /tmp)\n'
+				printf '              exists, can be written and has space, then run this again.\n'
 			else
 				printf '     BLOCKED: the gate could not RUN — not pushed. Bazel exited %d.\n' "$gate_status"
 				printf '              Only 3 ("tests failed") and 1 ("does not build") are\n'
@@ -858,10 +1142,10 @@ submit() {
 				printf '              Reproduce with:\n'
 				printf '                %s\n' "$gate_cmd"
 			fi
-			rm -f "$GATE_ERR"
+			rm -f "$GATE_ERR" "$GATE_OUT"
 			FAIL=$((FAIL + 1)); return 0
 		fi
-		rm -f "$GATE_ERR"
+		rm -f "$GATE_ERR" "$GATE_OUT"
 		if ! run_advisory "$mod"; then
 			# Same reason the BLOCKED branch above quotes its own command: the
 			# student re-runs exactly the run that found these reds.
@@ -995,24 +1279,19 @@ submit() {
 
 # One line of the REMOTES table or of .submit-remotes -> $mod and $url. Both are
 # written by hand and read the same way, for the reasons below. Returns 1 for a
-# line that is not a row: blank, a comment, or malformed ($2 names the file in
-# that report).
+# line that is not a row (blank, a comment), and 2 for a malformed one, which
+# the caller reports with malformed_row: the table's are reported where they
+# sit in it, among the modules.
 parse_row() {
+	# Every sed here runs in the C locale, where [[:space:]] is the six ASCII
+	# blanks and '.' any byte. In a UTF-8 one, the default on most machines,
+	# GNU sed also trimmed an ideographic space (U+3000) and its kin, and its
+	# '.*' stopped at a byte that is no UTF-8, so a Latin-1 comment stayed in
+	# the URL: one line, read two ways by this and by `42 config`.
 	# Leading blanks first, so an indented "# ..." is still a comment.
-	_e=$(printf '%s' "$1" | sed 's/^[[:space:]]*//')
+	_e=$(printf '%s' "$1" | LC_ALL=C sed 's/^[[:space:]]*//')
 	case "$_e" in
 		"" | \#*) return 1 ;;
-	esac
-	# An entry with no "=" is not a table row. ${entry#*=} returns the string
-	# UNCHANGED when there is no match, so "c-piscine-c-00 = git@..." (spaces
-	# around the =) yielded a module whose remote was its own name -- not
-	# REPLACE_ME, therefore treated as live, and pushed to a URL that is a
-	# module name.
-	case "$_e" in
-		*=*) ;;
-		*)
-			printf 'SKIP  malformed %s line (no "="): %s\n' "$2" "$1"
-			return 1 ;;
 	esac
 	# An inline comment ends the entry. docs/submitting.md shows a table line
 	# written exactly this way -- "c-piscine-c-01=REPLACE_ME   # skipped" -- and
@@ -1020,7 +1299,17 @@ parse_row() {
 	# reading as REPLACE_ME and is treated as a LIVE remote pointing at prose.
 	# Only " #" counts, never a bare '#', because that is what a comment looks
 	# like and a URL does not contain one.
-	_e=$(printf '%s' "$_e" | sed 's/[[:space:]]#.*$//')
+	_e=$(printf '%s' "$_e" | LC_ALL=C sed 's/[[:space:]]#.*$//')
+	# An entry with no "=" is not a table row. ${entry#*=} returns the string
+	# UNCHANGED when there is no match, so "c-piscine-c-00 = git@..." (spaces
+	# around the =) yielded a module whose remote was its own name -- not
+	# REPLACE_ME, therefore treated as live, and pushed to a URL that is a
+	# module name. Asked once the comment is gone: a '=' in the comment alone
+	# ("c-05 # note=x") did the same, before.
+	case "$_e" in
+		*=*) ;;
+		*) return 2 ;;
+	esac
 	mod=${_e%%=*}
 	url=${_e#*=}
 	# Trim blanks around both halves. This table is hand-edited, and
@@ -1029,9 +1318,12 @@ parse_row() {
 	# leading space, and then a directory that does not exist. Being liberal
 	# about the spacing costs one sed and removes a whole class of confusing
 	# "SKIP: no c-piscine-c-01 /deliverable" reports.
-	mod=$(printf '%s' "$mod" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s:/*$::')
-	url=$(printf '%s' "$url" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+	mod=$(printf '%s' "$mod" | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s:/*$::')
+	url=$(printf '%s' "$url" | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
 	[ -n "$mod" ]
+}
+malformed_row() {  # malformed_row FILE LINE
+	printf 'SKIP  malformed %s line (no "=" before any comment): %s\n' "$1" "$2"
 }
 
 # .submit-remotes: the student's URLs, one KEY=URL line per module, read once
@@ -1043,31 +1335,39 @@ OVR_FILE=.submit-remotes
 OVR=""
 if [ -f "$OVR_FILE" ]; then
 	while IFS= read -r entry || [ -n "$entry" ]; do
-		parse_row "$entry" "$OVR_FILE" || continue
+		parse_row "$entry"
+		case $? in
+			0) ;;
+			2) malformed_row "$OVR_FILE" "$entry"; continue ;;
+			*) continue ;;
+		esac
 		OVR="$OVR$mod=$url
 "
 	done < "$OVR_FILE"
 fi
 
-# The URL .submit-remotes gives module $1, keyed by its path or by its project
-# name alone (the two spellings the command line accepts), in $ovr_url; how
-# many lines named it in $ovr_n. Every key that names a module is remembered in
-# OVR_USED, so the ones that name none can be reported at the end.
-OVR_USED=""
-ovr_lookup() {
-	ovr_url=""
-	ovr_n=0
-	while IFS= read -r _o; do
-		[ -n "$_o" ] || continue
-		_k=${_o%%=*}
-		if [ "$_k" = "$1" ] || [ "$_k" = "${1##*/}" ]; then
-			ovr_url=${_o#*=}
-			ovr_n=$((ovr_n + 1))
-			OVR_USED="$OVR_USED $_k"
-		fi
-	done <<OVERRIDES
-$OVR
-OVERRIDES
+# The short name `42` gives a project: c-piscine/c-piscine-c-05 is c-05. The
+# course folder goes when the project's own name says the course, then the
+# c-piscine- prefix; any other path stays whole (cursus/libft). The rule of
+# tools/fortytwo/workspace.py's short_name() and first_red.sh's shortname(),
+# which //tools/tests:fortytwo_test holds this one to, on every project.
+# Into $_sn, not printed: called as $(short_name ...), it forked a subshell for
+# every module each key was compared with.
+short_name() {
+	_sn=$1
+	case "${_sn##*/}" in
+		c-piscine-*) _sn=${_sn##*/} ;;
+	esac
+	_sn=${_sn#c-piscine-}
+}
+
+# Whether .submit-remotes key $1 names module $2, whose short name is $3: its
+# path, its project name alone (the two spellings the command line accepts),
+# or the short name `42` takes everywhere else. The short name was refused
+# once, and a student who wrote c-00=... had the module skipped as having no
+# URL.
+key_names() {
+	[ "$1" = "$2" ] || [ "$1" = "${2##*/}" ] || [ "$1" = "$3" ]
 }
 
 # Read the table a LINE at a time, not with `for entry in $REMOTES`.
@@ -1080,12 +1380,101 @@ OVERRIDES
 # docs/submitting.md compounded it by showing an example line with a trailing
 # "# comment", which under word-splitting became four more phantom modules,
 # each running a gate and each counted in the summary.
+#
+# Read ONCE, into ROWS: a "MODULE=SHORT=URL" line per row (neither of the
+# first two holds a '='), and a malformed row as a tab and the line itself, so
+# the loop below reports it where it sits. Every key used to parse the whole
+# table again, a sed per half-row, and a .submit-remotes with a key for each
+# module made a dry run ten times slower.
+ROWS=""
+while IFS= read -r entry; do
+	parse_row "$entry"
+	case $? in
+		0)
+			short_name "$mod"
+			ROWS="$ROWS$mod=$_sn=$url
+" ;;
+		2)
+			ROWS="$ROWS	$entry
+" ;;
+	esac
+done <<TABLE
+$REMOTES
+TABLE
+
+# A key that names more than one module is a guess about which repository is
+# graded, like two URLs for one module, so the run stops here, before anything
+# is pushed. No two modules of the table share a name today; a project folder
+# named like another under a second course folder would.
+AMBIGUOUS=0
+while IFS= read -r _o; do
+	[ -n "$_o" ] || continue
+	_k=${_o%%=*}
+	_named=""
+	while IFS= read -r _r; do
+		case "$_r" in
+			"" | "	"*) continue ;;
+		esac
+		_rs=${_r#*=}
+		key_names "$_k" "${_r%%=*}" "${_rs%%=*}" && _named="$_named ${_r%%=*}"
+	done <<ROWS
+$ROWS
+ROWS
+	case "$_named" in
+		" "*" "*)
+			printf 'submit.sh: in %s, %s names more than one module:%s\n' "$OVR_FILE" "$_k" "$_named" >&2
+			AMBIGUOUS=1 ;;
+	esac
+done <<OVERRIDES
+$OVR
+OVERRIDES
+if [ "$AMBIGUOUS" = 1 ]; then
+	echo "           Key it by the module's path (c-piscine/c-piscine-c-00)." >&2
+	# With --url the one module this run pushes has its URL from the command
+	# line, so no line of the file decides where anything goes.
+	if [ "$URL_GIVEN" = 0 ]; then
+		echo "           Nothing was pushed." >&2
+		exit 1
+	fi
+fi
+
+# The URL .submit-remotes gives module $1, short name $2 (key_names says which
+# keys name it) in $ovr_url; how many lines named it in $ovr_n. Every key that
+# names a module is remembered in OVR_USED, so the ones that name none can be
+# reported at the end.
+OVR_USED=""
+ovr_lookup() {
+	ovr_url=""
+	ovr_n=0
+	while IFS= read -r _o; do
+		[ -n "$_o" ] || continue
+		_k=${_o%%=*}
+		if key_names "$_k" "$1" "$2"; then
+			ovr_url=${_o#*=}
+			ovr_n=$((ovr_n + 1))
+			OVR_USED="$OVR_USED $_k"
+		fi
+	done <<OVERRIDES
+$OVR
+OVERRIDES
+}
+
 # A here-doc, NOT a pipe: `printf ... | while` runs the loop in a subshell, so
 # every OK/FAIL/SKIPPED increment inside it would be discarded and the summary
 # line would report zeros after a real run.
-while IFS= read -r entry; do
-	parse_row "$entry" table || continue
-	ovr_lookup "$mod"
+while IFS= read -r _r; do
+	case "$_r" in
+		"") continue ;;
+		"	"*) malformed_row table "${_r#	}"; continue ;;
+	esac
+	mod=${_r%%=*}
+	_rs=${_r#*=}
+	url=${_rs#*=}
+	ovr_lookup "$mod" "${_rs%%=*}"
+	if [ "$URL_GIVEN" = 1 ]; then
+		# The module named gets the URL given; every other is not wanted.
+		wanted "$mod" && { submit "$mod" "$URL_ARG"; continue; }
+	fi
 	# Two URLs for one module: pushing to either is a guess about which
 	# repository the grade comes from, so neither is used.
 	if [ "$ovr_n" -gt 1 ]; then
@@ -1097,9 +1486,9 @@ while IFS= read -r entry; do
 	fi
 	[ "$ovr_n" -eq 1 ] && url=$ovr_url
 	submit "$mod" "$url"
-done <<TABLE
-$REMOTES
-TABLE
+done <<ROWS
+$ROWS
+ROWS
 
 # A .submit-remotes key that names no module is a URL that goes nowhere: almost
 # always a typo in the key, and the module the student meant is then silently
@@ -1132,6 +1521,10 @@ done
 printf '\n----\nDone: %d pushed, %d failed/blocked, %d skipped.' "$OK" "$FAIL" "$SKIPPED"
 [ "$DRY" = 1 ] && printf '  (dry-run)'
 printf '\n'
+if [ -n "$LET_THROUGH" ]; then
+	printf '\nNot written yet, let through the gate by --written-only:\n'
+	printf '%s' "$LET_THROUGH" | sed 's/^/  /'
+fi
 _rc=0
 if [ -n "$UNMATCHED" ]; then
 	printf '\nNOT A MODULE IN THE TABLE:%s\n' "$UNMATCHED" >&2
@@ -1142,8 +1535,8 @@ fi
 if [ -n "$UNKNOWN" ]; then
 	printf '\nIN %s BUT NOT A MODULE:%s\n' "$OVR_FILE" "$UNKNOWN" >&2
 	printf 'Its URL was used for nothing. A key is a module path from the REMOTES\n' >&2
-	printf 'block near the top of this script (c-piscine/c-piscine-c-00), or its\n' >&2
-	printf 'project name alone (c-piscine-c-00).\n' >&2
+	printf 'block near the top of this script (c-piscine/c-piscine-c-00), its\n' >&2
+	printf 'project name alone (c-piscine-c-00), or its short name (c-00).\n' >&2
 	_rc=1
 fi
 [ "$_rc" -eq 0 ] || exit "$_rc"

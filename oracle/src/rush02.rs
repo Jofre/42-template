@@ -375,8 +375,8 @@ pub fn check() -> usize {
         fails += 1;
     }
     // Every length, at the counts ex00_settled_words_diff (200) and
-    // ex00_settled_dicts_diff (150) run with seed 1: docs/rushes.md says
-    // both sweep every length up to 42 digits, and 38 and 39 were missing.
+    // ex00_settled_dicts_diff (150) run with seed 1: oracle/README.md says
+    // both corpora hold every length up to 42 digits, and 38 and 39 were missing.
     let missing: Vec<usize> = (1..=42).filter(|&l| !lens[l]).collect();
     if !missing.is_empty() {
         eprintln!("rush02: rush02_words (seed 1, 200 cases) has no number of {:?} digits", missing);
@@ -404,6 +404,7 @@ pub fn check() -> usize {
             fails += 1;
         }
     }
+    // The same for rush02_dicts, at 150.
     let mut lens = [false; 43];
     for line in corpus_dicts(1, 150).lines() {
         if let Some(n) = line.split('\t').nth(1) {
@@ -904,12 +905,18 @@ pub fn answer(dict: &[u8], number: &str) -> Vec<u8> {
 /// is not a valid and positive integer is "Error" whatever the dictionary;
 /// a dictionary that cannot be read allows no conversion: "Dict Error". The
 /// exit status is 0: the subject names none.
-pub fn run(args: &[String]) -> i32 {
+pub fn run(args: &[std::ffi::OsString]) -> i32 {
+    use std::ffi::OsStr;
+    // The dictionary's path is opened as the bytes it is. The number reads
+    // through its UTF-8 form: a byte that is not UTF-8 is no digit, and the
+    // character that stands for it is none either, so `valid_number` refuses
+    // it exactly as it would the bytes.
     let (path, number) = match args {
-        [n] => ("numbers.dict", n.as_str()),
-        [d, n] => (d.as_str(), n.as_str()),
-        _ => ("", ""),
+        [n] => (OsStr::new("numbers.dict"), n.to_string_lossy()),
+        [d, n] => (d.as_os_str(), n.to_string_lossy()),
+        _ => (OsStr::new(""), "".into()),
     };
+    let number: &str = &number;
     let out = match std::fs::read(path) {
         Ok(dict) => answer(&dict, number),
         Err(_) if !valid_number(number) => answer(b"", number),

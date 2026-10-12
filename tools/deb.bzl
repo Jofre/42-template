@@ -22,11 +22,15 @@ the .deb, then zstd for the payload -- so this needs no zstd, no `ar`, and not
 even the zig that ships with the ilp32 layer. Two calls and a BUILD file.
 
 WHAT IT DOES NOT DO. It does not resolve dependencies. A .deb that needs shared
-libraries from another package will extract fine and then fail to run, so this
-suits self-contained binaries (binutils' nm, ar, objdump) and not, say, clang,
-which wants libclang-cpp and libLLVM alongside it. Pinning clang this way means
-fetching each of those packages explicitly and setting an rpath -- possible, and
-a bigger job than this rule.
+libraries from another package will extract fine and then fail to run, or worse,
+run against the box's copy of the library. So a program that is not
+self-contained is pinned by listing every package it needs in `debs`, and their
+payloads are laid over each other into one tree, the layout the packages were
+built for. clang_12_ubuntu and gcc_10_ubuntu in MODULE.bazel are built this
+way. The leaf libraries those compilers link against (libtinfo, libedit, libisl,
+libmpc, libmpfr, libgmp, libzstd) are left to the box on purpose. Pinning them
+as well would mean a sysroot, which is the wrong trade for a check that only
+needs the compiler's own build to match campus.
 
 PIN BY sha256, ALWAYS. Ubuntu's pool moves: a package can be superseded and
 withdrawn, and an unpinned URL would then either 404 or, worse, serve different

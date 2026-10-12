@@ -1,5 +1,7 @@
 """bazel.py: the argv 42 builds, the env its child gets, the BEP it reads, and Ctrl-C."""
 
+import ast
+import json
 import os
 import signal
 import subprocess
@@ -17,11 +19,47 @@ def bep(name):
     return bazel.read_bep(os.path.join(FIXTURES, "bep", name + ".json"))
 
 
+def write_bep(path, events):
+    with open(path, "w") as f:
+        f.write("".join(json.dumps(e) + "\n" for e in events))
+
+
 def write_exe(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(text)
     os.chmod(path, 0o755)
+
+
+# What a load of bep.x does when it only feeds a write to x.
+WRITES = ("append", "extend", "insert", "add", "update", "setdefault")
+
+
+def unread_fields(modules):
+    """The fields Bep.__init__ sets that no module's source reads.
+
+    A read is an attribute load, but for one that only feeds a write: the
+    container of a subscript stored to or deleted (bep.x[k] = v, del
+    bep.x[k]), or the receiver of a call in WRITES (bep.x.append(v)).
+    """
+    trees = [ast.parse(text) for text in modules]
+    cls = next(n for t in trees for n in t.body if isinstance(n, ast.ClassDef) and n.name == "Bep")
+    init = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "__init__")
+    fields = {t.attr for st in init.body if isinstance(st, ast.Assign)
+              for t in st.targets if isinstance(t, ast.Attribute)}
+    assert "logs" in fields, fields
+    read = set()
+    for tree in trees:
+        writes = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Subscript) and isinstance(n.ctx, (ast.Store, ast.Del)):
+                writes.add(id(n.value))
+            elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr in WRITES):
+                writes.add(id(n.func.value))
+        read |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)
+                 and isinstance(n.ctx, ast.Load) and id(n) not in writes}
+    return sorted(fields - read)
 
 
 class Argv(unittest.TestCase):
@@ -61,6 +99,7 @@ class RunDir(unittest.TestCase):
 class Env(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.ws = os.path.join(self.tmp.name, "ws")
         open(os.path.join(self.tmp.name, "MODULE.bazel"), "w").close()  # a decoy: not a tools/ folder
         os.makedirs(os.path.join(self.ws, "tools"))
@@ -68,9 +107,6 @@ class Env(unittest.TestCase):
         write_exe(os.path.join(self.ws, "tools", "bazel"), "#!/bin/sh\nexit 99\n")
         self.real = os.path.join(self.tmp.name, "bin")
         write_exe(os.path.join(self.real, "bazel"), "#!/bin/sh\nexit 0\n")
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def test_what_a_bazel_run_set_is_not_inherited(self):
         env = {k: "x" for k in bazel.STRIP_ENV}
@@ -97,11 +133,10 @@ class Env(unittest.TestCase):
 
 
 class Bep(unittest.TestCase):
-    """Fixtures: real BEP files of trial runs, trimmed to what read_bep reads, paths anonymised."""
+    """Fixtures: real BEP files of trial runs, trimmed, paths anonymised."""
 
     def test_failed_tests_their_tags_and_logs(self):
         b = bep("failed")
-        self.assertEqual(b.exit_name, "TESTS_FAILED")
         self.assertEqual(len(b.selected), 11)
         self.assertEqual(len(b.failed()), 8)
         self.assertEqual(b.does_not_build(), [])
@@ -113,9 +148,35 @@ class Bep(unittest.TestCase):
 
     def test_a_target_that_does_not_build_has_no_summary(self):
         b = bep("does_not_build")
-        self.assertEqual(b.exit_name, "BUILD_FAILURE")
         self.assertEqual(b.does_not_build(), ["//spike:broken"])
         self.assertEqual(b.status, {"//spike:sleeper": "PASSED"})
+
+    def test_a_failed_to_build_summary_does_not_build(self):
+        # Bazel 9 gives a target that does not build no summary at all; a
+        # stand-in for one that says FAILED_TO_BUILD: no test ran either.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "bep.json")
+            write_bep(p, [{"id": {"targetConfigured": {"label": l}}, "configured": {"testSize": "SMALL"}}
+                          for l in ("//spike:broken", "//spike:red")]
+                      + [{"id": {"testSummary": {"label": l}}, "testSummary": {"overallStatus": s}}
+                         for l, s in (("//spike:broken", "FAILED_TO_BUILD"), ("//spike:red", "FAILED"))])
+            b = bazel.read_bep(p)
+        self.assertEqual((b.failed(), b.does_not_build()), (["//spike:red"], ["//spike:broken"]))
+
+    def test_a_log_uri_is_percent_decoded(self):
+        # Bazel 9.2 writes a space in the output root as %20 and a '%' as
+        # %25 (measured with --output_user_root='.../sp ace%x/root').
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "sp ace%x", "test.log")
+            os.makedirs(os.path.dirname(log))
+            open(log, "w").close()
+            p = os.path.join(d, "bep.json")
+            write_bep(p, [{"id": {"testResult": {"label": "//spike:red"}},
+                           "testResult": {"testActionOutput": [{"name": "test.log", "uri": "file://"
+                                          + log.replace("%", "%25").replace(" ", "%20")}]}}])
+            b = bazel.read_bep(p)
+            self.assertEqual(b.logs["//spike:red"], log)
+            self.assertTrue(os.path.isfile(b.logs["//spike:red"]))
 
     def test_a_timeout_is_a_failure(self):
         b = bep("timeout")
@@ -124,12 +185,47 @@ class Bep(unittest.TestCase):
 
     def test_nothing_selected(self):
         b = bep("no_tests")
-        self.assertEqual((b.selected, b.exit_name), ([], "NO_TESTS_FOUND"))
-        self.assertEqual(b.patterns, ["//c-piscine/c-piscine-c-13:ex01"])
+        self.assertEqual((b.selected, b.tags, b.status, b.logs), ([], {}, {}, {}))
+        self.assertEqual((b.failed(), b.does_not_build()), ([], []))
 
     def test_a_bad_label(self):
         b = bep("bad_label")
-        self.assertEqual((b.selected, b.exit_name), ([], "BUILD_FAILURE"))
+        self.assertEqual((b.selected, b.tags, b.status, b.logs), ([], {}, {}, {}))
+        self.assertEqual((b.failed(), b.does_not_build()), ([], []))
+
+    def test_every_field_is_one_42_reads(self):
+        # A field only the tests read is BEP parsing nothing uses: each one
+        # Bep sets up is read by a module of 42's, by a load that is not
+        # only the way to a write (read_bep filling it is not a read).
+        src = os.path.dirname(HERE)
+        modules = []
+        for name in sorted(os.listdir(src)):
+            if name.endswith(".py"):
+                with open(os.path.join(src, name), encoding="utf-8") as f:
+                    modules.append(f.read())
+        self.assertEqual(unread_fields(modules), [], "read by nothing but the tests")
+
+    def test_a_field_read_bep_only_fills_is_unread(self):
+        # bep.x[label] = ... and bep.x.append(...) load bep.x, to write to it.
+        bazel_py = textwrap.dedent("""\
+            class Bep:
+                def __init__(self):
+                    self.logs = {}
+                    self.keyed = {}
+                    self.listed = []
+                    self.merged = {}
+            def read_bep(bep, label):
+                bep.logs[label] = 1
+                bep.keyed[label] = 1
+                del bep.keyed[label]
+                bep.listed.append(label)
+                bep.listed.extend([label])
+                bep.merged.update({})
+                bep.merged.setdefault(label, 1)
+            """)
+        self.assertEqual(unread_fields([bazel_py]), ["keyed", "listed", "logs", "merged"])
+        self.assertEqual(unread_fields([bazel_py, "print(bep.logs.get(1), len(bep.listed))\n"]),
+                         ["keyed", "merged"])
 
     def test_a_cut_last_line_and_a_missing_file(self):
         with tempfile.TemporaryDirectory() as d:
@@ -139,16 +235,16 @@ class Bep(unittest.TestCase):
             with open(p, "w") as f:
                 f.write(text[: text.rstrip("\n").rindex("\n") + 11])
             b = bazel.read_bep(p)
-            self.assertEqual(b.exit_name, None)
             self.assertEqual(b.status["//spike:sleeper"], "TIMEOUT")
             self.assertEqual(bazel.read_bep(os.path.join(d, "none")).selected, [])
 
 
 class DropOutputs(unittest.TestCase):
-    """The repair (TODO.md V111): a package's outputs deleted, and nothing else, only while Bazel is idle."""
+    """The repair (V111): a package's outputs deleted, and nothing else, only while Bazel is idle."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         t = self.tmp.name
         self.base = os.path.join(t, "base")
         self.root = os.path.join(self.base, "execroot", "_main")
@@ -163,9 +259,6 @@ class DropOutputs(unittest.TestCase):
         self.rc = os.path.join(t, "rc")
         write_exe(self.fake, '#!/bin/sh\nrc=$(cat "%s" 2>/dev/null || echo 0)\n'
                              '[ "$rc" = 0 ] && echo "%s"\nexit "$rc"\n' % (self.rc, self.root))
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def left(self):
         return sorted(k for k, f in self.files.items() if os.path.exists(f))

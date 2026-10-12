@@ -6,7 +6,7 @@
 # answer -- LD_DEBUG=libs, `calling init:` for each library it loaded and
 # `initialize program:` for what it actually ran -- because the failures this
 # exists for are all ones where the right file is exec'd and the wrong code
-# runs. See HISTORY.md §21.
+# runs.
 set -u
 
 COMPILER="@COMPILER@"
@@ -48,6 +48,10 @@ every_under() {
 programs() { sed -n 's/.*initialize program: //p' "$1" > "$1.prog"; }
 libraries() { sed -n 's/.*calling init: //p' "$1" > "$1.libs"; }
 
+# A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
+# in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
+# none (tools/runner_lib.sh, "THE SCRATCH FOLDER").
+case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 printf 'int main(void){return (0);}\n' > "$WORK/t.c"
@@ -74,7 +78,7 @@ every_under "$WORK/cc.dbg.libs" 'libclang-cpp|libLLVM' 'clang_12_ubuntu' "its li
 
 # 3. The link: which linker clang CHOSE by name, and what that linker loaded.
 #    -fuse-ld=bfd is the bare form tools/defs.bzl and .bazelrc both pass, and it
-#    used to resolve through PATH to /usr/bin/ld.bfd -- §21's refutation #3.
+#    used to resolve through PATH to /usr/bin/ld.bfd.
 _chosen=$("$COMPILER" -### -fuse-ld=bfd -Btools/cc_toolchain/ "$WORK/t.o" -o "$WORK/t" 2>&1 |
 	grep -oE '"[^"]*ld\.bfd"' | head -1)
 case "$_chosen" in

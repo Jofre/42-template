@@ -2,8 +2,8 @@
 # regen.sh — regenerate this exercise's fixtures from the Rust reference.
 #
 # Maintenance helper only; no BUILD rule depends on it. Run it after changing
-# the curated case list (oracle/src/rush00.rs, const FIXED), the survival
-# cases (const SURVIVE) or anything else `oracle rush00_fixtures` writes:
+# the curated case list, the survival cases or anything else
+# `oracle rush00_fixtures` writes:
 #
 #     sh c-piscine/c-piscine-rush-00/tests/ex00/regen.sh
 #

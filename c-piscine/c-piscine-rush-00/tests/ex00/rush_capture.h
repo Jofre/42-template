@@ -6,7 +6,7 @@
  * file, calls rush(x, y), restores fd 1, and reads the bytes back.
  *
  * The captured rectangle is then ESCAPED onto a single line (see rc_escape)
- * with exactly the rules oracle/src/rush00.rs uses, so one case is always one
+ * with exactly the rules the reference uses, so one case is always one
  * line of output. That is what keeps the PASS/FAIL table aligned: a student who
  * prints four rows instead of three shifts nothing — only their own case fails.
  * It also makes trailing spaces and the final newline VISIBLE in the table,
@@ -166,7 +166,7 @@ static inline int	rc_run_discard(int x, int y)
 	return (0);
 }
 
-/* One-line escape of captured bytes, byte-identical to oracle/src/rush00.rs:
+/* One-line escape of captured bytes, byte-identical to the reference's:
  *   '\\' -> "\\\\",  '\n' -> "\\n",  0x20..0x7e raw,  anything else -> "\xHH".
  * Escaping the backslash is not optional: variant 1 draws corners with one.
  * This is the notation tools/diff_output.sh --escaped-values reads (its

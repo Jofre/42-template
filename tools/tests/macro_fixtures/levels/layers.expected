@@ -47,8 +47,9 @@ ex00_staged_exit diff_output.sh @robust cwd ran case by:defense
 ex00_staged_model model_check.sh @complete cwd by:defense
 ex00_staged_output diff_output.sh @basic cwd ran case by:defense
 ex00_staged_valgrind valgrind_test.sh @strict cwd ran case gated by:defense
-ex00_survive_asan asan_run.sh @robust ran gated by:defense
-ex00_survive_output diff_output.sh @basic survive ran case gated by:defense
+ex00_survive_asan asan_run.sh @robust ran gated gate-label:ex00_exact_output by:defense
+ex00_survive_output diff_output.sh @basic survive ran case gated gate-label:ex00_exact_output by:defense
+ex00_survive_program_allocfail allocfail_check.sh @robust ran by:defense
 ex00_survive_valgrind valgrind_test.sh @strict ran case by:defense
 ex00_toy_dat_issued issued_test.sh @basic by:defense
 ex00_twin tests/pass.sh @complete by:defense
@@ -70,7 +71,7 @@ ex03_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 sanitize gate
 ex03_files files_test.sh @basic by:defense
 ex03_ilp32 ilp32_test.sh @complete sanitize by:defense
 ex03_memcheck valgrind_test.sh @strict sanitize gated by:defense
-ex03_method method_check.sh @strict sanitize gated by:defense
+ex03_method method_check.sh @strict sanitize gated gate-label:ex03_output by:defense
 ex03_norm norminette_test.sh @basic by:defense
 ex03_norm_notice norminette_test.sh @strict by:defense
 ex03_open_output diff_output.sh @robust sanitize raised:robust by:defense

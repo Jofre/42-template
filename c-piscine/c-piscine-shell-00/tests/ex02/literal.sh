@@ -13,7 +13,7 @@
 # 42 grades that listing, or only the tree, the subject does not say -- which
 # is what puts this at strict and not at basic (docs/reference.md, "Run
 # contract").
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 TAR=${1:?the archive name, which each BUILD call passes}

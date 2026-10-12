@@ -2,9 +2,12 @@
     * perfect squares are right, others wrong -> the subject asks only about
                                  perfect squares; everything else has one
                                  answer, and it is stated
-    * 0 or 1 diverge          -> the loop that cannot run zero times, or a
-                                 search that starts past its own answer
+    * 0 or 1 diverge          -> each is its own square root: which values does
+                                 your code consider as the root, and are 0 and 1
+                                 among them?
     * every negative          -> no integer square root exists; the subject says
                                  what to return
-    * only very large squares -> the candidate squared overflows before the
-                                 candidate does
+    * only very large squares -> every answer here fits in an int: does
+                                 anything your code computes on the way to it
+                                 not fit? (What C promises about each type's
+                                 width: docs/testing.md, under ilp32.)

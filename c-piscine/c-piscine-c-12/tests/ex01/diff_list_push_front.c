@@ -1,7 +1,7 @@
 /* Live-differential reader harness for ft_list_push_front.
  * Line: <csv>\t<result-csv>. Pushes each int (in csv order, data =
  * (void*)(intptr_t)v) onto the front of an initially-empty list, then
- * serialises the resulting data sequence (== input reversed). */
+ * serialises the resulting data sequence, head first. */
 #include "ft_list.h"
 #include "diffio.h"
 #include <stdint.h>
@@ -71,8 +71,8 @@ int	main(void)
 	t_list	*begin;
 	t_list	**seen;
 
-	/* A line of any length (tools/diffio.h): the corpus holds lists and
-	 * trees of hundreds and thousands of nodes (finding 041). */
+	/* A line of any length (tools/diffio.h): the corpus holds lists of
+	 * hundreds and thousands of nodes (finding 041). */
 	line = NULL;
 	cap = 0;
 	while (dio_getline(&line, &cap))

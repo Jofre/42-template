@@ -4,7 +4,7 @@
  * have handled all required cases. Here is an example of a test that will be
  * performed: rush(123, 42);" -- so the defense runs it, and a wrong picture
  * there is a KO whatever else passed. The output table keeps its cases small
- * enough to read (200 cells at most, oracle/src/rush00.rs's FIXED), so this is
+ * enough to read (200 cells at most, in cases.tsv), so this is
  * the one larger size compared in full at basic (finding 141).
  *
  * It reads the REFERENCE's picture on stdin -- tests/ex00/defense_rush0N.txt,

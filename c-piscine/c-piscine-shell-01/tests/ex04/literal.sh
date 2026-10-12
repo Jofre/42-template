@@ -25,7 +25,7 @@
 # FAILED a correct answer at strict. Both questions are asked of the machine,
 # never of what the program printed, and before it runs; what every machine
 # can check comes first, as in check.sh.
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-MAC.sh}

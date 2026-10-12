@@ -26,8 +26,10 @@ borrowed tools yourself. The container is the easy path off campus because it
 also carries everything in [the second list](#what-the-docs-ask-you-to-run-by-hand),
 which no test needs and you will still want.
 
-If you are unsure: **if `ls /goinfre` succeeds you are on a campus box.** That is
-the same test `tools/setup.sh` and `//tools:env_drift` use.
+If you are unsure: **if `ls /goinfre` succeeds you are on a campus box.** The test
+the scripts use (`tools/drives.sh`, shared by `tools/setup.sh`, the `tools/bazel`
+wrapper, `42 init` and `//tools:env_drift`) is a little wider: `/sgoinfre` or
+`/nfs/homes` counts too, and `C_PISCINE_CAMPUS=0|1` overrides it.
 
 `setup.sh` itself needs `git`, a shell, one of python3/wget/curl to download
 with, and one of `sha256sum`/`shasum`/python3 to verify the download.
@@ -109,7 +111,7 @@ file. It:
    On a campus box that is the run that matters: it answers *have they upgraded
    anything?*
 
-Four things about it that are not guessable:
+Things about it that are not guessable:
 
 - **It is idempotent and sticky.** Re-running it does not relocate your cache: it
   reads the path already recorded in `.bazelrc.local` and keeps it. To move it on
@@ -122,7 +124,9 @@ Four things about it that are not guessable:
   checkout's own folder, so a second clone or a new worktree has none until you
   run `sh tools/setup.sh` there too. Without it the build still gets a per-user
   place (see below), but not the shared disk cache that lets the background
-  prime's work reach your build.
+  prime's work reach your build. The dev container is the exception: it never
+  runs `setup.sh`, and gives every checkout in it that disk cache from its own
+  `~/.bazelrc` instead ([Dev container](#dev-container), below).
 - **It writes your login shell's rc file even if that file does not exist yet**,
   detected from `getent passwd`. If your login shell is `fish` it says so and
   prints the lines to add by hand.
@@ -170,10 +174,11 @@ the root is decided in this order:
 
 `bazel info output_base` says which one applied: the root is the folder above
 it. One exception keeps
-anybody's state from moving: off campus, a `/tmp/bazelcache` that is already
-yours (where this repo used to send every checkout) is kept — by the wrapper,
-and by `setup.sh`, which then records no root of its own. Once that folder is
-gone, the wrapper moves to the usual place by itself.
+anybody's state from moving: off campus, a `/tmp/bazelcache` that is yours
+(where this repo used to send every checkout) is kept when it already holds
+this checkout's state and the usual place does not — by the wrapper, and by
+`setup.sh`, which then records no root of its own. Once that folder is gone,
+the wrapper moves to the usual place by itself.
 
 `setup.sh` and the wrapper choose the same way — `tools/drives.sh` holds the
 list — by **trying candidates in order** and checking each is genuinely
@@ -182,8 +187,9 @@ writable, not by testing for one path:
 1. `$C_PISCINE_SCRATCH` — you said so; nothing overrules it. An absolute path:
    `setup.sh` refuses a relative one, and the wrapper says it cannot use it.
 2. `/goinfre/$USER` — a 42 box: large, local, not quota'd.
-3. `$XDG_CACHE_HOME` or `~/.cache` — any other machine. It survives a reboot, so
-   the pinned downloads are fetched once rather than after every restart.
+3. `$XDG_CACHE_HOME/42-piscine` or `~/.cache/42-piscine` — any other machine. It
+   survives a reboot, so the pinned downloads are fetched once rather than after
+   every restart.
 4. `/tmp/$USER` — last resort, and per-user on purpose: `/tmp` is shared, and two
    people on one path fight over the same lock.
 
@@ -232,6 +238,30 @@ docker build -t 42env .devcontainer
 docker run -it --rm -v "$PWD":/workspaces/42 -w /workspaces/42 42env bash
 ```
 
+**What the container sets up when it is created.** VS Code and the
+`devcontainer` command line run `.devcontainer/postcreate.sh` once, after the
+container is built (plain `docker run` does not; run `sh
+.devcontainer/postcreate.sh` inside it yourself). It puts `42` on your `PATH`,
+and it gives Bazel a disk cache: two `build` lines in the container's own
+`~/.bazelrc`, the cache in the folder `setup.sh` would choose
+(`~/.cache/42-piscine/bazel-disk`) and capped at 4 GB. That is what lets a
+second output base, a worktree's or `bazel run //tools:prime`'s, reuse what
+your build already compiled. `setup.sh` writes the same lines into
+`.bazelrc.local`, but the container never runs it, and that file is the wrong
+place here: your checkout is shared with the host, so a path written into it
+would name the container's folders to a Bazel run on the host in the same
+checkout, and the other way round.
+
+- A `~/.bazelrc` you already have is kept: a line is added only when no line
+  there sets its flag, so running the script again changes nothing.
+- Bazel reads `~/.bazelrc` after a checkout's `.bazelrc.local`, so in the
+  container these lines win over a disk cache a `.bazelrc.local` names. To use
+  another, edit `~/.bazelrc`.
+- It sets no startup option: where Bazel keeps its state is still decided as
+  [above](#where-the-state-goes-and-why-not-all-in-one-place).
+- `~/.bazelrc` and the cache live in the container, and go when it is deleted
+  and created again.
+
 ---
 
 ## Keeping a small, memory-tight box usable
@@ -240,12 +270,13 @@ Everything here matters on a campus box and almost nowhere else.
 
 ### Disk: a small `$HOME`
 
-A full run of this repo is **measured at 8.9 GB**, and a 42 `$HOME` is usually
-capped at 5 GB with no sudo — so the build would die partway through with a disk
-error that never names the cause. `sh tools/setup.sh` handles this, and
-`tools/bazel` keeps a checkout without it off `$HOME` on campus; the manual form
-is a path of your own, with your login in it, in that checkout's
-`.bazelrc.local`:
+A full run of this repo takes **about as much room as a 42 `$HOME` has in
+all** — `DRIVES_FULL_GB` in `tools/drives.sh` is the measured figure, with its
+date — and that `$HOME` is usually capped at 5 GB with no sudo, so the build
+would die partway through with a disk error that never names the cause.
+`sh tools/setup.sh` handles this, and `tools/bazel` keeps a checkout without it
+off `$HOME` on campus; the manual form is a path of your own, with your login
+in it, in that checkout's `.bazelrc.local`:
 
 ```
 startup --output_user_root=/tmp/jdoe/bazel
@@ -281,6 +312,8 @@ at. `.bazelrc` already limits parallelism; that is the smaller half.
    ([testing.md](testing.md#working-on-one-thing-at-a-time)).
 2. **`bazel shutdown` when you stop.** The server stays up after every command,
    and by default leaves only after three idle hours (`--max_idle_secs`).
+   `42 config set bazel.idle_secs 1800` makes that half an hour, for every
+   server started after it.
 3. **Watch for orphaned servers.** Each output root gets its own, so changing
    `--output_user_root` leaves the previous one running — 3.5 GB across two,
    measured. List them and kill the stale one **by PID**;

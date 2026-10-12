@@ -18,6 +18,8 @@ subject(
     },
 )
 
+# no forbidden layer on ex00, ex03: NO-SURFACE.
+#
 # ex00 and ex03 carry no `probe`, and so have no `forbidden` layer, on purpose:
 # ft.h holds prototypes and ft_point.h a lone typedef, so neither has anything
 # that can be expanded into a call. There is no surface for the check to inspect

@@ -645,7 +645,19 @@ fn m_hexdump(prog: &str, args: &[String]) -> Run {
 }
 
 /// `oracle c10_run ...`: see THE MODEL above. Never returns.
-pub fn run_cmd(args: &[String]) -> ! {
+///
+/// An argument that is not UTF-8 has no answer here (exit 2): how the tools
+/// print such a name in their messages is in none of the transcripts the
+/// model was checked against.
+pub fn run_cmd(args: &[std::ffi::OsString]) -> ! {
+    let args: Vec<String> = match args.iter().map(|a| a.clone().into_string()).collect() {
+        Ok(v) => v,
+        Err(word) => {
+            eprintln!("oracle c10_run: an argument is not UTF-8, and the model has no answer for it: {:?}", word);
+            std::process::exit(2);
+        }
+    };
+    let args = &args[..];
     let (prog, rest) = if args.len() >= 2 && args[0] == "--prog" {
         (Some(args[1].clone()), &args[2..])
     } else {

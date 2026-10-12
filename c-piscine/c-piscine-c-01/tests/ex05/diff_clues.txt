@@ -3,7 +3,9 @@
                                           counted
     * the empty string diverges        -> a loop that cannot run zero times
     * a trailing byte appears          -> the terminator is being written out
-    * everything is right but ordered oddly -> writing more than one byte per
-                                          call and losing track of the index
+    * everything is right but ordered oddly -> every byte is written, in
+                                          another order: which bytes does each
+                                          call to write hand over, and in what
+                                          order do the calls happen?
     * only inputs holding a byte of 0x80 or more -> whether a comparison in
                                           your loop sees that char as negative

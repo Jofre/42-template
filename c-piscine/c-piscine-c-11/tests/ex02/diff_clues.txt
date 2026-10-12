@@ -4,6 +4,7 @@
                                  states it
     * arrays where NO element matches -> the value returned when the loop ends
                                  without finding anything
-    * it stops at the first element -> returning inside the loop on a
-                                 non-match rather than on a match
+    * it stops at the first element -> the answer depends on the first element
+                                 alone: does your code look past it before it
+                                 answers?
     * the answer is 1 and 0 swapped -> the subject fixes both values

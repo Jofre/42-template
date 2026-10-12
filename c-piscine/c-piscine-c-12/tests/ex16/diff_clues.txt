@@ -8,8 +8,8 @@
                                  what it looks at when it does
     * the element is inserted but the list ends there -> the link out of the new
                                  element; it goes somewhere, and it is not NULL
-    * one element is lost      -> the link INTO the new element is written
-                                 before the one out of it is read
+    * one element is lost      -> which one, and which link led to it before
+                                 the insertion?
     * equal values            -> the subject asks only that the list stay in
                                  ascending order, so either side of an equal
                                  element is correct; if only these diverge, look

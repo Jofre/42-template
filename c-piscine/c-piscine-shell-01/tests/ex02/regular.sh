@@ -18,7 +18,7 @@
 # comes from its shell_exercise call (wording = {"files": ...}), and the
 # check quotes it: a Reloaded student reads Reloaded's words, never Shell
 # 01's (ck_wording, tools/shell_check.sh).
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 D=${1:-find_sh.sh}

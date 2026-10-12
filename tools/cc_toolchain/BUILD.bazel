@@ -31,11 +31,11 @@ load(":provenance.bzl", "toolchain_provenance_test")
 # glibc, the crt objects, libgcc, and leaf libraries like zlib. Measured: with
 # driver and libraries both pinned, a compile still reads the box's glibc
 # headers, so they are declared below as builtin include directories -- which
-# is to say, stated. Pinning them means shipping a sysroot, and HISTORY.md §14
-# declines that for glibc with reasons. The Moulinette links against its box's
-# glibc too.
+# is to say, stated. Pinning them means shipping a sysroot, which is the wrong
+# trade: the check only needs the compiler's own build to match campus, and the
+# Moulinette links against its box's glibc too.
 #
-# THREE ATTEMPTS, AND WHAT THE FIRST TWO GOT WRONG (HISTORY.md §21):
+# THREE ATTEMPTS, AND WHAT THE FIRST TWO GOT WRONG:
 #
 #   1. rules_cc's unix config pointed straight at the fetched clang. It built,
 #      the failing set was identical, and every compile ran the box's
@@ -98,8 +98,7 @@ cc_toolchain_config(
         # search is what makes a bare -fuse-ld=bfd -- tools/defs.bzl's ASan
         # links and .bazelrc's Rust links both pass one, AFTER these flags, and
         # clang takes the last -- resolve to the pinned ld.bfd rather than to
-        # /usr/bin/ld.bfd. That was §21's refutation #3, closed without
-        # touching either call site.
+        # /usr/bin/ld.bfd, without touching either call site.
         "-Btools/cc_toolchain/",
         "-Wl,-no-as-needed",
         "-Wl,-z,relro,-z,now",
@@ -231,7 +230,7 @@ toolchain(
 #
 # Written against the loader's answer, never against which file was exec'd --
 # the previous design passed a first-exec check while every compile ran the
-# box's libraries (§21's refutation #4). See provenance.bzl.
+# box's libraries. See provenance.bzl.
 toolchain_provenance_test(
     name = "provenance_test",
     tags = lvl_tags("selftest"),

@@ -68,8 +68,8 @@ int	main(void)
 	t_list	*blk;
 	t_list	*begin;
 
-	/* A line of any length (tools/diffio.h): the corpus holds lists and
-	 * trees of hundreds and thousands of nodes (finding 041). */
+	/* A line of any length (tools/diffio.h): the corpus holds lists of
+	 * hundreds and thousands of nodes (finding 041). */
 	line = NULL;
 	cap = 0;
 	while (dio_getline(&line, &cap))

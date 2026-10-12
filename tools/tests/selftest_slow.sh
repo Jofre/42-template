@@ -3,11 +3,13 @@
 # too expensive to ask it of on every build.
 #
 # WHY IT IS SEPARATE.
-# selftest.sh is size = "small" and finishes in seconds, which is what makes it
-# something you run constantly. The runners here need valgrind (20-50x slower
-# than native, by design) or a Rust oracle build, and folding them into that
-# target would turn a two-second check into a minute-long one — at which point
-# people stop running it, and a self-test nobody runs protects nothing.
+# selftest.sh's arms are short processes (a compile, a run, a diff), and it is
+# sharded so that each run stays inside its timeout. The runners here cost more
+# per arm, and in what they pull in: valgrind runs the program at 20-50x native,
+# by design, zig's first compile into an empty cache takes seconds, and the
+# Shell 01 arms need //oracle's Rust build. Folding them in would put that cost
+# and those dependencies on every run of the check people run most, and a
+# self-test nobody runs protects nothing.
 #
 # WHY valgrind_test.sh IS THE ONE THAT MATTERED MOST.
 # It is the least redundant layer in the suite: the ONLY one that can see a
@@ -36,6 +38,11 @@ require() {
 	done
 }
 require awk basename cat chmod cp dirname env fold grep ln mkdir mktemp rm sed
+
+# A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
+# in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
+# none (tools/runner_lib.sh, "THE SCRATCH FOLDER").
+case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
 
 ANCHOR=""
 PERF_RUN=""
@@ -261,6 +268,22 @@ CG_PASS="$CG_PASS --cc $PCC$PCC_LIBS --cc-under $PCC --ld $LD --ld-lib $LD_LIB"
 
 printf 'selftest_slow: does each expensive layer still detect what it exists to detect?\n\n'
 
+# THE STAND-IN. When a student's code does not build, tools/student_build.sh
+# writes a stand-in that prints the compiler's words (tools/standin.sh), and
+# every layer here meets it: valgrind's arms and perf's read it. Written by the
+# builder itself, so an arm fails if either side's wording drifts, and before
+# the first section, so it is no section's fixture.
+mkdir -p "$WORK/standin"
+printf 'int\tbroken(void)\n{\n\treturn (0)\n}\n' > "$WORK/standin/broken.c"
+printf 'int\tmain(void)\n{\n\treturn (0);\n}\n' > "$WORK/standin/main.c"
+"$SH" "$TOOLS/student_build.sh" --cc "$CC" --out "$WORK/standin/prog" --label selftest \
+	--harness "$WORK/standin/main.c" --src "$WORK/standin/broken.c" > /dev/null 2>&1 &&
+	[ -f "$WORK/standin/prog" ] || {
+	echo "selftest_slow: tools/student_build.sh wrote no stand-in for a syntax error" >&2
+	exit 2
+}
+STANDIN_BIN="$WORK/standin/prog"
+
 # ---------------------------------------------------------------- valgrind
 printf '#include <stdlib.h>\nint main(void){void*p=malloc(64);free(p);return (0);}\n' \
 	> "$WORK/vg_clean.c"
@@ -334,20 +357,8 @@ want_broken "valgrind: a tools dir without memcheck refuses" \
 	"$SH" "$TOOLS/valgrind_test.sh" --valgrind "$VALGRIND" \
 		--valgrind-tools "$WORK/novg_path/sh" --bin "$WORK/vg_leak"
 
-# A program that never built is not a memory report. When a student's code does
-# not build, tools/student_build.sh writes a stand-in that prints the compiler's
-# words (tools/standin.sh); valgrind over it would report on /bin/sh. Written
-# by the builder itself, so the arm fails if either side's wording drifts.
-mkdir -p "$WORK/standin"
-printf 'int\tbroken(void)\n{\n\treturn (0)\n}\n' > "$WORK/standin/broken.c"
-printf 'int\tmain(void)\n{\n\treturn (0);\n}\n' > "$WORK/standin/main.c"
-"$SH" "$TOOLS/student_build.sh" --cc "$CC" --out "$WORK/standin/prog" --label selftest \
-	--harness "$WORK/standin/main.c" --src "$WORK/standin/broken.c" > /dev/null 2>&1 &&
-	[ -f "$WORK/standin/prog" ] || {
-	echo "selftest_slow: tools/student_build.sh wrote no stand-in for a syntax error" >&2
-	exit 2
-}
-STANDIN_BIN="$WORK/standin/prog"
+# A program that never built is not a memory report: valgrind over the
+# stand-in (STANDIN_BIN, above) would report on /bin/sh.
 want_red "valgrind: a stand-in is red, not a memory report" -- \
 	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$STANDIN_BIN"
 want_out "valgrind: ...says the code did not build" 'your code did not build' -- \
@@ -421,11 +432,13 @@ want_out   "valgrind: ...inside the test's own limit, and says so" \
 # 24 of the repo's 69 valgrind targets, every one of them the harness measuring
 # itself. vg_clean opens no file at all, so it is the guard against that
 # returning.
-# Only want_red/want_green/want_broken exist in this file -- want_out and
-# want_broken_none are selftest.sh's. Calling one here is not an error the shell
-# reports usefully: it is "not found", exit 127, swallowed, and the arm silently
-# does not run. Three of these arms were written that way and vanished; the
-# count went 17 to 19 instead of 17 to 22 and everything still said OK.
+# want_broken_none is selftest.sh's and does not exist here (want_none is this
+# file's counterpart), and when these arms were written want_out did not
+# either. Calling a helper the file does not define is not an error the shell
+# reports usefully: it is "not found", exit 127, swallowed, and the arm
+# silently does not run. Three of these arms were written against those two
+# and vanished; the count went 17 to 19 instead of 17 to 22 and everything
+# still said OK.
 #
 # Every property below is expressible as a STATUS anyway, which is the stronger
 # assertion of the two.
@@ -858,6 +871,104 @@ want_out   "corpus --valgrind --rule: ...quoting the subject's sentence once" 'l
 	mc_count fdnote 'Toy, p.1: "Free what you allocate."'
 want_none  "corpus --valgrind --rule: ...never calling the rule the harness's" \
 	'It is not a sentence' -- mc_seen fdnote
+# A DESCRIPTOR LEFT OPEN ON A SCRATCH FILE is named by the name the case keeps
+# it under. bsq_check.sh hands the program a scratch copy of each map, and
+# memcheck's stanza said "Open file descriptor 3: <TMPDIR>/tmp.XXXX/map", a
+# file gone when the test ends, right below the lines that keep the map as
+# case-N.map and replay it under that name; two cases named the same file.
+# A toy that opens every map it is given and never closes one, over a corpus
+# of four invented maps, two of them one at a time, then two runs of two,
+# each kept in a test.outputs folder of its own: a name is shown only for a
+# map that was kept.
+cat > "$WORK/mc/mapopen.c" <<'MC_MAPOPEN'
+#include <fcntl.h>
+#include <unistd.h>
+int main(int ac, char **av)
+{
+	int	i;
+
+	i = 1;
+	while (i < ac)
+		open(av[i++], O_RDONLY);
+	write(1, "map error\n", 10);
+	return (0);
+}
+MC_MAPOPEN
+"$CC" -w -g -O0 -o "$WORK/mc/mapopen" "$WORK/mc/mapopen.c" 2> /dev/null
+# The corpus holds what bsq_check.sh's floors ask of one: a map whose answer
+# differs from it, one with no square at all, and an invalid one.
+{
+	printf '#!/bin/sh\ncat <<%sEOF%s\n' "'" "'"
+	printf 'ok\t1\t0\t0\t2.ox\\n..\\n.o\\n\tx.\\n.o\\n\n'
+	printf 'ok\t0\t-1\t-1\t2.ox\\noo\\noo\\n\too\\noo\\n\n'
+	printf 'err:chars_repeat\t-1\t-1\t-1\t2.oo\\n..\\n..\\n\tmap error\\n\n'
+	printf 'ok\t1\t0\t0\t2.ox\\n.o\\n..\\n\txo\\n..\\n\n'
+	printf 'EOF\n'
+} > "$WORK/mc/bsq_oracle.sh"
+chmod +x "$WORK/mc/bsq_oracle.sh"
+# shellcheck disable=SC2086 # VG_PASS and _bg are several words, split on purpose
+for _bm in argv multi; do
+	_bg=""
+	[ "$_bm" = argv ] || _bg="--group 2"
+	env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/mc/out" TEST_TARGET=//mod:ex00_bsq_valgrind \
+		"$SH" "$TOOLS/bsq_check.sh" --bin "$WORK/mc/mapopen" --oracle "$WORK/mc/bsq_oracle.sh" \
+		--fixed 4 --mode "$_bm" $_bg $VG_PASS --sample 2 > "$WORK/mc/mapopen_$_bm.out" 2>&1
+	echo "$?" > "$WORK/mc/mapopen_$_bm.rc"
+done
+want_red   "bsq --valgrind: a map left open is red" -- mc_seen mapopen_argv
+want_out   "bsq --valgrind: ...its descriptor named as the map is kept" \
+	': case-4.map' -- mc_seen mapopen_argv
+want_out   "bsq --valgrind: ...saying the name was replaced" \
+	'shown by the name it is kept under: case-4.map)' -- mc_seen mapopen_argv
+want_out   "bsq --valgrind: ...in multi mode, each map of the run by its own" \
+	'shown by the name it is kept under: run-2-1.map, run-2-2.map)' -- mc_seen mapopen_multi
+# ...and so in the other two runners that hand the program a scratch copy,
+# the same toy opening whatever it is given. file_check.sh writes each file
+# of a case to a scratch folder and keeps it as case-N-fileK; its corpus
+# holds what its floors ask of one (an empty file, a NUL, a file over 4096
+# bytes, twenty cases), and two files a case past the third. rush02_check.sh
+# writes a case's generated dictionary (a line of three fields) to a scratch
+# file and keeps it as case-N.dict. Each passed its own --as and had no arm.
+_mc_big=$(awk 'BEGIN { s = ""; while (length(s) < 5000) s = s "abcdefghij"; print s }')
+{
+	printf '#!/bin/sh\ncat <<%sEOF%s\n' "'" "'"
+	printf 'file\t0\t1\t\t\n'
+	printf 'file\t0\t1\ta\\0000b\ta\\0000b\n'
+	printf 'file\t0\t1\t%s\t%s\n' "$_mc_big" "$_mc_big"
+	_i=0
+	while [ "$_i" -lt 20 ]; do
+		printf 'file\t0\t2\tline%s\\n\tx\\n\tline%s\\nx\\n\n' "$_i" "$_i"
+		_i=$((_i + 1))
+	done
+	printf 'EOF\n'
+} > "$WORK/mc/fc_oracle.sh"
+{
+	printf '#!/bin/sh\ncat <<%sEOF%s\n' "'" "'"
+	_i=0
+	while [ "$_i" -lt 30 ]; do printf '0: zero\\n\t%s\tn%s\n' "$_i" "$_i"; _i=$((_i + 1)); done
+	printf 'EOF\n'
+} > "$WORK/mc/r2gen_oracle.sh"
+chmod +x "$WORK/mc/fc_oracle.sh" "$WORK/mc/r2gen_oracle.sh"
+# shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
+env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/mc/out" TEST_TARGET=//mod:ex00_file_valgrind \
+	"$SH" "$TOOLS/file_check.sh" --bin "$WORK/mc/mapopen" --oracle "$WORK/mc/fc_oracle.sh" \
+	--fn fixture $VG_PASS --sample 2 > "$WORK/mc/mapopen_fc.out" 2>&1
+echo "$?" > "$WORK/mc/mapopen_fc.rc"
+# shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
+env TEST_UNDECLARED_OUTPUTS_DIR="$WORK/mc/out" TEST_TARGET=//mod:ex00_valgrind \
+	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/mc/mapopen" --dict "$WORK/mc/dict.txt" \
+	--oracle "$WORK/mc/r2gen_oracle.sh" $VG_PASS --sample 2 > "$WORK/mc/mapopen_r2.out" 2>&1
+echo "$?" > "$WORK/mc/mapopen_r2.rc"
+want_red   "file_check --valgrind: a file left open is red" -- mc_seen mapopen_fc
+want_out   "file_check --valgrind: ...its descriptor named as the file is kept" \
+	': case-23-file1' -- mc_seen mapopen_fc
+want_out   "file_check --valgrind: ...saying the names were replaced" \
+	'shown by the name it is kept under: case-23-file0, case-23-file1)' -- mc_seen mapopen_fc
+want_red   "rush02 --valgrind: a generated dictionary left open is red" -- mc_seen mapopen_r2
+want_out   "rush02 --valgrind: ...its descriptor named as the dictionary is kept" \
+	': case-30.dict' -- mc_seen mapopen_r2
+want_out   "rush02 --valgrind: ...saying the name was replaced" \
+	'shown by the name it is kept under: case-30.dict)' -- mc_seen mapopen_r2
 # A CASE THE TEST'S OWN LIMIT CUT SHORT is not one memcheck judged. The ASan
 # replay stops as a budget there (rl_sweep_ran); under memcheck the cut case
 # was one more failure, and the stop said "each of the first 2 of 4 cases
@@ -990,6 +1101,14 @@ pf_run() {  # pf_run BIN [extra args...]
 		--oracle-fn f --count 16000 --label "selftest-$_bin" "$@"
 }
 
+# A gate given in part is refused, as every runner that takes one refuses it
+# (tools/runner_lib.sh, rl_gate_whole): it failed open on a missing piece,
+# so the option was dropped in silence and the run went on ungated.
+want_broken "perf: --gate-stdin with no gate refuses" 'a gate needs' -- \
+	pf_run lin --gate-stdin "$WORK/pf/oracle.sh"
+want_broken "perf: ...as does a gate with no --gate-differ" 'a gate needs' -- \
+	pf_run lin --gate-bin "$WORK/pf/lin" --gate-expected "$WORK/pf/oracle.sh"
+
 if [ -n "$PERF_RUN" ] && [ -x "$PERF_RUN" ]; then
 	want_green "perf: linear growth passes a n^1.5 gate" -- \
 		pf_run lin --gate-exponent 1.5
@@ -1060,6 +1179,7 @@ if [ -n "$PERF_RUN" ] && [ -x "$PERF_RUN" ]; then
 	# it is reported, never gated: a gate of 1.5 on the case count leaves this
 	# quadratic-in-length toy green. A harness that finds a wrong result at a
 	# length exits 3, and that length is reported, not timed.
+	# conventions: writes a program that runs awk -- the length oracle below
 	cat > "$WORK/pf/len_oracle.sh" <<'PF_LEN'
 #!/bin/sh
 # $1 fn, $2 seed, $3 cases[, $4 length] -- with a length, <cases> lines of
@@ -1188,6 +1308,25 @@ CPU_SPIN
 # arms that need time given back would be red on that machine alone.
 if command -v taskset > /dev/null 2>&1 && [ -x "$WORK/cpu_spin" ] && taskset -c 0 true 2> /dev/null &&
 	[ -r /proc/self/schedstat ]; then
+	# Its toys are its own, beside perf's and the corpus's rather than in
+	# them: perf's toy oracle, and the corpus's oracle and dictionary,
+	# written again.
+	mkdir -p "$WORK/bm"
+	cat > "$WORK/bm/pf_oracle.sh" <<'BM_PF_ORACLE'
+#!/bin/sh
+# $1 fn, $2 seed, $3 count -- emit <count> corpus lines.
+n=$3; i=0
+while [ "$i" -lt "$n" ]; do printf '%s\t%s\n' "$i" "$i"; i=$((i + 1)); done
+BM_PF_ORACLE
+	{
+		printf '#!/bin/sh\ncat <<%sEOF%s\n' "'" "'"
+		_i=0
+		while [ "$_i" -lt 30 ]; do printf '%s\tn%s\n' "$_i" "$_i"; _i=$((_i + 1)); done
+		printf 'EOF\n'
+	} > "$WORK/bm/mc_oracle.sh"
+	chmod +x "$WORK/bm/pf_oracle.sh" "$WORK/bm/mc_oracle.sh"
+	printf '0: zero\n' > "$WORK/bm/dict.txt"
+	bm_seen() { cat "$WORK/bm/$1.out"; return "$(cat "$WORK/bm/$1.rc")"; }
 	_busy=""
 	for _b in 1 2 3; do
 		taskset -c 0 sh -c 'while :; do :; done' &
@@ -1229,19 +1368,19 @@ if command -v taskset > /dev/null 2>&1 && [ -x "$WORK/cpu_spin" ] && taskset -c 
 	# 8 is less than the test has left, so only the ceiling (what is left,
 	# about 15s of wall time) can stop it before its own 8s are spent.
 	printf '#include <stdio.h>\nint main(void)\n{\n\tchar b[256];\n\tlong n = 0;\n\tvolatile long x = 0;\n\n\twhile (fgets(b, sizeof b, stdin))\n\t{\n\t\tfputs(b, stdout);\n\t\tn++;\n\t}\n\twhile (n > 150)\n\t\tx++;\n\treturn (0);\n}\n' \
-		> "$WORK/pf/spin150.c"
-	"$CC" -O0 -o "$WORK/pf/spin150" "$WORK/pf/spin150.c" 2> /dev/null
+		> "$WORK/bm/spin150.c"
+	"$CC" -O0 -o "$WORK/bm/spin150" "$WORK/bm/spin150.c" 2> /dev/null
 	pf_ceiling() {  # the floor run of a toy that spins, on the busy CPU, stopped by the ceiling
 		taskset -c 0 env -u NO_SKIP TEST_TIMEOUT=18 RL_MARGIN=1 PERF_TIMEOUT=8 \
-			"$SH" "$TOOLS/perf_test.sh" --runner "$PERF_RUN" --student-bin "$WORK/pf/spin150" \
-			--oracle "$WORK/pf/oracle.sh" --oracle-fn f --count 16000 \
+			"$SH" "$TOOLS/perf_test.sh" --runner "$PERF_RUN" --student-bin "$WORK/bm/spin150" \
+			--oracle "$WORK/bm/pf_oracle.sh" --oracle-fn f --count 16000 \
 			--gate-count 100 --label selftest-spin150
 	}
-	pf_ceiling > "$WORK/pf/ceiling.out" 2>&1
+	pf_ceiling > "$WORK/bm/pf_ceiling.out" 2>&1
 	want_out   "perf: a run the ceiling stopped is reported as the test's time" \
-		'what was left of' -- cat "$WORK/pf/ceiling.out"
+		'what was left of' -- cat "$WORK/bm/pf_ceiling.out"
 	want_none  "perf: ...never as PERF_TIMEOUT, which it did not use" \
-		'(PERF_TIMEOUT)' -- cat "$WORK/pf/ceiling.out"
+		'(PERF_TIMEOUT)' -- cat "$WORK/bm/pf_ceiling.out"
 	# A MEMCHECK CASE THE CEILING STOPPED (V33). The case's own cap
 	# (RUSH02_TIMEOUT, 10 s) is below what the test has left when the case
 	# begins, so the runner does not clamp it; on this CPU the run's queue
@@ -1251,7 +1390,7 @@ if command -v taskset > /dev/null 2>&1 && [ -x "$WORK/cpu_spin" ] && taskset -c 
 	# failure, and the stop said each of the first cases "ended within its
 	# own limit", one of them judged wrong. A converter that spins on case
 	# 15, the second of the sample, under a test limit of 30 s.
-	cat > "$WORK/mc/spin.c" <<'MC_SPIN'
+	cat > "$WORK/bm/spin.c" <<'MC_SPIN'
 #include <stdio.h>
 #include <string.h>
 int main(int ac, char **av)
@@ -1268,19 +1407,19 @@ int main(int ac, char **av)
 	return (0);
 }
 MC_SPIN
-	"$CC" -w -g -O0 -o "$WORK/mc/spin" "$WORK/mc/spin.c" 2> /dev/null
+	"$CC" -w -g -O0 -o "$WORK/bm/spin" "$WORK/bm/spin.c" 2> /dev/null
 	# shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
 	taskset -c 0 env -u RL_DEADLINE -u RL_BUDGET TEST_TIMEOUT=30 RL_MARGIN=1 \
-		"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/mc/spin" --dict "$WORK/mc/dict.txt" \
-		--oracle "$WORK/mc/oracle.sh" $VG_PASS --sample 4 > "$WORK/mc/ceiling.out" 2>&1
-	echo "$?" > "$WORK/mc/ceiling.rc"
-	want_red   "corpus --valgrind: on a busy CPU, a case the ceiling stopped is red" -- mc_seen ceiling
+		"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/bm/spin" --dict "$WORK/bm/dict.txt" \
+		--oracle "$WORK/bm/mc_oracle.sh" $VG_PASS --sample 4 > "$WORK/bm/mc_ceiling.out" 2>&1
+	echo "$?" > "$WORK/bm/mc_ceiling.rc"
+	want_red   "corpus --valgrind: on a busy CPU, a case the ceiling stopped is red" -- bm_seen mc_ceiling
 	want_out   "corpus --valgrind: ...shown as the one running when the time ran out" \
-		'the one running when the time ran out' -- mc_seen ceiling
+		'the one running when the time ran out' -- bm_seen mc_ceiling
 	want_out   "corpus --valgrind: ...marked as not finished, not as memcheck's" \
-		'case 15 of 30  [timeout]' -- mc_seen ceiling
+		'case 15 of 30  [timeout]' -- bm_seen mc_ceiling
 	want_none  "corpus --valgrind: ...and never as a case judged wrong" \
-		'judged wrong before that' -- mc_seen ceiling
+		'judged wrong before that' -- bm_seen mc_ceiling
 	# shellcheck disable=SC2086 # the busy loops' pids, one word each
 	kill $_busy 2> /dev/null
 	wait 2> /dev/null
@@ -1992,7 +2131,7 @@ if [ -n "$ZIG" ] && [ -x "$ZIG" ] && [ -n "$PCC" ] && [ -x "$PCC" ]; then
 
 	# CODE THAT ONLY WARNS: *_output's program is a stand-in (-Werror), and
 	# this layer once rebuilt the files with -w, passed its gate, ran them and
-	# said "The ordinary 64-bit build passes these cases" (TODO.md's V1).
+	# said "The ordinary 64-bit build passes these cases" (V1).
 	want_out   "ilp32: unforced, code that does not build as *_output's skips" \
 		"your code does not build as a 64-bit program" -- \
 		i32_x 0 warns warns_harness.c expected.txt warns.c
@@ -2072,7 +2211,7 @@ fi
 # names it fails and the program is otherwise right (finding 033). ex07's
 # reference only judges, so its green is the module's own run on real
 # answers. What each reference computes is checked by its own tables
-# (oracle/src/shell01.rs, `oracle check`).
+# (`oracle check`).
 ROOT=$(cd "$TOOLS/.." && pwd)
 S01=$ROOT/c-piscine/c-piscine-shell-01/tests
 if [ -n "$ORACLE" ] && [ -x "$ORACLE" ] && [ -n "$REDIRECT_LIB" ] && [ -f "$REDIRECT_LIB" ]; then
@@ -2086,6 +2225,7 @@ if [ -n "$ORACLE" ] && [ -x "$ORACLE" ] && [ -n "$REDIRECT_LIB" ] && [ -f "$REDI
 			"printf '%s\\n' 'printf \"%b\" \"$2\"' > $1" "chmod +x $1" > "$WORK/s01/gen-$1"
 	}
 	# gen_prog NAME LINE...: a generator whose program is the LINEs.
+	# conventions: writes a program that runs fold -- the folded sums of shell-01 ex08 below
 	gen_prog() {
 		_gp=$1
 		shift

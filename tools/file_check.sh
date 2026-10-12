@@ -284,7 +284,11 @@ classify() {  # classify EXPECTED GOT (after rl_sweep_ran)
 # show_input ARG... -- a failing case's command line: each flag byte-exact
 # (rl_vis), each file by its size, the files kept in test.outputs as
 # case-N-fileK, and the command that runs the case again on them.
+# KEPT_FILES lists the K of each file kept, a blank either side of each:
+# none, run by hand outside bazel test, where there is nowhere to keep one.
+KEPT_FILES=" "
 show_input() {
+	KEPT_FILES=" "
 	printf '    flags:   '
 	for _a in "$@"; do
 		case "$_a" in
@@ -305,6 +309,7 @@ show_input() {
 			"$WORK"/*)
 				_k="case-$CASENO-file${_a#"$WORK"/f}"
 				if rl_save "$_a" "$_k"; then
+					KEPT_FILES="$KEPT_FILES${_a#"$WORK"/f} "
 					_kept=${RL_SAVED%/*}
 					_replay="$_replay $_k"
 				else
@@ -315,6 +320,26 @@ show_input() {
 	done
 	[ -z "$_kept" ] || printf '    kept in: %s/\n' "$_kept"
 	printf '    replay:  ./a.out%s\n' "$_replay"
+}
+
+# mem_report ARG... -- rl_mem_report for the case run on ARG...: a report
+# that names a file by the scratch path it was given (memcheck's open
+# descriptors) shows it by the name show_input keeps it under, which the
+# replay line above uses. Only a file show_input kept (KEPT_FILES): the
+# name of one it could not keep is a file that exists nowhere.
+mem_report() {
+	_mrn=$#
+	for _mra in "$@"; do
+		case "$_mra" in
+			"$WORK"/*)
+				case "$KEPT_FILES" in
+					*" ${_mra#"$WORK"/f} "*)
+						set -- "$@" --as "$_mra" "case-$CASENO-file${_mra#"$WORK"/f}" ;;
+				esac ;;
+		esac
+	done
+	shift "$_mrn"
+	rl_mem_report "$@"
 }
 
 CASENO=0
@@ -359,7 +384,7 @@ while IFS= read -r line; do
 		{
 			printf '\n  case %d  [%s]  %s\n' "$CASENO" "$tag" "$RL_MEM_KIND"
 			show_input "$@"
-			rl_mem_report
+			mem_report "$@"
 		} > "$WORK/block"
 		rl_block "$WORK/block" >> "$WORK/report"
 		continue
@@ -413,7 +438,17 @@ while IFS= read -r line; do
 		show_input "$@"
 		printf '    expected: %s bytes\n' "$(wc -c < "$WORK/want")"
 		printf '    got:      %s bytes\n' "$(wc -c < "$WORK/got")"
-		if cmp -s "$WORK/want" "$WORK/got"; then
+		if [ "$RL_CAUSE" = timeout ]; then
+			# It did not finish: what it had printed by then is shown, and
+			# never compared -- no first difference, and no "identical"
+			# either, of bytes it might have gone on writing (V85).
+			printf '    (it %s)\n' "$RL_WHY"
+			if [ -s "$WORK/got" ]; then
+				printf '    what it had printed when it was stopped:\n'
+				rl_excerpt "$WORK/got" 3 "printed-case-$CASENO.txt" "      "
+			fi
+			printf '    not judged: a run that did not finish was not seen to its end\n'
+		elif cmp -s "$WORK/want" "$WORK/got"; then
 			printf '    the output is byte-identical to the reference\n'
 		else
 			# The first differing BYTE rather than a text diff: these outputs
@@ -422,7 +457,7 @@ while IFS= read -r line; do
 			# one byte rendering every runner uses (runner_lib.sh).
 			rl_diff_window "$WORK/want" "$WORK/got" "    "
 		fi
-		[ "$ended" = 0 ] || printf '    (it %s)\n' "$RL_WHY"
+		[ "$ended" = 0 ] || [ "$RL_CAUSE" = timeout ] || printf '    (it %s)\n' "$RL_WHY"
 		# What it wrote to stderr: the fault itself under --stderr-empty,
 		# and otherwise often the explanation of the difference above.
 		if [ -s "$WORK/err" ]; then
@@ -477,34 +512,52 @@ if [ -n "$RL_STOP" ]; then
 	# The cases judged wrong before the sweep stopped, not counting the one
 	# the time ran out in (counted in $FAILED, but cut short, not wrong): a verdict,
 	# which keeps the report from reading as "ran out of time" alone. Nor any
-	# that ran out of its own limit (RL_HANGS, in $FAILED too): not judged
-	# (ruling R4), and rl_sweep_stopped names them apart (V84).
-	_wrong=$((FAILED - RL_HANGS))
-	[ "$RL_STOP" != budget ] || _wrong=$((_wrong - 1))
-	rl_sweep_stopped "$CHECKED" "$CASES" "$_wrong"
+	# that ran out of its own limit (both in RL_DNF, and in $FAILED too): not
+	# judged (ruling R4), and rl_sweep_stopped names them apart (V84).
+	rl_sweep_stopped "$CHECKED" "$CASES" "$((FAILED - RL_DNF))"
 	# Out of time with nothing wrong so far: said as that, not as "0 differ".
 	if [ "$FAILED" -eq 0 ]; then
 		echo "  None of the $CHECKED case(s) that ran differed from the reference."
 		exit 1
 	fi
 fi
-if [ "$NOISY_ONLY" -eq 0 ]; then
-	echo "file_check: FAIL — $FAILED of $CHECKED cases differ from the reference."
-elif [ "$NOISY_ONLY" -eq "$FAILED" ]; then
+# A run that did not finish (RL_DNF, in $FAILED too) is said apart, and
+# never as a case that differs: it was not seen to its end (V85).
+WRONG=$((FAILED - RL_DNF))
+_differ=$((WRONG - NOISY_ONLY))
+rl_dnf_said "$CASE_TMO"
+_and=${RL_DNF_SAID:+, and $RL_DNF_SAID}
+if [ "$WRONG" -eq 0 ]; then
+	echo "file_check: FAIL — $((CHECKED - FAILED)) of $CHECKED cases agree with the reference$_and."
+elif [ "$NOISY_ONLY" -eq 0 ]; then
+	echo "file_check: FAIL — $WRONG of $CHECKED cases differ from the reference$_and."
+elif [ "$_differ" -eq 0 ] && [ "$RL_DNF" -eq 0 ]; then
 	echo "file_check: FAIL — $FAILED of $CHECKED cases wrote to standard error; their output was right."
+elif [ "$_differ" -eq 0 ]; then
+	echo "file_check: FAIL — $FAILED of $CHECKED cases: $NOISY_ONLY had the right output and wrote to standard error$_and."
+elif [ "$RL_DNF" -eq 0 ]; then
+	echo "file_check: FAIL — $FAILED of $CHECKED cases: $_differ differ from the reference, and $NOISY_ONLY more had the right output and wrote to standard error."
 else
-	echo "file_check: FAIL — $FAILED of $CHECKED cases: $((FAILED - NOISY_ONLY)) differ from the reference, and $NOISY_ONLY more had the right output and wrote to standard error."
+	echo "file_check: FAIL — $FAILED of $CHECKED cases: $_differ differ from the reference, $NOISY_ONLY more had the right output and wrote to standard error$_and."
 fi
+rl_dnf_note "$WRONG"
 cat "$WORK/report"
 rl_tally
 echo ""
 echo "  by kind:"
 LC_ALL=C sort "$WORK/faults" | uniq -c | sort -rn | sed 's/^/    /'
 rl_stderr_note
-echo ""
-echo "  A truncation of exactly one buffer's worth is a read loop that runs"
-echo "  once; a truncation at the first NUL is a buffer treated as a string."
+# A hint about the bytes, so only under a report with a case whose bytes
+# differ: never where the only red is a run that did not finish, whose bytes
+# were never compared (V85), or a case with the right bytes that wrote to
+# standard error (--stderr-empty), which has no truncation to explain.
+if [ "$_differ" -gt 0 ]; then
+	echo ""
+	echo "  A truncation of exactly one buffer's worth is a read loop that runs"
+	echo "  once; a truncation at the first NUL is a buffer treated as a string."
+fi
 if grep -q '^wrote-to-stderr$' "$WORK/faults"; then
+	[ "$_differ" -gt 0 ] || echo ""
 	echo "  Every file in this corpus exists and can be read: what would a"
 	echo "  message about one of them be reporting?"
 fi

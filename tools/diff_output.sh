@@ -112,6 +112,11 @@
 #                            (review of WP-52). NAME is that case's target, for
 #                            the SKIP line. A gate that cannot answer (exit 2)
 #                            runs the case anyway; NO_SKIP=1 runs it always.
+#   --gate-bin PATH          the program the gate case runs, default --bin's.
+#                            With it, a case with an expected output may wait
+#                            too: for another program's case, one that links
+#                            the same code with a table and hints attached,
+#                            which this case would only repeat while it is red.
 #   --stream stdout|stderr   which stream to compare (default: stdout)
 #   --stdin PATH             feed this file to the program's stdin
 #   --argv-file PATH         more arguments, one per line of PATH, after the
@@ -156,7 +161,7 @@
 #                            expected value is checked to be in the notation
 #                            before anything runs: a backslash that starts none
 #                            of its marks is a harness error (exit 2). See
-#                            HARNESS-ESCAPED VALUES below.
+#                            HARNESS-ESCAPED VALUES above.
 #   --clues PATH             a clues.tsv of pedagogic hints (concept groups). When
 #                            a test fails, fired hints are shown below the table.
 #   --harness-fixture        the binary is the harness's own test program,
@@ -280,6 +285,7 @@ SURVIVE=0
 ABSENT=""
 GATE_EXPECTED=""
 GATE_LABEL=""
+GATE_BIN=""
 # The gate case's arguments, each one shell-quoted (rl_shword), for an eval
 # that rebuilds them as one list: a variable holds no list, and an argument
 # may hold a blank, a newline or any byte.
@@ -308,6 +314,7 @@ $2"; shift 2 ;;
 $2"; shift 2 ;;
 		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
 		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
+		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
 		--gate-arg) need "$1" "$#"; GATE_ARGV="$GATE_ARGV $(printf '%s' "$2" | rl_shword)"; shift 2 ;;
 		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; shift 2 ;;
 		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
@@ -357,13 +364,14 @@ if [ -n "$ALTS" ] && [ -z "$EXPECTED" ]; then
 	echo "diff_output.sh: --expected-alt is another output besides --expected" >&2
 	exit 2
 fi
-if [ -n "$GATE_EXPECTED$GATE_ARGV$GATE_PASS$GATE_LABEL" ] && [ "$SURVIVE" -eq 0 ]; then
+if [ -n "$GATE_EXPECTED$GATE_ARGV$GATE_PASS$GATE_LABEL" ] && [ "$SURVIVE" -eq 0 ] && [ -z "$GATE_BIN" ]; then
 	echo "diff_output.sh: --gate-* gate a survive case on another case; a case with an" >&2
-	echo "               expected output is judged on it, and needs no gate" >&2
+	echo "               expected output is judged on it, and needs no gate on its own" >&2
+	echo "               program (--gate-bin names another program's case it waits for)" >&2
 	exit 2
 fi
-if [ -n "$GATE_ARGV$GATE_PASS$GATE_LABEL" ] && [ -z "$GATE_EXPECTED" ]; then
-	echo "diff_output.sh: --gate-arg, --gate-label, --gate-stream, --gate-stdin," >&2
+if [ -n "$GATE_ARGV$GATE_PASS$GATE_LABEL$GATE_BIN" ] && [ -z "$GATE_EXPECTED" ]; then
+	echo "diff_output.sh: --gate-arg, --gate-bin, --gate-label, --gate-stream, --gate-stdin," >&2
 	echo "               --gate-sanitize and --gate-labeled describe the case --gate-expected names" >&2
 	exit 2
 fi
@@ -506,6 +514,9 @@ standin_check diff_output "$BIN" fail "the program"
 # (review of WP-52). So while the exercise's own case is red this case SKIPs,
 # as the memory layers do (valgrind_test.sh's gate, whose rules this keeps):
 # skip on 1; on 2 or more, the gate could not answer, so say so and run.
+# A case with an expected output waits the same way for another program's
+# case (--gate-bin), one that runs the same code with a table and hints
+# attached: while that one is red, this one only repeats it.
 # conventions: harness tool SELF -- this runner, as a survive case's gate, which keeps this test's budget (RL_DEADLINE)
 SELF=$0
 [ -n "$GATE_LABEL" ] || GATE_LABEL="this exercise's own case"
@@ -516,7 +527,7 @@ if [ -n "$GATE_EXPECTED" ] && [ "${NO_SKIP:-0}" != "1" ]; then
 		eval "set -- $GATE_ARGV"
 		rl_split_on
 		# shellcheck disable=SC2086
-		sh "$SELF" --bin "$BIN" --expected "$GATE_EXPECTED" $GATE_PASS -- "$@"
+		sh "$SELF" --bin "${GATE_BIN:-$BIN}" --expected "$GATE_EXPECTED" $GATE_PASS -- "$@"
 	) > /dev/null 2>&1
 	_gate_rc=$?
 	if [ "$_gate_rc" -ge 2 ]; then
@@ -525,9 +536,15 @@ if [ -n "$GATE_EXPECTED" ] && [ "${NO_SKIP:-0}" != "1" ]; then
 	elif [ "$_gate_rc" -eq 1 ]; then
 		echo " SKIP — $GATE_LABEL is not passing yet."
 		echo ""
-		echo "  This case only asks that the program ends by itself, and a program"
-		echo "  that does nothing yet does that: green here would say nothing. Get"
-		echo "  that case green and this one starts checking."
+		if [ "$SURVIVE" -eq 1 ]; then
+			echo "  This case only asks that the program ends by itself, and a program"
+			echo "  that does nothing yet does that: green here would say nothing. Get"
+			echo "  that case green and this one starts checking."
+		else
+			echo "  That case runs the same code, with a table and hints attached, and"
+			echo "  while it is red this one fails for the same reason, with less to go"
+			echo "  on. Get that case green and this one starts checking."
+		fi
 		echo ""
 		echo "  (NO_SKIP=1 runs a waiting layer anyway:"
 		echo "   $(rl_noskip_cmd))"
@@ -802,21 +819,25 @@ explain_ending() {
 # Whose rule an expected exit status is, in the student's terms.
 explain_exit_source() {
 	if [ "$EXIT_SOURCE" = subject ]; then
+		# conventions: the call site's --exit-source -- subject, the default: the status is one its subject names
 		echo "              The subject names this status, so it is part of the verdict"
 		echo "              at every level."
 		[ -z "$EXIT_QUOTE" ] || echo "              It says: \"$EXIT_QUOTE\""
 	elif [ "$EXIT_SOURCE" = reading ]; then
+		# conventions: the call site's --exit-source -- a reading: the case quotes a sentence at strict
 		echo "              The subject gives no number for it. That a sentence of it asks"
 		echo "              for this one is this harness's reading, never the subject's,"
 		echo "              checked at strict and never at basic (docs/reference.md,"
 		echo "              \"Run contract\")."
 		[ -z "$EXIT_QUOTE" ] || echo "              The sentence: \"$EXIT_QUOTE\""
 	elif [ "$EXPECT_EXIT" = 0 ]; then
+		# conventions: the call site's --exit-source -- the case quotes no sentence for its status
 		echo "              The subject gives no number for it. Returning 0 from a run"
 		echo "              that did its job is the C convention (EXIT_SUCCESS), which"
 		echo "              this repo checks at robust: the rule is this repo's, not the"
 		echo "              subject's (docs/reference.md, \"Run contract\")."
 	else
+		# conventions: the call site's --exit-source -- the case quotes no sentence for its status
 		echo "              The subject gives no number for it. Expecting $EXPECT_EXIT is this"
 		echo "              repo's rule, checked above basic, not the subject's"
 		echo "              (docs/reference.md, \"Run contract\")."
@@ -861,6 +882,7 @@ fi
 if [ "$SURVIVE" -eq 1 ]; then
 	if [ "$ENDED" != returned ]; then
 		explain_ending
+		# conventions: the call site's --survive -- a case it marks as one whose output its subject leaves open
 		echo "        This case compares no output: what the subject leaves open"
 		echo "        here is what to print, and every reading of it agrees that the"
 		echo "        program ends by itself, in time. Not ending that way is a"
@@ -890,6 +912,7 @@ if [ "$SURVIVE" -eq 1 ]; then
 		exit 1
 	fi
 	echo " SURVIVED: the program ended by itself, with exit status $RC."
+	# conventions: the call site's --survive -- a case it marks as one whose output its subject leaves open
 	echo "           This case compares no output -- the subject leaves open"
 	echo "           what to print here -- only that the run ends, killed by no"
 	echo "           signal, in time, without runaway output."
@@ -901,8 +924,9 @@ if [ "$SURVIVE" -eq 1 ]; then
 		exit 1
 	fi
 	if [ -n "$NOTE_EXIT" ] && [ -z "$EXPECT_EXIT" ] && [ "$RC" != "$NOTE_EXIT" ]; then
-		echo " note: the subject names no exit status, so this layer does not fail"
-		echo "       on $RC; the robust exit-status check expects $NOTE_EXIT."
+		echo " note: no sentence this harness quotes from your subject names an exit"
+		echo "       status, so this layer does not fail on $RC;"
+		echo "       the robust exit-status check expects $NOTE_EXIT."
 	fi
 	exit 0
 fi
@@ -1105,7 +1129,7 @@ if [ "$SANITIZE" -eq 1 ] && [ -f "$ACTUAL.pinned" ]; then
 	echo "       buffer. A wrong one keeps the value you printed, marked '(not the"
 	echo "       address the test passed)'; A-F in it is marked '(UPPERCASE)'. So do"
 	echo "       NOT print the numbers you see here: print the real address of each"
-	echo "       line's first byte, as the subject asks."
+	echo "       line's first byte, which is what each row is compared with."
 elif [ "$SANITIZE" -eq 1 ]; then
 	echo " NOTE: the OS randomises where your memory lives (ASLR), so the address"
 	echo "       column below is NOT compared literally — neither column shows the"
@@ -1637,8 +1661,9 @@ elif [ "$EXIT_BAD" -eq 1 ]; then
 	explain_exit_source
 elif [ -n "$NOTE_EXIT" ] && [ -z "$EXPECT_EXIT" ] && [ "$RC" != "$NOTE_EXIT" ]; then
 	echo " --------------------------------------------------"
-	echo " note: the program returned exit status $RC. The subject names no exit"
-	echo "       status, so this layer does not fail on it; the robust exit-status"
+	echo " note: the program returned exit status $RC. No sentence this harness"
+	echo "       quotes from your subject names an exit status, so this layer does"
+	echo "       not fail on it; the robust exit-status"
 	if [ "$NOTE_EXIT" = 0 ]; then
 		echo "       check does, because a program that did its job conventionally"
 		echo "       returns 0 from main."

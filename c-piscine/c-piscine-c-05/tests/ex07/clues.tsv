@@ -2,6 +2,6 @@
 # Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
 # Lines are shown most-fundamental first; the first line doubles as the "foothold".
 Read "next" carefully: is the search inclusive or strictly greater? When nb is already prime, must you move past it or can you return nb itself? Where does your scan start?	nb is 2 (already prime)	nb is 3 (already prime)	nb is 13 (already prime)	nb is 97 (already prime)
-When nb is not prime, how do you reach the next one? You need a primality test you trust — could you reuse the same is-prime logic from the earlier exercise and just advance the candidate until it passes?	nb is 4 (next is 5)	nb is 14 (next after 13)	nb is 20
+4 is not prime. Which number does the subject's rule give for it, and which does yours? Does yours pass the primality test of ex06?	nb is 4 (next is 5)	nb is 14 (next after 13)	nb is 20
 What is the smallest number that counts as prime? For any nb below that floor, what single value should every one of these collapse to?	nb below 2: zero	nb below 2: one	nb negative
-For a candidate near the top of the int range, look hard at your loop bound itself, not just at nb. If you decide when to stop by squaring the divisor, is that product still representable? What other quantity could you compare the divisor against to ask the same question without ever building a value that big?	big prime 2147483629	INT_MAX is prime
+This input sits near the top of the int range, and its answer fits in an int. Does anything your code computes on the way to it grow past what its type holds on some platform? (What C promises about the width of each type: docs/testing.md, under ilp32.)	big prime 2147483629	INT_MAX is prime

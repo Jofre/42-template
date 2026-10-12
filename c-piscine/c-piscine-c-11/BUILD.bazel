@@ -96,7 +96,16 @@ c_mem_check(num = "04", fn = "ft_is_sort", probe = "mem_is_sort.c")
 # do-op is what its Makefile builds once it compiles anything, and its
 # folder's sources until then: C 10's BUILD file says why (makefile =
 # "once_written").
-c_program(num = "05", name = "do_op", makefile = "once_written", cases = [
+#
+# THE EXPECTED FILES ARE HELD TO //oracle's do-op (reference = True):
+# ex05_reference_cases runs every case below with `oracle run do-op` in the
+# program's place, so a file edited by hand, or a case whose arguments
+# changed without its file, fails on any tree, a stub's included. The
+# reference gives no answer where the subject leaves the run open, and no
+# case here holds an expected file to such a run: the two survive cases
+# below compare no output, and reference_cases fails any other case that
+# makes one.
+c_program(num = "05", name = "do-op", makefile = "once_written", reference = True, cases = [
     {"name": "add", "args": ["42", "+", "21"], "expected": "add.txt", "clues": "clues.tsv"},
     {"name": "sub", "args": ["42amis", "-", "--+-20toto12"], "expected": "sub.txt", "clues": "clues.tsv"},
     {"name": "mul", "args": ["3", "*", "4"], "expected": "mul.txt", "clues": "clues.tsv"},

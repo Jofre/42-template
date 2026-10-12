@@ -1260,13 +1260,13 @@ pub fn check() -> usize {
 /// trying to read. `sink` exists only so the optimiser cannot delete the call.
 ///
 /// Both paragraphs above describe the corpus-replay arms, which is all of them
-/// bar one. `c05_ten_queens` reads no stdin and DOES print, deliberately: it
-/// has no corpus, and its consumer is the cost comparison rather than the perf
-/// layer, where the student's own printing is unavoidable work that a silent
-/// reference would exclude from its own count while the student still paid for
-/// it. See the ten-queens section above before tidying that arm into silence —
-/// it would not be a cleanup, it would put a thumb on the scale. (The same
-/// caveat applies to the blanket wording on `dispatch_bench` in main.rs.)
+/// bar the zero-input ones (c00's printers among them). `c05_ten_queens` reads
+/// no stdin and DOES print, deliberately: it has no corpus, and its consumer is
+/// the cost comparison rather than the perf layer, where the student's own
+/// printing is unavoidable work that a silent reference would exclude from its
+/// own count while the student still paid for it. See the ten-queens section
+/// above before tidying that arm into silence — it would not be a cleanup, it
+/// would put a thumb on the scale.
 pub fn bench(name: &str) -> bool {
     let one = |f: fn(i32) -> i32| {
         let mut acc: i64 = 0;
@@ -1292,7 +1292,6 @@ pub fn bench(name: &str) -> bool {
     match name {
         "c05_iter_factorial" | "c05_rec_factorial" => one(o_factorial),
         "c05_iter_power" | "c05_rec_power" => two(o_power),
-        "c05_fibonacci" => one(o_fibonacci),
         "c05_sqrt" => one(o_sqrt),
         "c05_is_prime" => one(o_is_prime),
         "c05_find_next_prime" => one(o_find_next_prime),

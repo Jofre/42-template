@@ -11,8 +11,8 @@
  * exactly one line, a wrong row count breaks only its own row of the table.
  *
  * The case list and the expected files are generated together, by
- * tests/ex00/regen.sh, out of one source of truth: `const FIXED` in
- * oracle/src/rush00.rs. Neither is hand-edited. */
+ * tests/ex00/regen.sh, out of one source of truth: the curated list that
+ * `oracle rush00_fixtures` writes. Neither is hand-edited. */
 #include "diffio.h"
 #include "rush_capture.h"
 

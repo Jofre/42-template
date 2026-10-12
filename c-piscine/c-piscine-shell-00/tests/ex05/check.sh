@@ -11,7 +11,7 @@
 # No execute-bit check: that example runs the script through bash, which needs
 # none, and the bit is required only where a subject runs the file as ./name
 # (docs/reference.md, "Run contract").
-# shellcheck source=../../../../tools/shell_check.sh
+# shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
 case "${1:-}" in

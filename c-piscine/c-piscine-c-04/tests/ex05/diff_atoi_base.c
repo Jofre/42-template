@@ -7,12 +7,18 @@ int	ft_atoi_base(char *str, char *base);
 
 int	main(void)
 {
-	char			line[8192];
+	char			*line;
+	size_t			linecap;
 	char			*f[3];
 	unsigned char	*s;
 	unsigned char	*base;
 
-	while (dio_line(line, sizeof(line)))
+	/* A line of any length (tools/diffio.h, dio_getline): the corpus holds
+	 * strings and bases past 4 KiB (finding 041), past what a line buffer
+	 * holds. */
+	line = NULL;
+	linecap = 0;
+	while (dio_getline(&line, &linecap))
 	{
 		if (dio_split(line, f, 3) < 2)
 			continue ;
@@ -22,5 +28,6 @@ int	main(void)
 		free(s);
 		free(base);
 	}
+	free(line);
 	return (0);
 }
