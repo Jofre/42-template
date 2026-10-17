@@ -1,0 +1,13 @@
+3 x 4	12 bytes, every one 0
+1 x 7	7 bytes, every one 0
+0 x 5 (nmemb 0)	a pointer, not NULL
+5 x 0 (size 0)	a pointer, not NULL
+0 x 0	a pointer, not NULL
+0 x 5, 5 x 0 and 0 x 0: three different pointers	yes
+0 x 5, 5 x 0 and 0 x 0: each passed to free()	done
+(SIZE_MAX / 2 + 2) x 2 (more than SIZE_MAX)	NULL
+SIZE_MAX x SIZE_MAX	NULL
+h x h, h = 2^(half the bits of size_t), so h x h = SIZE_MAX + 1	NULL
+1 x 5000 (past 4096)	5000 bytes, every one 0
+5000 x 1 (past 4096)	5000 bytes, every one 0
+4097 x 3 (past 4096)	12291 bytes, every one 0

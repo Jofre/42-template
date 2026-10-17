@@ -1,0 +1,21 @@
+"42" in "Hello, 42 world" (len 15)	big+7
+"42" (len 9: it ends on the last byte searched)	big+7
+"42" (len 8: len cuts it)	NULL
+"world" (len 15)	big+10
+"world" (len 14: len cuts it)	NULL
+"" (len 0)	big+0
+"" (len 15)	big+0
+"o" (len 4: the first 'o' is byte 4)	NULL
+"o" (len 5)	big+4
+"Hello" (len 0)	NULL
+"Hello, 42 world!!" (longer than big, len 100)	NULL
+"xyz" (absent, len 15)	NULL
+"world" (len SIZE_MAX)	big+10
+"c" in "abc" (len 10, past its NUL)	big+2
+"abcd" in "abc" (len 10)	NULL
+"aaab" in "aaaab" (len 5)	big+1
+"Bar" in "Foo Bar Baz" (len 4, the man page's example)	NULL
+"Bar" in "Foo Bar Baz" (len 7)	big+4
+byte 0xe9 in 'a' 0xe9 (len 2)	big+1
+"a#" ending at byte 4999 of 5000 (len 5000)	big+4998
+"a#" ending at byte 4999 of 5000 (len 4999)	NULL

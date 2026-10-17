@@ -1,0 +1,18 @@
+  The buffer, up to its first NUL, then the return. They fail independently.
+  The buffer is filled with ff bytes past the old terminator, so ff bytes at
+  the end of the result are a terminator that was never written.
+  Its page: man 3bsd strlcat (none installed? man.openbsd.org/strlcpy.3).
+    * the return column alone            -> what the page says is
+                                            returned: the length it TRIED to
+                                            create
+    * size at most the destination's length -> the case where nothing can be
+                                            appended, which the return still
+                                            has to describe
+    * size 0 diverges                    -> whether anything may be written
+    * truncated results end in ff        -> the guarantee the page makes about
+                                            the terminator
+    * off by one at the boundary         -> the byte kept for the terminator
+    * only long strings                  -> what the types holding your
+                                            lengths can count to
+    * only inputs holding a byte of 0x80 or more -> whether a test in your
+                                            code sees that char as negative

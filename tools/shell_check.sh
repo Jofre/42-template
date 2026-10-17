@@ -11,7 +11,7 @@
 #     ck_run "$raw" sh "$D"                                     # the ONE way to run a turn-in
 #     ck     "prints something"        test -s "$raw"           # PASS if cmd exits 0
 #     ck_eq  "member size (bytes)"     "$got" "40"              # compares; shows want/got
-#     ck_report                                                  # prints RESULT, exits 0/1
+#     ck_report                                                  # prints RESULT, exits 0/1 (2: wiring)
 #
 # A turn-in is never run any other way than through ck_run: it keeps the
 # script's stderr and exit status and shows them when they say something, and
@@ -30,19 +30,23 @@ _CK_REPORTED=0
 
 # A check.sh that forgets its final ck_report prints [FAIL] lines to the log and
 # then exits with whatever its LAST command happened to return -- usually 0. The
-# log says FAIL, Bazel says PASSED, and nothing reconciles them. All 17 live
-# check scripts do call ck_report, so this is latent rather than broken; adding
-# the eighteenth is all it would take, and the cost of noticing late is a
+# log says FAIL, Bazel says PASSED, and nothing reconciles them. Every live
+# check script calls ck_report, so this is latent rather than broken; one more
+# that forgets is all it would take, and the cost of noticing late is a
 # student's Moulinette result.
 #
 # shell_test.sh runs the check script with `sh "$CHECK"`, a separate shell, so
 # this trap belongs to the check script alone and cannot touch the runner.
 #
-# It never turns a red into a green: a non-zero status is passed through
-# untouched, and only an unreported exit 0 is converted. The trap returns rather
-# than exiting on the normal path, which leaves ck_report's own status intact.
+# An unreported end is always exit 2, as ck_broken's and ck_report's own
+# "registered no checks": whatever status the last command left, 0, 1 or 127,
+# says nothing about the turn-in, so it is the harness's fault and never a
+# verdict. It was 1 (that status passed through, or a 0 made 1), and a 1 is
+# a verdict: shell_test.sh printed the exercise's hints under it (V301, and
+# clue_if_red's V278). 2 is still red, so this never turns a red green. The
+# trap returns rather than exiting on the normal path, which leaves
+# ck_report's own status intact.
 _ck_exit_guard() {
-	_ck_rc=$?
 	if [ "$_CK_REPORTED" = 1 ]; then
 		return
 	fi
@@ -53,10 +57,8 @@ _ck_exit_guard() {
 	printf '  whatever command happened to run last, not from them. Without\n'
 	printf '  ck_report this test can print [FAIL] and still be reported as\n'
 	printf '  passing. Add ck_report as the final line of the check script.\n'
-	if [ "$_ck_rc" -ne 0 ]; then
-		exit "$_ck_rc"
-	fi
-	exit 1
+	printf '  RESULT: nothing was judged (exit 2: the harness failed, not the turn-in)\n'
+	exit 2
 }
 trap _ck_exit_guard EXIT
 
@@ -579,6 +581,7 @@ ck_redirected() {
 _CK_DETAILS=0
 ck_detail() {
 	_ck_subs=""
+	# conventions: test scratch -- a check script under shell_test.sh sources this, in TEST_TMPDIR
 	_ck_d=$(mktemp) || return 0
 	printf '%s\n' "$@" > "$_ck_d"
 	_CK_DETAILS=$((_CK_DETAILS + 1))
@@ -621,6 +624,7 @@ ck_sh_parses() {
 	printf '  [FAIL] %s parses under /bin/sh (sh -n)\n' "$_ck_n"
 	_ck_subs="$1	$_ck_n
 "
+	# conventions: test scratch -- a check script under shell_test.sh sources this, in TEST_TMPDIR
 	_ck_pf=$(mktemp) || { echo "shell_check.sh: cannot create a scratch file" >&2; exit 2; }
 	printf '%s\n' "$_ck_msg" > "$_ck_pf"
 	_ck_excerpt "$_ck_pf" "parse-$_CK_N-stderr.txt"

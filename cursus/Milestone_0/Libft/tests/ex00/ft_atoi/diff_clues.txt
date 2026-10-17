@@ -1,0 +1,14 @@
+  The string, then the int returned for it. Decode the hex to read the
+  string: 20 is a space, 09-0d the other isspace bytes, 2b '+', 2d '-'.
+    * strings opening on blank bytes   -> which bytes isspace(3) calls white
+                                          space in the C locale
+    * strings with more than one sign  -> man 3 strtol: "a single optional
+                                          '+' or '-' sign"
+    * strings with bytes after the digits -> where the conversion stops
+    * only the int limits              -> whether every value formed on the
+                                          way fits in an int
+    * only long strings                -> whether anything in your function
+                                          counts what it skips
+    * only inputs holding a byte of 0x80 or more -> whether such a byte is
+                                          white space, a sign or a digit; is
+                                          it any of them?

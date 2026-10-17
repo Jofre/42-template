@@ -1,0 +1,15 @@
+  Each line is src (hex), n, dest before the call (hex), dest after the call
+  (hex), and 1 when the call returned the dest it was handed. src and dest
+  are two separate blocks.
+    * only the last column diverges   -> what does memcpy return (man memcpy,
+                                         RETURN VALUE)?
+    * dest stops short after a 00 byte of src -> what decides when your
+                                         function stops: n, or a byte it finds?
+    * bytes past the first n of dest diverge -> how many bytes does your
+                                         function write?
+    * only sources holding a byte of 0x80 or more -> does any test in your
+                                         function depend on the value of a byte
+                                         it copies, and how wide is what it
+                                         reads and writes through?
+    * only blocks past 4096 bytes     -> does anything in your function depend
+                                         on n being small?

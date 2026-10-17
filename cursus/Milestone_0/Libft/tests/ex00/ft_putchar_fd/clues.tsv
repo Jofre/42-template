@@ -1,0 +1,7 @@
+# clues.tsv for ft_putchar_fd -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+write(2) takes a file descriptor, an address and a count. Which descriptor does your call hand it, the one your function was given or another, and how many bytes does it ask for, for one character?	'a'	'Z'	a backslash	a line break
+Is a NUL written like any other character, or does something in your code treat it differently? Compare the row of the NUL byte with the others.	a NUL byte
+A char can hold the byte 0xff: what value does a plain char holding it have on this machine, and does anything your code does with c change the byte that reaches the file?	0x7f	0x80	0xff
+The last row calls your function 256 times, once for each value a char holds. Does every call write exactly one byte, the one it was given, whatever came before it?	all 256 values, 0x00 to 0xff, one call each

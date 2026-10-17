@@ -1,0 +1,41 @@
+deliverable_files files_test.sh @basic by:both
+ex00_asan asan_check.sh @robust by:both
+ex00_compile_clang compile_check.sh @basic by:both
+ex00_compile_gcc compile_check.sh @basic by:both
+ex00_files files_test.sh @basic by:both
+ex00_forbidden forbidden_symbols.sh @basic by:both
+ex00_ilp32 ilp32_test.sh @complete by:both
+ex00_norm norminette_test.sh @basic by:both
+ex00_norm_notice norminette_test.sh @strict by:both
+ex00_output diff_output.sh @basic by:both
+ex00_probe_memcheck valgrind_test.sh @basic access:memory_graded_access by:both
+ex00_prototype prototype_check.sh @basic by:both
+ex00_symbols symbols_test.sh @strict by:both
+ex00_valgrind valgrind_test.sh @basic rule:memory_graded_leaks access:memory_graded_access by:both
+ex01_compile_clang compile_check.sh @basic by:both
+ex01_compile_gcc compile_check.sh @basic by:both
+ex01_files files_test.sh @basic by:both
+ex01_forbidden forbidden_symbols.sh @basic by:both
+ex01_ilp32 ilp32_test.sh @complete by:both
+ex01_memcheck valgrind_test.sh @basic access:memory_graded_access by:both
+ex01_norm norminette_test.sh @basic by:both
+ex01_norm_notice norminette_test.sh @strict by:both
+ex01_output diff_output.sh @basic by:both
+ex01_prototype prototype_check.sh @basic by:both
+ex01_symbols symbols_test.sh @strict by:both
+ex02_argv_diff argv_check.sh @strict by:both
+ex02_argv_diff_asan argv_check.sh @robust by:both
+ex02_argv_valgrind argv_check.sh @basic rule:memory_graded_leaks access:memory_graded_access by:both
+ex02_compile_clang compile_check.sh @basic by:both
+ex02_compile_gcc compile_check.sh @basic by:both
+ex02_files files_test.sh @basic by:both
+ex02_norm norminette_test.sh @basic by:both
+ex02_norm_notice norminette_test.sh @strict by:both
+ex02_open_asan asan_run.sh @robust by:both
+ex02_open_exit diff_output.sh @robust by:both
+ex02_open_output diff_output.sh @strict raised:strict by:both
+ex02_open_valgrind valgrind_test.sh @strict rule:memory_graded_leaks access:memory_graded_access raised:strict by:both
+ex02_run_asan asan_run.sh @robust by:both
+ex02_run_exit diff_output.sh @robust by:both
+ex02_run_output diff_output.sh @basic by:both
+ex02_run_valgrind valgrind_test.sh @basic rule:memory_graded_leaks access:memory_graded_access by:both

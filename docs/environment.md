@@ -17,9 +17,9 @@ table is only about what it still takes from the machine underneath, which
 
 | You are on… | You install | It borrows from the box |
 |---|---|---|
-| **A 42 campus machine** | nothing but `sh tools/setup.sh` | the short list below — the box has all of it |
+| **A 42 campus machine** | nothing but `sh tools/setup.sh` | the list below — the box has all of it |
 | **Your own Mac / Windows / Linux, with Docker** — the easy path | **Docker**, plus VS Code + *Dev Containers* or the `@devcontainers/cli` | the same list, supplied by the container image |
-| **Your own Linux, no Docker** | `perl`, a `cc` and the `en_US.UTF-8` locale; then `sh tools/setup.sh` | the same list, from your distro |
+| **Your own Linux, no Docker** (proven on Ubuntu 22.04 and the dev container) | `perl`, `build-essential` (the C library's headers, `libgcc` and the libraries the fetched gcc loads: [below](#what-the-harness-borrows-from-the-box)), `libedit2`, `libffi8` and `libtinfo6` (libraries the fetched clang loads, which `build-essential` does not bring), the `en_US.UTF-8` locale (`42 doctor` checks for it) and ld.so's debug symbols (`libc6-dbg` on Debian/Ubuntu); then `sh tools/setup.sh` | the same list, from your distro |
 
 Rows 1 and 3 are the same path and differ only in whether you had to install the
 borrowed tools yourself. The container is the easy path off campus because it
@@ -41,8 +41,8 @@ through Bazel is compiled by the `clang-12` and `gcc-10` it fetches
 (`MODULE.bazel`, `//tools/cc_toolchain`). Every layer that compiles or links
 at test time is handed that compiler (`--cc`) and the binutils 2.38 linker
 (`--ld`), and proves before its first compile that it loaded them rather than
-the box's -- `asan`, `allocfail`, `cycles` and `refcost` too, which used to
-take a compiler from the box.
+the box's -- `asan`, `allocfail`, `cycles`, `refcost` and a Makefile's
+`build` layers too, which used to take theirs from the box.
 `valgrind`, `make`, `nm`, `diff` and `llvm-symbolizer` (which turns a
 sanitizer report's frames into files and lines) are pinned `.deb`s Bazel
 fetches too, and the layers that use them run the fetched copy rather than the
@@ -53,14 +53,85 @@ box's. That is what `tools/pins.tsv`'s `fetched-as` column records and what
   shell is held to portable usage rather than pinned);
 - `perl`, which runs `callgrind_annotate`, the script the `cycles` layer reads
   its counts with;
-- the `en_US.UTF-8` locale, which `.bazelrc` sets for every test;
-- a `cc`, and the `ar` beside it: a Makefile exercise's `build` layers run
-  your Makefile with the pinned `make`, and its recipes run the compiler and
-  archiver they name from your `PATH`, as they would at your prompt. No other
-  layer takes one from the box: every level of
-  `//c-piscine/c-piscine-c-07` passes on a `PATH` holding no compiler,
-  assembler or linker at all (measured), and the toolchain Bazel would
-  otherwise detect from the box is never fetched.
+- the `en_US.UTF-8` locale, which `.bazelrc` sets for every test and
+  `42 doctor` looks for. Ubuntu installs it with `sudo locale-gen
+  en_US.UTF-8`; Debian, once `en_US.UTF-8 UTF-8` is uncommented in
+  `/etc/locale.gen`, with `sudo locale-gen`; Fedora with `sudo dnf install
+  glibc-langpack-en`;
+- the box's own `ld.so` and its debug symbols (`libc6-dbg` on Debian and
+  Ubuntu, `glibc-debuginfo` on Fedora and SuSE). Every program a test builds
+  runs on the box's `ld.so` (`/lib64/ld-linux-x86-64.so.2`: the pinned
+  compiler has no sysroot), and the fetched valgrind's memcheck cannot start
+  a program without the name of a function inside it, which a stripped
+  `ld.so` leaves to those symbols. They must match that exact `ld.so` build,
+  so they come from the box and are not fetched. The container and the
+  campus machines have them through the `valgrind` package each installs;
+  without them every memcheck run stops at its own startup ("Fatal error at
+  startup"): the `valgrind` layer, each `_memcheck` and `_probe_memcheck`
+  target and each corpus sample under `_valgrind` say so and exit 2 instead
+  of reporting on code that never ran. The `cycles` layer (`_cycles`,
+  `_refcost`) runs valgrind's callgrind, which does not need them;
+- the shell piscine's tools: the shell exercises run on this machine's own
+  `find`, `tar`, `git`, `file` and the rest, and so do several of their
+  checks. `tools/pins.tsv` records campus's version of each, observed rather
+  than pinned;
+- the shared libraries the fetched programs load that no fetched package
+  carries. A program names each library it needs, and the loader takes the
+  ones the fetch does not bring from the box: on a box without one, that
+  program cannot start at all, whatever a layer asked of it.
+  `//tools/tests:fetched_needed` reads the names out of the fetched
+  `clang-12`, `llvm-symbolizer`, `gcc-10`, binutils, `valgrind`, `make`,
+  `diff`, the `python3` norminette and the harness's Python tools run on
+  and the `rustc` that builds the oracle, and out of every library of
+  their own those load, and holds this list to them both ways:
+
+  <!-- fetched_needed: every backquoted soname from here to the end marker is one the fetched programs load from the box -->
+  - what any Linux with glibc has: `libc.so.6`, `libm.so.6` and
+    `ld-linux-x86-64.so.2`, the C library itself, and `libpthread.so.0`,
+    `libdl.so.2`, `librt.so.1` and `libutil.so.1`, which come with it and
+    which `python3` and `rustc` load;
+  - what a release may lack, each with the Ubuntu 22.04 package that brings
+    it: `libstdc++.so.6` (`libstdc++6`), which clang, `llvm-symbolizer` and
+    their libraries load, and `libgcc_s.so.1` (`libgcc-s1`), which they,
+    the `gold` linker and `rustc`'s libraries load; `libz.so.1` (`zlib1g`),
+    which clang's and `rustc`'s libLLVM, binutils and gcc's `cc1` load;
+    `libtinfo.so.6` (`libtinfo6`), `libedit.so.2` (`libedit2`) and
+    `libffi.so.8` (`libffi8`), which clang's libLLVM loads, and with it
+    `clang-12` and `llvm-symbolizer`; `liblzma.so.5`
+    (`liblzma5`), which the libxml2 fetched beside libLLVM loads; and
+    `libisl.so.23` (`libisl23`), `libmpc.so.3` (`libmpc3`), `libmpfr.so.6`
+    (`libmpfr6`), `libgmp.so.10` (`libgmp10`) and `libzstd.so.1`
+    (`libzstd1`), which `cc1` loads.
+  <!-- end fetched_needed -->
+
+  And what those load in turn, which the test does not read, because it
+  depends on the release: on Ubuntu 22.04, `libedit2` brings `libbsd0` and
+  `libmd0`. Installing a package by the name above brings those with it,
+  and `build-essential` brings every package named above but `libtinfo6`,
+  `libedit2` and `libffi8`;
+- the C library's headers and start files (`libc6-dev`), and the start files
+  and `libgcc` of a gcc installed on the box (`libgcc-11-dev` on Ubuntu
+  22.04), which the fetched clang finds there. `build-essential` brings all
+  of them. Neither fetched compiler comes with a C library (no sysroot), so
+  every program a layer builds, and every Makefile's, compiles and links
+  against the box's; and a program a Makefile's `gcc` builds with
+  `-fsanitize=` loads that sanitizer's runtime from the box when it runs
+  (`libasan6` and its siblings, which `libgcc-11-dev` brings), as it does
+  on campus.
+
+A Makefile exercise's `build` layers run your Makefile with the pinned `make`,
+and the `cc`, `clang`, `clang-12`, `gcc`, `gcc-10`, `c89`, `c99`, `ar`,
+`ranlib`, `as` and `ld` its recipes name are the fetched ones, which the layer
+puts first on the `PATH` its recipes run with: `cc`, `clang` and `clang-12`
+are campus's clang-12, `gcc` and `gcc-10` its gcc-10, and `c89` and `c99`
+that gcc as Ubuntu's own `c89` and `c99` run it. Any other name or path a
+recipe runs (`gcc-11`, `/usr/bin/cc`, `c++`) is the box's, and so is what a
+Makefile that puts a folder of its own ahead of them finds there, as on
+campus. No other layer runs a compiler, an assembler, an archiver or a linker
+from the box: every level of `//c-piscine/c-piscine-c-07` passes on a `PATH`
+holding no compiler, assembler or linker at all, and every `build` layer gives
+the same verdict there as on the box's `PATH` (both measured); the toolchain
+Bazel would otherwise detect from the box is never fetched.
 
 ### What the docs ask you to run by hand
 
@@ -79,9 +150,9 @@ Ubuntu 22.04's, the campus release:
 | `valgrind` | its memory chapter | `sudo apt install valgrind` |
 | `gcc-10`, `clang-12` | compiling by hand under both campus compilers (on campus, `cc` is `clang-12` and `gcc` is `gcc-10`) | `sudo apt install gcc-10 clang-12` |
 | `nm`, `ar` | reading a program's symbols, building a library by hand | `sudo apt install binutils` |
-| `norminette` | the Norm, at your prompt | `pip3 install --user norminette==3.3.58`, the version `tools/pins.tsv` pins: another version can mean other rules, and a `norm` log prints the `bazel run //tools:norminette -- …` command that runs the pinned copy |
+| `norminette` | the Norm, at your prompt | `pip3 install --user norminette==3.3.58`, the version `tools/pins.tsv` pins: another version can mean other rules, and a `norm` log prints the `42 norm … -- -R …` command that runs the pinned copy |
 | `pypdf` | reading a subject in a terminal: the dev container has no PDF viewer, so it carries this, and `python3 -c 'import sys,pypdf; print("\n".join(p.extract_text() for p in pypdf.PdfReader(sys.argv[1]).pages))' <project>/en.subject.pdf` prints one | nothing, where you have a PDF viewer; otherwise `pip3 install --user pypdf==6.14.2`, the version the image pins |
-| `man 3bsd strlcpy` | C 02 ex10's and C 03 ex05's manual page, one page for `strlcpy` and `strlcat`. glibc 2.35 has neither function, so the page ships only in `libbsd-dev` | `sudo apt install libbsd-dev`, for the page: never `#include <bsd/string.h>` or link `-lbsd`, which a campus box need not have. The dev container carries the two pages and nothing else of the package. With no page installed, read [man.openbsd.org's strlcpy page](https://man.openbsd.org/strlcpy.3) |
+| `man 3bsd strlcpy` | C 02 ex10's and C 03 ex05's manual page, one page for `strlcpy` and `strlcat`, and Libft's with `man 3bsd strnstr`. glibc 2.35 has none of the three functions, so the pages ship only in `libbsd-dev`. Name the section: a bare `man strlcpy` or `man strlcat` can open another library's page instead (avr-libc's `avr_string(3avr)` on one campus box) | `sudo apt install libbsd-dev`, for the page: never `#include <bsd/string.h>` or link `-lbsd`, which a campus box need not have. The dev container carries the three pages and nothing else of the package. With no page installed, read man.openbsd.org's [strlcpy page](https://man.openbsd.org/strlcpy.3) and [strnstr page](https://man.openbsd.org/strnstr) (OpenBSD has it only in its kernel manual, section 9, with the same contract) |
 
 ---
 
@@ -138,15 +209,15 @@ Things about it that are not guessable:
   there, and open a new terminal. `bazel run //tools:prime` does it on demand.
 - **Every prime writes down what the machine did while it ran**, the one at
   login and `bazel run //tools:prime` alike: memory, swap, the disk queue and
-  each Bazel server's memory, every few seconds, into a small file under
-  `~/.local/state/42-piscine/prime-traces/`, in a folder named after the
-  machine, since your home folder follows you between machines (the five
-  newest of each machine are kept). It is
-  there for a box that freezes while it primes, because it is written as it
-  goes: after a reset it still holds the seconds before. A login prime that
-  stopped that way — no end, and the machine restarted since — is not
-  started again by itself; it says so when you open a terminal, and
-  `bazel run //tools:prime` lifts it.
+  each Bazel server's memory, every few seconds, and when each of its steps
+  began, into a small file under `~/.local/state/42-piscine/prime-traces/`, in
+  a folder named after the machine, since your home folder may follow you
+  between machines (on campus that is not confirmed yet). The five newest of
+  each machine are kept. A trace is there for a box that freezes while it
+  primes, because it is written as it goes: after a reset it still holds the
+  seconds before. A login prime that stopped that way — no end, and the
+  machine restarted since — is not started again by itself; it says so when
+  you open a terminal, and `bazel run //tools:prime` lifts it.
 
 **If a terminal says `command not found` about `42` (or about `bazel`)
 afterwards** (`zsh: command not found: 42` on campus,
@@ -204,7 +275,7 @@ reports.
 
 | what | size | why it is where it is |
 |---|---|---|
-| `~/.local/bin/bazelisk` | ~7 MB | `$HOME` is the only thing that follows you to another machine, and this is the piece small enough to belong there |
+| `~/.local/bin/bazelisk` | ~7 MB | `$HOME` is the only place that may follow you to another machine (on campus that is not confirmed yet), and this is the piece small enough to belong there |
 | `$SCRATCH/bazel` | GBs | Bazel's output and install bases. Rebuildable |
 | `$SCRATCH/bazelisk` | ~63 MB | the Bazel bazelisk downloads |
 
@@ -241,7 +312,11 @@ docker run -it --rm -v "$PWD":/workspaces/42 -w /workspaces/42 42env bash
 **What the container sets up when it is created.** VS Code and the
 `devcontainer` command line run `.devcontainer/postcreate.sh` once, after the
 container is built (plain `docker run` does not; run `sh
-.devcontainer/postcreate.sh` inside it yourself). It puts `42` on your `PATH`,
+.devcontainer/postcreate.sh` inside it yourself). Antigravity 2.5.5 did not
+run it either on the rebuilds of 2026-10-13 and 2026-10-15, for a reason not
+known yet: `ls ~/.local/bin/42 ~/.bazelrc` tells whether it ran, and if
+either is missing, run `sh .devcontainer/postcreate.sh` once by hand (`42
+doctor` says so too, in a container). It puts `42` on your `PATH`,
 and it gives Bazel a disk cache: two `build` lines in the container's own
 `~/.bazelrc`, the cache in the folder `setup.sh` would choose
 (`~/.cache/42-piscine/bazel-disk`) and capped at 4 GB. That is what lets a
@@ -258,7 +333,15 @@ checkout, and the other way round.
   container these lines win over a disk cache a `.bazelrc.local` names. To use
   another, edit `~/.bazelrc`.
 - It sets no startup option: where Bazel keeps its state is still decided as
-  [above](#where-the-state-goes-and-why-not-all-in-one-place).
+  [above](#where-the-state-goes-and-why-not-all-in-one-place), with one
+  exception. When `setup.sh` on the host wrote a `.bazelrc.local` naming a
+  root under a home the container cannot create, `~/.bazelrc` gets a
+  `startup --output_user_root=` line of the container's own, which Bazel reads
+  after that file. Never edit the `.bazelrc.local` for the container: the
+  host reads it too. `tools/bazel` and `42 doctor` name the file when they
+  meet such a root, and this script too when they run in a container.
+  `42 doctor` does the same for a `--disk_cache` that cannot be created
+  here, which stops every Bazel command as surely.
 - `~/.bazelrc` and the cache live in the container, and go when it is deleted
   and created again.
 
@@ -348,8 +431,8 @@ A campus box and the dev container both carry these installed as well, for
 your own hands ([what the docs ask you to run by
 hand](#what-the-docs-ask-you-to-run-by-hand)). The build never uses those
 copies, and their versions can differ from the pinned ones: a `norm` log names
-the norminette version it ran and prints the `bazel run //tools:norminette -- …`
-command that reproduces its verdict with the pinned copy.
+the norminette version it ran and prints the `42 norm … -- -R …` command that
+reproduces its verdict with the pinned copy.
 
 ### Has anything drifted?
 
@@ -359,12 +442,18 @@ bazel run //tools:env_drift
 
 compares three things — the pin, this box, and what Bazel actually fetched — and
 grades the differences rather than matching them, so a packaging change is
-forgiven and a patch-level move is not. It warns and exits 0: a student sitting
-at an upgraded campus machine has done nothing wrong. It never re-pins itself,
-because a pin changed by a script is a change to what the suite tests that
-nobody decided. Its advice is for whoever can act on it: on a campus box it
-lists the campus-kind drift worth reporting; anywhere else it says there is
-nothing to do, because the suite runs the fetched copies, not your machine's.
+not drift and a patch-level move is. A campus pin is campus's exact string, so
+on a campus box a packaging change still prints the re-pin edit. Each fetched
+tool is started the way the layers start it, and one that does not start is
+`UNRUNNABLE`: no version, and a blocker for `42 doctor`, since every check
+that runs it fails too; a tool of this box that does not start is
+`DID NOT START`, counted with the missing ones. It warns and exits 0: a
+student sitting at an upgraded campus machine has done nothing wrong. It
+never re-pins itself, because a pin changed by a script is a change to what
+the suite tests that nobody decided. Its advice is for whoever can act on
+it: on a campus box it lists the campus-kind drift worth reporting; anywhere
+else it says there is nothing to do, because the pins describe campus, not
+your machine.
 
 To capture a campus machine in the first place, run there:
 
@@ -377,8 +466,16 @@ every drive a student can use (free space, owner, mode, and whether it is
 RAM-backed, network or local), what `tools/drives.sh` would choose there, the
 `norminette` on `PATH` beside the pinned one, the memory limits (`ulimit`,
 cgroup), how the box behaves under memory pressure (swap, the dirty-page
-limits, the disk schedulers, the kernel's out-of-memory and hung-task lines),
-the prime traces (above), whether libbsd is installed, and the clock and
-timezone. It needs a shell and git, nothing else; it writes nothing but its
-report and never reads `~/.ssh`. If a box froze while it primed, run it again
-after the reset: the trace that stopped with the machine is in the report.
+limits, the disk schedulers, and the kernel's out-of-memory and hung-task
+lines where the account may read them, which a campus student account may
+not), the prime traces (above) and the last prime's log, the size of the Bazel
+caches, which Bazel launcher answers and whether docker or podman is there,
+which GCC installation clang-12 takes, whether libbsd is installed, and the
+clock and timezone. It needs a shell and git, nothing else; it writes nothing
+but its report and never reads `~/.ssh`. If a box froze while it primed, run
+it again after the reset: the trace that stopped with the machine is in the
+report. `--push` puts the report on origin's `env-audit-42` branch, one file
+per machine, on top of the reports already there, without switching from your
+own branch. It needs a git identity (`git config user.name` and `user.email`)
+and an origin that answers, and when it cannot commit or push it says why and
+exits 1; the report stays in `tools/env-reports/` either way.

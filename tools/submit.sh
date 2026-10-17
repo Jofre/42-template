@@ -80,6 +80,21 @@ require awk cat chmod dirname git grep head mkdir mktemp od rm sed sort tail tr
 WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$WS" || exit 1
 
+# Its scratch files, made in your TMPDIR, are removed on every exit, a Ctrl-C
+# during a gate's minutes included: dash runs no EXIT trap when a signal ends
+# it, so each signal trap exits. The two functions that run inside $( ) or a
+# pipe (pushed_files, changed_since) are subshells with traps of their own,
+# since a subshell does not keep these. Each name starts empty, so one
+# inherited from the environment is never removed.
+GATE_ERR="" GATE_OUT="" ADV_OUT="" _tri="" _trerr="" err="" err2=""
+submit_cleanup() {
+	rm -f ${GATE_ERR:+"$GATE_ERR"} ${GATE_OUT:+"$GATE_OUT"} ${ADV_OUT:+"$ADV_OUT"} \
+		${_tri:+"$_tri"} ${_trerr:+"$_trerr"} ${err:+"$err"} ${err2:+"$err2"}
+}
+trap submit_cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
 # ============================================================================
 # REMOTES TABLE — every module this script can push, as a path from the repo
 # root. It is ALSO the repo's module registry (conventions.sh counts these keys),
@@ -111,6 +126,7 @@ c-piscine/c-piscine-bsq=REPLACE_ME
 c-piscine/c-piscine-shell-00=REPLACE_ME
 c-piscine/c-piscine-shell-01=REPLACE_ME
 c-piscine-reloaded/c-piscine-reloaded=REPLACE_ME
+cursus/Milestone_0/Libft=REPLACE_ME
 '
 
 show_help() { sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -311,18 +327,17 @@ export GIT_CEILING_DIRECTORIES="$PWD"
 # Commit identity: your 42 login/email, from the SAME place the kube.42header VS
 # Code extension uses — the "42header.username"/"42header.email" keys in
 # .vscode/settings.json. Override per run with LOGIN42=... EMAIL42=... .
-# In bytes (LC_ALL=C), as tools/identity.sh writes them: under UTF-8 the
-# trailing '.*' stopped at a byte that is no UTF-8, in a comment after the
-# value, and that byte was left on the end of the login.
-read_42() {
-	LC_ALL=C sed -n "s/.*\"42header.$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
-		.vscode/settings.json 2>/dev/null | head -1
-}
-LOGIN42="${LOGIN42:-$(read_42 username)}"
+# Read by tools/identity.sh, which writes them: the key the extension reads,
+# and no other. A reader of its own here committed as a login commented out
+# above the live one, then one in a /* */ comment or a "[c]" override (V186,
+# V307).
+read_42() { sh tools/identity.sh get "$1"; }
+LOGIN42="${LOGIN42:-$(read_42 login)}"
 EMAIL42="${EMAIL42:-$(read_42 email)}"
+# The command a student types, as 42 doctor and 42 config name it.
 if [ -z "$LOGIN42" ] || [ -z "$EMAIL42" ]; then
 	echo "submit.sh: no 42 identity found in .vscode/settings.json." >&2
-	echo "           Run:  bazel run //tools:init" >&2
+	echo "           Run:  42 init" >&2
 	exit 1
 fi
 
@@ -776,16 +791,20 @@ stage_deliverable() {
 # given back in lines is a name holding a newline itself: it comes out split,
 # and built_programs cannot read it (no subject names such a file).
 pushed_files() {
-	_gd=$(mktemp -d) || return 1
-	if git --git-dir="$_gd" init -q && stage_deliverable --git-dir="$_gd" --work-tree=.; then
-		git --git-dir="$_gd" ls-files -z > "$_gd/pushed.z"
-		_prc=$?
-		[ "$_prc" -ne 0 ] || tr '\000' '\n' < "$_gd/pushed.z"
-	else
-		_prc=1
-	fi
-	rm -rf "$_gd"
-	return "$_prc"
+	(
+		_gd=$(mktemp -d) || exit 1
+		trap 'rm -rf "$_gd"' EXIT
+		trap 'exit 143' TERM
+		trap 'exit 130' INT
+		if git --git-dir="$_gd" init -q && stage_deliverable --git-dir="$_gd" --work-tree=.; then
+			git --git-dir="$_gd" ls-files -z > "$_gd/pushed.z"
+			_prc=$?
+			[ "$_prc" -ne 0 ] || tr '\000' '\n' < "$_gd/pushed.z"
+		else
+			_prc=1
+		fi
+		exit "$_prc"
+	)
 }
 
 # The dry run's answer to "what would be pushed".
@@ -873,10 +892,14 @@ last_push_by_you() {
 # file that differs from the tip -- a file of yours that you edited while a
 # teammate pushed only OTHER files is still yours, not theirs.
 changed_since() {
-	_cs=$(mktemp) || return 0
-	git -C "$dir" -c core.quotePath=false diff --name-only "$3" "$2" > "$_cs"
-	printf '%s\n' "$1" | grep -Fx -f "$_cs"
-	rm -f "$_cs"
+	(
+		_cs=$(mktemp) || exit 0
+		trap 'rm -f "$_cs"' EXIT
+		trap 'exit 143' TERM
+		trap 'exit 130' INT
+		git -C "$dir" -c core.quotePath=false diff --name-only "$3" "$2" > "$_cs"
+		printf '%s\n' "$1" | grep -Fx -f "$_cs"
+	)
 }
 
 # Print the lines of $1 indented under a NOTE, ten at most, and a count of the

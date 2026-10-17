@@ -1,0 +1,8 @@
+"Hello", n 5	ret=dest buf=HelloXXXXX
+"Hello", n 0 (nothing to copy)	ret=dest buf=XXXXXXXXXX
+"abcdefgh", n 3	ret=dest buf=abcXXXXXXX
+"xyz", n 3, dest at buf + 4	ret=dest buf=XXXXxyzXXX
+"a\0b", n 3 (a NUL inside)	ret=dest buf=a\x00bXXXXXXX
+"\0\0\0", n 3	ret=dest buf=\x00\x00\x00XXXXXXX
+bytes 0x80 0xff 0xe9 0x00 0x7f, n 5	ret=dest buf=\x80\xff\xe9\x00\x7fXXXXX
+5000 bytes into a block of 5001 (past 4096)	ret=dest copied 5000 of 5000, byte 5000 kept

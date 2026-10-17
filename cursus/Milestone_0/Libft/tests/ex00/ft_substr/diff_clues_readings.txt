@@ -1,0 +1,11 @@
+  ex00_ft_substr_readings: every start here is past the end of s, which
+  ft_substr's box (p.10) does not mention. This harness's reading, at strict
+  and never the subject's: a fresh, empty string, printed as nothing after the
+  last tab. The substring is printed as hex.
+    * NULL where the reading has an empty string -> what does your function
+                                   return for a start beyond the terminator,
+                                   and which sentence do you read as deciding it?
+    * bytes where the reading has none -> what does your function read when
+                                   start is beyond the terminator?
+    * only strings holding a byte of 0x80 or more -> whether a byte of s
+                                   changes what you return for such a start

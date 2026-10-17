@@ -22,9 +22,11 @@ load(
     "diff_readings_problem",
     "fixed_array_problem",
     "hand_test",
+    "library_members_problem",
     "lvl_tags",
     "method_problem",
     "pinned_cc_problem",
+    "program_allocfail_choice_problem",
     "program_allocfail_problem",
     "redirect_problem",
     "shell_call_problem",
@@ -218,6 +220,89 @@ def starlark_unit(name):
         True,
     )
 
+    # program_allocfail_choice_problem: a program whose subject lets it
+    # allocate, and that has cases, chooses the sweep or says why not.
+    one = [{"name": "one", "expected": "e.txt"}]
+    why = "every case is a fixed table the program never grows"
+    _case(
+        cases,
+        "program_allocfail_choice_problem: malloc, cases and neither is refused",
+        program_allocfail_choice_problem(True, one, None, None) != None,
+        True,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: malloc, cases and allocfail is fine",
+        program_allocfail_choice_problem(True, one, "one", None),
+        None,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: malloc, cases and a reason is fine",
+        program_allocfail_choice_problem(True, one, None, why),
+        None,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: allocfail and a reason together are refused",
+        program_allocfail_choice_problem(True, one, "one", why) != None,
+        True,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: a blank reason is refused",
+        program_allocfail_choice_problem(True, one, None, "  ") != None,
+        True,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: a reason that is no string is refused",
+        program_allocfail_choice_problem(True, one, None, True) != None,
+        True,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: no malloc asks for nothing",
+        program_allocfail_choice_problem(False, one, None, None),
+        None,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: no cases ask for nothing",
+        program_allocfail_choice_problem(True, None, None, None),
+        None,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: a reason where nothing asks for one is refused",
+        program_allocfail_choice_problem(False, one, None, why) != None,
+        True,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: ...and where the runs are driven elsewhere",
+        program_allocfail_choice_problem(True, None, None, why) != None,
+        True,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: a rule beside no_allocfail is refused",
+        program_allocfail_choice_problem(True, one, None, why, "The toy rule.", None) != None,
+        True,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: ...and a leak rule with no sweep at all",
+        program_allocfail_choice_problem(False, one, None, None, None, "The toy rule.") != None,
+        True,
+    )
+    _case(
+        cases,
+        "program_allocfail_choice_problem: a rule beside allocfail is fine",
+        program_allocfail_choice_problem(True, one, "one", None, "The toy rule.", None),
+        None,
+    )
+
     # symbolizer_problem: a test of a runner that shows a sanitizer's report
     # hands it the pinned symbolizer, or it is refused while loading.
     sym = ["--symbolizer", "s", "--symbolizer-lib", "l"]
@@ -248,6 +333,7 @@ def starlark_unit(name):
     # needs neither, and one that compiles without linking no --ld.
     cc = ["--cc", "c"]
     ld = ["--ld", "l"]
+    mk = ["--gcc", "g", "--as", "a", "--ar", "r", "--ranlib", "n"]
     for runner, args, want in [
         ("//tools:asan_check.sh", ["--src", "x.c"], True),
         ("//tools:asan_check.sh", ["--src", "x.c"] + cc, True),
@@ -265,6 +351,13 @@ def starlark_unit(name):
         ("//tools:method_check.sh", ["--expect", "recursive"] + cc, True),
         ("//tools:method_check.sh", ["--fixed-array"] + cc, False),
         ("//tools:diff_output.sh", ["--bin", "b"], False),
+        # A Makefile's recipes compile and link (TO VERIFY V60), with the
+        # whole set make_test.sh takes: the build alone is refused there.
+        ("//tools:make_test.sh", ["--anchor", "a"], True),
+        ("//tools:make_test.sh", ["--anchor", "a"] + cc, True),
+        ("//tools:make_test.sh", ["--anchor", "a"] + cc + ld, True),
+        ("//tools:make_test.sh", ["--anchor", "a"] + cc + ld + mk[:6], True),
+        ("//tools:make_test.sh", ["--anchor", "a"] + cc + ld + mk, False),
     ]:
         _case(
             cases,
@@ -387,20 +480,26 @@ def starlark_unit(name):
             diff_readings_problem("06", None),
             diff_readings_problem("06", {"oracle_fn": "c11_sort_string_tab_readings"}),
             diff_readings_problem("09", {"oracle_fn": "x_readings", "diff_clues": "diff_clues_readings.txt", "count": 1000, "level": 3}),
+            diff_readings_problem("00", {"oracle_fn": "c03_strcmp", "harness": "diff_strcmp_readings.c"}),
         ],
-        ["", "", ""],
+        ["", "", "", ""],
     )
     _case(
         cases,
-        "diff_readings_problem: a list, a misspelt key, no arm, a path or a strict level are refused",
+        "diff_readings_problem: a list, a misspelt key, no arm, a path, a strict level or a misnamed reader are refused",
         [
             "one reading per exercise" in diff_readings_problem("06", [{"oracle_fn": "x"}]),
             "is not a key" in diff_readings_problem("06", {"oracle_fn": "x", "clues": "c.txt"}),
             "names the //oracle arm" in diff_readings_problem("06", {"diff_clues": "c.txt"}),
             "a file name under" in diff_readings_problem("06", {"oracle_fn": "x", "diff_clues": "tests/ex06/c.txt"}),
             "is 3 or 4" in diff_readings_problem("06", {"oracle_fn": "x", "level": 2}),
+            # A reader of its own (V206): a file under tests/exNN/, named as
+            # c_diff's harness is, so conventions finds its "Line:" legend.
+            "a file name under" in diff_readings_problem("00", {"oracle_fn": "x", "harness": "tests/ex00/diff_x.c"}),
+            "is named diff_<what>.c" in diff_readings_problem("00", {"oracle_fn": "x", "harness": "exact.c"}),
+            "a file name under" in diff_readings_problem("00", {"oracle_fn": "x", "harness": 3}),
         ],
-        [True, True, True, True, True],
+        [True, True, True, True, True, True, True, True],
     )
 
     # shell_tags_problem: a check that reads the machine is never manual, and
@@ -506,6 +605,82 @@ def starlark_unit(name):
             cases,
             "redirect_problem: %s is refused" % what,
             words in redirect_problem("07", mode, r),
+            True,
+        )
+
+    # library_members_problem: a library's functions, each a member whose
+    # targets are exNN_<member>_<what> and whose suite is named after it.
+    # The names a Libft-shaped subject gives its boxes are all fine.
+    _case(
+        cases,
+        "library_members_problem: a Libft-shaped list of functions is fine",
+        library_members_problem("00", {f: [] for f in [
+            "ft_atoi",
+            "ft_bzero",
+            "ft_calloc",
+            "ft_isalnum",
+            "ft_isalpha",
+            "ft_isascii",
+            "ft_isdigit",
+            "ft_isprint",
+            "ft_itoa",
+            "ft_lstadd_back",
+            "ft_lstadd_front",
+            "ft_lstclear",
+            "ft_lstdelone",
+            "ft_lstiter",
+            "ft_lstlast",
+            "ft_lstmap",
+            "ft_lstnew",
+            "ft_lstsize",
+            "ft_memchr",
+            "ft_memcmp",
+            "ft_memcpy",
+            "ft_memmove",
+            "ft_memset",
+            "ft_putchar_fd",
+            "ft_putendl_fd",
+            "ft_putnbr_fd",
+            "ft_putstr_fd",
+            "ft_split",
+            "ft_strchr",
+            "ft_strdup",
+            "ft_striteri",
+            "ft_strjoin",
+            "ft_strlcat",
+            "ft_strlcpy",
+            "ft_strlen",
+            "ft_strmapi",
+            "ft_strncmp",
+            "ft_strnstr",
+            "ft_strrchr",
+            "ft_strtrim",
+            "ft_substr",
+            "ft_tolower",
+            "ft_toupper",
+        ]}),
+        None,
+    )
+    for functions, words in [
+        # Its memcheck test would end in _probe_memcheck, another layer's.
+        ({"toy_probe": []}, "ex32_toy_probe_memcheck, which ends in _probe_memcheck"),
+        # ex32_toy_two_output: toy's, or toy_two's?
+        ({"toy": [], "toy_two": []}, "toy_two begins with toy_"),
+        # The library's own: c_make's ex32_build_exit, its unit ex32_lib, the
+        # Makefile's ex32_make_bin, the Norm's ex32_norm.
+        ({"build": []}, "makes ex32_build_exit, a target of the whole library"),
+        ({"lib": []}, "makes ex32_lib, a target of the whole library"),
+        ({"make": []}, "makes ex32_make_bin, a target of the whole library"),
+        ({"norm": []}, "makes ex32_norm, a target of the whole library"),
+        # A suite every module has, an exercise's, a waiting list's.
+        ({"basic": []}, "the function basic names a target every module has"),
+        ({"ex01": []}, "the function ex01 names a target every module has"),
+        ({"waiting_x": []}, "the function waiting_x names a target every module has"),
+    ]:
+        _case(
+            cases,
+            "library_members_problem: %s is refused" % sorted(functions),
+            words in (library_members_problem("32", functions) or ""),
             True,
         )
 

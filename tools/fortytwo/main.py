@@ -10,7 +10,7 @@ files the others read: it has to work when Bazel does not.
 import os
 import sys
 
-# python3 -I (tools/42.sh) leaves the script's own folder off sys.path; the
+# python3 -I -B (tools/42.sh) leaves the script's own folder off sys.path; the
 # modules beside this file are the only ones it adds.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -178,12 +178,15 @@ WORDS_HELP = """
     a project   %(projects)s
                 (or its folder, c-piscine/c-piscine-c-05, or any path inside it)
     exNN        one exercise of that project
+    a function  one function of a library exercise, by its name (ft_strlen):
+                its tests alone
     a layer     %(layers)s
                 (norminette is norm): that layer alone, whatever its level
     //label     a Bazel label or pattern, run as it is
   With no project word, the folder you are in decides: an exercise's folder
-  under deliverable/ or tests/ is that exercise, anywhere else in a project is
-  the whole project."""
+  under deliverable/ or tests/ is that exercise, a function's under
+  tests/exNN/ that function, anywhere else in a project is the whole project.
+  A function word with no project in scope names the one project that has it."""
 
 TEST_FLAGS_HELP = """
   Its flags:
@@ -232,6 +235,10 @@ BUSY = ("  Bazel is busy with another command in this checkout (another\n"
         "  terminal, or 42 watch). Waiting for it to finish...")
 
 
+# How long while_busy waits between two tries of a busy Bazel, in seconds.
+BUSY_WAIT = 2
+
+
 def while_busy(out, attempt, limit=120):
     """attempt() until it is not LOCK_HELD, for up to `limit` seconds. Returns its last code."""
     waited = 0
@@ -241,8 +248,8 @@ def while_busy(out, attempt, limit=120):
             return rc
         if waited == 0:
             out.say(BUSY)
-        time.sleep(2)
-        waited += 2
+        time.sleep(BUSY_WAIT)
+        waited += BUSY_WAIT
 
 
 def changed_files(ws, paths, when):
@@ -412,6 +419,16 @@ def report_run(ctx, scope, level, rc, out_path, bep_path, next_path, all_lines):
     if rc == bazel.NO_TESTS:
         what = ("no %s test" % scope.layer) if scope.layer else ("no test at level %s" % level)
         out.say("\n  Nothing to run: %s has %s." % (scope.describe(), what))
+        # Most layers are a function's own; one that is the whole library's
+        # (norm, the Makefile's) is found in no function's suite, and a
+        # function may lack one its neighbours have (valgrind, where it does
+        # not allocate). Which is Bazel's to say, never a list here: it only
+        # found none in this suite. The command names the exercise, which is
+        # the whole exercise from any folder, the function's own included.
+        if scope.member and scope.layer and scope.project and scope.ex:
+            out.say("  %s has no %s test of its own. To run %s over all of %s: 42 test %s %s %s" % (
+                scope.member, scope.layer, scope.layer, scope.ex,
+                scope.project.short, scope.ex, scope.layer))
         return rc
     if rc == bazel.USAGE:
         with open(out_path, encoding="utf-8", errors="replace") as f:
@@ -451,7 +468,7 @@ def show_next_log(ctx, scope, bep, next_path):
         out.say("\n  ... %d more line(s): %s" % (more, path))
     if any("more hidden hint" in l or "CLUE_MODE=all" in l for l in lines):
         bucket, module, ex, _ = nxt
-        words = [report_words(ctx, module), ex] if ex.startswith("ex") else [label]
+        words = [report_words(ctx, module), report.clue_word(ex)] if ex.startswith("ex") else [label]
         out.say("\n  more hints: 42 clues %s" % " ".join(w for w in words if w))
 
 
@@ -651,6 +668,8 @@ def here_project(ctx, words, cmd, what="a project"):
             wrap("%r is not %s.%s" % (e.word, what, hint), 0, 76), wrap(ctx.W.project_list(), 2)))
     if scope.layer or scope.label:
         raise UsageError("42 %s takes a project, not %s." % (cmd, scope.layer or scope.label))
+    if scope.member and scope.member in words:
+        raise UsageError("42 %s takes a project, not %s." % (cmd, scope.member))
     return scope
 
 
@@ -743,6 +762,9 @@ def cmd_norm(ctx):
         scope = ctx.W.resolve(["norm"])
         if scope.project is None:
             raise UsageError(root_message(ctx, "norm"))
+        # A library's norm is its exercise's, never one function's: the
+        # function's own suite holds no norm test.
+        scope.member = None
         return run_tests(ctx, scope, level, source, label="norm")
     files = []
     for f in a.files:

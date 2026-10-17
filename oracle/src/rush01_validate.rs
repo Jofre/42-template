@@ -706,7 +706,9 @@ fn check_properties() -> usize {
     fails
 }
 
-/// Kind 3: all 576 4x4 Latin squares against all 438 solvable vectors.
+/// Kind 2, swept exhaustively: all 576 4x4 Latin squares against all 438
+/// solvable vectors of rush01's table. (Not kind 3: this module has no
+/// generator, and rush01's own check holds that table.)
 fn check_exhaustive_4x4() -> usize {
     let table = crate::rush01::solution_table();
     let squares: Vec<Vec<f64>> = table

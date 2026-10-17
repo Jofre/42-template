@@ -7,7 +7,10 @@
  * checks -- "next is NULL", "data is the pointer passed" -- and the value is
  * "yes" or "no", or the string the element holds. When the call returns NULL
  * there is no element to look at, and each of that call's rows says so
- * instead of disappearing, so the table keeps its shape. */
+ * instead of disappearing, so the table keeps its shape. An element is freed
+ * before its call's last row is printed, never after it: a crash in free()
+ * then stops the table on that call's own row, which diff_output.sh marks,
+ * and not on the first row of the next call. */
 static void	yes_no(char *call, char *what, int holds)
 {
 	if (holds)
@@ -25,6 +28,7 @@ int	main(void)
 {
 	t_list	*elem;
 	int		x;
+	int		next_null;
 
 	x = 42;
 	elem = ft_create_elem("forty-two");
@@ -36,8 +40,9 @@ int	main(void)
 	else
 	{
 		printf("string: data\t%s\n", (char *)elem->data);
-		yes_no("string", "next is NULL", elem->next == NULL);
+		next_null = (elem->next == NULL);
 		free(elem);
+		yes_no("string", "next is NULL", next_null);
 	}
 	elem = ft_create_elem(&x);
 	if (elem == NULL)
@@ -49,8 +54,9 @@ int	main(void)
 	{
 		yes_no("int pointer", "data is the pointer passed",
 			elem->data == (void *)&x);
-		yes_no("int pointer", "next is NULL", elem->next == NULL);
+		next_null = (elem->next == NULL);
 		free(elem);
+		yes_no("int pointer", "next is NULL", next_null);
 	}
 	elem = ft_create_elem(NULL);
 	if (elem == NULL)
@@ -61,8 +67,9 @@ int	main(void)
 	else
 	{
 		yes_no("NULL data", "data is NULL", elem->data == NULL);
-		yes_no("NULL data", "next is NULL", elem->next == NULL);
+		next_null = (elem->next == NULL);
 		free(elem);
+		yes_no("NULL data", "next is NULL", next_null);
 	}
 	return (0);
 }

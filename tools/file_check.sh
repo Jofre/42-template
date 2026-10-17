@@ -10,7 +10,9 @@
 #                 [--seed N] [--count N] [--show N]
 #                 [--expect-transform] [--expect-substring TEXT]
 #                 [--sanitized | --valgrind PATH --valgrind-tools FILE
-#                  [--sample N] [--rule FILE]]
+#                  [--sample N] [--rule FILE] [--access-rule FILE]]
+#                 [--gate-differ PATH --gate-bin PATH --gate-expected PATH
+#                  [--gate-arg WORD]... [--gate-label NAME]]
 #                 (--stderr-empty | --stderr-ignored REASON)
 #
 #   --show N      how many failing cases to print (default DIFF_MAX_ROWS, 40;
@@ -20,10 +22,22 @@
 #                 and how each run ended, never the output (exNN_file_diff_asan);
 #                 --symbolizer PATH --symbolizer-lib FILE name each frame of a
 #                 report's stack (runner_lib.sh, rl_sanitizers)
-#   --valgrind PATH --valgrind-tools FILE [--sample N] [--rule FILE]
+#   --valgrind PATH --valgrind-tools FILE [--sample N] [--rule FILE] [--access-rule FILE]
 #                 a sample of the corpus under memcheck, leaks included
 #                 (exNN_file_valgrind, where the subject allows malloc); both
 #                 in tools/runner_lib.sh, "A CORPUS UNDER A MEMORY CHECKER"
+#   --gate-differ PATH --gate-bin PATH --gate-expected PATH [--gate-arg WORD]...
+#                 the exercise's own output test, which this replay waits for:
+#                 GATE-BIN run through GATE-DIFFER (tools/diff_output.sh) with
+#                 each --gate-arg one word of its run, against GATE-EXPECTED.
+#                 While that test is red this says SKIP and exits 0: a corpus
+#                 replayed over a program the test already fails says that red
+#                 again, and docs/reference.md ("Which layers wait for which")
+#                 says a diff layer never does. NO_SKIP=1 forces it open
+#                 (tools/runner_lib.sh, rl_gate). --gate-label NAME is that
+#                 test's name, for the SKIP line. Any --gate-* without all of
+#                 the first three is refused (rl_gate_whole). tools/defs.bzl's
+#                 output_gate() reads all of them off the output test.
 #   --stderr-empty   a case also fails when the program writes anything to
 #                    standard error. Every input the reference generates is
 #                    valid, so a program that does what its subject says has
@@ -115,6 +129,7 @@ EXPECT_TRANSFORM=0
 EXPECT_SUBSTRING=""
 STDERR_EMPTY=0
 STDERR_WHY=""
+GATE_DIFFER=""; GATE_BIN=""; GATE_EXPECTED=""; GATE_ARGS=""
 
 # `--flag` with nothing after it used to die as "2: parameter not set" from
 # `set -u` -- the right exit code wrapped in raw shell. Same loop in every
@@ -133,11 +148,18 @@ while [ $# -gt 0 ]; do
 		--expect-substring) need "$1" "$#"; EXPECT_SUBSTRING="$2"; shift 2 ;;
 		--stderr-empty) STDERR_EMPTY=1; shift ;;
 		--stderr-ignored) need "$1" "$#"; STDERR_WHY="$2"; shift 2 ;;
-		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --symbolizer | --symbolizer-lib)
+		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; shift 2 ;;
+		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
+		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
 		*) echo "file_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole file_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_ARGS$RL_GATE_NAME"
 
 [ -n "$BIN" ] || { echo "file_check.sh: --bin is required" >&2; exit 2; }
 [ -n "$ORACLE" ] || { echo "file_check.sh: --oracle is required" >&2; exit 2; }
@@ -150,11 +172,20 @@ rl_stderr_choice
 rl_rows "$SHOW"
 rl_mem_ready
 
+# THE GATE (--gate-differ above): the output test run as it runs, each
+# --gate-arg one word of its run. c_levels()' audit holds the two to each
+# other (tools/defs.bzl, _gate_problems).
+rl_split_on
+# shellcheck disable=SC2086 # a list, one word per line (rl_list_add)
+rl_gate file_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" $GATE_ARGS
+rl_split_off
+
 # A PROGRAM THAT DID NOT BUILD is a stand-in script that says why (see
 # tools/standin.sh). Graded as a program, its "output" is empty and its exit
 # status arbitrary, and the report would be a table of wrong answers under
 # this exercise's hints, none of which is about a build. Say what the build
-# said instead, whole, and fail.
+# said instead, whole, and fail. Checked after the gate: a red gate has
+# already skipped this layer.
 case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
 for _sl in "$_sl_dir/standin.sh" \
 	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
@@ -283,12 +314,10 @@ classify() {  # classify EXPECTED GOT (after rl_sweep_ran)
 
 # show_input ARG... -- a failing case's command line: each flag byte-exact
 # (rl_vis), each file by its size, the files kept in test.outputs as
-# case-N-fileK, and the command that runs the case again on them.
-# KEPT_FILES lists the K of each file kept, a blank either side of each:
-# none, run by hand outside bazel test, where there is nowhere to keep one.
-KEPT_FILES=" "
+# case-N-fileK (tools/runner_lib.sh's rl_keep_input, which a memory report
+# then names each kept file by), and the command that runs the case again on
+# them. Run by hand outside bazel test, there is nowhere to keep one.
 show_input() {
-	KEPT_FILES=" "
 	printf '    flags:   '
 	for _a in "$@"; do
 		case "$_a" in
@@ -308,8 +337,7 @@ show_input() {
 		case "$_a" in
 			"$WORK"/*)
 				_k="case-$CASENO-file${_a#"$WORK"/f}"
-				if rl_save "$_a" "$_k"; then
-					KEPT_FILES="$KEPT_FILES${_a#"$WORK"/f} "
+				if rl_keep_input "$_a" "$_k"; then
 					_kept=${RL_SAVED%/*}
 					_replay="$_replay $_k"
 				else
@@ -320,26 +348,6 @@ show_input() {
 	done
 	[ -z "$_kept" ] || printf '    kept in: %s/\n' "$_kept"
 	printf '    replay:  ./a.out%s\n' "$_replay"
-}
-
-# mem_report ARG... -- rl_mem_report for the case run on ARG...: a report
-# that names a file by the scratch path it was given (memcheck's open
-# descriptors) shows it by the name show_input keeps it under, which the
-# replay line above uses. Only a file show_input kept (KEPT_FILES): the
-# name of one it could not keep is a file that exists nowhere.
-mem_report() {
-	_mrn=$#
-	for _mra in "$@"; do
-		case "$_mra" in
-			"$WORK"/*)
-				case "$KEPT_FILES" in
-					*" ${_mra#"$WORK"/f} "*)
-						set -- "$@" --as "$_mra" "case-$CASENO-file${_mra#"$WORK"/f}" ;;
-				esac ;;
-		esac
-	done
-	shift "$_mrn"
-	rl_mem_report "$@"
 }
 
 CASENO=0
@@ -384,7 +392,7 @@ while IFS= read -r line; do
 		{
 			printf '\n  case %d  [%s]  %s\n' "$CASENO" "$tag" "$RL_MEM_KIND"
 			show_input "$@"
-			mem_report "$@"
+			rl_mem_report
 		} > "$WORK/block"
 		rl_block "$WORK/block" >> "$WORK/report"
 		continue
@@ -437,7 +445,15 @@ while IFS= read -r line; do
 		printf '\n  case %d  [%s]  %s\n' "$CASENO" "$tag" "$_fault"
 		show_input "$@"
 		printf '    expected: %s bytes\n' "$(wc -c < "$WORK/want")"
-		printf '    got:      %s bytes\n' "$(wc -c < "$WORK/got")"
+		# A run this runner stopped (its time limit, its output budget) is
+		# counted where it was stopped, and the line says so: "got: 6 bytes"
+		# under "expected: 6 bytes" read as a match until the line below
+		# (V144; rush02_check.sh's got line also says the stop).
+		case "$RL_CAUSE" in
+			runaway|timeout) _gotwhen=" when it was stopped" ;;
+			*) _gotwhen="" ;;
+		esac
+		printf '    got:      %s bytes%s\n' "$(wc -c < "$WORK/got")" "$_gotwhen"
 		if [ "$RL_CAUSE" = timeout ]; then
 			# It did not finish: what it had printed by then is shown, and
 			# never compared -- no first difference, and no "identical"

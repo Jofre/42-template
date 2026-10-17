@@ -1,0 +1,6 @@
+353 (256 + 'a'), n 3	ret=s bytes=61 61 61 58 58 58
+256, n 3	ret=s bytes=00 00 00 58 58 58
+-1, n 3	ret=s bytes=ff ff ff 58 58 58
+-23, n 3	ret=s bytes=e9 e9 e9 58 58 58
+INT_MIN, n 3	ret=s bytes=00 00 00 58 58 58
+INT_MAX, n 3	ret=s bytes=ff ff ff 58 58 58

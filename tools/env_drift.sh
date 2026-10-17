@@ -16,8 +16,12 @@
 # false-green shape as everywhere else in this repo, one level up: pins.tsv
 # would read 2.38 while the checks ran something else entirely, and nothing
 # anywhere would say so. A fetch is pinned by sha256, so a difference here is
-# never packaging noise; it means the pin was edited in one place and not the
-# other. It is reported loudly whatever its size.
+# never packaging noise: a version that differs means the pin was edited in
+# one place and not the other, and a line without the pin's words means the
+# row is handed another tool's binary (V327). It is reported loudly whatever
+# its size. A comparison that could not run (a variable //tools:env_drift
+# does not set, a path that is no executable) is NOT COMPARED: a fault of
+# that target's data, never a pin edit (V326).
 #
 # WHY DIFFERENCES ARE GRADED RATHER THAN MATCHED.
 # The expected value used to be a SUBSTRING, so `clang version 12.` swallowed
@@ -29,6 +33,10 @@
 #   major differs        loud. A different compiler; expect different warnings.
 #   minor/patch differs  report and re-audit. Campus moved.
 #   only the suffix      note it and carry on. Same compiler, new packaging.
+#                        Not drift, and --strict ignores it -- but a campus
+#                        pin is campus's EXACT string (the owner's ruling,
+#                        2026-10-14), so on a campus box it still prints the
+#                        re-pin edit, in the drift line's own form.
 #
 # WHY IT WARNS RATHER THAN FAILS.
 # A student sitting at a campus machine that has been upgraded has done nothing
@@ -56,18 +64,40 @@
 # --strict, on every machine; the "worth acting on, re-pin by hand" prose is
 # printed only on a campus box, because that is the only box whose tools the
 # grade comes from. Off campus the same rows mean your machine differs from
-# campus, which is nothing for you to do: the suite runs the fetched copies.
+# campus, which is nothing for you to do: the pins describe campus, not your
+# machine.
 #
 # AND WHERE THIS CHECKOUT'S STATE IS. On a campus box it also says when the
 # Bazel state of this checkout sits in the quota'd $HOME or under a path with
 # no login in it (finding 001), read back from the output base this very
 # `bazel run` uses rather than predicted.
 #
+# A FETCHED TOOL THAT DOES NOT START is a finding of its own, UNRUNNABLE,
+# and never fetch drift. Each one is started the way its layers start it
+# (its libraries on the loader's path, valgrind with $VALGRIND_LIB, and a
+# compiler asked to compile an empty file), and a non-zero status or a
+# loader's error is not a version: graded as one, a loader error naming
+# libbfd-2.38-system.so read as "ok", since 2.38 is the pin, and a valgrind
+# that could not start its tool read as a pin edited in one place (V243).
+# The cause is the machine (a library it lacks, a system newer than the
+# one the fetched tools were built for), and the dev container is the fix.
+# A tool of this BOX that does not start is DID NOT START, by the same two
+# signs, and counts with the missing (V328).
+#
 # Usage:
 #   bazel run //tools:env_drift [-- --strict] [-- --report]
 #
-#   --strict   exit 1 on campus-kind drift or ANY fetch drift (for a maintainer)
+#   --strict   exit 1 on campus-kind drift, ANY fetch drift, or a fetched
+#              tool that does not start (for a maintainer)
 #   --report   also write a timestamped copy under tools/env-reports/
+#
+# The summary line ("N match, ..., N unrunnable, N recorded") is read by
+# `42 doctor` (tools/fortytwo/doctor.py), which turns an unrunnable count
+# above 0 into a blocker and a missing line into "env_drift did not
+# finish". It reads the line rather than the exit status, which `bazel run`
+# shares with Bazel's own: 1 is also a build that failed, and 2, this
+# script's refusal below, is also Bazel refusing an option; the status only
+# picks that BLOCK's wording. Reword it in both.
 set -u
 
 # The external commands this runner takes from PATH. See diff_output.sh for why
@@ -80,10 +110,12 @@ require() {
 		exit 2
 	done
 }
-require awk date dirname env grep mkdir sed sort tail tr
+require awk date dirname env grep mkdir readlink sed sort tail tr
 # conventions: optional python3 -- reads norminette's package metadata, since it
 # has no --version flag. Absent, that one row reports "(not importable)" and
 # every other row is still compared.
+# conventions: optional uname -- the machine's name for --report's file, when
+# neither C_PISCINE_HOST nor /proc gives one; without it the name is "unknown".
 
 STRICT=0
 REPORT=0
@@ -185,9 +217,8 @@ if [ "$ON_CAMPUS" = 1 ]; then
 	echo "  This is the run that counts -- campus-kind pins must match here."
 else
 	echo "  machine: not a campus box ($WHY)"
-	echo "  Rows marked campus compare this machine with campus. The suite runs the"
-	echo "  copies Bazel fetched, not these, so a difference here is nothing to fix"
-	echo "  on this machine."
+	echo "  Rows marked campus compare this machine with campus. The pins describe"
+	echo "  campus, not this machine, so a difference here is nothing to fix on it."
 fi
 echo ""
 
@@ -217,10 +248,12 @@ default_std() {
 		END { printf "%s %s", (v == "" ? "(none)" : v), (a ? "strict" : "gnu") }'
 }
 
-# The LAST complete dotted number in a version string. Every upstream here puts
+# The LAST complete dotted number in a version string. Most upstreams here put
 # the real version last -- "Ubuntu clang version 12.0.1-19ubuntu3",
 # "gcc-10 (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0", "valgrind-3.18.1" -- so the
 # last one skips the packaging numbers and the distro release that come earlier.
+# Not all: ssh's and ip's lines end in a library's version, which is why
+# grade() also compares first_version_of's.
 #
 # Whole tokens, not a greedy regex over the line. A greedy `.*` before the
 # capture matches from the LAST position it can, which inside "3.3.58" means
@@ -255,6 +288,15 @@ version_of() {
 	printf '%s' "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | tail -n 1
 }
 
+# The FIRST version number: the tool's own, on every line pins.tsv records
+# that has one (the cc-std rows' "201710L gnu" has none).
+# Some lines end in another program's -- `ip -V` in libbpf's, `ssh -V` in
+# OpenSSL's -- so the last number alone graded iproute2 moving a whole major
+# release under the same libbpf as a repackaging.
+first_version_of() {
+	printf '%s' "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | sed -n 1p
+}
+
 # Does the pinned version appear ANYWHERE in the observed string as a version in
 # its own right? This is the rule for a tool that reports several: `norminette
 # --version` prints its own version, Python's and the kernel's on one line, so
@@ -276,20 +318,77 @@ grade() {
 	_wv=$(version_of "$_want")
 	_gv=$(version_of "$_got")
 	[ -n "$_wv" ] && [ -n "$_gv" ] || { echo major; return; }
+
+	# The tool's own number moved: drift, whatever the last number says.
+	# Unless the box's line carries it elsewhere, which is the case
+	# version_present exists for.
+	_wf=$(first_version_of "$_want")
+	_gf=$(first_version_of "$_got")
+	if [ "$_wf" != "$_gf" ] && ! version_present "$_wf" "$_got"; then
+		version_step "$_wf" "$_gf"
+		return
+	fi
+
 	[ "$_wv" = "$_gv" ] && { echo packaging; return; }
 
 	version_present "$_wv" "$_got" && { echo packaging; return; }
 
-	_wmaj=${_wv%%.*}
-	_gmaj=${_gv%%.*}
+	version_step "$_wv" "$_gv"
+}
+
+# The pin's words before its first version, its trailing blanks cut:
+# "GNU nm (GNU Binutils for Ubuntu)" of the nm pin, nothing of a bare
+# "0.13.0". A fetched binary's line has to hold them (V327): graded on its
+# numbers alone, another tool that exits 0 with the pinned number in its
+# line -- objdump handed to the nm row, both 2.38 -- read "ok". Anywhere in
+# the line, never at its start: gcc names itself by the name it was run as,
+# so the fetched gcc-10's line starts "x86_64-linux-gnu-gcc-10 (Ubuntu".
+# The same rule makes a rootpath through a "gcc" link read as another tool.
+pin_banner() {
+	printf '%s\n' "$1" | awk '
+		match($0, /[0-9]+(\.[0-9]+)+/) { s = substr($0, 1, RSTART - 1) }
+		{ sub(/[ \t]+$/, "", s); print s; exit }'
+}
+
+# major | minor | patch: how far apart two version numbers are.
+version_step() {
+	_wmaj=${1%%.*}
+	_gmaj=${2%%.*}
 	[ "$_wmaj" = "$_gmaj" ] || { echo major; return; }
 
-	_wrest=${_wv#*.}
-	_grest=${_gv#*.}
+	_wrest=${1#*.}
+	_grest=${2#*.}
 	_wmin=${_wrest%%.*}
 	_gmin=${_grest%%.*}
 	[ "$_wmin" = "$_gmin" ] || { echo minor; return; }
 	echo patch
+}
+
+# fetched_run LIBDIRS VALGRIND_LIB BINARY ARGS... -- a fetched binary, as its
+# layers run it: LIBDIRS first on the loader's path, $VALGRIND_LIB set, and
+# RUNFILES_DIR (see RUNFILES_ROOT). An empty one is left as it is.
+fetched_run() {
+	_fr_libs=$1
+	_fr_vg=$2
+	shift 2
+	if [ -n "$_fr_libs" ] && [ -n "$_fr_vg" ]; then
+		env RUNFILES_DIR="$RUNFILES_ROOT" VALGRIND_LIB="$_fr_vg" \
+			LD_LIBRARY_PATH="$_fr_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$@"
+	elif [ -n "$_fr_libs" ]; then
+		env RUNFILES_DIR="$RUNFILES_ROOT" \
+			LD_LIBRARY_PATH="$_fr_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$@"
+	elif [ -n "$_fr_vg" ]; then
+		env RUNFILES_DIR="$RUNFILES_ROOT" VALGRIND_LIB="$_fr_vg" "$@"
+	else
+		env RUNFILES_DIR="$RUNFILES_ROOT" "$@"
+	fi
+}
+
+# What a program that did not start says, whatever its status: the loader's
+# missing library, and valgrind's missing tool.
+START_FAILURE='error while loading shared libraries|failed to start tool'
+start_failure() {
+	printf '%s\n' "$1" | grep -qE "$START_FAILURE"
 }
 
 MATCH=0
@@ -297,7 +396,10 @@ DRIFT=0
 MISSING=0
 RECORDED=0
 FETCH_DRIFT=0
+UNRUNNABLE=0
+UNRUN_LINES=""
 DRIFT_LINES=""
+REPIN_LINES=""
 
 # IS THE FETCH HALF APPLICABLE AT ALL?
 #
@@ -316,6 +418,7 @@ for _h in $(awk -F'\t' 'NF >= 6 && $6 != "" { print $6 }' "$PINS" 2>/dev/null); 
 	[ -z "$_hv" ] || _herm_set=1
 done
 FETCH_LINES=""
+WIRING_LINES=""
 NL='
 '
 
@@ -324,6 +427,7 @@ while IFS='	' read -r tool kind want cmd where herm; do
 		'#'* | '') continue ;;
 	esac
 	herm=${herm:-}
+	nostart=""
 
 	# KIND `fetched`: the box is not consulted, because nothing here uses its
 	# copy. shellcheck, zig and buildifier are downloaded by Bazel against a
@@ -356,8 +460,26 @@ while IFS='	' read -r tool kind want cmd where herm; do
 	elif [ "${cmd% *}" = "default-std" ]; then
 		got=$(default_std "${cmd#* }")
 	else
+		# The output and the status APART, as the fetch half keeps them:
+		# piped into first_line, the status was first_line's, and a box tool
+		# that could not start was graded on its error, "ok (repackaged)"
+		# for a loader error naming libbfd-2.38, the pin's number (V328).
+		# One that is installed and exits non-zero, or says what a program
+		# that did not start says, DID NOT START: counted with the missing,
+		# since this box cannot run it either, and never graded. An absent
+		# one is still MISSING, below.
 		# shellcheck disable=SC2086
-		got=$($cmd 2>&1 | first_line)
+		bout=$($cmd 2>&1)
+		brc=$?
+		got=$(printf '%s\n' "$bout" | first_line)
+		if { [ "$brc" -ne 0 ] || start_failure "$bout"; } &&
+			command -v "${cmd%% *}" > /dev/null 2>&1; then
+			nostart=$(printf '%s\n' "$bout" | grep -m 1 -E "$START_FAILURE")
+			[ -n "$nostart" ] || nostart=$got
+			[ -n "$nostart" ] || nostart="(it printed nothing)"
+			nostart="exit $brc: $nostart"
+			got=""
+		fi
 	fi
 
 	# Ask about the binary the version COMMAND runs, not the row's name. They
@@ -368,10 +490,19 @@ while IFS='	' read -r tool kind want cmd where herm; do
 	# a healthy box is one people learn to skim.
 	probe=${cmd%% *}
 	[ "$probe" != "default-std" ] || probe=${cmd#* }
+	if [ -n "$nostart" ]; then
+		MISSING=$((MISSING + 1))
+		printf '  %-11s %-7s DID NOT START (%s)\n' "$tool" "$kind" "$nostart"
+		# --strict fails on it as on an absent campus tool, without the
+		# re-pin edit: the machine is at fault, not the pin.
+		if [ "$kind" = "campus" ]; then
+			DRIFT_LINES="$DRIFT_LINES$NL  $tool (did not start): expected $want; this box's $probe did not start ($nostart)"
+		fi
+	fi
 	# `fetched` rows reach here with got empty ON PURPOSE, which is precisely
 	# what the MISSING branch exists to report. Excluded by kind, not by
 	# emptiness, so the branch keeps its meaning for every other row.
-	if [ "$kind" != "fetched" ] && { [ -z "$got" ] || ! command -v "$probe" > /dev/null 2>&1; }; then
+	if [ -z "$nostart" ] && [ "$kind" != "fetched" ] && { [ -z "$got" ] || ! command -v "$probe" > /dev/null 2>&1; }; then
 		if [ "$cmd" != "norminette-version" ]; then
 			MISSING=$((MISSING + 1))
 			printf '  %-11s %-7s MISSING   (expected %s)\n' "$tool" "$kind" "$want"
@@ -404,7 +535,13 @@ while IFS='	' read -r tool kind want cmd where herm; do
 				printf '  %-11s %-7s ok (repackaged)\n' "$tool" "$kind"
 				printf '              pinned:   %s\n' "$want"
 				printf '              this box: %s\n' "$got"
-				printf '              Same version, different package build. Nothing to do.\n'
+				if [ "$kind" = "campus" ] && [ "$ON_CAMPUS" = 1 ]; then
+					printf '              Same version, different package build: not drift, but the\n'
+					printf '              pin is campus'"'"'s exact string: re-pin it in %s and tools/pins.tsv\n' "$where"
+					REPIN_LINES="$REPIN_LINES$NL  $tool (repackaged): $want  ->  $got   (edit $where and tools/pins.tsv)"
+				else
+					printf '              Same version, different package build. Nothing to do.\n'
+				fi
 				;;
 			*)
 				DRIFT=$((DRIFT + 1))
@@ -427,20 +564,23 @@ while IFS='	' read -r tool kind want cmd where herm; do
 		# compare and this is not a finding.
 		continue
 	fi
+	# NOT a bare `continue` for these two. This is the pin-vs-fetch
+	# comparison -- the third of the three this script's header calls
+	# non-optional -- and an unset HERMETIC_* means it did not happen.
+	# Advising and moving on let the whole comparison disappear one variable
+	# at a time while the run still reported no drift and --strict still
+	# exited 0. Counted as fetch drift, and listed apart from it: each is a
+	# fault of //tools:env_drift's wiring, never "the pin was edited in one
+	# place", which the FETCH DRIFT banner says (V326).
 	if [ -z "$hpath" ]; then
-		# NOT a bare `continue`. This is the pin-vs-fetch comparison -- the
-		# third of the three this script's header calls non-optional -- and an
-		# unset HERMETIC_* means it did not happen. Advising and moving on let
-		# the whole comparison disappear one variable at a time while the run
-		# still reported no drift and --strict still exited 0.
 		FETCH_DRIFT=$((FETCH_DRIFT + 1))
-		FETCH_LINES="$FETCH_LINES$NL  $tool: $herm is unset, so the fetched binary was never compared (add it to //tools:env_drift data)"
+		WIRING_LINES="$WIRING_LINES$NL  $tool: $herm is unset, so the fetched binary was never compared (add it to //tools:env_drift data)"
 		printf '              fetched:  NOT COMPARED (%s unset -- add the binary to //tools:env_drift data)\n' "$herm"
 		continue
 	fi
 	if [ ! -x "$hpath" ]; then
 		FETCH_DRIFT=$((FETCH_DRIFT + 1))
-		FETCH_LINES="$FETCH_LINES$NL  $tool: pinned binary missing at $hpath"
+		WIRING_LINES="$WIRING_LINES$NL  $tool: $herm names $hpath, which is not an executable (fix //tools:env_drift's data, and run it with bazel run)"
 		printf '              fetched:  MISSING at %s\n' "$hpath"
 		continue
 	fi
@@ -455,10 +595,30 @@ while IFS='	' read -r tool kind want cmd where herm; do
 		IFS=$_ifs
 	fi
 	if [ -n "$_bad" ]; then
-		FETCH_DRIFT=$((FETCH_DRIFT + 1))
+		UNRUNNABLE=$((UNRUNNABLE + 1))
 		printf '              fetched:  UNRUNNABLE (no library dir at %s)\n' "$_bad"
-		FETCH_LINES="$FETCH_LINES$NL  $tool: ${herm}_LIBS names '$_bad', which does not exist -- the binary would silently load this machine's libraries instead"
+		UNRUN_LINES="$UNRUN_LINES$NL  $tool: ${herm}_LIBS names '$_bad', which does not exist -- the binary would silently load this machine's libraries instead (fix //tools:env_drift's data)"
 		continue
+	fi
+	# <VAR>_TOOLS: a FILE inside valgrind's tool directory, as the layers'
+	# --valgrind-tools. Its directory is $VALGRIND_LIB, without which
+	# valgrind.bin starts the BOX's memcheck from /usr/libexec/valgrind, or
+	# none ("failed to start tool"): --version starts the tool too, so the
+	# version reported without it was never the fetched tree's alone.
+	# readlink -f and dirname, as valgrind_test.sh derives it.
+	eval "htools=\${${herm}_TOOLS:-}"
+	hvglib=""
+	if [ -n "$htools" ]; then
+		htools=$(abs_path "$htools")
+		hvglib=$(readlink -f "$htools" 2> /dev/null) || hvglib=""
+		[ -n "$hvglib" ] || hvglib=$htools
+		hvglib=$(dirname "$hvglib")
+		if [ ! -f "$htools" ]; then
+			UNRUNNABLE=$((UNRUNNABLE + 1))
+			printf '              fetched:  UNRUNNABLE (no tool file at %s)\n' "$htools"
+			UNRUN_LINES="$UNRUN_LINES$NL  $tool: ${herm}_TOOLS names '$htools', which does not exist (fix //tools:env_drift's data)"
+			continue
+		fi
 	fi
 	# The row's OWN flags, not a hardcoded --version. `zig --version` is an
 	# error -- the subcommand is `zig version` -- so a hardcoded flag reports
@@ -470,14 +630,49 @@ while IFS='	' read -r tool kind want cmd where herm; do
 	# RUNFILES_ROOT: see its definition. Harmless for the fetched tools that are
 	# real executables, and the difference between a verdict and a error message
 	# graded as one for the ones that are launchers.
+	#
+	# The output and the status APART: piped into first_line, the status was
+	# first_line's, and a binary the loader could not start (exit 127) was
+	# graded on its error message (V243).
 	# shellcheck disable=SC2086
-	if [ -n "$hlibs" ]; then
-		hgot=$(env RUNFILES_DIR="$RUNFILES_ROOT" \
-			LD_LIBRARY_PATH="$hlibs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-			"$hpath" $_hargs 2>&1 | first_line)
+	hout=$(fetched_run "$hlibs" "$hvglib" "$hpath" $_hargs 2>&1)
+	hrc=$?
+	hgot=$(printf '%s\n' "$hout" | first_line)
+	# <VAR>_COMPILE: the words a compiler is also run with, a compile of an
+	# empty C file. --version runs the driver alone, and a compile starts
+	# what the driver hands it to (gcc's cc1, with libraries of its own):
+	# a driver can answer --version on a machine where every compile fails.
+	eval "hcomp=\${${herm}_COMPILE:-}"
+	if [ "$hrc" -eq 0 ] && [ -n "$hcomp" ] && ! start_failure "$hout"; then
+		# shellcheck disable=SC2086
+		hout=$(fetched_run "$hlibs" "$hvglib" "$hpath" $hcomp 2>&1)
+		hrc=$?
+		[ "$hrc" -ne 0 ] || hcomp=""
 	else
-		hgot=$(env RUNFILES_DIR="$RUNFILES_ROOT" "$hpath" $_hargs 2>&1 | first_line)
+		hcomp=""
 	fi
+	if [ "$hrc" -ne 0 ] || start_failure "$hout"; then
+		hwhy=$(printf '%s\n' "$hout" | grep -m 1 -E "$START_FAILURE")
+		[ -n "$hwhy" ] || hwhy=$(printf '%s\n' "$hout" | first_line)
+		[ -n "$hwhy" ] || hwhy="(it printed nothing)"
+		hhow="${hcomp:+$hcomp, }exit $hrc"
+		UNRUNNABLE=$((UNRUNNABLE + 1))
+		printf '              fetched:  UNRUNNABLE (%s: %s)\n' "$hhow" "$hwhy"
+		UNRUN_LINES="$UNRUN_LINES$NL  $tool ($hhow): $hwhy"
+		continue
+	fi
+	hbanner=$(pin_banner "$want")
+	case "$hgot" in
+		*"$hbanner"*) ;;
+		*)
+			FETCH_DRIFT=$((FETCH_DRIFT + 1))
+			printf '              fetched:  DRIFT (another tool)\n'
+			printf '                        pinned:  %s\n' "$want"
+			printf '                        fetched: %s\n' "$hgot"
+			FETCH_LINES="$FETCH_LINES$NL  $tool (another tool): pins.tsv says '$want', and the fetched binary's line '$hgot' lacks the pin's words '$hbanner' (which file does //tools:env_drift's data give $herm?)"
+			continue
+			;;
+	esac
 	hverdict=$(grade "$want" "$hgot")
 	# packaging counts as ok here too: the fetch is pinned by sha256, so the
 	# only question this comparison answers is whether the binary reports the
@@ -549,7 +744,9 @@ if [ -n "$_our" ] && [ -d "$_our" ]; then
 	done
 fi
 
-echo "  $MATCH match, $DRIFT drifted, $MISSING missing, $FETCH_DRIFT fetch-drift, $RECORDED recorded"
+# `42 doctor` reads this line: see the header before rewording it.
+SUMMARY="$MATCH match, $DRIFT drifted, $MISSING missing, $FETCH_DRIFT fetch-drift, $UNRUNNABLE unrunnable, $RECORDED recorded"
+echo "  $SUMMARY"
 
 if [ -n "$STALE_TOOLS" ]; then
 	echo ""
@@ -575,19 +772,38 @@ fi
 
 # The prose is for whoever can act on it: on campus, the difference is between
 # the pins and the machines the grade comes from, and it goes to whoever keeps
-# the pins. Off campus it is between your machine and campus, which the suite
-# does not use -- one line, and nothing to do. The count above and --strict
-# are the same on both.
-if [ -n "$DRIFT_LINES" ] && [ "$ON_CAMPUS" = 1 ]; then
+# the pins. Off campus it is between your machine and campus, and the pins
+# describe campus, not your machine -- one line, and nothing to do. The count
+# above and --strict are the same on both.
+if [ "$ON_CAMPUS" = 1 ] && { [ -n "$DRIFT_LINES" ] || [ -n "$REPIN_LINES" ]; }; then
+	if [ -n "$DRIFT_LINES" ]; then
+		echo ""
+		echo "  CAMPUS-KIND DRIFT. These decide whether the suite tests the same"
+		echo "  toolchain the grade comes from, so they are the ones worth acting on:"
+		printf '%s\n' "$DRIFT_LINES"
+	fi
+	if [ -n "$REPIN_LINES" ]; then
+		echo ""
+		echo "  CAMPUS-KIND REPACKAGING. The same version in a different package build:"
+		echo "  not drift, and --strict ignores it, but each campus pin is campus's"
+		echo "  exact string, so these are re-pinned too:"
+		printf '%s\n' "$REPIN_LINES"
+	fi
 	echo ""
-	echo "  CAMPUS-KIND DRIFT. These decide whether the suite tests the same"
-	echo "  toolchain the grade comes from, so they are the ones worth acting on:"
-	printf '%s\n' "$DRIFT_LINES"
-	echo ""
-	echo "  Nothing for you to fix: whoever keeps the pins re-pins by hand, in both"
-	echo "  places named above -- deliberately not automatic, since a pin changed by"
-	echo "  a script is a change to what the suite tests that nobody decided. So"
-	echo "  that they hear of it, record this machine with"
+	# A did-not-start line names no pin to edit: the box is at fault.
+	case "$DRIFT_LINES$REPIN_LINES" in
+	*"(edit "*)
+		echo "  Nothing for you to fix: whoever keeps the pins re-pins by hand, in both"
+		echo "  places named above -- deliberately not automatic, since a pin changed by"
+		echo "  a script is a change to what the suite tests that nobody decided. So"
+		echo "  that they hear of it, record this machine with"
+		;;
+	*)
+		echo "  No pin is wrong here: a tool this box has would not start, which is"
+		echo "  the machine's fault, not the pins'. So that whoever keeps the pins"
+		echo "  hears of it, record this machine with"
+		;;
+	esac
 	echo "      sh tools/env-audit.sh"
 	echo "  and send them the report it writes under tools/env-reports/. In a clone"
 	echo "  of the public template that is an environment issue, opened from"
@@ -598,7 +814,7 @@ if [ -n "$DRIFT_LINES" ] && [ "$ON_CAMPUS" = 1 ]; then
 elif [ -n "$DRIFT_LINES" ]; then
 	echo ""
 	echo "  Campus-kind rows differ from the pins on this machine, which is not a"
-	echo "  campus box: nothing to do here (the suite runs the fetched copies)."
+	echo "  campus box: nothing to do here (the pins describe campus)."
 fi
 
 # Where this checkout's Bazel state is, on a campus box. The output base this
@@ -616,25 +832,66 @@ if [ -n "$FETCH_LINES" ]; then
 	echo ""
 	echo "  FETCH DRIFT — worse than campus drift, and never noise. What Bazel"
 	echo "  downloaded is not what pins.tsv claims it downloads, and a fetch is"
-	echo "  pinned by sha256, so this cannot be a repackaging: the pin was edited"
-	echo "  in one place and not the other. Until it is fixed, pins.tsv describes"
-	echo "  a toolchain nothing actually runs:"
+	echo "  pinned by sha256, so this cannot be a repackaging. Two versions on a"
+	echo "  line mean the pin was edited in one place and not the other; a line"
+	echo "  that says \"another tool\" means //tools:env_drift's data hands the row"
+	echo "  another binary, or the pin's words were edited. Until it is fixed,"
+	echo "  pins.tsv describes a toolchain nothing actually runs:"
 	printf '%s\n' "$FETCH_LINES"
+fi
+
+if [ -n "$WIRING_LINES" ]; then
+	echo ""
+	echo "  NOT COMPARED — the fetched binary of these rows was never compared"
+	echo "  with its pin, so nothing says the checks run what pins.tsv describes."
+	echo "  The pins are not at fault: each line is a fault in //tools:env_drift's"
+	echo "  data, or a run of this script that did not come from that target:"
+	printf '%s\n' "$WIRING_LINES"
+fi
+
+if [ -n "$UNRUN_LINES" ]; then
+	echo ""
+	echo "  UNRUNNABLE — a fetched tool did not start on this machine, so it was"
+	echo "  compared with nothing, and every check that runs it fails here too."
+	echo "  The pins are not at fault: most fetched tools are Ubuntu 22.04 builds"
+	echo "  that load some shared libraries from this machine, so the usual cause"
+	echo "  is a library it lacks, or a system newer than 22.04. The dev container"
+	echo "  gives them the system they were built for (docs/environment.md). A"
+	echo "  line that names //tools:env_drift's data is a fault in that target:"
+	printf '%s\n' "$UNRUN_LINES"
 fi
 
 if [ "$REPORT" = 1 ]; then
 	mkdir -p tools/env-reports
 	stamp=$(date -u '+%Y-%m-%dT%H-%M-%SZ' 2>/dev/null || echo unknown)
-	host=$(hostname 2>/dev/null | tr -c 'A-Za-z0-9._-' '_' || echo unknown)
+	# The machine's name, as tools/prime_trace.sh reads it: C_PISCINE_HOST,
+	# the kernel's, then uname's, and anything that is not letters, digits,
+	# dots and dashes -- or nothing -- is "unknown". It was `hostname | tr`,
+	# which turned hostname's newline into a "_" in every file name, left
+	# the name empty where hostname was missing (the status was tr's), and
+	# called a command require does not declare (V258).
+	host="${C_PISCINE_HOST:-}"
+	if [ -z "$host" ] && [ -r /proc/sys/kernel/hostname ]; then
+		read -r host < /proc/sys/kernel/hostname || host=""
+	fi
+	if [ -z "$host" ] && command -v uname > /dev/null 2>&1; then
+		host=$(uname -n 2> /dev/null) || host=""
+	fi
+	case "$host" in
+		'' | .* | *[!A-Za-z0-9._-]*) host=unknown ;;
+	esac
 	out="tools/env-reports/drift-$host-$stamp.txt"
 	{
 		echo "env_drift report"
 		echo "host:     $host"
 		echo "when:     $stamp"
 		echo "campus:   $ON_CAMPUS ($WHY)"
-		echo "result:   $MATCH match, $DRIFT drifted, $MISSING missing, $FETCH_DRIFT fetch-drift, $RECORDED recorded"
+		echo "result:   $SUMMARY"
 		[ -n "$DRIFT_LINES" ] && printf '%s\n' "$DRIFT_LINES"
+		[ -n "$REPIN_LINES" ] && printf '%s\n' "$REPIN_LINES"
 		[ -n "$FETCH_LINES" ] && printf '%s\n' "$FETCH_LINES"
+		[ -n "$WIRING_LINES" ] && printf '%s\n' "$WIRING_LINES"
+		[ -n "$UNRUN_LINES" ] && printf '%s\n' "$UNRUN_LINES"
 	} > "$out"
 	echo ""
 	echo "  report written to $out"
@@ -642,7 +899,8 @@ if [ "$REPORT" = 1 ]; then
 	echo "   'when did campus move?' stops being guesswork)"
 fi
 
-if [ "$STRICT" = 1 ] && { [ -n "$DRIFT_LINES" ] || [ -n "$FETCH_LINES" ]; }; then
+if [ "$STRICT" = 1 ] && { [ -n "$DRIFT_LINES" ] || [ -n "$FETCH_LINES" ] ||
+	[ -n "$WIRING_LINES" ] || [ -n "$UNRUN_LINES" ]; }; then
 	exit 1
 fi
 exit 0

@@ -1,0 +1,11 @@
+*lst NULL: del called with	(no call)
+*lst NULL: *lst afterwards	NULL
+[a]: del called with	A
+[a]: *lst afterwards	NULL
+[a b c]: del called with	A B C
+[a b c]: *lst afterwards	NULL
+from b of [a b c]: del called with	B C
+from b of [a b c]: a->next afterwards	NULL
+from b of [a b c]: a's content afterwards	unchanged
+5000 nodes: del called with	each of the 5000 contents, once
+5000 nodes: *lst afterwards	NULL

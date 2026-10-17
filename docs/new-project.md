@@ -37,7 +37,9 @@ here to one of the two, and every check it names to one that exists.
 ## The project's folder
 
 3. **One folder per project, named as 42 names it**, inside its course folder
-   (`cursus/<project>/`), holding one `BUILD.bazel` and the subject beside it
+   (`c-piscine/<project>/`), or, for the Common Core, inside its milestone's
+   folder (`cursus/Milestone_N/<Project>/`: Libft is
+   `cursus/Milestone_0/Libft/`), holding one `BUILD.bazel` and the subject beside it
    as `en.subject.pdf` / `es.subject.pdf`. The template build replaces every
    subject with a placeholder; nothing in the harness reads one. A new course
    folder goes on the `COURSE_NAMES` line of every script that walks the
@@ -110,11 +112,23 @@ here to one of the two, and every check it names to one that exists.
     their keys in `mandatory` and that sentence, with its page, in
     `mandatory_quote`: `submit --written-only` will not push the project
     while one of them is still a stub. A subject that says nothing of the
-    kind gets no list: none is ever inferred. **Checked by:**
-    `subject_problem` (a list of the contract's exercises, with the quote),
-    `//tools/tests:macro_fixtures_test` (first_red reads the list as the
-    macros do), and `//tools:conventions` ("No runner names the grader; the
-    project's contract does").
+    kind gets no list: none is ever inferred. Where the subject says its
+    grader judges memory ("Memory leaks will not be tolerated."), its
+    sentence on a leak and its sentence on a crash or an invalid access,
+    each with its page, are `memory_graded = {"leaks": ..., "access": ...}`,
+    which puts the project's `valgrind` layer at `basic`, every red of it
+    quoting the sentence its finding breaks; never written for a subject
+    that does not say it. **Checked by:** `subject_problem` (a list of the
+    contract's exercises, with the quote; `memory_graded` exactly those two
+    keys, each one line), `//tools/tests:macro_fixtures_test` (first_red
+    reads the list, and whether the contract declares `memory_graded`, as
+    the macros do; `./graded`'s valgrind tests at basic, each quoting the
+    access sentence and each that checks leaks the leak one), c_levels()'
+    audit (a valgrind test at basic only where the contract declares it;
+    there, `--access-rule` on every one, `--rule` on every one that checks
+    leaks and on none that does not), and
+    `//tools:conventions` ("No runner names the grader; the project's
+    contract does").
 11. **`files` and `optional`.** A pattern says what kind of file, never where,
     unless the subject names the place: beside a Makefile, "Makefile, \*.h,
     \*.c" is `"Makefile"` with `"**/*.c"`, `"**/*.h"`, so a `srcs/` and
@@ -137,8 +151,30 @@ here to one of the two, and every check it names to one that exists.
     `[]` for "None", `None` where the subject has no such line (a rush, a
     header exercise), which emits no forbidden layer. Whether a program may
     allocate, and so gets a leak check, is read from it, never passed again.
-    **Checked by:** `_forbidden_allowed_problem`, `_function_malloc_problem`,
-    `_malloc_argument_problem`.
+    Where one exercise turns in a library whose functions each have a box of
+    their own, `functions` holds each box's list, and `allowed` is their
+    union. Such a library is declared once with `c_library(num)` -- its
+    unit, `c_make`, the Norm, the compilers, the prototypes, the forbidden
+    layer over the union, the symbols -- with a choice for each check a
+    library's subject may or may not make, a quoted sentence or
+    `"none: <the reason>"`: `globals` (no variable outside every function),
+    `function_lists` (each function held to its own box, a sentence per
+    function), `restrict_rule` (no `restrict` in a prototype),
+    `declares_reading` (the turned-in header declares every function, a
+    reading at strict) and `helpers_rule` (every helper static in its own
+    file, one two files share included); and each function is tested by
+    member calls below it, `c_function`, `c_mem_check`, `c_diff`, `c_perf`
+    and `c_cycles` with `member = "<function>"`: targets
+    `exNN_<function>_*`, files under `tests/exNN/<function>/`, `malloc`
+    held to the function's own box ([Suites](reference.md#suites)).
+    **Checked by:** `_forbidden_allowed_problem`,
+    `_function_malloc_problem`, `_malloc_argument_problem`, and
+    `exercise_problem` (`functions`: C names, each list inside `allowed`,
+    their union equal to it); `library_members_problem` and
+    `_member_problem` (a function whose targets would be ambiguous, a member
+    call on no function, or above `c_library`, or passing what is the
+    library's), and `_member_problems` (a function with no test, a test or a
+    `tests/exNN/` folder of no function).
 
 ## How student code is built
 
@@ -177,8 +213,8 @@ here to one of the two, and every check it names to one that exists.
     `ordered`, at the level the subject's sentence gives it), `wildcards`
     (with the Norm's quote), or `not_checked = {check: why}`; each rule the
     subject defines quoted in `quotes`; a rule it only lists goes to
-    `exNN_build_rules`, at robust; a library on `c_libft` decides the same in
-    `make = {...}`. Its hints go in `clues`. **Checked by:** `_make_problem`,
+    `exNN_build_rules`, at robust; a library on `c_libft` or `c_library`
+    decides the same in `make = {...}`. Its hints go in `clues`. **Checked by:** `_make_problem`,
     `_libft_make_problem`, and `_audit_problems` (a clue file no test hands
     a runner).
 
@@ -202,7 +238,8 @@ here to one of the two, and every check it names to one that exists.
     what it fills from its input from the case"); the large cases
     **(unchecked)**.
 22. **A harness that prints a byte a line cannot hold** writes
-    diff_output's notation and declares `escaped_values`; **one that passes
+    diff_output's notation and declares `escaped_values` (a reading's
+    harness in its own case, `"escaped_values": True`); **one that passes
     an address** publishes it as `@addr`, never normalised by the runner,
     and **checks it only on a block above 4 GiB**: a reader's heap sits
     below, where an address cut to 32 bits is the real one (finding 048), so
@@ -228,15 +265,30 @@ here to one of the two, and every check it names to one that exists.
 25. **A callback records its calls, a predicate returns more than 0 and 1,
     and each fixture row names the property it checks** (`labeled = True`), so
     "never called", "called with the wrong argument" and a clue are about one
-    row. **(unchecked)**
+    row. **(unchecked)** **A case frees what its call returned, allocated,
+    freed or relinked before its row's newline** (or before the row
+    starts): `diff_output.sh --harness-fixture` marks the first unfinished
+    row as the case that was running, so a fixture that ends a row and then
+    frees such a block blames a crash in free() on the next case, and shows
+    the one that crashed as PASS. A block the test made that the call only
+    reads or links (a capture buffer, a node it is handed) may be freed
+    after the row: no realistic mistake in such a call writes into it, and
+    where one is damaged anyway the memory layers point at the write.
+    **Checked by:** `//tools/tests:selftest`, its diff_output arms over C 07
+    ex00's and C 13 ex00's fixtures, each built over a toy that hands back
+    a static block; every other fixture **(unchecked)**.
 26. **A structure the subject prints** for a header the student turns in goes
     in `tests/layout/<header>`, its names in `tests/layout/tag/<header>`.
     **Checked by:** `_audit_problems`, for a layout file no test reads; a
     structure the subject prints with no layout file **(unchecked)**.
 27. **Every program that links a harness over student code names the test of
     the signatures it calls** (`prototype`), and `_prototype_names` is added
-    where the subject fixes parameter names. **Checked by:**
-    `_harness_prototype_problem` and `_audit_problems`; the names
+    where the subject fixes parameter names. A library chooses it:
+    `c_library(prototype_names)` is a file under `tests/exNN/` holding the
+    named declarations alone, including nothing, or `"none: <the reason>"`
+    (the reason alone where `prototype = False`).
+    **Checked by:** `_harness_prototype_problem` and `_audit_problems`;
+    `_library_args_problem` for a library; the names elsewhere
     **(unchecked)**.
 28. **A sentence about how the work is done**, which no output shows, gets a
     row in [reference.md, "Sentences about how"](reference.md#sentences-about-how),
@@ -308,12 +360,17 @@ here to one of the two, and every check it names to one that exists.
     **Checked by:** `//tools:conventions` ("A word of a test's `args` is
     quoted by shell_word(), and by nothing else") and ("A runner's list of
     words from its command line is one word per line").
-39. **A gate is one of its own exercise's output tests, run as that test
-    runs it** -- the same program, expected file, arguments, standard input
+39. **A gate is one of its own exercise's output tests -- in a library,
+    of its own function's, or the whole library's for a test of the whole
+    library -- run as that test runs it** -- the same program, expected file, arguments, standard input
     and folder -- through `rl_gate`; where two output tests share that run,
     the call names the one it waits for (`waits`), and a runner that takes
-    `--gate-label` is handed that test's name for its SKIP line. **Checked
-    by:** `_gate_problems`, `_case_gate_problems`, `_waiting_problems`,
+    `--gate-label` is handed that test's name for its SKIP line. Every
+    `diff` and `diff_asan` test that is not manual has one --
+    `output_gate(<that test>)` reads it off the test -- or the macro that
+    emits it says, beside the line, why it waits for nothing
+    (`_NO_GATE_TAG`). **Checked by:** `_gate_problems`,
+    `_case_gate_problems`, `_waiting_problems`, `_ungated_diff_problems`,
     `_gate_label_problems`, and
     `//tools:conventions` ("A corpus runner's gate is tools/runner_lib.sh's
     rl_gate").
@@ -427,10 +484,12 @@ here to one of the two, and every check it names to one that exists.
     (`c_program(allocfail = [...])`) lists cases that allocate, sits at
     robust, and checks leaks (`allocfail_leaks`) only where the subject allows
     `free` and states a freeing rule. A case that allocates nothing reports
-    NOTHING TO REFUSE, green: choose one that does. **Checked by:**
-    `allocfail_rule_problem`, `allocfail_leaks_problem`,
-    `program_allocfail_problem`, `_allocfail_problem`; the choice of cases
-    **(unchecked)**.
+    NOTHING TO REFUSE, green: choose one that does. A program whose subject
+    lets it allocate, with cases, either asks for the sweep or says why not
+    (`no_allocfail = "why"`); neither, or both, refuses the load.
+    **Checked by:** `allocfail_rule_problem`, `allocfail_leaks_problem`,
+    `program_allocfail_problem`, `program_allocfail_choice_problem`,
+    `_allocfail_problem`; the choice of cases **(unchecked)**.
 54. **A memory rule valgrind applies is quoted at the call site**
     (`memory_rule`), and no runner quotes a subject of its own accord, not
     even a runner only one project calls: its messages quote what the call
@@ -514,21 +573,23 @@ here to one of the two, and every check it names to one that exists.
 66. **A runner sources `tools/runner_lib.sh`** and takes from it what every
     runner needs: the time budget, the run and how it ended, the signal
     traps, the byte renderer, excerpts, diffs (`rl_udiff`), a sanitizer's
-    report (`rl_sanitized`, asked after every instrumented run), hints. A
-    layer that is not the output test passes its own key as `rl_clues FILE
-    FAILED FIRST CASE LAYER`'s LAYER (valgrind_test.sh's "valgrind"), so its
-    own rows show first and the output test's are shown as the output's;
-    nothing checks that a new layer passes it. **Checked by:**
-    `//tools:conventions` ("A test's runner sources tools/runner_lib.sh"),
-    ("Student code runs under the time budget"), ("How a program ended is read
-    from tools/exit_status"), ("A signal trap ENDS the script"), ("A runner
-    cuts captured output with rl_excerpt"), ("A clues.tsv is read by
-    rl_clues"), ("Where two outputs part is found and shown by
-    tools/runner_lib.sh alone"), ("A diff a log shows is made and shown by
-    tools/runner_lib.sh's rl_udiff"), ("A sanitizer's options are set by
-    rl_sanitizers"), ("A sanitizer's report is recognised by
-    tools/runner_lib.sh's rl_sanitized") and ("A runner that sets the
-    sanitizers up asks rl_sanitized how its run ended").
+    report (`rl_sanitized`, asked after every instrumented run), a file the
+    program was handed and the log keeps (`rl_keep_input`, so a memory
+    report names it by its kept name), hints. A layer that is not the output
+    test passes its own key as `rl_clues FILE FAILED FIRST CASE LAYER`'s
+    LAYER (valgrind_test.sh's "valgrind"), so its own rows show first and
+    the output test's are shown as the output's; nothing checks that a new
+    layer passes it. **Checked by:** `//tools:conventions` ("A test's runner
+    sources tools/runner_lib.sh"), ("Student code runs under the time
+    budget"), ("How a program ended is read from tools/exit_status"), ("A
+    signal trap ENDS the script"), ("A runner cuts captured output with
+    rl_excerpt"), ("A clues.tsv is read by rl_clues"), ("Where two outputs
+    part is found and shown by tools/runner_lib.sh alone"), ("A diff a log
+    shows is made and shown by tools/runner_lib.sh's rl_udiff"), ("A
+    sanitizer's options are set by rl_sanitizers"), ("A sanitizer's report
+    is recognised by tools/runner_lib.sh's rl_sanitized"), ("A runner that
+    sets the sanitizers up asks rl_sanitized how its run ended") and ("A
+    corpus runner keeps an input through rl_keep_input").
 67. **Every SKIP is forced open by `NO_SKIP=1`**, says why it waits, and names
     the test to run with it, never the whole repo. **Checked by:**
     `//tools:conventions` ("Every SKIP honours NO_SKIP").
@@ -559,7 +620,12 @@ here to one of the two, and every check it names to one that exists.
     reason. An arm calls only helpers its file defines; a selftest toy takes
     an exercise number, and a fixture tree's TODO.md and HISTORY.md a
     writer, no other block uses; a fixture tree under `$WORK` belongs to
-    one section, and none writes into a tree made before the first.
+    one section, and none writes into a tree made before the first; a
+    fixture PATH is one an arm sets, holding every tool its runner needs. A
+    selftest_slow toy is built with its `toy_cc`, which fails a toy that did
+    not build. A section added to `selftest.sh`, or grown, is measured again
+    into `tools/tests/selftest_costs.tsv` (`bazel run
+    //tools/tests:selftest_costs` after a run of both selftest targets).
     **Checked by:** `//tools:conventions`
     ("A script that calls need() defines it"), whose rules report an arm
     that "calls ... and never defines it", a toy exercise written "from two
@@ -567,8 +633,15 @@ here to one of the two, and every check it names to one that exists.
     fixture tree's TODO.md or HISTORY.md written "from two statements", a
     file that "names one fixture tree in two sections" (outright, through a
     variable or a loop, or through a helper and the words a call passes
-    it), and one that "writes from a section into a fixture tree made
-    before the first section"; that the check was red before it
+    it), one that "writes from a section into a fixture tree made before
+    the first section", one that "builds a fixture PATH (...) that no arm
+    uses", one that "links a fixture PATH (...) into a folder this check
+    cannot read", one that "runs the fixture PATH ... with a runner this
+    check cannot name", one whose "fixture PATH (...) is missing what ...
+    requires", and a selftest_slow file that "builds a toy with its compiler's words thrown
+    away"; the rule ("docs/new-project.md says what holds each item") holds
+    this list to those rules' headlines, each quote here to one; that the
+    check was red before it, and that a section's row was measured again,
     **(unchecked)**.
 72. **Prove a check on more than two trees**: the stubs, a correct answer, a
     broken tree (a compile error, a stray `main`, a missing file), and every
@@ -591,7 +664,14 @@ here to one of the two, and every check it names to one that exists.
     behaves like the old file needs `bazel shutdown`, then
     `--nocache_test_results --use_action_cache=false`. **(unchecked)**
 75. **Look for an answer that left the zone**: `sh tools/answer_scan.sh`
-    finds an answer's identifiers, header macros or Makefile lines in a file
-    outside `deliverable/` and `generators/`, which a test or a comment can
-    carry as easily as a solution file. **(unchecked)**: run it yourself; the
-    template build runs it too.
+    finds, in a file outside `deliverable/` and `generators/`, a generator's
+    command lines or the lines it writes, the command lines of a `*.sh`
+    script turned in from `deliverable/`, a run of four lines from a
+    deliverable function's body, a header macro or Makefile line, a whole
+    public key, or a name only the answers use (a tag, type, macro, static
+    helper or file name), which a test or a comment can carry as easily as
+    a solution file. A file of the zone it reads in none of these ways stops
+    it until the scan is given that kind, but for a `README.md` at the root
+    of a `deliverable/` and a file `tools/resources.tsv` registers.
+    **(unchecked)**: run it yourself;
+    the template build runs it too.

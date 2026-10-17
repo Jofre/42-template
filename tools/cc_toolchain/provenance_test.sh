@@ -8,6 +8,10 @@
 # exists for are all ones where the right file is exec'd and the wrong code
 # runs.
 set -u
+# Each capture below reads the loader's lines from stderr: an LD_DEBUG_OUTPUT
+# set from outside (--test_env) would send them to files of its own, and
+# every check would find nothing to read (V276).
+unset LD_DEBUG_OUTPUT
 
 COMPILER="@COMPILER@"
 AR="@AR@"
@@ -75,6 +79,7 @@ programs "$WORK/cc.dbg"
 every_under "$WORK/cc.dbg.prog" 'clang(-12)?$' 'clang_12_ubuntu' "the compiler that ran is the pinned clang-12"
 libraries "$WORK/cc.dbg"
 every_under "$WORK/cc.dbg.libs" 'libclang-cpp|libLLVM' 'clang_12_ubuntu' "its libclang-cpp and libLLVM are the pinned ones"
+every_under "$WORK/cc.dbg.libs" 'libxml2|libicu' 'clang_12_ubuntu' "the libxml2 and ICU its libLLVM loads are the pinned ones"
 
 # 3. The link: which linker clang CHOSE by name, and what that linker loaded.
 #    -fuse-ld=bfd is the bare form tools/defs.bzl and .bazelrc both pass, and it
@@ -110,5 +115,9 @@ if [ "$FAIL" -ne 0 ]; then
 	echo "            what it runs is not what MODULE.bazel pins."
 	exit 1
 fi
-echo "provenance: OK -- every tool the resolved toolchain ran, and every library"
-echo "            it loaded, came from the pinned tree."
+echo "provenance: OK -- every tool the resolved toolchain ran came from the"
+echo "            pinned tree, and so did each library checked above"
+echo "            (libclang-cpp, libLLVM, libxml2, ICU, libbfd, libctf). What"
+echo "            the tools load from the box instead is docs/environment.md's"
+echo "            list (\"What the harness borrows from the box\"), held to them"
+echo "            by //tools/tests:fetched_needed."

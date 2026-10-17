@@ -103,7 +103,13 @@
 #                  --valgrind PATH --valgrind-tools FILE --callgrind-annotate PATH
 #                  [--kind search|output]
 #                  [--gate-differ F --gate-bin P --gate-expected F
-#                   [--gate-labeled] [--gate-sanitize] [--gate-stdin F]]
+#                   [--gate-labeled] [--gate-sanitize] [--gate-stdin F]
+#                   [--gate-label NAME]]
+#
+#   --gate-label NAME  the output test the gate stands for, named in the SKIP
+#                   line (c_levels()' audit holds it to that test,
+#                   _gate_label_problems). Without it the line says "this
+#                   exercise's output fixture", which names no test.
 set -u
 
 # The external commands this runner takes from PATH. See diff_output.sh for why
@@ -146,7 +152,7 @@ KIND="search"
 # means. The flags actually used are echoed in the header so a non-default build
 # cannot silently change the ratio without saying so.
 OPT="${CYCLES_OPT:--O2}"
-GATE_DIFFER=""; GATE_BIN=""; GATE_EXPECTED=""; GATE_PASS=""
+GATE_DIFFER=""; GATE_BIN=""; GATE_EXPECTED=""; GATE_PASS=""; GATE_LABEL=""
 
 # --inc takes either a directory or a header file: Bazel's $(location) on an
 # hdrs entry resolves to the FILE and the compiler needs its directory, while
@@ -193,6 +199,7 @@ while [ $# -gt 0 ]; do
 		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
+		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
 		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
 		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
 		--cc-under) need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
@@ -211,7 +218,7 @@ while [ $# -gt 0 ]; do
 done
 
 # A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
-rl_gate_whole ref_compare "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS"
+rl_gate_whole ref_compare "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS$GATE_LABEL"
 
 [ -n "$HARNESS" ] && [ -n "$SRCS" ] || {
 	echo "ref_compare.sh: need --harness and at least one --src" >&2
@@ -267,7 +274,7 @@ rl_traps 'rm -rf "$T"'
 # is visible the day someone sweeps.
 # ---------------------------------------------------------------------------
 if [ "${NO_SKIP:-0}" != "1" ] && [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] &&
-	[ -n "$GATE_EXPECTED" ] && [ -x "$GATE_BIN" ] && [ -f "$GATE_EXPECTED" ]; then
+	[ -n "$GATE_EXPECTED" ]; then
 	# WHY THE STATUS IS CAPTURED RATHER THAN TESTED WITH `if !`.
 	#
 	# `if ! <gate>` treats EVERY non-zero the same, and the differ has two
@@ -295,7 +302,11 @@ if [ "${NO_SKIP:-0}" != "1" ] && [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] &&
 		echo "ref_compare: the output gate could not be evaluated (exit $_gate_rc),"
 		echo "             so this layer is running anyway rather than going quiet."
 	elif [ "$_gate_rc" -eq 1 ]; then
-		echo "ref_compare: SKIP — this exercise's output fixture is not passing yet."
+		if [ -n "$GATE_LABEL" ]; then
+			echo "ref_compare: SKIP — $GATE_LABEL, this exercise's output fixture, is not passing yet."
+		else
+			echo "ref_compare: SKIP — this exercise's output fixture is not passing yet."
+		fi
 		echo "             What a wrong answer costs is not information: the number"
 		# The middle clause is the one sentence in this message that names what
 		# the exercise DOES, so it is the one sentence that goes wrong when the
@@ -507,6 +518,9 @@ profile() {
 		exit 1
 	fi
 	# --vgdb=no: no FIFOs in TMPDIR for a gdb that never comes (cycles_check.sh).
+	# The host's valgrind settings are off first (tools/runner_lib.sh,
+	# rl_vg_env), for both sides of the ratio alike.
+	rl_vg_env "$T" || exit 2
 	rl_run "$VALGRIND" --tool=callgrind --vgdb=no --callgrind-out-file="$_out" "$@" \
 		> /dev/null 2>"$T/vg.err" < /dev/null
 	rl_classify "$?"
@@ -522,6 +536,11 @@ profile() {
 			exit 1
 			;;
 	esac
+	# A valgrind that stopped at its own startup (V242) is the machine's
+	# setup, never a SKIP. No known cause makes callgrind do so today (the
+	# ld.so debug symbols are memcheck's need), so this refusal is kept in
+	# reserve and names no package (tools/runner_lib.sh, rl_vg_aborted).
+	! rl_vg_aborted callgrind "$1" "$T/vg.err" || exit 2
 	[ "${NO_SKIP:-0}" != "1" ] || {
 		echo "NO_SKIP set: callgrind could not profile $1 ($RL_WHY), so there is no"
 		echo "             instruction count to compare. What valgrind said:"

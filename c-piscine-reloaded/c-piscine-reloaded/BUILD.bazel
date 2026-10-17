@@ -1,5 +1,5 @@
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//tools:defs.bzl", "NORM_NO_RELINK", "NORM_NO_WILDCARDS", "c_argv_table", "c_cycles", "c_diff", "c_function", "c_header", "c_levels", "c_make", "c_mem_check", "c_program", "c_twin", "corpus_memory", "exercise", "hand_test", "shell_exercise", "stderr_ignored", "subject")
+load("//tools:defs.bzl", "NORM_NO_RELINK", "NORM_NO_WILDCARDS", "c_argv_table", "c_cycles", "c_diff", "c_function", "c_header", "c_levels", "c_make", "c_mem_check", "c_program", "c_twin", "corpus_memory", "exercise", "hand_test", "output_gate", "shell_exercise", "stderr_ignored", "subject")
 
 # Piscine Reloaded: ONE project, ONE Vogsphere repository, ex00 ... ex27 at its
 # root. It is a best-of of the Piscine, and its tests are the Piscine's own.
@@ -324,10 +324,38 @@ c_cycles(
 )
 c_twin(num = "16", of = "//c-piscine/c-piscine-c-01:ex06")
 
-# ex17 = C 03 ex00: the output fixture compares the sign, ex17_diff the exact
-# int (see c-piscine/c-piscine-c-03/BUILD.bazel for why)
+# //tools/tests's selftest_slow runs this c_diff's corpora over toys, through
+# the runner its targets run, reading the call from this file (V206), and
+# reads the texts the plain targets ship: so the file, its harnesses and
+# those texts are visible to it.
+exports_files(
+    [
+        "BUILD.bazel",
+        "tests/ex17/clues.tsv",
+        "tests/ex17/diff_clues.txt",
+        "tests/ex17/diff_strcmp.c",
+        "tests/ex17/diff_strcmp_readings.c",
+        "tests/ex17/test_strcmp.c",
+    ],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
+# ex17 = C 03 ex00: the output fixture and ex17_diff compare the sign, and
+# ex17_readings, at strict, holds one reading of what man strcmp leaves open,
+# its own hints saying which (see c-piscine/c-piscine-c-03/BUILD.bazel)
 c_function(num = "17", fn = "ft_strcmp", test = "test_strcmp.c", labeled = True, clues = "clues.tsv")
-c_diff(num = "17", fn = "ft_strcmp", harness = "diff_strcmp.c", oracle_fn = "c03_strcmp", diff_clues = "diff_clues.txt")
+c_diff(
+    num = "17",
+    fn = "ft_strcmp",
+    harness = "diff_strcmp.c",
+    oracle_fn = "c03_strcmp_sign",
+    diff_clues = "diff_clues.txt",
+    readings = {
+        "diff_clues": "diff_clues_readings.txt",
+        "harness": "diff_strcmp_readings.c",
+        "oracle_fn": "c03_strcmp",
+    },
+)
 c_cycles(
     num = "17",
     fn = "ft_strcmp",
@@ -392,6 +420,10 @@ RL_ARGV_CORPORA = [
     ("ex19_high_bytes_argv", "19", "c06_sort_params_high", "200", ["--expect-reordering"], 3),
 ]
 
+# Each replay waits, as C 06's do, for its exercise's argument table,
+# exNN_output, the output test a stub fails (output_gate).
+RL_ARGV_GATES = {num: output_gate("ex%s_output" % num) for num in ["18", "19"]}
+
 [
     hand_test(
         name = stem + "_diff",
@@ -408,7 +440,7 @@ RL_ARGV_CORPORA = [
             fn,
             "--count",
             count,
-        ] + judging +
+        ] + judging + RL_ARGV_GATES[num][0] +
         # A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the
         # Run contract's: ignored, unless the subject requires something of it.
         stderr_ignored("ex18's and ex19's subjects ask nothing of standard error"),
@@ -418,7 +450,7 @@ RL_ARGV_CORPORA = [
             "//tools:argv_check.sh",
             "//tools:exit_status",
             "//tools:runner_lib.sh",
-        ],
+        ] + RL_ARGV_GATES[num][1],
     )
     for stem, num, fn, count, judging, level in RL_ARGV_CORPORA
 ]
@@ -441,14 +473,14 @@ RL_ARGV_CORPORA = [
             "--count",
             count,
             "--exit-only",
-        ] + stderr_ignored("this replay judges only how each run ended"),
+        ] + RL_ARGV_GATES[num][0] + stderr_ignored("this replay judges only how each run ended"),
         data = [
             ":ex%s_bin" % num,
             "//oracle:oracle",
             "//tools:argv_check.sh",
             "//tools:exit_status",
             "//tools:runner_lib.sh",
-        ],
+        ] + RL_ARGV_GATES[num][1],
     )
     for stem, num, fn, count, _judging, _level in RL_ARGV_CORPORA
 ]
@@ -468,8 +500,8 @@ RL_ARGV_CORPORA = [
             fn,
             "--count",
             count,
-        ],
-        data = ["//oracle:oracle"],
+        ] + RL_ARGV_GATES[num][0],
+        data = ["//oracle:oracle"] + RL_ARGV_GATES[num][1],
         size = "medium",
     )
     for stem, num, fn, count, _judging, _level in RL_ARGV_CORPORA
@@ -774,6 +806,10 @@ c_make(
 )
 # The Piscine's read-loop differential for the same program (see
 # c-piscine/c-piscine-c-10/BUILD.bazel for what the corpus walks and why).
+# It and its twin wait, as C 10 ex00's do, for ex27_show_output, the case
+# that displays a file, which a stub fails (output_gate).
+RL_FILE_GATE = output_gate("ex27_show_output")
+
 hand_test(
     name = "ex27_file_diff",
     layer = "diff",
@@ -791,14 +827,14 @@ hand_test(
         # Every generated file is readable, and the subject's three messages
         # are all errors: nothing on stderr (C 10's BUILD file says more).
         "--stderr-empty",
-    ],
+    ] + RL_FILE_GATE[0],
     data = [
         ":ex27_bin",
         "//oracle:oracle",
         "//tools:file_check.sh",
         "//tools:exit_status",
         "//tools:runner_lib.sh",
-    ],
+    ] + RL_FILE_GATE[1],
 )
 
 # The same corpus on the ASan build (ex27_file_diff_asan, robust), judging
@@ -816,8 +852,8 @@ corpus_memory(
         "c10_display_file",
         "--count",
         "60",
-    ],
-    data = ["//oracle:oracle"],
+    ] + RL_FILE_GATE[0],
+    data = ["//oracle:oracle"] + RL_FILE_GATE[1],
 )
 
 c_levels()

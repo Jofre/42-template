@@ -36,7 +36,7 @@ int	main(void)
 	d5[2] = '\0';
 	test("append past old '\\0' (buffer was X-filled)", d5, "ya");
 	test("\"\" + \"\" (both empty)", d6, "");
-	test("\"hi\" + high-byte src \\xC3\\xA9\\x80", d7, "\xC3\xA9\x80");
+	test("\"hi\" + high-byte src, bytes 0xc3 0xa9 0x80", d7, "\xC3\xA9\x80");
 	test("long src onto short dest", d8,
 		"0123456789012345678901234567890123456789");
 	return (0);

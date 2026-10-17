@@ -23,6 +23,18 @@
 #   argv_table.sh --bin PATH --scenarios PATH --expected PATH \
 #       [--clues PATH] [--reporter PATH] [--memory-only] [--exit-only]
 #       [--guarded-argv] [--symbolizer PATH --symbolizer-lib PATH]
+#       [--waiting FILE] [--]
+#
+#   --waiting FILE the tests that wait for this table (tools/defs.bzl's
+#                  _WAITING, one a line with its level): under a red verdict
+#                  they are listed, with what Bazel shows for them
+#                  (rl_waiting). c_argv_table's exNN_output hands it: the
+#                  exercise's corpus replays wait for that table.
+#   --             ends the options, with nothing after it: each row of the
+#                  scenarios is one run's arguments, so the program takes
+#                  none of its own here. It is there for the replays' gate
+#                  (tools/runner_lib.sh's rl_gate), which runs this table as
+#                  it runs a differ, its own words after a `--`.
 #
 #   --memory-only  run every scenario and apply the survival guards, but do NOT
 #                  compare the table. For the sanitizer replay of these same
@@ -87,7 +99,7 @@ case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esa
 # conventions: harness tool REPORTER -- tools/diff_output.sh (or --reporter's), which renders the table and runs nothing
 
 BIN=""; SCN=""; EXP=""; CLUES=""; REPORTER=""; SEP=" | "; EMIT=0; MEMONLY=0
-EXITONLY=0; SYMBOLIZER=""; SYMBOLIZER_LIB=""; GUARDED=0
+EXITONLY=0; SYMBOLIZER=""; SYMBOLIZER_LIB=""; GUARDED=0; WAITING=""
 TAB=$(printf '\t')
 
 # `--flag` with nothing after it used to die as "2: parameter not set" from
@@ -108,9 +120,21 @@ while [ $# -gt 0 ]; do
 		--guarded-argv) GUARDED=1; shift ;;
 		--symbolizer) need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
 		--symbolizer-lib) need "$1" "$#"; SYMBOLIZER_LIB="$2"; shift 2 ;;
+		--waiting) need "$1" "$#"; WAITING="$2"; shift 2 ;;
+		--)
+			shift
+			if [ $# -gt 0 ]; then
+				echo "argv_table.sh: no word goes after --: each row of --scenarios is one run's arguments" >&2
+				exit 2
+			fi
+			;;
 		*) echo "argv_table.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+[ -z "$WAITING" ] || [ -f "$WAITING" ] || {
+	echo "argv_table.sh: no --waiting file at $WAITING" >&2
+	exit 2
+}
 # --emit: print the "label<TAB>joined-output" stream (used to GENERATE the expected
 # table from a trusted reference program). Otherwise --expected is required.
 if [ -z "$BIN" ] || [ -z "$SCN" ] || { [ "$EMIT" -eq 0 ] && [ "$MEMONLY" -eq 0 ] && [ "$EXITONLY" -eq 0 ] && [ -z "$EXP" ]; }; then
@@ -196,7 +220,8 @@ DIED=$(mktemp)
 NONZERO=$(mktemp)
 # Where rl_sanitizers writes the symbolizer's wrapper.
 SYMDIR=$(mktemp -d)
-rl_traps 'rm -f "$ACTUAL" "$RAW" "$ERR" "$ERRLOG" "$DIED" "$NONZERO"; rm -rf "$SYMDIR"'
+# Under a red verdict, the tests that wait for this table (--waiting).
+rl_traps 'rl_waiting $? "$WAITING"; rm -f "$ACTUAL" "$RAW" "$ERR" "$ERRLOG" "$DIED" "$NONZERO"; rm -rf "$SYMDIR"'
 # The sanitizers' options and the pinned symbolizer, set once for every
 # sanitizer runner (tools/runner_lib.sh). Harmless for the plain program, whose
 # runs no sanitizer watches.

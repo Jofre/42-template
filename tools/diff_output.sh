@@ -199,10 +199,16 @@
 #                            noted under the table (never failed), pointing at
 #                            the robust exit-status target that fails it.
 #   --status-file PATH       write how the program ended there, as one line:
-#                            "exit N", "signal N" (25 is the output budget) or
-#                            "timeout", for a caller whose report depends on
+#                            "exit N", "signal N" (25 is the output budget),
+#                            "timeout", or "notrun" when the test's own time
+#                            had run out before the program could start; a
+#                            "timeout" the test's own time cut (what was left
+#                            of it, not DIFF_TIMEOUT) before any row was
+#                            judged wrong has a second line, "clamped S".
+#                            For a caller whose report depends on
 #                            HOW it failed: ilp32_test.sh explains a SIGILL
-#                            differently from wrong output
+#                            differently from wrong output, and a run that
+#                            never happened as no finding at all
 #   --                       everything after is passed verbatim to the binary
 #
 # Env: DIFF_TIMEOUT (seconds, default 30), DIFF_MAX_ROWS (rows of the table, as
@@ -493,21 +499,6 @@ $EXPECTED$ALTS
 NOTE_EOF
 fi
 
-# A PROGRAM THAT DID NOT BUILD is a stand-in script that says why (see
-# tools/standin.sh). Graded as a program, its "output" is empty and its exit
-# status arbitrary, and the report would be a table of wrong answers under
-# this exercise's hints, none of which is about a build. Say what the build
-# said instead, whole, and fail.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "diff_output.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
-# shellcheck source=tools/standin.sh
-. "$_sl"
-standin_check diff_output "$BIN" fail "the program"
-
 # A SURVIVE CASE'S GATE (--gate-expected). It asks only that the program ends
 # by itself, and a program nobody has written does: do-op's stub was green on
 # INT_MIN / -1 at strict, two green targets for a program that did nothing
@@ -534,7 +525,7 @@ if [ -n "$GATE_EXPECTED" ] && [ "${NO_SKIP:-0}" != "1" ]; then
 		echo " diff_output: the gate ($GATE_LABEL) could not be"
 		echo "              evaluated (exit $_gate_rc), so this case runs anyway rather than going quiet."
 	elif [ "$_gate_rc" -eq 1 ]; then
-		echo " SKIP — $GATE_LABEL is not passing yet."
+		echo "diff_output: SKIP — $GATE_LABEL is not passing yet."
 		echo ""
 		if [ "$SURVIVE" -eq 1 ]; then
 			echo "  This case only asks that the program ends by itself, and a program"
@@ -551,6 +542,26 @@ if [ -n "$GATE_EXPECTED" ] && [ "${NO_SKIP:-0}" != "1" ]; then
 		exit 0
 	fi
 fi
+
+# A PROGRAM THAT DID NOT BUILD is a stand-in script that says why (see
+# tools/standin.sh). Graded as a program, its "output" is empty and its exit
+# status arbitrary, and the report would be a table of wrong answers under
+# this exercise's hints, none of which is about a build. Say what the build
+# said instead, whole, and fail. Checked after the gate above, as every
+# gated runner checks it: a red gate has already skipped this case, and past
+# a green one -- or one NO_SKIP=1 forced open -- a stand-in is a failure.
+# Before the gate, a survive case over a Makefile that builds nothing was
+# red where the docs say it SKIPs while its exercise's first case is red,
+# and its asan and valgrind arms said SKIP (V281).
+case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
+for _sl in "$_sl_dir/standin.sh" \
+	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
+	[ -f "$_sl" ] && break
+done
+[ -f "$_sl" ] || { echo "diff_output.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+# shellcheck source=tools/standin.sh
+. "$_sl"
+standin_check diff_output "$BIN" fail "the program"
 
 # WHAT A SURVIVE CASE RAN, said before its verdict, pass or fail: it has no
 # table to say it, and "SURVIVED" alone does not say on what (review of
@@ -692,7 +703,22 @@ ABSENT_EOF
 # instead of surfacing as an opaque Bazel timeout. Every test using this runner
 # finishes in well under a second. What is left of the test's own limit caps
 # DIFF_TIMEOUT too (rl_tmo), so a gate run by another runner cannot outlive it.
+#
+# status_write LINE... -- how the run ended, to --status-file, one line each.
+status_write() {
+	[ -n "$STATUS_FILE" ] || return 0
+	printf '%s\n' "$@" > "$STATUS_FILE" || {
+		echo "diff_output.sh: cannot write --status-file '$STATUS_FILE'" >&2
+		exit 2
+	}
+}
+# A RUN THAT NEVER STARTED is recorded as one, "notrun", before the report:
+# the file used to be left unwritten here, and ilp32_test.sh, which reads it,
+# took the missing line for a run that had ended normally -- and blamed the
+# type model, under this "could not start" line, for a run that never
+# happened (V179).
 if ! rl_tmo "${DIFF_TIMEOUT:-30}"; then
+	status_write notrun
 	rl_overrun "this program's run"
 	exit 1
 fi
@@ -733,18 +759,21 @@ case "$RL_CAUSE" in
 		echo "diff_output.sh: '$BIN' $RL_WHY -- tools/exit_status reported nothing" >&2
 		exit 2 ;;
 esac
-# Before any verdict, so a runaway and a timeout are recorded too.
-if [ -n "$STATUS_FILE" ]; then
-	case "$ENDED" in
-		returned) _st="exit $RC" ;;
-		"timeout") _st="timeout" ;;
-		*) _st="signal $SIG" ;;
-	esac
-	printf '%s\n' "$_st" > "$STATUS_FILE" || {
-		echo "diff_output.sh: cannot write --status-file '$STATUS_FILE'" >&2
-		exit 2
-	}
-fi
+# Before any verdict, so a runaway and a timeout are recorded too. A timeout
+# that what was left of the test's own time cut (RL_CLAMPED: rl_tmo found less
+# left than DIFF_TIMEOUT, or the ceiling stopped the run first) says so on a
+# second line, as valgrind_test.sh's does: a busy machine may be all it was.
+# The line is taken back below once a row is known to be judged wrong.
+case "$ENDED" in
+	returned) status_write "exit $RC" ;;
+	"timeout")
+		if [ "$RL_CLAMPED" = 1 ]; then
+			status_write timeout "clamped $RL_TMO"
+		else
+			status_write timeout
+		fi ;;
+	*) status_write "signal $SIG" ;;
+esac
 
 # What the ending means, in one or two plain lines. A program KILLED BY A
 # SIGNAL is never correct, however good its output looks: without this a
@@ -1094,8 +1123,8 @@ if [ -n "$ALTS" ]; then
 	done <<ALT_EOF
 $EXPECTED$ALTS
 ALT_EOF
-	echo " THIS CASE TAKES ANY OF these outputs, one per reading of a sentence the"
-	echo " subject leaves open:"
+	echo " THIS CASE TAKES ANY OF these outputs, one per reading of a sentence"
+	echo " this test reads as open:"
 	while IFS= read -r _e; do
 		[ -n "$_e" ] && echo "   * ${_e##*/}"
 	done <<ALT_EOF
@@ -1141,8 +1170,7 @@ elif [ "$SANITIZE" -eq 1 ]; then
 	echo "       the column's width, its letter case ('(UPPERCASE)' is appended when"
 	echo "       it holds A-F) and the +16 step. Not compared: the address itself,"
 	echo "       which this test does not publish — so do NOT print the numbers you"
-	echo "       see here. Print the real address of each line's first byte, as the"
-	echo "       subject asks."
+	echo "       see here. Print the real address of each line's first byte."
 fi
 
 # ---------------------------------------------------------------------------
@@ -1221,7 +1249,7 @@ render_table() {
 		-v want_rc="$EXPECT_EXIT" -v exitbad="$EXIT_BAD" \
 		-v bytesame="$BYTES_SAME" -v esize="$EXP_BYTES" -v gsize="$GOT_BYTES" \
 		-v textonly="$TEXTONLY" -v escaped="$ESCAPED" \
-		-v statefile="$STATE" "$RL_AWK_VIS"'
+		-v statefile="$STATE" -v tablemark="$RL_TABLE_MARK" "$RL_AWK_VIS"'
 	function pad(s, w,   r) { r = s; while (length(r) < w) r = r " "; return r }
 	# A CASE label is text a person reads (rl_vis_text: a control byte as
 	# \xHH, the rest as written), and may hold a character of several
@@ -1410,6 +1438,12 @@ render_table() {
 			for (i = 1; i <= n; i++) sel[i] = 1
 		}
 
+		# THE TABLE MARK (runner_lib.sh), above a table with a row marked
+		# FAIL: the row that names the case. A table of PASS rows over a
+		# failure -- the right output and then a crash, an exit status, a
+		# final newline -- names none, and neither does the --survive
+		# report or the byte-stream summary, which draw no table at all.
+		if ((fails || run) && tablemark != "") print tablemark
 		printf " %s | %s | %s | %s\n", pad(hC, wC), pad(hE, wE), pad(hG, wG), "STATUS"
 		printf " %s-+-%s-+-%s-+-%s\n", dash(wC), dash(wE), dash(wG), dash(6)
 		# EVERY ROW, to a file, when some are left out here: the shell keeps
@@ -1634,6 +1668,16 @@ done < "$STATE"
 # results, and a FAIL among them is a verdict (explain_ending). Without the
 # mark, a row may be (no line) only because a buffer was lost: no verdict.
 [ "$MARKED" -eq 0 ] || RL_WRONG=$_nfail
+# "clamped" in --status-file says what the mark says in the report: the test's
+# time stopped a run nothing had been judged in yet. Rows judged wrong first
+# are a verdict, and the report drops the mark for them (rl__limit), so the
+# status drops the line too: ilp32_test.sh, which reads it, once said "this
+# says nothing yet about this target" under "The 1 row(s) marked FAIL above it
+# are a verdict all the same", and put the mark back in the log.
+if [ "$ENDED" = timeout ] && [ "$RL_CLAMPED" = 1 ]; then
+	rl__limit
+	[ "$_rl_lim" = "$RL_OVERRUN_MARK" ] || status_write timeout
+fi
 
 if [ "$ENDED" != returned ]; then
 	explain_ending

@@ -1,0 +1,6 @@
+NULL (the empty list): f called with	(no call)
+[a b c]: f called with	A B C
+[a b c], f adds 10: afterwards	a=11 b=12 c=13
+[a]: f called with	A
+[a], f adds 10: afterwards	a=17
+5000 nodes: f called with	each content once, in list order

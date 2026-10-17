@@ -41,10 +41,12 @@
 #
 # It prints nothing and changes no argument: it only prepends one startup
 # option, so the output of `bazel info` and friends is Bazel's own. Prepended,
-# so a later --output_user_root on the command line would still win. The one
-# thing it says, on stderr, is that a C_PISCINE_SCRATCH you set cannot be used
-# (not absolute, or not writable): it then adds nothing, and without the line
-# Bazel's own default would replace the place you named without a word.
+# so a later --output_user_root on the command line would still win. It says
+# two things, on stderr. That a C_PISCINE_SCRATCH you set cannot be used (not
+# absolute, or not writable): it then adds nothing, and without the line
+# Bazel's own default would replace the place you named without a word. And
+# that the root an rc file names cannot be created here (step 2 below): Bazel
+# then stops with a bare mkdir FATAL that names no file.
 #
 # conventions: no-require -- it runs on every bazel command, before anything
 # else, and its only tools are the shell builtins and what tools/drives.sh uses.
@@ -81,8 +83,28 @@ for _a in "$@"; do
 	esac
 done
 
-# 2. Named by an rc file Bazel will read for this command.
-[ -z "$(drives_rc_root "$_ws" "$@")" ] || exec "$BAZEL_REAL" "$@"
+# 2. Named by an rc file Bazel will read for this command: passed through,
+#    even one this machine cannot create, which Bazel then refuses with a
+#    bare mkdir FATAL. That is said first, naming the file (V239): the case
+#    is a .bazelrc.local the host's setup.sh wrote, read in a dev container
+#    whose user cannot create the host's home, and the fix is the container's
+#    own ~/.bazelrc, never an edit of the file the host reads too. That step
+#    is offered only in a container (drives_in_container): on a host,
+#    postcreate.sh's ~/.bazelrc line would outrank every checkout's recorded
+#    root. Predicted, creating nothing. Called here, not
+#    in a $(...): the file it sets would be lost with the subshell.
+drives_rc_scan "$_ws" "$@"
+if [ -n "$_rr_root" ]; then
+	DRIVES_DRY=1
+	if ! drives_probe "$_rr_root"; then
+		if [ "$_rr_file" = "$_ws/.bazelrc.local" ] && drives_in_container; then
+			echo "tools/bazel: $_rr_file sets the output root $_rr_root, which cannot be created here. If another machine sharing this checkout wrote it (a dev container's host), leave it as it is and run \`sh .devcontainer/postcreate.sh\` here: it gives this one a root of its own in ~/.bazelrc." >&2
+		else
+			echo "tools/bazel: $_rr_file sets the output root $_rr_root, which cannot be created here." >&2
+		fi
+	fi
+	exec "$BAZEL_REAL" "$@"
+fi
 
 # 3. The default. None at all (nothing writable anywhere) leaves Bazel's own.
 if ! drives_default_root "$_ws"; then

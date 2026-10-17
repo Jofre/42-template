@@ -23,7 +23,8 @@
 # is wired into the login shell and must never refuse, declares the ones it
 # calls itself and falls back to the drive list if the rc files cannot be read;
 # init.sh, env_drift.sh and the wrapper only print or pass on what it answers,
-# so a missing one costs them a warning or a default, never a wrong action. setup.sh sources it before Bazel
+# so a missing one costs them a warning or a default, never a wrong action.
+# setup.sh sources it before Bazel
 # exists, and tools/bazel sources it on every bazel command. drives_describe,
 # which only env-audit calls, also uses awk, df and ls, and a missing one shows
 # as an empty fact in the report.
@@ -38,6 +39,8 @@
 #   C_PISCINE_GOINFRE       stands in for /goinfre
 #   C_PISCINE_SGOINFRE      stands in for /sgoinfre
 #   C_PISCINE_LEGACY_ROOT   stands in for /tmp/bazelcache (see drives_default_root)
+#   C_PISCINE_DOCKERENV     stands in for /.dockerenv (see drives_in_container)
+#   C_PISCINE_SYSTEM_BAZELRC stands in for /etc/bazel.bazelrc (drives_rc_scan)
 #
 # C_PISCINE_SCRATCH is not a knob but the documented override: you said so.
 
@@ -57,6 +60,33 @@ DRIVES_FULL_GB=5
 
 drives_user() {
 	printf '%s' "${USER:-$(id -un 2> /dev/null)}"
+}
+
+# Path $1 with each run of slashes squeezed to one and a trailing one dropped
+# (`/` itself kept), for a path that is joined to a name or compared as text.
+# A cache dir given as <dir>/ joined into <dir>//42-piscine, which setup.sh
+# prints and writes into the --disk_cache line. No tool: the wrapper sources
+# this on every bazel command.
+drives_tidy() {
+	_td=$1
+	while :; do
+		case "$_td" in
+			*//*) _td="${_td%%//*}/${_td#*//}" ;;
+			*) break ;;
+		esac
+	done
+	case "$_td" in
+		?*/) _td=${_td%/} ;;
+	esac
+	printf '%s' "$_td"
+}
+
+# Whether this runs in a container: the variable the dev container's editor
+# sets, or the file Docker writes at the root of every container it starts.
+# tools/bazel offers .devcontainer/postcreate.sh's step only there, and
+# tools/fortytwo/doctor.py asks the same two questions with the same knob.
+drives_in_container() {
+	[ -n "${REMOTE_CONTAINERS:-}" ] || [ -e "${C_PISCINE_DOCKERENV:-/.dockerenv}" ]
 }
 
 # DRIVES_CAMPUS=1 on a 42 box, and DRIVES_CAMPUS_WHY says how that was decided.
@@ -86,6 +116,10 @@ drives_campus() {
 # DRIVES_DRY=1 predicts instead, touching nothing: an existing directory by its
 # mode, an absent one by its nearest existing parent's. env-audit promises to
 # leave the account as it found it, and asks what setup.sh WOULD choose.
+# That parent is the nearest thing that exists, folder or not: a plain file
+# on the way is where mkdir -p stops, for root too, so a path below one is
+# predicted to fail. The walk used to skip over it to the folder above, and
+# called such a path creatable when the real probe said no.
 #
 # The walk up ends at `/` for an absolute path and at the working directory for
 # a relative one. It used to end only at `/`: `${_dp%/*}` of a word with no
@@ -103,13 +137,13 @@ drives_probe() {
 	DRIVES_MADE=""
 	if [ "${DRIVES_DRY:-0}" = 1 ]; then
 		_dp=$1
-		while [ ! -d "$_dp" ]; do
+		while [ ! -e "$_dp" ]; do
 			case "$_dp" in
 				*/*) _dp=${_dp%/*}; [ -n "$_dp" ] || _dp=/ ;;
 				*) _dp=.; break ;;
 			esac
 		done
-		[ -w "$_dp" ]
+		[ -d "$_dp" ] && [ -w "$_dp" ]
 		return
 	fi
 	# The same walk, keeping the last folder that is not there yet.
@@ -173,13 +207,13 @@ drives_choose() {
 		return 1
 	fi
 	_dr_u=$(drives_user)
-	_dr_g=${C_PISCINE_GOINFRE:-/goinfre}
+	_dr_g=$(drives_tidy "${C_PISCINE_GOINFRE:-/goinfre}")
 	if [ -d "$_dr_g" ] && drives_probe "$_dr_g/$_dr_u"; then
 		DRIVES_SCRATCH="$_dr_g/$_dr_u"
 		DRIVES_WHY="/goinfre (42 box: large, local, not quota'd)"
 		return 0
 	fi
-	_dr_c=${XDG_CACHE_HOME:-${HOME:-}/.cache}
+	_dr_c=$(drives_tidy "${XDG_CACHE_HOME:-${HOME:-}/.cache}")
 	case "$_dr_c" in
 		/*)
 			if drives_probe "$_dr_c/42-piscine"; then
@@ -204,7 +238,10 @@ drives_choose() {
 #
 # Last one wins, in the order Bazel reads them: the system rc, the workspace's
 # .bazelrc (whose last line imports .bazelrc.local), the home rc, then every
-# --bazelrc named on the command line.
+# --bazelrc named on the command line. The system rc is the file
+# C_PISCINE_SYSTEM_BAZELRC names when it is set: //tools/tests:selftest points
+# it at one that does not exist, so that a root a box sets in
+# /etc/bazel.bazelrc reaches none of its arms.
 drives_rc_root() {
 	drives_rc_scan "$@"
 	printf '%s' "$_rr_root"
@@ -228,7 +265,9 @@ drives_file_root() {
 	printf '%s' "$_rr_root"
 }
 
-# Helper to the three above: sets _rr_root and _rr_file.
+# Helper to the three above: sets _rr_root and _rr_file. tools/bazel and
+# .devcontainer/postcreate.sh call it themselves, for both: _rr_file set
+# inside a $(...) is lost with the subshell.
 drives_rc_scan() {
 	_rr_ws=$1
 	shift
@@ -261,7 +300,7 @@ ${_rr_a#--bazelrc=}" ;;
 			*) break ;;
 		esac
 	done
-	[ "$_rr_sys" = 0 ] || drives_rc_file /etc/bazel.bazelrc
+	[ "$_rr_sys" = 0 ] || drives_rc_file "${C_PISCINE_SYSTEM_BAZELRC:-/etc/bazel.bazelrc}"
 	if [ "$_rr_wsrc" = 1 ]; then
 		drives_rc_file "$_rr_ws/.bazelrc"
 		drives_rc_file "$_rr_ws/.bazelrc.local"
@@ -382,6 +421,38 @@ drives_bazel_root() {
 	return 0
 }
 
+# The scratch folder tools/prime.sh keeps its log, its lock and the disk cache
+# in, for workspace $1. Printed. env-audit.sh reports that log and those caches
+# from the same answer, predicted (DRIVES_DRY), and used to keep a copy of
+# prime.sh's lookup that nothing held equal.
+#
+# An absolute C_PISCINE_SCRATCH first, on the same terms as in setup.sh: you
+# said so. A relative one is passed over, here and below: it is a different
+# directory for every shell that starts in a different folder, and setup.sh
+# refuses it, but the prime must never refuse, and drives_choose would refuse
+# it and leave /tmp when the list has a better place. Then the folder the rc
+# files' root is in: setup.sh records <scratch>/bazel, and a hand-written root
+# without the /bazel is its own scratch. Nothing recorded means this checkout
+# never ran setup.sh: then the choice setup.sh WOULD make, from the same list,
+# which is also the root tools/bazel gives such a checkout, so the two cannot
+# disagree. /tmp/$USER when even the list has nothing.
+drives_scratch() {
+	case "${C_PISCINE_SCRATCH:-}" in
+		/*)
+			printf '%s' "$C_PISCINE_SCRATCH"
+			return 0
+			;;
+	esac
+	_sc=$(drives_rc_root "$1")
+	_sc=${_sc%/bazel}
+	[ -n "$_sc" ] || _sc=$(
+		C_PISCINE_SCRATCH=""
+		drives_choose && printf '%s' "$DRIVES_SCRATCH"
+	)
+	[ -n "$_sc" ] || _sc="/tmp/$(drives_user)"
+	printf '%s' "$_sc"
+}
+
 # The output base a path under Bazel's tree belongs to: everything before its
 # last /execroot/. Under `bazel run` the working directory is a runfiles tree
 # inside the output base, so this is what Bazel actually used -- read back from
@@ -434,11 +505,14 @@ drives_state_of() {
 	drives_predicted_root "$1"
 }
 
-# Is path $1 inside $HOME?
+# Is path $1 inside $HOME? Both tidied: a home given as <dir>/ matched only
+# the doubled join drives_choose used to make, <dir>//.cache, and no path
+# written with one slash.
 drives_under_home() {
 	[ -n "${HOME:-}" ] || return 1
-	case "$1/" in
-		"$HOME"/*) return 0 ;;
+	_uh=$(drives_tidy "$HOME")
+	case "$(drives_tidy "$1")/" in
+		"$_uh"/*) return 0 ;;
 	esac
 	return 1
 }
@@ -499,12 +573,13 @@ drives_root_warning() {
 	else
 		return 0
 	fi
-	# An rc file read after .bazelrc.local: the home rc, or a --bazelrc.
+	# An rc file read after .bazelrc.local: the home rc, or a --bazelrc. The
+	# system rc is read before it, whichever file stands in for it.
 	_rw_rc=""
 	if [ -n "${2:-}" ]; then
 		_rw_rc=$(drives_rc_root_file "$2")
 		case "$_rw_rc" in
-			"" | /etc/bazel.bazelrc | "$2/.bazelrc" | "$2/.bazelrc.local") _rw_rc="" ;;
+			"" | "${C_PISCINE_SYSTEM_BAZELRC:-/etc/bazel.bazelrc}" | "$2/.bazelrc" | "$2/.bazelrc.local") _rw_rc="" ;;
 		esac
 	fi
 	# Where to: what the drive list chooses on this machine, predicted, and not
@@ -560,10 +635,18 @@ drives_root_warning() {
 #
 # PERSISTENCE is reported as far as it can be detected, which is not far: a
 # RAM-backed filesystem (tmpfs, ramfs) is gone at reboot, a network one (nfs,
-# cifs, ...) is shared between machines, and anything else is a local disk
-# whose cleaning is a campus POLICY -- /goinfre is said to be wiped at logout
-# on some campuses, never at others -- that no file on the box records. The
-# report says which of the three it saw and leaves the policy to whoever reads
+# cifs, ...) is shared between machines, a FUSE one is served by a program
+# that may keep its files on this machine (fuse-overlayfs, which rootless
+# containers use) or on another (sshfs), so only the subtypes that reach
+# another machine by design are called network ones (GlusterFS's and CephFS's
+# own clients among them: GlusterFS has no client in the kernel, so its mounts
+# are all fuse.glusterfs), and anything else is not
+# a network filesystem by type, which is all the type tells: a disk of this
+# machine's and a volume attached at login look alike (fuseblk, FUSE over a
+# block device of this machine's, among them). Its cleaning is a campus POLICY
+# -- /goinfre is said to be wiped at logout on some campuses, never at others
+# -- that no file on the box records. The
+# report says which of the four it saw and leaves the policy to whoever reads
 # it on the campus in question.
 drives_describe() {
 	if [ ! -e "$1" ]; then
@@ -583,14 +666,18 @@ drives_describe() {
 		"${_dd_fs:-(df -T unsupported)}" "${_dd_src:-?}" "${_dd_mnt:-?}"
 	printf 'space %s\n' \
 		"$(df -P -k "$1" 2> /dev/null | awk 'NR == 2 { printf "%.1f GB free of %.1f GB", $4 / 1048576, $2 / 1048576 }')"
+	# A total of 0 is a filesystem that keeps no count to report (an NFS
+	# server may not), not one with no inodes left.
 	printf 'inodes %s\n' \
-		"$(df -P -i "$1" 2> /dev/null | awk 'NR == 2 { print $4 " free of " $2 }')"
+		"$(df -P -i "$1" 2> /dev/null | awk 'NR == 2 { if ($2 + 0 == 0) print "not reported by the filesystem"; else print $4 " free of " $2 }')"
 	case "$_dd_fs" in
 		tmpfs | ramfs) printf '%s\n' "persistence: RAM-backed, gone at reboot" ;;
-		nfs* | cifs | smb* | fuse.* | ceph | gluster* | lustre | afs)
+		nfs* | cifs | smb* | ceph | gluster* | lustre | afs | fuse.glusterfs | fuse.ceph-fuse | \
+			fuse.sshfs | fuse.s3fs | fuse.rclone | fuse.gcsfuse)
 			printf '%s\n' "persistence: network filesystem, shared between machines" ;;
+		fuse | fuse.*) printf '%s\n' "persistence: FUSE, served by a program: it may be local or network, which the type does not say; whether it is cleaned at logout is campus policy, not detectable" ;;
 		"") printf '%s\n' "persistence: unknown (no filesystem type)" ;;
-		*) printf '%s\n' "persistence: local disk; whether it is cleaned at logout is campus policy, not detectable" ;;
+		*) printf '%s\n' "persistence: not a network filesystem by type (it may still be a volume attached at login); whether it is cleaned at logout is campus policy, not detectable" ;;
 	esac
 	# By mode only: env-audit leaves nothing behind, and a full or read-only
 	# mount shows in the free space and the filesystem lines above.

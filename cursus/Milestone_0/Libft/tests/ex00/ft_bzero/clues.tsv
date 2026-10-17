@@ -1,0 +1,5 @@
+# clues.tsv for ft_bzero -- pedagogic hints only, each a question. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (a hint fires when ANY of its cases fails)
+man bzero: it "erases the data in the n bytes of the memory starting at the location pointed to by s". Which byte is the first one your function writes, which is the last, and what does it do when n is 0?	'X' x 10, n 5	'X' x 10, n 0 (nothing to erase)	'X' x 10, n 10 (the whole buffer)	'X' x 10, n 3, s at buf + 4
+The buffer already holds bytes of 0x80 or more: does your function read them before it writes, and does anything about their value change what it does?	0xe9 x 10, n 4
+If the small rows pass and this one does not, does anything in your function depend on n being small -- the type of a counter, a buffer of a fixed size?	n 5000, a block of 5001 (past 4096)

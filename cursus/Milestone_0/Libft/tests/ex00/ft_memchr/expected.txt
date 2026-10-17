@@ -1,0 +1,13 @@
+'W', n 11	s+6
+'l', n 11 (two of them)	s+2
+'z', n 11 (none)	NULL
+'o', n 4 (the 'o' is the 5th byte)	NULL
+'o', n 5	s+4
+'H', n 0	NULL
+'\0', n 11	s+5
+'d', n 11 (after the NUL)	s+10
+'a' then byte 0xe9, 233 (0xe9), n 2	s+1
+'a' then byte 0xe9, -23, n 2	s+1
+256 + 'H' (328), n 11	s+0
+-256, n 11	s+5
+0xe9 (233), n 5000, only the last byte (past 4096)	s+4999

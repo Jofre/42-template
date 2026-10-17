@@ -1,0 +1,9 @@
+"Hello, ", "42"	"Hello, 42"
+"abc", "def"	"abcdef"
+"", ""	""
+"", "b"	"b"
+"a", ""	"a"
+"a<TAB>b", "c<LF>d"	"a\tbc\nd"
+0xe9, 0xff	"\xe9\xff"
+0x80 0x7f, 0xff 0x01	"\x80\x7f\xff\x01"
+4100-byte s1, 5000-byte s2	9100 bytes, s1 then s2

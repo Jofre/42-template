@@ -39,7 +39,7 @@ filegroup(
             # The setup script, the Dockerfile whose versions and man pages
             # the pin checks compare, and devcontainer.json, which the rules
             # that read every file read.
-            ".devcontainer/*",
+            ".devcontainer/**",
             "docs/*.md",
         ],
         allow_empty = False,
@@ -93,3 +93,11 @@ exports_files(
 # _RAISED lists, whose runner prints that row under a red
 # (tools/runner_lib.sh, rl__raised).
 exports_files(["docs/reference.md"])
+
+# The page whose list of the shared libraries the fetched tools load from the
+# box ("What the harness borrows from the box") //tools/tests:fetched_needed
+# holds to the tools themselves.
+exports_files(
+    ["docs/environment.md"],
+    visibility = ["//tools/tests:__pkg__"],
+)

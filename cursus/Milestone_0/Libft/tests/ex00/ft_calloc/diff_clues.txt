@@ -1,0 +1,13 @@
+  Each line is nmemb, size, and what came back: zeroed (a block of nmemb x
+  size bytes, every one 0), nonnull (nmemb or size 0, and not NULL), NULL,
+  or NOTZERO (a block with a byte that is not 0).
+    * NOTZERO where zeroed was expected -> what does a block from malloc hold
+                                         before you write to it?
+    * NULL where nonnull was expected -> what does the subject (p.8) say
+                                         calloc returns when nmemb or size is 0?
+    * a block (zeroed or NOTZERO) where NULL was expected -> what does
+                                         nmemb * size give in a size_t when
+                                         the true product is more than
+                                         SIZE_MAX?
+    * only blocks past 4096 bytes     -> does anything in your function depend
+                                         on the size being small?

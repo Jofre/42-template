@@ -45,10 +45,9 @@ class Toy(unittest.TestCase):
                             GIT_CONFIG_NOSYSTEM="1")
         del self.environ["SUBMIT_GATE"]
         subprocess.run(["git", "init", "-q", self.ws], env=self.environ, check=True)
-        for patch in (mock.patch.object(config, "host_cpus", lambda: 8),
-                      mock.patch.object(config, "SYSTEM_RC", os.path.join(self.env.tmp, "etc.bazelrc"))):
-            patch.start()
-            self.addCleanup(patch.stop)
+        patch = mock.patch.object(config, "host_cpus", lambda: 8)
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def tearDown(self):
         self.assertEqual(self.env.called(), "", "Bazel was started")
@@ -141,8 +140,10 @@ class Verbs(Toy):
     def test_list_all_names_every_project_submit_pushes(self):
         text = self.ok("list", "--all")
         for mod in config.remotes_table(self.ws):
-            self.assertRegex(text, r"\n  remote\.%s " % re.escape(config.workspace.short_name("//" + mod)))
-        self.assertEqual(len(config.remotes_table(self.ws)), 21)
+            # A name too long for the column (a deep project's path) is
+            # printed alone on its line, its value on the next.
+            self.assertRegex(text, r"\n  remote\.%s[ \n]" % re.escape(config.workspace.short_name("//" + mod)))
+        self.assertEqual(len(config.remotes_table(self.ws)), 22)
 
     def test_calls_it_refuses(self):
         for words in (("frob",), ("get",), ("get", "level", "x"), ("set", "level"), ("unset",),
@@ -246,23 +247,62 @@ class Identity(Toy):
 
     def test_a_shape_it_cannot_rewrite_is_left_as_it_was(self):
         # Each was rewritten wrong and reported done: a value on the next
-        # line, a null, the key only as another member's value or in a
-        # comment, a file with no object, a one-line object (the member went
-        # after its closing brace), an escaped quote (the value came out cut
-        # in two), the key twice.
+        # line, a null, the key only as another member's value, a file with
+        # no object, a one-line object (the member went after its closing
+        # brace), an escaped quote (the value came out cut in two), the key
+        # twice (VS Code reads the last, and 42 submit and the headers read
+        # the first until V307). Then a key the 42header extension never
+        # sees, each rewritten and reported done until 2026-10-16 (V189):
+        # inside a /* */ comment, inside a nested object, a "[c]" language
+        # override among them (the extension asks for no language), inside
+        # one opened on the line that closes another, before the object,
+        # inside a list.
         for shape in ('{\n  "42header.username":\n    "old"\n}\n',
                       '{\n  "42header.username": null\n}\n',
                       '{\n  "a": "42header.username"\n}\n',
                       '// only a comment\n',
                       '{"editor.tabSize": 4}\n',
                       '{\n  "42header.username": "a\\"b"\n}\n',
-                      '{\n  // "42header.username": "old",\n  "42header.username": "x"\n}\n'):
+                      '{\n  "42header.username": "old",\n  "42header.username": "x"\n}\n',
+                      '{\n  "a": 1,\n  /*\n  "42header.username": "old"\n  */\n  "b": 2\n}\n',
+                      '{\n  "x": {\n    "42header.username": "old"\n  }\n}\n',
+                      '{\n  "[c]": {\n    "42header.username": "old"\n  }\n}\n',
+                      '{\n  "x": {\n    "y": 1 }, "z": {\n    "42header.username": "old"\n  }\n}\n',
+                      '"42header.username": "old"\n{\n  "a": 1\n}\n',
+                      '{\n  "a": [\n    "42header.username": "old"\n  ]\n}\n'):
             self.write(".vscode/settings.json", shape)
             err = self.failed("set", "login", "jdoe")
             self.assertIn('"42header.username": "jdoe"', err, shape)
             self.assertEqual(self.read(".vscode/settings.json"), shape)
             self.fits(err)
         self.assertEqual(self.git("user.name"), "")
+
+    def test_a_copy_in_a_comment_is_refused_for_what_it_is(self):
+        # A live member and a copy of it in a /* */ comment: VS Code reads
+        # the live one alone, so the refusal said a reason that was false
+        # there ("VS Code reads the last") until 2026-10-16.
+        shape = '{\n  "42header.username": "new",\n  /* "42header.username": "old" */\n  "x": 1\n}\n'
+        self.write(".vscode/settings.json", shape)
+        err = self.failed("set", "login", "jdoe")
+        self.assertNotIn("reads the last", err)
+        self.assertIn("/* */", err)
+        self.assertEqual(self.read(".vscode/settings.json"), shape)
+        self.fits(err)
+
+    def test_a_key_on_two_lines_is_refused_for_what_it_is(self):
+        # Since V307 every reader reads what VS Code reads, the last
+        # top-level member, so the refusal's reason ("VS Code and 42 submit
+        # and the file headers may not read the same one") was false: this
+        # script refuses because it rewrites one line, not because they
+        # differ.
+        for shape in ('{\n  "42header.username": "old",\n  "42header.username": "x"\n}\n',
+                      '{\n  "[c]": {\n    "42header.username": "x"\n  },\n  "42header.username": "old"\n}\n'):
+            self.write(".vscode/settings.json", shape)
+            err = self.failed("set", "login", "jdoe")
+            self.assertNotIn("may not read the same", err, shape)
+            self.assertIn("yours to say", err, shape)
+            self.assertEqual(self.read(".vscode/settings.json"), shape)
+            self.fits(err)
 
     def test_the_comments_around_it_are_kept(self):
         # A // comment after the value, // lines before the '{', and one on
@@ -280,6 +320,45 @@ class Identity(Toy):
             self.assertEqual(plain["42header.username"], "jdoe", shape)
             self.assertEqual(self.ok("get", "login").splitlines()[0], "jdoe", shape)
 
+    def test_a_block_comment_or_a_nested_object_elsewhere_is_no_refusal(self):
+        # The key at the top level is rewritten whatever sits around it: a
+        # /* */ comment, one over two lines, a glob holding "/*", a nested
+        # object, braces and an escaped quote in a string, a '{' and a '/*'
+        # in a // comment. A file is refused for where its key is, never for
+        # holding one of these (the shipped settings.json has "[c]").
+        for shape in ('{\n  /* mine */\n  "42header.username": "old"\n}\n',
+                      '{\n  "a": 1 /*\n  x */,\n  "42header.username": "old"\n}\n',
+                      '{\n  "files.exclude": {"**/*.o": true},\n  "42header.username": "old"\n}\n',
+                      '{\n  "[c]": {\n    "editor.tabSize": 4\n  },\n  "42header.username": "old"\n}\n',
+                      '{\n  "a": "{\\"[",\n  "42header.username": "old"\n}\n',
+                      '{\n  "a": 1, // { /* no block\n  "42header.username": "old"\n}\n'):
+            self.write(".vscode/settings.json", shape)
+            self.ok("set", "login", "jdoe")
+            self.assertEqual(self.read(".vscode/settings.json"), shape.replace('"old"', '"jdoe"'), shape)
+
+    def test_a_commented_out_identity_is_not_the_one_read(self):
+        # VS Code reads settings.json skipping its comments, and so does the
+        # 42header extension; 42 config, submit and the headers took the
+        # first line holding the key, a // line among them (V186).
+        self.write(".vscode/settings.json",
+                   '{\n  // "42header.username": "old",\n  "42header.username": "jdoe",\n'
+                   '  // "42header.email": "old@x.fr",\n  "42header.email": "jdoe@student.42.fr"\n}\n')
+        self.assertEqual(self.ok("get", "login").splitlines()[0], "jdoe")
+        self.assertEqual(self.ok("get", "email").splitlines()[0], "jdoe@student.42.fr")
+
+    def test_a_commented_out_identity_is_kept_and_the_live_one_set(self):
+        # identity.sh refused both: the first as the key on two lines, the
+        # second as the key on a line that is not the member alone (V186).
+        for shape, want in (
+                ('{\n  // "42header.username": "old",\n  "42header.username": "x"\n}\n',
+                 '{\n  // "42header.username": "old",\n  "42header.username": "jdoe"\n}\n'),
+                ('{\n  // "42header.username": "old",\n  "a": 1\n}\n',
+                 '{\n  "42header.username": "jdoe",\n  // "42header.username": "old",\n  "a": 1\n}\n')):
+            self.write(".vscode/settings.json", shape)
+            self.ok("set", "login", "jdoe")
+            self.assertEqual(self.read(".vscode/settings.json"), want, shape)
+            self.assertEqual(self.ok("get", "login").splitlines()[0], "jdoe", shape)
+
     def test_a_shape_it_will_not_rewrite_is_refused_before_anything_is_written(self):
         # init.sh checks both values before writing either; a file that could
         # take the login and not the email was found only when the email was
@@ -292,7 +371,9 @@ class Identity(Toy):
 
     def test_a_refusal_says_what_it_saw(self):
         for shape, says in (
-                ('{\n  // "42header.username": "old",\n  "42header.username": "x"\n}\n', "on more than one line"),
+                ('{\n  "42header.username": "old",\n  "42header.username": "x"\n}\n', "on more than one line"),
+                ('{\n  /*\n  "42header.username": "old"\n  */\n}\n', "inside a /* */ comment"),
+                ('{\n  "[c]": {\n    "42header.username": "old"\n  }\n}\n', "inside a nested object"),
                 ('{\n  "42header.username": "old", "a": 1\n}\n', "not that member alone"),
                 ('{\n  "42header.username":\n    "old"\n}\n', "not that member alone"),
                 ('{\n  "42header.username": "old" /* c */\n}\n', "at most a // comment after it"),
@@ -433,15 +514,17 @@ class Identity(Toy):
         self.assertNotIn("user.login", err)
 
     def test_it_reads_the_identity_the_way_submit_and_the_headers_do(self):
-        # submit.sh and gen_header.sh take the first line that holds the key
-        # and a quoted value, and only what is between the quotes. In bytes,
-        # in every locale: under UTF-8, sed's '.' stopped at a byte that is no
-        # UTF-8 and its [[:space:]] took U+2003, so the three disagreed on a
-        # Latin-1 comment, a Latin-1 value, and an em space before the ':'.
+        # submit.sh's and gen_header.sh's read_42 each had a reader of its
+        # own, and a fix to one missed the others; all three ask
+        # tools/identity.sh now. In bytes, in every locale: under UTF-8, sed's
+        # '.' stopped at a byte that is no UTF-8 and its [[:space:]] took
+        # U+2003, so the three disagreed on a Latin-1 comment, a Latin-1
+        # value, and an em space before the ':'. What each reads is held by
+        # test_it_reads_only_the_key_vs_code_reads; this holds them together.
         # Taken as both scripts take it, through $(...), which drops a NUL.
         def shell(script, key, locale):
             return subprocess.run(
-                ["sh", "-c", 'SETTINGS=.vscode/settings.json; eval "$(sed -n "/^read_42() {/,/^}/p" "$1")"; '
+                ["sh", "-c", 'ROOT=.; eval "$(grep "^read_42() {.*}$" "$1")"; '
                  'v=$(read_42 "$2"); printf "%s" "$v"', "sh",
                  self.path("tools/" + script), key], cwd=self.ws, env=dict(self.environ, LC_ALL=locale),
                 stdout=subprocess.PIPE, check=True).stdout.decode("utf-8", "replace").strip()
@@ -453,15 +536,78 @@ class Identity(Toy):
                       b'{\n  "42header.username" : "jdoe" ,\n}\n',
                       b'{\n  "42header.username": "jdoe", // caf\xe9\n}\n',
                       b'{\n  "42header.username": "caf\xe9"\n}\n',
-                      '{\n  "42header.username"\u2003: "x",\n  "42header.username": "jdoe"\n}\n'.encode(),
-                      b'{\n  "42header.username": "jd\x00oe"\n}\n'):
+                      b'{\n  "[c]": {\n    "42header.username": "old"\n  }\n}\n',
+                      b'{\n  /*\n  "42header.username": "old",\n  */\n  "42header.username": "jdoe"\n}\n',
+                      b'{\n  "a": 1, // "42header.username": "old",\n  "42header.username": "jdoe"\n}\n'):
             with open(self.path(".vscode/settings.json"), "wb") as f:
                 f.write(shape)
             rc, out, err = self.config("get", "login")
             got = out.splitlines()[0] if rc == 0 else ""
             for locale in ("C.UTF-8", "en_US.UTF-8"):
                 for script in ("submit.sh", "gen_header.sh"):
-                    self.assertEqual(got, shell(script, "username", locale), (script, locale, shape))
+                    self.assertEqual(got, shell(script, "login", locale), (script, locale, shape))
+
+    def test_it_reads_only_the_key_vs_code_reads(self):
+        # The readers took the first line holding the key that was no //
+        # comment, wherever it sat, and agreed with one another: a "[c]"
+        # override, a key in a /* */ comment and one after a member's //
+        # were each read as the login, where VS Code and the 42header
+        # extension read no key or the live one below it (V307). Of two live
+        # members, VS Code keeps the last. A member after a missing comma is
+        # one VS Code still reads, and a first fix of V307 read no key there.
+        # An em space before a ':' (a blank to VS Code, a stray byte here)
+        # and a NUL in a value (which the shell's $(...) drops) read jdoe
+        # either way. Held here through `42 config get`, the header
+        # gen_header.sh prints, and submit.sh's refusal to run with no login.
+        shutil.copy(os.path.join(WS, "tools", "gen_header.sh"), self.path("tools/gen_header.sh"))
+        os.makedirs(self.path(".vscode"))
+        env = dict(self.environ, BUILD_WORKSPACE_DIRECTORY=self.ws)
+        for shape, want in ((b'{\n  "[c]": {\n    "42header.username": "old"\n  }\n}\n', None),
+                            (b'{\n  /*\n  "42header.username": "old",\n  */\n'
+                             b'  "42header.username": "new"\n}\n', "new"),
+                            (b'{\n  "a": 1, // "42header.username": "old",\n'
+                             b'  "42header.username": "new"\n}\n', "new"),
+                            (b'{\n  "42header.username": "old",\n  "42header.username": "new"\n}\n', "new"),
+                            (b'{\n  "42header.username": "old",\n  "42header.username": ""\n}\n', None),
+                            (b'{\n  "editor.fontSize": 14\n  "42header.username": "new"\n}\n', "new"),
+                            (b'{\n  "a": "x"\n  "42header.username": "new"\n}\n', "new"),
+                            (b'{\n  "a": {}\n  "42header.username": "new"\n}\n', "new"),
+                            ('{\n  "42header.username"\u2003: "x",\n'
+                             '  "42header.username": "jdoe"\n}\n'.encode(), "jdoe"),
+                            (b'{\n  "42header.username": "jd\x00oe"\n}\n', "jdoe")):
+            with open(self.path(".vscode/settings.json"), "wb") as f:
+                f.write(shape)
+            rc, out, err = self.config("get", "login")
+            self.assertEqual(out.splitlines()[0] if rc == 0 else None, want, (shape, out, err))
+            hdr = subprocess.run(["sh", self.path("tools/gen_header.sh"), "x.c"], cwd=self.ws, env=env,
+                                 stdout=subprocess.PIPE, universal_newlines=True, check=True).stdout
+            self.assertIn("By: %s <" % (want or "marvin"), hdr, shape)
+            sub = subprocess.run(["sh", self.path("tools/submit.sh"), "-n", "--no-gate"], cwd=self.ws,
+                                 env=dict(env, EMAIL42="jdoe@student.42.fr"), stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, universal_newlines=True, errors="replace",
+                                 check=False).stdout
+            self.assertEqual("no 42 identity found" in sub, want is None, (shape, sub))
+
+    def test_a_member_after_a_missing_comma_is_rewritten(self):
+        # Read as no key by a first fix of V307, it was refused as "could not
+        # be rewritten safely", where the rewrite before that one took it.
+        self.write(".vscode/settings.json",
+                   '{\n  "editor.fontSize": 14\n  "42header.username": "old"\n}\n')
+        self.ok("set", "login", "jdoe")
+        self.assertEqual(self.read(".vscode/settings.json"),
+                         '{\n  "editor.fontSize": 14\n  "42header.username": "jdoe"\n}\n')
+        self.assertEqual(self.ok("get", "login").splitlines()[0], "jdoe")
+
+    def test_the_reader_runs_in_the_environment_42_was_given(self):
+        # It ran in os.environ, so a PATH 42 was given never reached it. A
+        # PATH holding sh and no awk: identity.sh's reader cannot run, and
+        # the login reads as unset, where os.environ's PATH read jdoe.
+        self.ok("set", "login", "jdoe")
+        bare = self.path("bare-bin")
+        os.makedirs(bare)
+        os.symlink(shutil.which("sh"), os.path.join(bare, "sh"))
+        rc, out, err = self.config("get", "login", environ={"PATH": bare})
+        self.assertNotIn("jdoe", out + err, (rc, out, err))
 
     def test_unset_is_refused(self):
         self.ok("set", "login", "jdoe")
@@ -781,6 +927,26 @@ class Machine(Toy):
         self.assertEqual(self.ok("get", "machine.disk_cache").splitlines()[0], "none")
         self.assertEqual(self.ok("get", "machine.root").splitlines()[0],
                          config.report.state_root(self.ws, self.environ))
+
+    # C_PISCINE_SYSTEM_BAZELRC stands in for /etc/bazel.bazelrc, in the rc
+    # files this module reads and in tools/drives.sh, which machine.root asks:
+    # a root and a disk cache set there are this checkout's, named from that
+    # file.
+    def system_rc(self):
+        rc = os.path.join(self.env.tmp, "system.bazelrc")
+        with open(rc, "w", encoding="utf-8") as f:
+            f.write("startup --output_user_root=/toy/system/root\nbuild --disk_cache=/toy/system/cache\n")
+        return {"C_PISCINE_SYSTEM_BAZELRC": rc}
+
+    def test_the_system_rc_is_the_knobs_in_drives_sh(self):
+        out = self.ok("get", "machine.root", environ=self.system_rc())
+        self.assertEqual(out.splitlines()[0], "/toy/system/root")
+        self.assertIn("system.bazelrc", out)
+
+    def test_the_system_rc_is_the_knobs_here(self):
+        out = self.ok("get", "machine.disk_cache", environ=self.system_rc())
+        self.assertEqual(out.splitlines()[0], "/toy/system/cache")
+        self.assertIn("system.bazelrc", out)
 
     def test_list_all_fits_80_columns(self):
         self.ok("set", "login", "jdoe")

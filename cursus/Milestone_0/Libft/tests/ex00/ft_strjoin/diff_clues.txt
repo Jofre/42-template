@@ -1,0 +1,10 @@
+  Two strings; the new string is printed as hex: decode it to read it as text.
+    * one byte short, or garbage at the end -> how many bytes the new string
+                                   needs, and where its terminator goes
+    * s2 missing, or written over s1 -> where in the new string does s2 start?
+    * an empty s1 or s2         -> how many bytes are there to copy, and is
+                                   there still a string to return?
+    * only strings holding a byte of 0x80 or more -> whether a comparison or a
+                                   test in your loop sees that char as negative
+    * only the long strings     -> does anything stop working past a few
+                                   thousand bytes?

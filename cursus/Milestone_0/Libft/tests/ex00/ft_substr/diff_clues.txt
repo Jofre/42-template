@@ -1,0 +1,15 @@
+  A string, start and len; the substring is printed as hex: decode it to read
+  it as text. Every start here is at most the string's length.
+    * start on the terminator   -> what is left of s to take from there?
+    * len past what is left     -> is len how many bytes you copy, or how
+                                   many you may copy at most?
+    * len of SIZE_MAX           -> what does a sum such as start + len, or
+                                   len + 1, become when len is that big?
+    * len near UINT_MAX         -> is len, or a count made from it, ever kept
+                                   in a type narrower than size_t?
+    * one byte short, or one too many -> where does the substring end, and
+                                   where does its terminator go?
+    * only strings holding a byte of 0x80 or more -> whether a comparison or a
+                                   test in your loop sees that char as negative
+    * only the long strings     -> does anything stop working past a few
+                                   thousand bytes?

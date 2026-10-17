@@ -60,6 +60,7 @@ c_program(
     num = "00",
     name = "toy_root",
     makefile = True,
+    no_allocfail = "a toy that proves a root turn-in builds; it allocates nothing",
     cases = [{
         "name": "run",
         "expected": "empty.txt",

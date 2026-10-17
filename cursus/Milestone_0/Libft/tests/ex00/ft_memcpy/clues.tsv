@@ -1,0 +1,6 @@
+# clues.tsv for ft_memcpy -- pedagogic hints only, each a question. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (a hint fires when ANY of its cases fails)
+man memcpy: it "copies n bytes from memory area src to memory area dest". How many bytes does your function copy, from where to where, and what does it do when n is 0?	"Hello", n 5	"Hello", n 0 (nothing to copy)	"abcdefgh", n 3	"xyz", n 3, dest at buf + 4
+What does memcpy return (man memcpy, RETURN VALUE) -- and is that the pointer your function hands back on every path?	"Hello", n 5
+memcpy copies bytes of memory, not a string: what decides when your function stops -- n, or something it finds in src? And what does it do with a byte of 0x80 or more?	"a\0b", n 3 (a NUL inside)	"\0\0\0", n 3	bytes 0x80 0xff 0xe9 0x00 0x7f, n 5
+If the small rows pass and this one does not, does anything in your function depend on n being small, or on what the bytes hold? This source holds NULs and bytes of 0x80 or more.	5000 bytes into a block of 5001 (past 4096)

@@ -47,13 +47,19 @@
 #                   [--max-unit N]
 #                   [--gate-differ P --gate-bin P --gate-expected P ...
 #                    [--gate-label NAME]]
-#   cycles_check.sh --harness FILE --src FILE... [--inc DIR]... [--lib FILE]...
+#   cycles_check.sh --harness FILE --src FILE... [--inc DIR]... [--inc-file FILE]
+#                   [--lib FILE]...
 #                   --cc PATH [--cc-lib FILE]... [--cc-under FILE]
 #                   --ld PATH --ld-lib FILE...
 #                   (and the rest as above): build the binary here, at -O2,
 #                   with the pinned clang-12 and ld.bfd Bazel fetched (each
 #                   with the libraries it loads: tools/runner_lib.sh's
 #                   rl_cc_pin and rl_ld_pin), never with the box's `cc`.
+#
+# --inc-file FILE holds the -I directories a Makefile's recipes pass, one per
+# line (tools/student_build.sh --includes-out, runner_lib.sh's rl_inc_file):
+# a library's header in a subfolder is on the grader's include path only
+# through them.
 #
 # --lib FILE is an archive the GRADER links (tools/grader_lib.bzl: C 12's own
 # ft_create_elem), linked after the sources.
@@ -129,6 +135,7 @@ while [ $# -gt 0 ]; do
 		--harness) need "$1" "$#"; HARNESS="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		--inc) need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
 		--lib) need "$1" "$#"; rl_list_add LIBS "$2"; shift 2 ;;
 		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
 		--oracle-fn) need "$1" "$#"; FN="$2"; shift 2 ;;
@@ -241,7 +248,7 @@ rl_traps 'rm -rf "$T"'
 # Same correctness gate as the perf layer: counting the instructions of a wrong
 # answer is not information. NO_SKIP=1 forces it open.
 if [ "${NO_SKIP:-0}" != "1" ] && [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] &&
-	[ -n "$GATE_EXPECTED" ] && [ -x "$GATE_BIN" ] && [ -f "$GATE_EXPECTED" ]; then
+	[ -n "$GATE_EXPECTED" ]; then
 	# The status is captured, not tested with `if !`: 1 is a red fixture, which
 	# skips, and 2 or more a gate that could not run, which must never be the
 	# reason a layer stayed quiet, so it runs anyway (rust_diff.sh's WHY THE
@@ -454,6 +461,9 @@ fi
 # handled: collection is on from the outermost entry to its return.)
 # --vgdb=no: no FIFOs in TMPDIR for a gdb that never comes, which a run killed
 # at its time limit would leave behind.
+# The host's valgrind settings are off first (tools/runner_lib.sh, rl_vg_env):
+# an option from VALGRIND_OPTS or a ~/.valgrindrc would change what is counted.
+rl_vg_env "$T" || exit 2
 rl_run "$VALGRIND" --tool=callgrind --vgdb=no --toggle-collect="$SYM" \
 	--callgrind-out-file="$T/cg" "$BIN" < "$T/corpus" \
 	> /dev/null 2>"$T/vg.err"
@@ -472,9 +482,40 @@ case "$RL_CAUSE" in
 		exit 1
 		;;
 esac
+# A valgrind that stopped at its own startup (V242) is the machine's setup:
+# a SKIP would hide it as this layer standing down. No known cause makes
+# callgrind do so today -- the ld.so debug symbols a memcheck run needs are
+# memcheck's alone -- so this is a refusal kept in reserve, which names no
+# package (tools/runner_lib.sh, rl_vg_aborted).
+if [ "$VG_RC" -ne 0 ] && rl_vg_aborted callgrind "$SYM's harness" "$T/vg.err"; then
+	exit 2
+fi
+# A harness that RETURNED non-zero (V291) ran under callgrind to its end:
+# valgrind named the command it started, and callgrind wrote its profile.
+# Its count is still not taken -- a run that did not end well measured
+# nothing -- and the line says the harness returned it, where it used to say
+# callgrind could not profile it, which blamed the tool. What the harness
+# itself said is shown without valgrind's banner, which explains nothing.
+if [ "$VG_RC" -ne 0 ] && [ "$RL_CAUSE" = exit ] && [ -s "$T/cg" ] &&
+	grep -q '^==[0-9][0-9]*== Command: ' "$T/vg.err"; then
+	grep -v '^==[0-9][0-9]*==' "$T/vg.err" > "$T/harness.err"
+	if [ "${NO_SKIP:-0}" = "1" ]; then
+		echo "NO_SKIP set: $SYM's harness $RL_WHY under callgrind, so there is"
+		echo "             no instruction count for $SYM."
+	else
+		echo "cycles_check: SKIP — $SYM's harness $RL_WHY under callgrind, so its"
+		echo "  count is not taken: only a run that ended normally is counted."
+	fi
+	if [ -s "$T/harness.err" ]; then
+		echo "  What the harness said:"
+		rl_excerpt "$T/harness.err" 5 harness-output.txt
+	fi
+	[ "${NO_SKIP:-0}" != "1" ] || exit 1
+	exit 0
+fi
 if [ "$VG_RC" -ne 0 ]; then
 	# NO_SKIP=1: a status valgrind returned itself -- a tool that could not
-	# start, or a harness that returned non-zero -- so there is no count.
+	# start -- so there is no count.
 	[ "${NO_SKIP:-0}" != "1" ] || {
 		echo "NO_SKIP set: callgrind could not profile the harness ($RL_WHY), so"
 		echo "             there is no instruction count for $SYM. What valgrind said:"

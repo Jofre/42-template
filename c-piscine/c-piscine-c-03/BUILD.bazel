@@ -14,19 +14,51 @@ subject(
     },
 )
 
+# //tools/tests's selftest_slow runs this c_diff's corpora over toys, through
+# the runner its targets run, reading the call from this file (V206), and
+# reads the texts the plain targets ship: so the file, its harnesses and
+# those texts are visible to it.
+exports_files(
+    [
+        "BUILD.bazel",
+        "tests/ex00/clues.tsv",
+        "tests/ex00/diff_clues.txt",
+        "tests/ex00/diff_strcmp.c",
+        "tests/ex00/diff_strcmp_readings.c",
+        "tests/ex00/test_strcmp.c",
+        "tests/ex01/clues.tsv",
+        "tests/ex01/diff_clues.txt",
+        "tests/ex01/diff_strncmp.c",
+        "tests/ex01/diff_strncmp_readings.c",
+        "tests/ex01/test_strncmp.c",
+    ],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
 c_function(num = "00", fn = "ft_strcmp", test = "test_strcmp.c", labeled = True, clues = "clues.tsv")
 
 # Live differential fuzz against the Rust reference (//oracle): thousands of
-# seeded inputs, exact-value compare. Complements the curated test_strcmp.c
-# cases and catches magnitude/edge bugs those cannot enumerate.
+# seeded inputs. Complements the curated test_strcmp.c cases and catches the
+# edge bugs those cannot enumerate.
 #
-# THE EXACT VALUE IS CHECKED HERE, AND ONLY HERE. The subject says "Reproduce
-# the behavior of the function strcmp (man strcmp)", and that page's RETURN
-# VALUE promises a sign while its NOTES describe glibc's byte difference. Which
-# of the two is graded is not settled, so it is read at strict: the curated
-# fixtures (ex00 and ex01 here, C 09's libft, Reloaded ex17) print the sign
-# only, and this layer -- level strict -- compares the int itself.
-c_diff(num = "00", fn = "ft_strcmp", harness = "diff_strcmp.c", oracle_fn = "c03_strcmp", diff_clues = "diff_clues.txt")
+# readings: the subject says "Reproduce the behavior of the function strcmp
+# (man strcmp)", and that page's RETURN VALUE promises a sign. The diff
+# corpus compares the sign, as the curated fixture does, which every reading
+# of the page agrees on; ex00_readings, at strict, tests one reading of what
+# the page leaves open, with a reader of its own, and its own hints say
+# which. ex01 below, C 09 ex00 and Reloaded ex17 do the same.
+c_diff(
+    num = "00",
+    fn = "ft_strcmp",
+    harness = "diff_strcmp.c",
+    oracle_fn = "c03_strcmp_sign",
+    diff_clues = "diff_clues.txt",
+    readings = {
+        "diff_clues": "diff_clues_readings.txt",
+        "harness": "diff_strcmp_readings.c",
+        "oracle_fn": "c03_strcmp",
+    },
+)
 
 c_function(num = "01", fn = "ft_strncmp", test = "test_strncmp.c", labeled = True, clues = "clues.tsv")
 
@@ -35,7 +67,19 @@ c_function(num = "01", fn = "ft_strncmp", test = "test_strncmp.c", labeled = Tru
 # input — a stray read past the bound is caught here (output diffing can't see it).
 c_mem_check(num = "01", fn = "ft_strncmp", probe = "mem_strncmp.c")
 
-c_diff(num = "01", fn = "ft_strncmp", harness = "diff_strncmp.c", oracle_fn = "c03_strncmp", diff_clues = "diff_clues.txt")
+# As ex00's (man strncmp is the same page): ex01_readings holds the reading.
+c_diff(
+    num = "01",
+    fn = "ft_strncmp",
+    harness = "diff_strncmp.c",
+    oracle_fn = "c03_strncmp_sign",
+    diff_clues = "diff_clues.txt",
+    readings = {
+        "diff_clues": "diff_clues_readings.txt",
+        "harness": "diff_strncmp_readings.c",
+        "oracle_fn": "c03_strncmp",
+    },
+)
 
 c_function(num = "02", fn = "ft_strcat", test = "test_strcat.c", labeled = True, clues = "clues.tsv")
 
@@ -72,6 +116,20 @@ c_diff(
     # A linear search is too fast to time over a few thousand letters, so the
     # series starts at 20000 and doubles from there.
     perf_length = {"oracle_fn": "c03_strstr_len", "harness": "len_strstr.c", "base": 20000},
+)
+
+# man 3bsd strlcat: "The strlcat() function appends the NUL-terminated string
+# src to the end of dst. It will append at most size - strlen(dst) - 1 bytes,
+# NUL-terminating the result", and returns "the initial length of dst plus
+# the length of src." The page says nothing of the bytes between the new
+# terminator and size, so the fixture does not show them; the bytes from size
+# on, which the call may not write, are shown. //tools/tests's selftest_slow
+# builds the fixture over two stand-ins that differ only in those unshown
+# bytes and requires both to pass every row (V283), so the two files are
+# visible to it.
+exports_files(
+    ["tests/ex05/test_strlcat.c", "tests/ex05/expected.txt"],
+    visibility = ["//tools/tests:__pkg__"],
 )
 
 c_function(num = "05", fn = "ft_strlcat", test = "test_strlcat.c", labeled = True, clues = "clues.tsv", escaped_values = True)

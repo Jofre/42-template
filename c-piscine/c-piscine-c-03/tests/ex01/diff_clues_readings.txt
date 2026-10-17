@@ -1,0 +1,11 @@
+  This target's lines are the two strings, as hex, n, then the int your
+  ft_strncmp returned for them, in decimal: the int itself, where the
+  exercise's _diff target compares only its sign. Read that one's red
+  first, if it has one.
+    * the sign is right, the number is not -> man strncmp's RETURN VALUE
+                         promises a sign, and this harness's reading, at
+                         strict, never the subject's, is that the int is the
+                         one glibc's strncmp returns (man strncmp, NOTES). Put
+                         your number beside the expected one for the same
+                         pair: what in those two strings could produce the
+                         expected one?

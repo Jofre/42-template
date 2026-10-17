@@ -80,9 +80,26 @@ c_libft(
     },
 )
 
+# //tools/tests's selftest_slow runs this c_diff's corpora over toys, through
+# the runner its targets run, reading the call from this file (V206), and
+# reads the texts the plain targets ship: so the file, its harnesses and
+# those texts are visible to it.
+exports_files(
+    [
+        "BUILD.bazel",
+        "tests/ex00/clues.tsv",
+        "tests/ex00/diff_clues.txt",
+        "tests/ex00/diff_strcmp.c",
+        "tests/ex00/diff_strcmp_readings.c",
+        "tests/ex00/test_libft.c",
+    ],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
 # Live-differential coverage for the bundled libft's ft_strcmp (== c-03 strcmp).
-# The output fixture prints the SIGN of each strcmp result only; this layer, at
-# strict, is where the exact int is compared -- see c-03's BUILD for why.
+# The output fixture and the diff corpus compare the SIGN of each result, as
+# C 03 ex00's do; ex00_readings, at strict, holds one reading of what man
+# strcmp leaves open, and its own hints say which (see c-03's BUILD).
 # ex00 has no c_function to declare a unit of its files, so declare the one
 # source the diff harness links. Only one c_diff can attach to ex00 (its target
 # names are fixed); ft_strlen is left to c-01's c01_strlen, which is the same
@@ -99,8 +116,13 @@ c_diff(
     num = "00",
     fn = "ft_strcmp",
     harness = "diff_strcmp.c",
-    oracle_fn = "c09_strcmp",
+    oracle_fn = "c09_strcmp_sign",
     diff_clues = "diff_clues.txt",
+    readings = {
+        "diff_clues": "diff_clues_readings.txt",
+        "harness": "diff_strcmp_readings.c",
+        "oracle_fn": "c09_strcmp",
+    },
 )
 
 # ex01: the Makefile, and nothing else -- see the contract above for what the

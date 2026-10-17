@@ -48,7 +48,8 @@
 #                      rl_vis, rl_vis_legend, rl_shword, rl_first_diff,
 #                      rl_caret, rl_diff_window, rl_udiff
 #   the invocation     rl_cmdline, rl_argv_words, rl_rundir, rl_ran
-#   long output        rl_excerpt, rl_save
+#   long output        rl_excerpt, rl_save, rl_keep_input (an input kept,
+#                      which rl_mem_report then names by its kept name)
 #   a report's length  rl_rows, rl_block, rl_tally (DIFF_MAX_ROWS),
 #                      rl_shown, rl_shown_legend
 #   a layer that waits rl_gate (on another test's result), rl_noskip_cmd (the
@@ -58,6 +59,8 @@
 #                      rl_mem_opt, rl_mem_ready, rl_mem_pick, rl_mem_count,
 #                      rl_mem_run, rl_mem_report, rl_mem_tally, rl_mem_argv_note,
 #                      rl_mem_stopped
+#   a valgrind run     rl_vg_env (the host's valgrind settings off), and
+#                      rl_vg_aborted (valgrind stopped at its own startup)
 #   sanitizer runs     rl_sanitizers (options, the pinned symbolizer),
 #                      rl_sanitized, rl_sanitizer_report; what a report
 #                      is: rl_sanitizer_kind, rl_sanitizer_about,
@@ -80,7 +83,7 @@
 # What this file takes from PATH is probed here, not in each caller's require
 # list: tools/conventions.sh computes a runner's list from the runner's own
 # text, and checks this list against this file's text the same way.
-for _rl_t in awk cat chmod cp date dirname grep mkdir mktemp od readlink rm; do
+for _rl_t in awk cat chmod cp date dirname env grep mkdir mktemp od readlink rm; do
 	command -v "$_rl_t" > /dev/null 2>&1 && continue
 	echo "runner_lib.sh: required command '$_rl_t' is not on PATH" >&2
 	exit 2
@@ -104,6 +107,39 @@ RL_NAME=${RL_NAME:-${0##*/}}
 # shellcheck disable=SC2034 # RL_HOST_TMP is the caller's to read.
 RL_HOST_TMP=${TMPDIR:-/tmp}
 case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR="$TEST_TMPDIR" ;; esac
+
+# AN LD_DEBUG FROM OUTSIDE (V336). The loader's tracing, which a maintainer
+# turns on with --test_env=LD_DEBUG=libs to see which libraries a program
+# took (V38 was found so), is written to the stderr of every program a test
+# starts -- a compiler, a recipe, the program under test -- and a layer
+# that compares or shows that stderr read the loader's lines as the
+# program's: a correct program whose case compares stderr went red. So its
+# lines go to files of their own, in the test's outputs
+# (test.outputs/ld_debug.<pid>, one a process), and in a hand run, with no
+# such folder, the tracing is dropped. An LD_DEBUG_OUTPUT from outside
+# already keeps stderr clean, and is left as it is when it names a file in
+# a folder that can be written, by its absolute path: a loader that cannot
+# open its file writes to stdout instead (man ld.so does not say so; glibc
+# does it), and a relative one is opened in each program's own working
+# folder. The loader's proofs here set their own (rl_libs_under says how).
+if [ -n "${LD_DEBUG:-}" ]; then
+	case ${LD_DEBUG_OUTPUT:-} in
+		/*) [ -d "${LD_DEBUG_OUTPUT%/*}/" ] && [ -w "${LD_DEBUG_OUTPUT%/*}/" ] ||
+			unset LD_DEBUG_OUTPUT ;;
+		*) unset LD_DEBUG_OUTPUT ;;
+	esac
+	if [ -z "${LD_DEBUG_OUTPUT:-}" ]; then
+		case ${TEST_UNDECLARED_OUTPUTS_DIR:-} in
+			/*) if [ -d "$TEST_UNDECLARED_OUTPUTS_DIR" ] && [ -w "$TEST_UNDECLARED_OUTPUTS_DIR" ]; then
+					LD_DEBUG_OUTPUT=$TEST_UNDECLARED_OUTPUTS_DIR/ld_debug
+					export LD_DEBUG_OUTPUT
+				else
+					unset LD_DEBUG
+				fi ;;
+			*) unset LD_DEBUG ;;
+		esac
+	fi
+fi
 
 # ---------------------------------------------------------------------------
 # LISTS OF WORDS.
@@ -148,6 +184,27 @@ rl_list_add() {  # rl_list_add VAR WORD... -- append each WORD to the list in VA
 }
 rl_split_on() { _rl_split_ifs=$IFS; IFS=$RL_NL; set -f; }
 rl_split_off() { IFS=$_rl_split_ifs; set +f; }
+
+# rl_inc_file VAR FILE [RAW] -- each line of FILE, an include directory, onto
+# the list in VAR as -I<dir>, and onto the list in RAW, when one is named, as
+# the bare directory (compile_check.sh's hint names each one). FILE is a
+# runner's --inc-file: the -I directories a Makefile's recipes pass, as
+# `make -Bn` reported them to the build of the same turn-in
+# (tools/student_build.sh --includes-out). It may be empty, a
+# Makefile that passes none; a FILE that is not there is a wiring fault, exit
+# 2. THE INCLUDE PATH IS THE GRADER'S (compile_check.sh): a header in a
+# subfolder is on it only through the Makefile's -I, so a layer of a Makefile
+# project that compiles the sources itself and does not read this compiles
+# otherwise than the grader does (V198: a library's prototype, symbols and
+# ilp32 layers found no header its Makefile's -I reached).
+rl_inc_file() {
+	[ -f "$2" ] || { echo "$RL_NAME.sh: no include list at $2" >&2; exit 2; }
+	while IFS= read -r _rl_if; do
+		[ -n "$_rl_if" ] || continue
+		rl_list_add "$1" "-I$_rl_if"
+		[ -z "${3:-}" ] || rl_list_add "$3" "$_rl_if"
+	done < "$2"
+}
 
 # ---------------------------------------------------------------------------
 # THE TIME BUDGET.
@@ -1539,6 +1596,23 @@ rl_save() {
 	esac
 }
 
+# rl_keep_input SCRATCH NAME -- rl_save for a file the runner handed the
+# program (a generated map, a dictionary, an argument file), kept as NAME;
+# its status is rl_save's. Where it was kept, the pair is recorded in
+# RL_KEPT_AS, and the next rl_mem_report shows SCRATCH by NAME, as --as
+# does, and forgets it; rl_mem_run forgets it too, at the start of each
+# case, so a scratch path a runner reuses for every case never names an
+# earlier case's file. Three runners kept their own list of what rl_save
+# had kept, to rebuild the --as pairs from, and a rule over the text
+# guessed which rl_save kept an input (V147): the pair recorded at the
+# save cannot name another file.
+RL_KEPT_AS=""
+rl_keep_input() {
+	rl_save "$1" "$2" || return 1
+	RL_KEPT_AS="$RL_KEPT_AS$1	$2
+"
+}
+
 # rl_gate NAME DIFFER BIN EXPECTED [ARG...] -- the correctness gate in front
 # of a layer that replays a corpus (docs/reference.md, "Which layers wait for
 # which"). While the exercise's own output fixture is red -- BIN run with the
@@ -1547,11 +1621,13 @@ rl_save() {
 # fails reports the same failure hundreds of times, far less usefully than
 # the fixture's table and hints do.
 #
-# It fails OPEN. NO_SKIP=1, a gate not wired (an empty argument), a BIN that
-# cannot run and an EXPECTED that is not there all let the layer run, and so
-# does a DIFFER that could not judge (exit 2 or more: a missing tool, a
+# It fails OPEN. NO_SKIP=1 and a gate not wired (an empty argument) let the
+# layer run, and so does a DIFFER that could not judge (exit 2 or more: a
+# missing tool, a BIN that cannot run, an EXPECTED that is not there, a
 # wiring mistake), which is said: a gate that cannot answer must never be why
-# a layer stayed quiet. Only "the fixture ran and is red" (exit 1) skips.
+# a layer stayed quiet. BIN and EXPECTED are not tested here first: that
+# test let the layer run with nothing said, which the differ's own exit 2
+# says (V292). Only "the fixture ran and is red" (exit 1) skips.
 # Every corpus runner with a gate calls it (//tools:conventions refuses one
 # that runs its --gate-differ itself), and so does method_check, which
 # replays nothing; c_levels()' audit holds the ARGs to an output test that
@@ -1590,8 +1666,8 @@ RL_GATE_NAME=""
 rl_gate() {
 	_rl_gn=$1 _rl_gd=$2 _rl_gb=$3 _rl_ge=$4
 	shift 4
-	[ "${NO_SKIP:-0}" != 1 ] && [ -n "$_rl_gd" ] && [ -n "$_rl_gb" ] && [ -n "$_rl_ge" ] &&
-		[ -x "$_rl_gb" ] && [ -f "$_rl_ge" ] || return 0
+	[ "${NO_SKIP:-0}" != 1 ] && [ -n "$_rl_gd" ] && [ -n "$_rl_gb" ] && [ -n "$_rl_ge" ] ||
+		return 0
 	# The differ's options, then --, then the ARGs: RL_GATE_PASS's words are
 	# appended, and the ARGs rotated behind them. Not with rl_split_on, which
 	# a caller expanding its own list of ARGs is already inside -- the two do
@@ -1692,7 +1768,8 @@ rl_noskip_cmd() {
 #     runner's --show) when given, else DIFF_MAX_ROWS, else 40. 0 prints all.
 # rl_block FILE -- one failing case's report, from FILE: printed while fewer
 #     than RL_ROWS have been, and kept whole either way. A block printed is
-#     also kept apart (RL_SHOWNF), for rl_shown_legend.
+#     also kept apart (RL_SHOWNF), for rl_shown_legend. The first one printed
+#     has the table mark (below) above it.
 # rl_shown FILE -- a block that is no failing case, printed whole and kept
 #     for rl_shown_legend as rl_block keeps the ones it prints, never counted
 #     against RL_ROWS: a difference a runner shows as information and passes
@@ -1710,6 +1787,42 @@ rl_noskip_cmd() {
 #     printed a fixed legend under want and got lines -- "\t a tab, \\ a
 #     backslash, \x24 a dollar" under maps holding none of them -- and
 #     //tools:conventions now refuses one.
+#
+# THE TABLE MARK. RL_TABLE_MARK is a line of its own, at the start of it, in
+# every log that names its failing case on a line of that case's own: here,
+# above the first failing case rl_block prints, and in diff_output.sh, above
+# a table with a row marked FAIL. tools/first_red.sh reads it, and says "The
+# table in that log names the case" only over a log that holds it, "That log
+# says why" over any other: a crash under a survive case, a byte-stream
+# summary, a compiler's words, a build. It used to decide by the target's
+# name, from a list kept by hand, which was true of the runner and false of
+# the branch that ran (V231). No row of a table and no line of a program's
+# output starts a line of a log (each is indented), so the mark at the start
+# of one is never a program's. A block names its case as its runner counts
+# one: bsq_check.sh's multi-map run under the memory checker is one case, the
+# run, named on its RUN line, though which map in it did the harm is more
+# than it can say (its mem_group says why); first_red never reads the mark
+# over that layer, which is rigour.
+RL_TABLE_MARK="Each case below is named on its own line."
+RL_TABLE_SAID=0
+rl_table_mark() {
+	[ "$RL_TABLE_SAID" = 1 ] && return 0
+	RL_TABLE_SAID=1
+	printf '%s\n' "$RL_TABLE_MARK"
+}
+# THE BUILD MARK. RL_BUILD_MARK is a line of its own, at the start of it, in
+# the log of a test that builds its own test program against the turn-in and
+# could not (tools/header_check.sh): nothing ran, so no output can be wrong.
+# It is no stand-in (tools/standin.sh): no stand-in ran either. first_red.sh
+# reads it, and files the test with what does not build when its exercise
+# is written, as it files an empty stand-in; tools/fortytwo/report.py shows
+# its log for a build failure. Over a compiler's words, first_red said "It is
+# written, and it runs, but what it does is not what the test expects", and
+# the module's row read "written; wrong output" (V231).
+RL_BUILD_MARK="The test program was never built, so nothing ran."
+rl_build_mark() {
+	printf '%s\n' "$RL_BUILD_MARK"
+}
 RL_ROWS=40
 RL_BLOCKS=0
 RL_LISTF=""
@@ -1729,6 +1842,7 @@ rl_block() {
 	fi
 	cat "$1" >> "$RL_LISTF"
 	[ "$RL_ROWS" -ne 0 ] && [ "$RL_BLOCKS" -gt "$RL_ROWS" ] && return 0
+	rl_table_mark
 	cat "$1"
 	if [ -z "$RL_SHOWNF" ]; then
 		RL_SHOWNF=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
@@ -1841,6 +1955,11 @@ rl_stderr_note() {
 #                   verdict states the rule it applies as this harness's,
 #                   as a fixed case's _valgrind arm does. A corpus quoted
 #                   neither (V82).
+#   --access-rule FILE  with --valgrind: the subject's own sentence about
+#                   what is no leak (an invalid access, a crash), handed to
+#                   each case's run (valgrind_test.sh's --access-rule): a red
+#                   then quotes it for the findings that are no leak, and
+#                   --rule's for a leak, each once under the verdict.
 #
 # A RUN THAT DID NOT FINISH is said, and never judged wrong: what it would
 # have done next was not seen, and no subject here sets a time limit, so an
@@ -1855,7 +1974,7 @@ rl_stderr_note() {
 # In a runner:
 #
 #     --sanitized | --valgrind | --valgrind-tools | --sample | \
-#     --symbolizer | --symbolizer-lib | --rule)
+#     --symbolizer | --symbolizer-lib | --rule | --access-rule)
 #             rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;     # option loop
 #     rl_mem_ready                                          # after it
 #     standin_check NAME "$BIN" "$RL_STANDIN" ...           # tools/standin.sh
@@ -1864,7 +1983,8 @@ rl_stderr_note() {
 #     rl_sweep_next "$CAP" || break        # time left to start it
 #     rl_mem_run [--stdin FILE] -- ARG...  # BIN under the checker
 #     [ "$RL_MEM_BAD" = 0 ] || { <the case, how to replay it>; rl_mem_report; }
-#                                          # --as SCRATCH KEPT per input kept
+#                                          # rl_keep_input SCRATCH NAME in the
+#                                          # replay part, per input it keeps
 #     ...
 #     rl_mem_tally DONE M                  # the verdict line, 0 or 1
 #     rl_mem_argv_note GUARDED [HOW]       # input in argv: what ASan saw of it
@@ -1888,6 +2008,7 @@ RL_VG=""
 RL_VGTOOLS=""
 RL_MEM_SAMPLE=""
 RL_MEM_RULE=""
+RL_MEM_ACCESS_RULE=""
 RL_MEM_SYM=""
 RL_MEM_SYMLIB=""
 RL_MEM_SYMD=""
@@ -1908,7 +2029,7 @@ rl_mem_opt() {
 			RL_MEM_SHIFT=1
 			[ "$RL_MEM" != valgrind ] || rl__mem_both
 			RL_MEM=sanitized ;;
-		--valgrind | --valgrind-tools | --sample | --rule | --symbolizer | --symbolizer-lib)
+		--valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			[ "$#" -ge 2 ] || { echo "${RL_NAME}: $1 needs a value" >&2; exit 2; }
 			RL_MEM_SHIFT=2
 			case "$1" in
@@ -1919,6 +2040,7 @@ rl_mem_opt() {
 				--valgrind-tools) RL_VGTOOLS=$2 ;;
 				--sample) RL_MEM_SAMPLE=$2 ;;
 				--rule) RL_MEM_RULE=$2 ;;
+				--access-rule) RL_MEM_ACCESS_RULE=$2 ;;
 				--symbolizer) RL_MEM_SYM=$2 ;;
 				--symbolizer-lib) RL_MEM_SYMLIB=$2 ;;
 			esac ;;
@@ -1932,8 +2054,8 @@ rl__mem_both() {
 }
 # rl_mem_ready -- check the options rl_mem_opt took, and set up the checker.
 rl_mem_ready() {
-	if [ -n "$RL_VGTOOLS$RL_MEM_SAMPLE$RL_MEM_RULE" ] && [ "$RL_MEM" != valgrind ]; then
-		echo "${RL_NAME}: --valgrind-tools, --sample and --rule go with --valgrind" >&2
+	if [ -n "$RL_VGTOOLS$RL_MEM_SAMPLE$RL_MEM_RULE$RL_MEM_ACCESS_RULE" ] && [ "$RL_MEM" != valgrind ]; then
+		echo "${RL_NAME}: --valgrind-tools, --sample, --access-rule and --rule go with --valgrind" >&2
 		exit 2
 	fi
 	if [ -n "$RL_MEM_SYM$RL_MEM_SYMLIB" ] && [ "$RL_MEM" != sanitized ]; then
@@ -1970,6 +2092,10 @@ rl_mem_ready() {
 			if [ -n "$RL_MEM_RULE" ]; then
 				[ -s "$RL_MEM_RULE" ] || { echo "${RL_NAME}: no sentence in --rule $RL_MEM_RULE" >&2; exit 2; }
 				case "$RL_MEM_RULE" in /*) ;; *) RL_MEM_RULE="$PWD/$RL_MEM_RULE" ;; esac
+			fi
+			if [ -n "$RL_MEM_ACCESS_RULE" ]; then
+				[ -s "$RL_MEM_ACCESS_RULE" ] || { echo "${RL_NAME}: no sentence in --access-rule $RL_MEM_ACCESS_RULE" >&2; exit 2; }
+				case "$RL_MEM_ACCESS_RULE" in /*) ;; *) RL_MEM_ACCESS_RULE="$PWD/$RL_MEM_ACCESS_RULE" ;; esac
 			fi
 			case "$0" in */*) _rl_here=${0%/*} ;; *) _rl_here=. ;; esac
 			for RL_VG_TEST in "$_rl_here/valgrind_test.sh" \
@@ -2022,6 +2148,7 @@ rl_mem_run() {
 	[ "$1" != -- ] || shift
 	RL_MEM_BAD=0
 	RL_MEM_KIND=""
+	RL_KEPT_AS=""
 	: > "$RL_MEM_OUT"
 	if [ "$RL_MEM" = valgrind ]; then
 		# valgrind_test.sh is the one place a run is judged under memcheck;
@@ -2042,10 +2169,17 @@ rl_mem_run() {
 		# --brief: the case's verdict and evidence alone. What each class of
 		# finding means is named on a line of the status file, "explain
 		# KEY", and said once, after the cases (rl__mem_explain): every case
-		# used to carry it, 25 times in a 25-case sample (V53).
+		# used to carry it, 25 times in a 25-case sample (V53). With
+		# --access-rule the run names the rule paragraph of each kind of
+		# finding it showed (rule:access, rule:leak) instead of one.
+		if [ -n "$RL_MEM_ACCESS_RULE" ]; then
+			set -- --access-rule "$RL_MEM_ACCESS_RULE" -- "$@"
+		else
+			set -- -- "$@"
+		fi
 		sh "$RL_VG_TEST" --bin "$BIN" --valgrind "$RL_VG" --valgrind-tools "$RL_VGTOOLS" \
 			--label "$_rl_what" --timeout "${RL_TMO:-60}" --stdin "$_rl_in" \
-			--status-file "$RL_MEM_STATUS" --brief -- "$@" > "$RL_MEM_OUT" 2>&1
+			--status-file "$RL_MEM_STATUS" --brief "$@" > "$RL_MEM_OUT" 2>&1
 		case $? in
 			0) ;;
 			1) RL_MEM_BAD=1; RL_MEM_KIND=memcheck ;;
@@ -2127,20 +2261,25 @@ rl__mem_count() {  # the case rl_mem_run just made, into the tallies
 # rl_mem_report [--as SCRATCH KEPT]... -- under a failing case's own lines:
 # what went wrong, and the checker's report.
 #
-# --as names a scratch file the runner handed the program (BSQ's map, C 10's
-# files, Rush 02's generated dictionary) and the name the case keeps it under
-# in test.outputs; repeat it for each. A report that prints the path --
-# memcheck's "Open file descriptor 4: /tmp/tmp.XXXX/map" -- named a file gone
-# when the test ends, right below the lines that keep the input as
-# case-12.map and replay it under that name, and two cases named the same
-# scratch file. Each SCRATCH is replaced by its KEPT name in what is shown
-# and kept, literally (a path holds dots), the longest first where one starts
-# another (map.1, map.10), and one line above the report's own says it was.
-# A file of the test's own tree that a case keeps under another name (Rush
-# 02's fixed dictionary) is passed the same way: its path is not one a
-# student has.
+# Each input the case kept through rl_keep_input since rl_mem_run began it
+# (BSQ's map, C 10's files, Rush 02's dictionaries) is shown by the name it
+# is kept under in test.outputs, and forgotten once shown. A report that
+# prints the path -- memcheck's "Open file descriptor 4: /tmp/tmp.XXXX/map"
+# -- named a file gone when the test ends, right below the lines that keep
+# the input as case-12.map and replay it under that name, and two cases
+# named the same scratch file. Each SCRATCH is replaced by its kept name in
+# what is shown and kept, literally (a path holds dots), the longest first
+# where one starts another (map.1, map.10), and one line above the report's
+# own says it was. That holds for a file of the test's own tree kept under
+# another name too: its path is not one a student has.
+#
+# --as SCRATCH KEPT adds one more pair, for a path the case did not keep
+# through rl_keep_input; repeat it for each. No runner needs it today: an
+# input kept with rl_save and named with --as is what the conventions rule
+# on rl_keep_input reports.
 rl_mem_report() {
-	_rl_as=""
+	_rl_as=$RL_KEPT_AS
+	RL_KEPT_AS=""
 	_rl_named=""
 	while [ "${1:-}" = --as ]; do
 		if [ "$#" -lt 3 ] || [ -z "$2" ] || [ -z "$3" ]; then
@@ -2271,7 +2410,8 @@ rl_mem_tally() {
 # rl__mem_explain -- under the verdict of a memcheck replay, what each class of
 # finding its cases showed means, each once (valgrind_test.sh --explain), and
 # last the rule a memory finding breaks: the subject's sentence (--rule), or
-# this harness's, said to be its own.
+# this harness's, said to be its own -- or, with --access-rule, the sentence
+# for what is no leak and the one for a leak, each that a case showed.
 rl__mem_explain() {
 	[ "$RL_MEM" = valgrind ] && [ -n "$RL_MEM_EXPLAIN" ] || return 0
 	echo ""
@@ -2279,17 +2419,19 @@ rl__mem_explain() {
 	echo ""
 	rl_split_on
 	set --
-	_rl_rule=0
+	_rl_rule=""
 	for _rl_k in $RL_MEM_EXPLAIN; do
-		if [ "$_rl_k" = rule ]; then
-			_rl_rule=1
-		else
-			set -- "$@" --explain "$_rl_k"
-		fi
+		case "$_rl_k" in
+			rule | rule:*) _rl_rule="$_rl_rule $_rl_k" ;;
+			*) set -- "$@" --explain "$_rl_k" ;;
+		esac
 	done
 	rl_split_off
-	[ "$_rl_rule" = 0 ] || set -- "$@" --explain rule
+	for _rl_k in rule:access rule:leak rule; do
+		case "$_rl_rule " in *" $_rl_k "*) set -- "$@" --explain "$_rl_k" ;; esac
+	done
 	[ -z "$RL_MEM_RULE" ] || set -- "$@" --rule "$RL_MEM_RULE"
+	[ -z "$RL_MEM_ACCESS_RULE" ] || set -- "$@" --access-rule "$RL_MEM_ACCESS_RULE"
 	# conventions: harness tool RL_VG_TEST -- tools/valgrind_test.sh, printing paragraphs and running nothing
 	sh "$RL_VG_TEST" "$@" || {
 		echo "${RL_NAME}: valgrind_test.sh could not explain its own findings (a harness fault)" >&2
@@ -2335,8 +2477,129 @@ rl_mem_stopped() {
 }
 
 # ---------------------------------------------------------------------------
+# A VALGRIND THAT NEVER STARTED (V242).
+#
+# rl_vg_aborted TOOL WHAT FILE... -- when one of the FILEs (valgrind's log,
+# the stderr it wrote to) holds valgrind's startup abort, say so on stderr,
+# with an excerpt from the abort on, and return 0: the caller exits 2.
+# Return 1 otherwise, saying nothing. TOOL is the valgrind tool the run
+# asked for (memcheck, callgrind); WHAT names the program that never ran.
+#
+# Memcheck has to redirect strlen inside the dynamic loader before the
+# program starts, and finds it by name in ld.so's symbols. A distro that
+# strips its ld.so ships those names apart, as debug symbols (libc6-dbg on
+# Debian and Ubuntu), which match one exact ld.so build. With neither,
+# valgrind prints "Fatal error at startup", exits 1, and never runs the
+# program. Every program the harness builds runs on the box's own ld.so (it
+# asks for /lib64/ld-linux-x86-64.so.2; the pinned compiler has no sysroot),
+# so the fetched valgrind borrows those symbols from the box
+# (docs/environment.md). The dev container and the campus machines have
+# them, through the valgrind package each installs. valgrind_test.sh read
+# the 1 as the program's own status and printed OK over a leak: an abort is
+# the machine's setup, never a verdict on the code.
+#
+# That redirect is Memcheck's alone. Measured with the fetched valgrind
+# 3.18.1 on a toy whose ld.so had its symbols stripped: --tool=memcheck
+# aborted, while --tool=callgrind (and helgrind, drd, massif, cachegrind)
+# ran it to the end. So only a memcheck run is told about ld.so and
+# libc6-dbg. cycles_check.sh and ref_compare.sh call this for callgrind all
+# the same, as a refusal no known cause triggers today: a callgrind that
+# stopped at its startup would otherwise read as their SKIP, and naming a
+# package that cannot be the cause would send the student after the wrong
+# one, so for any tool but memcheck it shows valgrind's own words and calls
+# them valgrind's setup failing on this machine.
+rl_vg_aborted() {
+	_rl_vt=$1
+	_rl_vw=$2
+	shift 2
+	_rl_va=""
+	for _rl_vf in "$@"; do
+		if grep -qs 'Fatal error at startup' "$_rl_vf"; then
+			_rl_va=$_rl_vf
+			break
+		fi
+	done
+	[ -n "$_rl_va" ] || return 1
+	awk '/Fatal error at startup/ { on = 1 } on' "$_rl_va" > "$_rl_va.abort"
+	{
+		echo "${RL_NAME}: valgrind stopped at its own startup, before $_rl_vw ran,"
+		echo "  so nothing was checked. What valgrind said:"
+		rl_excerpt "$_rl_va.abort" 12 valgrind-startup.txt "    "
+		if [ "$_rl_vt" = memcheck ]; then
+			echo "  The likely cause: the box's ld.so has no debug symbols, which valgrind"
+			echo "  needs to start. On Debian or Ubuntu they are the libc6-dbg package, the"
+			echo "  version of the box's libc6 (glibc-debuginfo on Fedora or SuSE); the dev"
+			echo "  container and the campus machines have them (docs/environment.md)."
+		else
+			echo "  That is valgrind failing to set itself up on this machine: what it"
+			echo "  said above names what it could not do."
+		fi
+		echo "  This is the machine's setup, not a finding about the code."
+	} >&2
+	return 0
+}
+
+# rl_vg_env DIR [RUNDIR] -- switch the host's valgrind settings off for the
+# valgrind runs this runner makes from here on (V227): unset VALGRIND_OPTS
+# and DEBUGINFOD_URLS, and point HOME at DIR/vghome, a folder of its own
+# under DIR (callers pass a fresh scratch folder, so it starts empty).
+# Return 1, having said why on stderr, when RUNDIR (the folder valgrind
+# will run from, default the current one) holds a .valgrindrc; the caller
+# exits 2.
+#
+# valgrind reads options from ~/.valgrindrc, then $VALGRIND_OPTS, then
+# ./.valgrindrc (only when . is not HOME), all before its command line, and
+# the command line overrides only the options it names. So a host setting
+# that names another one reaches the run: --tool=none (from VALGRIND_OPTS,
+# the one place besides the command line the tool is read from) checked
+# nothing and printed OK over a leak, a --suppressions file that matches
+# everything did the same from either rc file, and an option that conflicts
+# with the runner's own made valgrind refuse to start. AGENTS.md 6: a tool
+# that reads host configuration runs with it switched off, as git does in
+# the shell checks. ./.valgrindrc cannot be switched off but by running
+# from another folder, which would change the program's own working folder,
+# so it is refused instead: under Bazel the run's folder is the runfiles
+# tree or a fresh one (rl_rundir), and a .valgrindrc can only be there by
+# hand. HOME changes for the program too: under Bazel it was already
+# TEST_TMPDIR, a folder of its own, and none of the runners reads HOME
+# after the call.
+#
+# DEBUGINFOD_URLS too (V270): with it set, the fetched memcheck runs
+# `debuginfod-find` from PATH for each object it has no debug information
+# for, so what it loads, and whether it reaches a server at all, would
+# depend on the host's environment and on what the host has installed
+# (some distributions set it in /etc/profile.d).
+rl_vg_env() {
+	if [ -e "${2:-.}/.valgrindrc" ]; then
+		echo "${RL_NAME}: ${2:-.}/.valgrindrc is in the folder valgrind runs from, and" >&2
+		echo "  valgrind would add its options to this run's. Move it, or run from" >&2
+		echo "  another folder: a check reads none of the host's valgrind settings." >&2
+		return 1
+	fi
+	mkdir -p "$1/vghome" || {
+		echo "${RL_NAME}: cannot make $1/vghome, the empty HOME valgrind runs with" >&2
+		return 1
+	}
+	unset VALGRIND_OPTS DEBUGINFOD_URLS
+	HOME=$1/vghome
+	export HOME
+}
+
+# ---------------------------------------------------------------------------
 # SANITIZER RUNS.
 #
+# _rl_unseen NAME -- rl_sanitizers' refusal when no library named NAME* was
+# in the loader's `calling init:` lines, which it gathered in _rl_seen.
+_rl_unseen() {
+	case "$_rl_seen" in
+		*" $1 "*) ;;
+		*)
+			echo "$RL_NAME: could not observe which $1 the symbolizer loaded" >&2
+			echo "  (LD_DEBUG=libs printed no 'calling init:' line for it)." >&2
+			exit 2 ;;
+	esac
+}
+
 # rl_sanitizers DIR [SYMBOLIZER LIBFILE] -- export ASAN_OPTIONS and
 # UBSAN_OPTIONS for the runs of an instrumented program that follow. The
 # harness's keys come first and the caller's own last, so a key someone sets
@@ -2359,13 +2622,22 @@ rl_mem_stopped() {
 # lend it silently. So it is run through a wrapper in DIR -- named
 # llvm-symbolizer, which is how the sanitizer runtime picks its protocol --
 # that puts LIBFILE's directory first on the loader's path, and the loader is
-# asked, once, which libLLVM it actually loaded. With no SYMBOLIZER the
-# report is left unsymbolised (symbolize=0) rather than symbolised by
-# whatever `llvm-symbolizer` a PATH search finds, which would make the same
-# report read differently on two machines.
+# asked, once, which libLLVM it actually loaded, and which libxml2 and ICU:
+# libLLVM loads those by bare soname too, a release can lack them, and the
+# fetch lays them beside it (MODULE.bazel, clang_12_ubuntu's :libllvm_deps),
+# so a target that does not stage them borrows the box's (TO VERIFY V238).
+# With no SYMBOLIZER the report is left unsymbolised (symbolize=0) rather
+# than symbolised by whatever `llvm-symbolizer` a PATH search finds, which
+# would make the same report read differently on two machines.
 #
 # A wiring fault -- a symbolizer that is not there, a library directory that
-# is not, a loader that took libLLVM from somewhere else -- exits 2.
+# is not, a symbolizer the loader cannot start (V322), a loader that took
+# libLLVM, libxml2 or ICU from somewhere else -- exits 2. A path may hold a
+# blank (V325): the loader's lines are read one a line, and the wrapper's
+# path goes in the options quoted, which the sanitizers' parser reads as
+# one value. A single quote is refused in the symbolizer's path and its
+# library folder, which the wrapper quotes with it, and a double quote in
+# the wrapper's own folder, which the options quote with.
 rl_sanitizers() {
 	_rl_sym=${2:-}
 	_rl_symopt="symbolize=0"
@@ -2384,9 +2656,19 @@ rl_sanitizers() {
 			echo "  pinned symbolizer would silently stop being pinned." >&2
 			exit 2
 		fi
-		case "$_rl_sym$_rl_symdir$1" in
+		case "$_rl_sym$_rl_symdir" in
 			*"'"*)
 				echo "$RL_NAME: a path with a single quote in it cannot be put in the symbolizer's wrapper" >&2
+				exit 2 ;;
+		esac
+		# Only the wrapper's own folder goes into the sanitizers' options,
+		# double-quoted there; the symbolizer and its library folder go
+		# into the wrapper alone, single-quoted, where a double quote is
+		# one more character.
+		case "$1" in
+			*'"'*)
+				echo "$RL_NAME: a folder with a double quote in its path cannot be put in" >&2
+				echo "  ASAN_OPTIONS and UBSAN_OPTIONS, which double-quote the symbolizer's path" >&2
 				exit 2 ;;
 		esac
 		mkdir -p "$1" || exit 2
@@ -2394,28 +2676,98 @@ rl_sanitizers() {
 			"$_rl_symdir" "$_rl_sym" > "$1/llvm-symbolizer" || exit 2
 		chmod +x "$1/llvm-symbolizer" || exit 2
 		# PROVE THE LOADER AGREED: `calling init:` names each library ld.so
-		# actually loaded, where `trying file=` lists only candidates.
-		_rl_loaded=$(LD_DEBUG=libs "$1/llvm-symbolizer" --version 2>&1 > /dev/null |
-			awk '/calling init:/ && /libLLVM/ { sub(/.*calling init: /, ""); print }')
-		if [ -z "$_rl_loaded" ]; then
-			echo "$RL_NAME: could not observe which libLLVM the symbolizer loaded" >&2
-			echo "  (LD_DEBUG=libs printed no 'calling init:' line for it)." >&2
+		# actually loaded, where `trying file=` lists only candidates. Its
+		# own loop, not rl_libs_under's (below), which the binutils runners
+		# use (V277): this one names every library taken from elsewhere, and
+		# asks for libxml2 only after libLLVM.
+		env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$1/llvm-symbolizer" --version \
+			> /dev/null 2> "$1/llvm-symbolizer.debug"
+		_rl_st=$?
+		# And first that it started (V322): one the loader cannot start (a
+		# library this machine lacks) printed no `calling init:` line for
+		# libLLVM, and the refusal said only that it could not observe one,
+		# with the loader's own words thrown away. Its numbered lines are
+		# the loader's tracing; what is left is what stopped it.
+		if [ "$_rl_st" -ne 0 ]; then
+			awk '!/^[ \t]*[0-9]+:/' "$1/llvm-symbolizer.debug" > "$1/llvm-symbolizer.err"
+			rl__cannot_start "$1/llvm-symbolizer.err" "$_rl_st" \
+				"$RL_NAME: the pinned symbolizer '${_rl_sym##*/}'" symbolizer-start.txt
+			if [ -n "$RL_START_LIB" ]; then
+				echo "  The loader found no $(printf '%s' "$RL_START_LIB" | rl_vis arg), a shared library the symbolizer" >&2
+				echo "  needs before it does anything." >&2
+				case "$RL_START_LIB" in
+					libLLVM* | libxml2* | libicu*)
+						echo "  The fetch lays it in '$_rl_symdir'," >&2
+						echo "  the folder the pinned libraries are staged in, and it is not there:" >&2
+						echo "  the target's data is wrong, which is a harness fault and not a" >&2
+						echo "  finding about the code under test." >&2 ;;
+					*)
+						echo "  This machine does not have it where the loader looks. Install it" >&2
+						echo "  from your distribution, or work in the dev container" >&2
+						echo "  (docs/environment.md); the code under test is not at fault." >&2 ;;
+				esac
+			fi
+			echo "  No sanitizer report can be symbolised here: nothing was checked." >&2
 			exit 2
 		fi
-		for _rl_l in $_rl_loaded; do
-			case "$_rl_l" in
-				"$_rl_symdir"/*) ;;
-				*)
-					echo "$RL_NAME: the pinned symbolizer loaded '$_rl_l'," >&2
-					echo "  which is not under '$_rl_symdir': it would symbolise with" >&2
-					echo "  this machine's libLLVM rather than the pinned one." >&2
-					exit 2 ;;
+		_rl_loaded=$(awk '/calling init:/ && /libLLVM|libxml2|libicu/ { sub(/.*calling init: /, ""); print }' \
+			"$1/llvm-symbolizer.debug")
+		# One path a line (V325): split at blanks, a staged folder whose
+		# path holds one was refused as a library from outside, in halves.
+		_rl_seen=" "
+		while IFS= read -r _rl_l; do
+			case "${_rl_l##*/}" in
+				libLLVM*) _rl_seen="$_rl_seen libLLVM " ;;
+				libxml2*) _rl_seen="$_rl_seen libxml2 " ;;
 			esac
+		done <<_RL_SL
+$_rl_loaded
+_RL_SL
+		# libLLVM must be seen, and every library taken from elsewhere
+		# named, before libxml2 is asked for: a box's own libLLVM-12 built
+		# without libxml2 loads none, and asking first refused it as "could
+		# not observe which libxml2", naming nothing.
+		_rl_unseen libLLVM
+		# In the folder itself, not below it: libLLVM's RUNPATH,
+		# $ORIGIN/../lib, finds a library the folder lacks in a folder
+		# nobody staged, under a path that starts with the folder's own
+		# (".../x86_64-linux-gnu/../lib/libxml2.so.2"). Every one taken
+		# from elsewhere is named, libLLVM first: the loader runs ICU's
+		# init before libLLVM's, and a folder without its libLLVM named
+		# only libicudata.
+		_rl_bad=""
+		for _rl_pass in libLLVM others; do
+			while IFS= read -r _rl_l; do
+				[ -n "$_rl_l" ] || continue
+				case "${_rl_l##*/}" in
+					libLLVM*) [ "$_rl_pass" = libLLVM ] || continue ;;
+					*) [ "$_rl_pass" = others ] || continue ;;
+				esac
+				case "$_rl_l" in
+					"$_rl_symdir"/*/*) ;;
+					"$_rl_symdir"/*) continue ;;
+				esac
+				_rl_bad="$_rl_bad    $_rl_l
+"
+			done <<_RL_SL
+$_rl_loaded
+_RL_SL
 		done
-		_rl_symopt="symbolize=1:external_symbolizer_path=$1/llvm-symbolizer"
+		if [ -n "$_rl_bad" ]; then
+			echo "$RL_NAME: the pinned symbolizer loaded a library from outside" >&2
+			echo "  '$_rl_symdir'," >&2
+			echo "  the folder the pinned libraries are staged in, so it would symbolise" >&2
+			echo "  with a copy nobody pinned, this machine's or another's:" >&2
+			printf '%s' "$_rl_bad" >&2
+			exit 2
+		fi
+		_rl_unseen libxml2
+		# shellcheck disable=SC2089 # the quotes are the sanitizers' option syntax, read by their parser
+		_rl_symopt="symbolize=1:external_symbolizer_path=\"$1/llvm-symbolizer\""
 	fi
 	ASAN_OPTIONS="detect_leaks=0:abort_on_error=1:print_legend=0:$_rl_symopt:${ASAN_OPTIONS:-}"
 	UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1:$_rl_symopt:${UBSAN_OPTIONS:-}"
+	# shellcheck disable=SC2090 # ...which a program reads from its environment, not a shell
 	export ASAN_OPTIONS UBSAN_OPTIONS
 }
 
@@ -2897,27 +3249,35 @@ _RL_SRCS
 # A compiler Bazel fetched and pinned can start, print the pinned version and
 # still be the machine's: clang is a 100 KB driver whose work is done by
 # libclang-cpp and libLLVM, which the loader takes from the box when the
-# fetched directory is not on its path; gcc finds cc1 by walking up from its
-# own path, and takes the box's when that tree was not staged; and gcc shells
-# out to an assembler it looks for on PATH unless -B points it at the pinned
-# one. None of the three changes a byte of the output, so each is checked
-# before the first compile, and each failure is exit 2: the harness is wired
-# wrong, the exercise is not wrong.
+# fetched directory is not on its path, and so are the libxml2 and ICU that
+# libLLVM loads (V321); gcc looks for cc1 in the tree it resolves its own
+# path to, and a GCC_EXEC_PREFIX from outside sends it to the box's (a cc1
+# missing from its tree is no quiet swap: gcc stops, "cannot execute 'cc1'",
+# V297); and gcc shells out to an assembler it looks for on PATH unless -B
+# points it at the pinned one. None of the three changes a byte of the
+# output, so each is checked before the first compile, and each failure is
+# exit 2: the harness is wired wrong, the exercise is not wrong.
 #
 # compile_check.sh, header_check.sh, prototype_check.sh, symbols_test.sh,
 # forbidden_symbols.sh, ilp32_test.sh and make_test.sh each carry a copy of
 # the library half, written before this existed; the runners written since
 # call this. None of those since assembles anything (header_norm.sh
 # preprocesses, method_check.sh's --fixed-array stops at -S), so the third
-# proof -- the pinned assembler, compile_check.sh's --cc-progs -- is not here
-# yet: it comes with the first runner that assembles and calls this, with
-# its arms, rather than as code no runner reaches.
+# proof -- the pinned assembler, compile_check.sh's --cc-progs -- lives in
+# compile_check.sh alone: that -B finds it, that it runs, and, through
+# rl_libs_under below, that the libbfd and libopcodes it loads are the
+# fetched ones (TO VERIFY V228). It moves here with the first runner that
+# assembles and calls this.
 #
 # rl_cc_pin CC LIBS UNDER
-#   CC     the compiler, a path to the fetched one (or a name on PATH)
+#   CC     the compiler, a path to the fetched one (or a name on PATH): it
+#          must start (rl_cc_starts, below)
 #   LIBS   the shared libraries it loads, one per line (LISTS OF WORDS, the
 #          runner's --cc-lib files; "" for none): each one's directory must
-#          exist, and is put first on LD_LIBRARY_PATH, exported
+#          exist, and is put first on LD_LIBRARY_PATH, exported; and the
+#          loader must have taken each of them from those directories, with
+#          the libxml2 and ICU a libLLVM among them loads by bare soname
+#          (rl_libs_under, below)
 #   UNDER  a file inside the compiler's own tree (--cc-under), or "": the
 #          compiler must name that tree in its -print-search-dirs
 rl_cc_pin() {
@@ -2952,6 +3312,30 @@ _RL_LIBS
 		echo "  harness fault and not a finding about this exercise." >&2
 		exit 2
 	}
+	rl_cc_starts "$_rl_cc"
+	# PROVE THE LOADER AGREED (V321): a folder on the loader's path lends
+	# only what it holds, and a library it lacks comes from wherever the
+	# loader looks next -- an LD_LIBRARY_PATH from outside, libLLVM's
+	# RUNPATH ($ORIGIN/../lib), this machine's own folders -- while the
+	# compiler starts and prints the pinned version all the same. Each of
+	# LIBS is asked for by its name before ".so", and a libLLVM brings the
+	# libxml2 and ICU the fetch lays beside it (rl_sanitizers, above).
+	if [ -n "$_rl_dirs" ]; then
+		set --
+		while IFS= read -r _rl_l; do
+			[ -n "$_rl_l" ] || continue
+			_rl_b=${_rl_l##*/}
+			set -- "$@" "${_rl_b%%.so*}"
+			case "$_rl_b" in libLLVM*) set -- "$@" libxml2 libicu ;; esac
+		done <<_RL_LIBS
+$_rl_libs
+_RL_LIBS
+		_rl_cp_dbg=$(mktemp) || { echo "$RL_NAME.sh: mktemp failed" >&2; exit 2; }
+		# conventions: harness tool -- the pinned compiler, which started just above
+		env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$_rl_cc" --version > /dev/null 2> "$_rl_cp_dbg"
+		rl_libs_under "the pinned compiler '${_rl_cc##*/}'" "$_rl_cp_dbg" "$_rl_dirs" "$@"
+		rm -f "$_rl_cp_dbg"
+	fi
 	if [ -n "$_rl_under" ]; then
 		_rl_u=$(readlink -f "$_rl_under" 2> /dev/null) || _rl_u=""
 		[ -n "$_rl_u" ] || _rl_u=$_rl_under
@@ -2960,7 +3344,7 @@ _RL_LIBS
 			echo "$RL_NAME.sh: --cc-under '$_rl_under' has no directory" >&2
 			exit 2
 		}
-		"$_rl_cc" -print-search-dirs 2>&1 | grep -qF "$_rl_u" || {
+		rl_cc_searches "$_rl_cc" "$_rl_u" || {
 			echo "$RL_NAME.sh: '${_rl_cc##*/}' is not searching its own tree:" >&2
 			echo "  $_rl_u is not in its -print-search-dirs, so it would compile" >&2
 			echo "  with this machine's cc1 or resource headers while reporting the" >&2
@@ -2968,6 +3352,142 @@ _RL_LIBS
 			exit 2
 		}
 	fi
+	return 0
+}
+
+# rl_cc_starts CC -- the compiler starts at all, or exit 2 saying why.
+#
+# A compiler the loader cannot start (a shared library this machine lacks:
+# the fetched clang-12 on a box without libxml2.so.2, TO VERIFY V238) dies
+# before it does anything, and each proof after it read that death as
+# something else: -print-search-dirs piped into a grep said "not searching
+# its own tree" when run by the relative path Bazel passes, and passed by
+# accident by an absolute one, whose loader error names the directory; a
+# compile into /dev/null said the compiler "leaves out of its object a
+# static" (forbidden_symbols.sh --globals); and the cause was in no log
+# (V241). So it is asked first, with --version, which every compiler
+# answers: on a non-zero status, what it said, through the one renderer,
+# and the library the loader names, if it names one. Exit 2: the harness
+# cannot run here, the code under test is not wrong.
+rl_cc_starts() {
+	_rl_cs_f=$(mktemp) || { echo "$RL_NAME.sh: mktemp failed" >&2; exit 2; }
+	"$1" --version > "$_rl_cs_f" 2>&1
+	_rl_cs_rc=$?
+	if [ "$_rl_cs_rc" -eq 0 ]; then
+		rm -f "$_rl_cs_f"
+		return 0
+	fi
+	rl__cannot_start "$_rl_cs_f" "$_rl_cs_rc" "$RL_NAME.sh: the compiler '${1##*/}'" compiler-start.txt
+	if [ -n "$RL_START_LIB" ]; then
+		echo "  The loader found no $(printf '%s' "$RL_START_LIB" | rl_vis arg), a shared library the compiler" >&2
+		echo "  needs before it does anything: this machine does not have it where" >&2
+		echo "  the loader looks. Install it from your distribution, or work in the" >&2
+		echo "  dev container (docs/environment.md); the code under test is not at" >&2
+		echo "  fault." >&2
+	fi
+	echo "  Every check that compiles stops here: nothing was checked." >&2
+	rm -f "$_rl_cs_f"
+	exit 2
+}
+
+# rl__cannot_start FILE STATUS WHO SAVE -- the head of a refusal for a
+# harness tool that did not start: "WHO cannot start (exit STATUS):", then
+# FILE, what it said, through the one renderer (rl_excerpt, the whole text
+# kept as SAVE), all on stderr. Sets RL_START_LIB to the library the
+# loader's "error while loading shared libraries" line names, or "".
+# rl_cc_starts' and rl_sanitizers' (V322).
+rl__cannot_start() {
+	echo "$3 cannot start (exit $2):" >&2
+	rl_excerpt "$1" 10 "$4" >&2
+	RL_START_LIB=$(LC_ALL=C awk -v k='error while loading shared libraries: ' '
+		i = index($0, k) {
+			r = substr($0, i + length(k))
+			j = index(r, ":")
+			if (j > 1) { print substr(r, 1, j - 1); exit }
+		}' "$1")
+}
+
+# rl_cc_searches CC DIR -- CC names DIR in its -print-search-dirs. Its
+# standard output alone, and its status read: a compiler that failed there
+# printed an error, and an error that names the directory, as a loader's
+# does when the compiler was run by an absolute path, is no search path.
+rl_cc_searches() {
+	_rl_sd=$("$1" -print-search-dirs 2> /dev/null) || return 1
+	printf '%s\n' "$_rl_sd" | grep -qF "$2"
+}
+
+# rl_libs_under WHAT DEBUG DIRS NAME... -- the proof that a fetched program
+# took its libraries from the fetched tree and not from the box. A binutils
+# frontend (ld.bfd, as, nm, objdump) names libbfd and its siblings by bare
+# soname with no RUNPATH, so the loader takes them from LD_LIBRARY_PATH when
+# the fetched directory is on it, and from the box's /lib when it is not --
+# where the box has the same binutils, the program runs and nothing in its
+# output says whose library did the work.
+#
+#   WHAT   the program, as a refusal names it ("the pinned linker")
+#   DEBUG  a file holding what it wrote to stderr under LD_DEBUG=libs
+#   DIRS   the directories its libraries must come from, colon-separated:
+#          each library must be in one of them, not below it
+#   NAME   a library by the start of its file name (libbfd): each must have
+#          a `calling init:` line, and every such line in DIRS
+#
+# `calling init:` names each library ld.so actually loaded, where `trying
+# file=` lists only candidates. A library from elsewhere, or one never seen
+# loaded, exits 2: the harness is wired wrong, the code under test is not.
+# The one named is the first NAME's that came from elsewhere, in the order
+# given: the loader inits a library's own libraries before it, so the first
+# such line can be a consequence, ICU's where libLLVM was the box's.
+#
+# IN a folder, not below it (V323): ld.so names a library it found through
+# an LD_LIBRARY_PATH entry as <entry>/<soname>, so a further component means
+# it came from somewhere else -- a RUNPATH of $ORIGIN/../lib, which it
+# prints as "<entry>/../lib/<soname>", a path that starts with the folder's
+# own, or a subfolder (binutils' fetched folder holds bfd-plugins/).
+#
+# Every such probe, here and in the runners that keep their own copy, runs
+# as `env -u LD_DEBUG_OUTPUT LD_DEBUG=libs PROGRAM`: an LD_DEBUG_OUTPUT set
+# from outside (--test_env) sends the loader's lines to files of its own,
+# and the proof, seeing none, refused a correct setup (V276). This file
+# sets one too, for an LD_DEBUG from outside (V336, at its top).
+rl_libs_under() {
+	_rl_lu_what=$1 _rl_lu_dbg=$2 _rl_lu_dirs=$3
+	shift 3
+	_rl_lu_inits=$(awk '/calling init:/ { sub(/.*calling init: /, ""); print }' "$_rl_lu_dbg")
+	_rl_lu_seen=" "
+	_rl_lu_bad=""
+	for _rl_lu_n in "$@"; do
+		while IFS= read -r _rl_l; do
+			[ -n "$_rl_l" ] || continue
+			case "${_rl_l##*/}" in "$_rl_lu_n"*) ;; *) continue ;; esac
+			_rl_lu_seen="$_rl_lu_seen$_rl_lu_n "
+			_rl_lu_ok=0
+			_rl_rest=$_rl_lu_dirs
+			while [ -n "$_rl_rest" ]; do
+				_rl_d=${_rl_rest%%:*}
+				case "$_rl_rest" in *:*) _rl_rest=${_rl_rest#*:} ;; *) _rl_rest="" ;; esac
+				case "$_rl_l" in "$_rl_d"/*/*) ;; "$_rl_d"/*) _rl_lu_ok=1 ;; esac
+			done
+			[ "$_rl_lu_ok" = 1 ] || [ -n "$_rl_lu_bad" ] || _rl_lu_bad=$_rl_l
+		done <<_RL_LU
+$_rl_lu_inits
+_RL_LU
+	done
+	if [ -n "$_rl_lu_bad" ]; then
+		echo "$RL_NAME.sh: $_rl_lu_what loaded '$_rl_lu_bad'," >&2
+		echo "  which is in none of $_rl_lu_dirs" >&2
+		echo "  (a library must sit in one of them, not below it): it would run" >&2
+		echo "  on libraries nobody pinned, this machine's or another's." >&2
+		exit 2
+	fi
+	for _rl_lu_n in "$@"; do
+		case "$_rl_lu_seen" in
+			*" $_rl_lu_n "*) ;;
+			*)
+				echo "$RL_NAME.sh: could not observe which $_rl_lu_n $_rl_lu_what loaded" >&2
+				echo "  (LD_DEBUG=libs printed no 'calling init:' line for it)." >&2
+				exit 2 ;;
+		esac
+	done
 	return 0
 }
 
@@ -3064,32 +3584,11 @@ _RL_LIBS
 			"$_rl_dirs" "$_rl_ld" > "$_rl_lw/$_rl_n" || exit 2
 		chmod +x "$_rl_lw/$_rl_n" || exit 2
 	done
-	# PROVE THE LOADER AGREED, as rl_sanitizers does for the symbolizer.
+	# PROVE THE LOADER AGREED (rl_libs_under, above): ld.bfd loads libbfd
+	# and libctf.
 	# conventions: harness tool -- the pinned linker's wrapper, written above
-	_rl_loaded=$(LD_DEBUG=libs "$_rl_lw/ld" --version 2>&1 > /dev/null |
-		awk '/calling init:/ && (/libbfd/ || /libctf/) { sub(/.*calling init: /, ""); print }')
-	case "$_rl_loaded" in
-		*libbfd*) ;;
-		*)
-			echo "$RL_NAME.sh: could not observe which libbfd the pinned linker loaded" >&2
-			echo "  (LD_DEBUG=libs printed no 'calling init:' line for it)." >&2
-			exit 2 ;;
-	esac
-	for _rl_l in $_rl_loaded; do
-		_rl_ok=0
-		_rl_rest=$_rl_dirs
-		while [ -n "$_rl_rest" ]; do
-			_rl_d=${_rl_rest%%:*}
-			case "$_rl_rest" in *:*) _rl_rest=${_rl_rest#*:} ;; *) _rl_rest="" ;; esac
-			case "$_rl_l" in "$_rl_d"/*) _rl_ok=1 ;; esac
-		done
-		[ "$_rl_ok" = 1 ] || {
-			echo "$RL_NAME.sh: the pinned linker loaded '$_rl_l'," >&2
-			echo "  which is not under $_rl_dirs: it would link with this" >&2
-			echo "  machine's binutils rather than the pinned one." >&2
-			exit 2
-		}
-	done
+	env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$_rl_lw/ld" --version > /dev/null 2> "$_rl_lw/ld.debug"
+	rl_libs_under "the pinned linker" "$_rl_lw/ld.debug" "$_rl_dirs" libbfd libctf
 	# PROVE THE DRIVER TAKES IT: the program -### names for the link.
 	printf 'int\tmain(void)\n{\n\treturn (0);\n}\n' > "$_rl_lw/nothing.c" || exit 2
 	_rl_said=$("$_rl_cc" "-B$_rl_lw/" "$@" -### "$_rl_lw/nothing.c" -o "$_rl_lw/nothing" 2>&1)

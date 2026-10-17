@@ -1,0 +1,7 @@
+NULL (the empty list)	0
+1 node	1
+2 nodes	2
+3 nodes	3
+5 nodes	5
+5000 nodes	5000
+70000 nodes	70000

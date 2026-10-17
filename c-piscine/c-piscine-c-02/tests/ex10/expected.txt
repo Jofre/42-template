@@ -1,7 +1,7 @@
-"" size 5 (empty src)	ret=0 buf=\x00XXX
-"Hi" size 50 (fits)	ret=2 buf=Hi\x00XXX
-"Hello" size 6 (fits exactly)	ret=5 buf=Hello\x00XX
-"Hello" size 5 (truncated by 1)	ret=5 buf=Hell\x00XXX
-"Hello" size 1 (only the \0)	ret=5 buf=\x00XXXXX
-"Hello" size 0 (writes nothing)	ret=5 buf=XXXXXX
-"Hello World" size 6 (big truncate)	ret=11 buf=Hello\x00XXXX
+"" size 5 (empty src)	ret=0 in size: \x00 | from size: XXX
+"Hi" size 50 (fits)	ret=2 in size: Hi\x00 | from size: XXX
+"Hello" size 6 (fits exactly)	ret=5 in size: Hello\x00 | from size: XXX
+"Hello" size 5 (truncated by 1)	ret=5 in size: Hell\x00 | from size: XXX
+"Hello" size 1 (only the \0)	ret=5 in size: \x00 | from size: XXX
+"Hello" size 0 (writes nothing)	ret=5 in size: (none) | from size: XXX
+"Hello World" size 6 (big truncate)	ret=11 in size: Hello\x00 | from size: XXX

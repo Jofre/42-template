@@ -53,6 +53,35 @@ grader_library(
     visibility = ["//visibility:public"],
 )
 
+# NOT THE GRADER'S: two stand-ins for C 02 ex10's function, which
+# //tools/tests:selftest_slow links C 02 ex10's output fixture against, to
+# hold the fixture to showing nothing its manual page leaves open (V205).
+# They differ only in the bytes between the terminator and size, and both
+# must pass. Built by grader_library() because it is the rule that makes a
+# C-linkable archive from a #![no_std] crate, and //tools:conventions then
+# holds `exports` to the crate as it does for the grader's.
+grader_library(
+    name = "c02_strlcpy_standins",
+    src = "standin/c02_strlcpy.rs",
+    exports = [
+        "standin_strlcpy_tail_kept",
+        "standin_strlcpy_tail_zeroed",
+    ],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
+# NOT THE GRADER'S either: the same two stand-ins for C 03 ex05's function,
+# for the same arm over C 03 ex05's output fixture (V283).
+grader_library(
+    name = "c03_strlcat_standins",
+    src = "standin/c03_strlcat.rs",
+    exports = [
+        "standin_strlcat_tail_kept",
+        "standin_strlcat_tail_zeroed",
+    ],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
 # Rush 02's dictionary of more than 64 KiB (oracle/src/rush02.rs, big_dict),
 # written to a file for the ex00_dict_big case. Made from the reference, never
 # typed: the filler, its placement and the split across byte 4096 are what
@@ -106,6 +135,7 @@ filegroup(
         [
             "src/**/*.rs",
             "grader/*.rs",
+            "standin/*.rs",
         ],
         allow_empty = False,
     ),

@@ -4,20 +4,20 @@ deliverable_files files_test.sh @basic outside by:defense
 ex00 suite ex00
 ex00_alt_asan asan_run.sh @robust ran by:defense
 ex00_alt_output diff_output.sh @basic any-of ran case by:defense
-ex00_alt_valgrind valgrind_test.sh @strict ran case gated by:defense
+ex00_alt_valgrind valgrind_test.sh @strict ran case gated gate-label:ex00_alt_output by:defense
 ex00_argfile_asan asan_run.sh @robust argv-file ran by:defense
 ex00_argfile_exit diff_output.sh @robust argv-file ran case by:defense
 ex00_argfile_model model_check.sh @complete argv-file by:defense
 ex00_argfile_output diff_output.sh @basic argv-file ran case by:defense
-ex00_argfile_program_allocfail allocfail_check.sh @robust argv-file ran gated by:defense
-ex00_argfile_valgrind valgrind_test.sh @strict argv-file ran case gated by:defense
+ex00_argfile_program_allocfail allocfail_check.sh @robust argv-file ran gated gate-label:ex00_argfile_output by:defense
+ex00_argfile_valgrind valgrind_test.sh @strict argv-file ran case gated gate-label:ex00_argfile_output by:defense
 ex00_compile_clang compile_check.sh @basic by:defense
 ex00_compile_gcc compile_check.sh @basic by:defense
 ex00_exact_asan asan_run.sh @robust ran by:defense
 ex00_exact_exit diff_output.sh @robust ran case by:defense
 ex00_exact_model model_check.sh @complete by:defense
 ex00_exact_output diff_output.sh @basic ran case by:defense
-ex00_exact_valgrind valgrind_test.sh @strict ran case gated by:defense
+ex00_exact_valgrind valgrind_test.sh @strict ran case gated gate-label:ex00_exact_output by:defense
 ex00_files files_test.sh @basic by:defense
 ex00_fixed_array method_check.sh @strict by:defense
 ex00_norm norminette_test.sh @basic by:defense
@@ -29,28 +29,28 @@ ex00_onerun_output diff_output.sh @basic ran case by:defense
 ex00_onerun_stderr_asan asan_run.sh @robust ran by:defense
 ex00_onerun_stderr_model model_check.sh @complete by:defense
 ex00_onerun_stderr_output diff_output.sh @basic ran case by:defense
-ex00_onerun_stderr_valgrind valgrind_test.sh @strict ran case gated by:defense
-ex00_onerun_valgrind valgrind_test.sh @strict ran case gated by:defense
-ex00_program_allocfail allocfail_check.sh @robust cwd ran gated by:defense
+ex00_onerun_stderr_valgrind valgrind_test.sh @strict ran case gated gate-label:ex00_onerun_stderr_output by:defense
+ex00_onerun_valgrind valgrind_test.sh @strict ran case gated gate-label:ex00_onerun_output by:defense
+ex00_program_allocfail allocfail_check.sh @robust cwd ran gated gate-label:ex00_staged_output by:defense
 ex00_raised_asan asan_run.sh @robust ran by:defense
 ex00_raised_exit diff_output.sh @robust ran case by:defense
 ex00_raised_model model_check.sh @complete by:defense
 ex00_raised_output diff_output.sh @strict ran case raised:strict by:defense
-ex00_raised_valgrind valgrind_test.sh @strict ran case gated by:defense
+ex00_raised_valgrind valgrind_test.sh @strict ran case gated gate-label:ex00_raised_output by:defense
 ex00_reading_asan asan_run.sh @robust ran by:defense
 ex00_reading_model model_check.sh @complete by:defense
 ex00_reading_output diff_output.sh @strict reading ran case raised:strict by:defense
-ex00_reading_valgrind valgrind_test.sh @strict ran case gated by:defense
-ex00_reference_cases reference_cases.sh @complete any-of survive argv-file cwd by:defense
+ex00_reading_valgrind valgrind_test.sh @strict ran case gated gate-label:ex00_reading_output by:defense
+ex00_reference_cases reference_cases.sh @complete any-of survive reading argv-file cwd by:defense
 ex00_staged_asan asan_run.sh @robust cwd ran by:defense
 ex00_staged_exit diff_output.sh @robust cwd ran case by:defense
 ex00_staged_model model_check.sh @complete cwd by:defense
 ex00_staged_output diff_output.sh @basic cwd ran case by:defense
-ex00_staged_valgrind valgrind_test.sh @strict cwd ran case gated by:defense
+ex00_staged_valgrind valgrind_test.sh @strict cwd ran case gated gate-label:ex00_staged_output by:defense
 ex00_survive_asan asan_run.sh @robust ran gated gate-label:ex00_exact_output by:defense
 ex00_survive_output diff_output.sh @basic survive ran case gated gate-label:ex00_exact_output by:defense
-ex00_survive_program_allocfail allocfail_check.sh @robust ran by:defense
-ex00_survive_valgrind valgrind_test.sh @strict ran case by:defense
+ex00_survive_program_allocfail allocfail_check.sh @robust survive ran gated gate-label:ex00_exact_output by:defense
+ex00_survive_valgrind valgrind_test.sh @strict survive ran case gated gate-label:ex00_exact_output by:defense
 ex00_toy_dat_issued issued_test.sh @basic by:defense
 ex00_twin tests/pass.sh @complete by:defense
 ex01 suite ex01
@@ -66,19 +66,19 @@ ex02_regular shell_test.sh @strict by:defense
 ex03 suite ex03
 ex03_compile_clang compile_check.sh @basic by:defense
 ex03_compile_gcc compile_check.sh @basic by:defense
-ex03_diff rust_diff.sh @strict fn:c05_iter_factorial count:40 sanitize gated by:defense
-ex03_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 sanitize gated by:defense
+ex03_diff rust_diff.sh @strict fn:c05_iter_factorial count:40 sanitize gated gate-label:ex03_output by:defense
+ex03_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 sanitize gated gate-label:ex03_output by:defense
 ex03_files files_test.sh @basic by:defense
 ex03_ilp32 ilp32_test.sh @complete sanitize by:defense
-ex03_memcheck valgrind_test.sh @strict sanitize gated by:defense
+ex03_memcheck valgrind_test.sh @strict sanitize gated gate-label:ex03_output by:defense
 ex03_method method_check.sh @strict sanitize gated gate-label:ex03_output by:defense
 ex03_norm norminette_test.sh @basic by:defense
 ex03_norm_notice norminette_test.sh @strict by:defense
 ex03_open_output diff_output.sh @robust sanitize raised:robust by:defense
 ex03_output diff_output.sh @basic sanitize by:defense
 ex03_prototype prototype_check.sh @basic by:defense
-ex03_readings rust_diff.sh @robust fn:c05_rec_factorial count:50 clues sanitize gated raised:robust by:defense
-ex03_readings_diff_asan rust_diff.sh @robust fn:c05_rec_factorial count:30 sanitize gated by:defense
+ex03_readings rust_diff.sh @robust fn:c05_rec_factorial count:50 clues sanitize gated gate-label:ex03_output raised:robust by:defense
+ex03_readings_diff_asan rust_diff.sh @robust fn:c05_rec_factorial count:30 sanitize gated gate-label:ex03_output by:defense
 ex03_symbols symbols_test.sh @strict by:defense
 ex04 suite ex04
 ex04_argv_diff argv_check.sh @strict by:defense
@@ -103,5 +103,97 @@ ex10_files files_test.sh @basic by:defense
 ex10_norm_header no_turnin.sh @strict by:defense
 ex11 suite ex11
 ex11_files files_test.sh @basic by:defense
+ex12 suite ex12
+ex12_build make_test.sh @basic by:defense
+ex12_build_exit make_test.sh @robust by:defense
+ex12_build_rules make_test.sh @robust by:defense
+ex12_compile_clang compile_check.sh @basic make-includes by:defense
+ex12_compile_gcc compile_check.sh @basic make-includes by:defense
+ex12_declares_output prototype_check.sh @strict make-includes by:defense
+ex12_files files_test.sh @basic by:defense
+ex12_forbidden forbidden_symbols.sh @basic make-includes by:defense
+ex12_forbidden_functions forbidden_symbols.sh @basic make-includes by:defense
+ex12_forbidden_through forbidden_symbols.sh @strict make-includes by:defense
+ex12_globals forbidden_symbols.sh @basic make-includes by:defense
+ex12_norm norminette_test.sh @basic by:defense
+ex12_norm_header header_norm.sh @strict by:defense
+ex12_norm_notice norminette_test.sh @strict by:defense
+ex12_prototype prototype_check.sh @basic make-includes by:defense
+ex12_prototype_names prototype_check.sh @strict make-includes by:defense
+ex12_prototype_restrict prototype_check.sh @basic make-includes by:defense
+ex12_prototype_restrict_all prototype_check.sh @strict make-includes by:defense
+ex12_symbols symbols_test.sh @strict make-includes by:defense
+ex12_toy_cat_allocfail allocfail_check.sh @basic gated gate-label:ex12_toy_cat_output make-includes member=ex12/toy_cat by:defense
+ex12_toy_cat_allocfail_leaks allocfail_check.sh @robust gated gate-label:ex12_toy_cat_output make-includes member=ex12/toy_cat by:defense
+ex12_toy_cat_diff rust_diff.sh @strict fn:c05_iter_factorial count:40 gated gate-label:ex12_toy_cat_output member=ex12/toy_cat by:defense
+ex12_toy_cat_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 gated gate-label:ex12_toy_cat_output member=ex12/toy_cat by:defense
+ex12_toy_cat_ilp32 ilp32_test.sh @complete make-includes member=ex12/toy_cat by:defense
+ex12_toy_cat_open_output diff_output.sh @strict raised:strict member=ex12/toy_cat by:defense
+ex12_toy_cat_output diff_output.sh @basic member=ex12/toy_cat by:defense
+ex12_toy_cat_perf perf_test.sh @complete fn:c05_iter_factorial count:40 gated gate-label:ex12_toy_cat_output member=ex12/toy_cat by:defense
+ex12_toy_cat_readings rust_diff.sh @robust fn:c05_rec_factorial count:50 gated gate-label:ex12_toy_cat_output raised:robust member=ex12/toy_cat by:defense
+ex12_toy_cat_readings_diff_asan rust_diff.sh @robust fn:c05_rec_factorial count:30 gated gate-label:ex12_toy_cat_output member=ex12/toy_cat by:defense
+ex12_toy_cat_valgrind valgrind_test.sh @strict gated gate-label:ex12_toy_cat_output member=ex12/toy_cat by:defense
+ex12_toy_dup_diff rust_diff.sh @strict fn:c05_iter_factorial count:40 gated gate-label:ex12_toy_dup_output member=ex12/toy_dup by:defense
+ex12_toy_dup_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 gated gate-label:ex12_toy_dup_output member=ex12/toy_dup by:defense
+ex12_toy_dup_ilp32 ilp32_test.sh @complete clues make-includes member=ex12/toy_dup by:defense
+ex12_toy_dup_output diff_output.sh @basic clues member=ex12/toy_dup by:defense
+ex12_toy_dup_readings rust_diff.sh @strict fn:c05_rec_factorial count:50 bin::ex12_toy_dup_readingsbin built:diff_toy_dup_readings.c reader:diff_toy_dup_readings.c gated gate-label:ex12_toy_dup_output member=ex12/toy_dup by:defense
+ex12_toy_dup_valgrind valgrind_test.sh @strict clues gated gate-label:ex12_toy_dup_output member=ex12/toy_dup by:defense
+ex12_toy_len_asan asan_check.sh @robust make-includes member=ex12/toy_len by:defense
+ex12_toy_len_cycles cycles_check.sh @complete fn:c05_iter_factorial count:40 gated gate-label:ex12_toy_len_output make-includes member=ex12/toy_len by:defense
+ex12_toy_len_diff rust_diff.sh @strict fn:c05_iter_factorial count:40 gated gate-label:ex12_toy_len_output member=ex12/toy_len by:defense
+ex12_toy_len_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 gated gate-label:ex12_toy_len_output member=ex12/toy_len by:defense
+ex12_toy_len_ilp32 ilp32_test.sh @complete clues make-includes member=ex12/toy_len by:defense
+ex12_toy_len_memcheck valgrind_test.sh @strict gated gate-label:ex12_toy_len_output member=ex12/toy_len by:defense
+ex12_toy_len_output diff_output.sh @basic clues member=ex12/toy_len by:defense
+ex12_toy_len_perf perf_test.sh @complete fn:c05_iter_factorial count:40 gated gate-label:ex12_toy_len_output member=ex12/toy_len by:defense
+ex12_toy_len_probe_memcheck valgrind_test.sh @strict member=ex12/toy_len by:defense
+ex13 suite ex13
+ex13_build make_test.sh @basic by:defense
+ex13_build_exit make_test.sh @robust by:defense
+ex13_build_rules make_test.sh @robust by:defense
+ex13_compile_clang compile_check.sh @basic make-includes by:defense
+ex13_compile_gcc compile_check.sh @basic make-includes by:defense
+ex13_files files_test.sh @basic by:defense
+ex13_forbidden forbidden_symbols.sh @basic make-includes by:defense
+ex13_norm norminette_test.sh @basic by:defense
+ex13_norm_header header_norm.sh @strict by:defense
+ex13_norm_notice norminette_test.sh @strict by:defense
+ex13_prototype prototype_check.sh @basic make-includes by:defense
+ex13_symbols symbols_test.sh @strict make-includes by:defense
+ex13_toy_down_ilp32 ilp32_test.sh @complete make-includes member=ex13/toy_down by:defense
+ex13_toy_down_memcheck valgrind_test.sh @strict gated gate-label:ex13_toy_down_output member=ex13/toy_down by:defense
+ex13_toy_down_output diff_output.sh @basic member=ex13/toy_down by:defense
+ex13_toy_up_ilp32 ilp32_test.sh @complete make-includes member=ex13/toy_up by:defense
+ex13_toy_up_memcheck valgrind_test.sh @strict gated gate-label:ex13_toy_up_output member=ex13/toy_up by:defense
+ex13_toy_up_method method_check.sh @strict gated gate-label:ex13_toy_up_output make-includes member=ex13/toy_up by:defense
+ex13_toy_up_output diff_output.sh @basic member=ex13/toy_up by:defense
+ex14 suite ex14
+ex14_build make_test.sh @basic by:defense
+ex14_build_exit make_test.sh @robust by:defense
+ex14_build_rules make_test.sh @robust by:defense
+ex14_compile_clang compile_check.sh @basic make-includes by:defense
+ex14_compile_gcc compile_check.sh @basic make-includes by:defense
+ex14_files files_test.sh @basic by:defense
+ex14_forbidden forbidden_symbols.sh @basic make-includes by:defense
+ex14_norm norminette_test.sh @basic by:defense
+ex14_norm_header header_norm.sh @strict by:defense
+ex14_norm_notice norminette_test.sh @strict by:defense
+ex14_prototype prototype_check.sh @basic make-includes by:defense
+ex14_symbols symbols_test.sh @strict make-includes by:defense
+ex14_toy_left_ilp32 ilp32_test.sh @complete make-includes member=ex14/toy_left by:defense
+ex14_toy_left_memcheck valgrind_test.sh @strict gated gate-label:ex14_toy_left_output member=ex14/toy_left by:defense
+ex14_toy_left_output diff_output.sh @basic member=ex14/toy_left by:defense
+ex14_toy_right_ilp32 ilp32_test.sh @complete make-includes member=ex14/toy_right by:defense
+ex14_toy_right_memcheck valgrind_test.sh @strict gated gate-label:ex14_toy_right_output member=ex14/toy_right by:defense
+ex14_toy_right_output diff_output.sh @basic member=ex14/toy_right by:defense
 robust suite lvl_robust
 strict suite lvl_strict
+toy_cat suite member=ex12/toy_cat
+toy_down suite member=ex13/toy_down
+toy_dup suite member=ex12/toy_dup
+toy_left suite member=ex14/toy_left
+toy_len suite member=ex12/toy_len
+toy_right suite member=ex14/toy_right
+toy_up suite member=ex13/toy_up

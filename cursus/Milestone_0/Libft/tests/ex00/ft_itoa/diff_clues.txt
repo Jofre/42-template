@@ -1,0 +1,8 @@
+  An int, then the string ft_itoa returned.
+    * a digit short, or one too many -> how many characters the text needs,
+                                   and where its terminator goes
+    * digits in the wrong order -> which digit of n do you know first?
+    * negative numbers only     -> where the sign goes, and what counting the
+                                   digits of a negative number involves
+    * INT_MIN only              -> what making it positive does in an int
+    * 0 only                    -> is 0 a number with no digit?

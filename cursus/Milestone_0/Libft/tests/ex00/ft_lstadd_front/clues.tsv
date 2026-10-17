@@ -1,0 +1,6 @@
+# clues.tsv for ft_lstadd_front -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+lst is the address of the caller's pointer to the first node: which of the two does your function change, the pointer itself or a copy of it, and which one does the caller read afterwards?	empty list, then a	[a], then b	[a b c], then d	empty list, then a, b and c
+What did new->next hold before the call, and once new is first, which node has to come right after it?	empty list, then a	[a], then b	[a b c], then d
+After several additions, which node was added last, and where should it be?	empty list, then a, b and c
+Does anything in your function depend on how long the list already is?	nodes 2 to 5000, then node 1

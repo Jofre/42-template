@@ -106,7 +106,7 @@ def _rustc(ctx, tc, out, triple, sysroot, inputs):
         inputs = depset([ctx.file.src], transitive = inputs),
         outputs = [out],
         mnemonic = "GraderRustc",
-        progress_message = "Compiling the grader's %s (%s)" % (
+        progress_message = "Compiling the Rust archive %s (%s)" % (
             ctx.label.name,
             triple or tc.target_triple.str,
         ),

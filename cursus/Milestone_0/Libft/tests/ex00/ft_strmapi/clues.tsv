@@ -1,0 +1,7 @@
+# clues.tsv for ft_strmapi -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+What two things does f receive for each character (p.12), where does what it returns go, and what does the new string need after the last of them?	"aaaa", c + i	"abc", c + i	"abc", 0xe0 + i
+How many calls does a string of n characters make, which index does the first one get, and does the terminator count as a character?	"aaaa", c + i	"abc", c + i	"", c + i
+Is a tab, a line break or a byte above 0x7f anything other than one more character to hand to f, unchanged?	"a<TAB>b<LF>", c	0xe9 0xff 0x80, c	"abc", 0xe0 + i
+Nothing in the subject bounds s. Does anything in your function stop working once it passes a few thousand bytes?	5000 letters, upper case

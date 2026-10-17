@@ -34,8 +34,10 @@ are not the same kind of problem:
   as **DID NOT RUN**, under "THE BUILD STOPPED", with the first error. A run
   that stopped for another reason (Ctrl-C) is reported as stopped too. None of
   it is blamed on your code.
-- **FIX FIRST** — a red at `basic` in `norm`, `compile`, `files`, `forbidden`
-  or `prototype` **on an exercise you have written**. A stub passes all five, so
+- **FIX FIRST** — a red at `basic` in any layer but `output` **on an exercise
+  you have written**: `norm`, `compile`, `files`, `forbidden` or `prototype`,
+  which a stub passes, and `allocfail` (with `valgrind` where the subject
+  grades memory), which wait for the output and so never run on a stub. So
   this is code that breaks a rule that scores zero wherever the project is
   graded. It asks
   `stub_check` before saying so, which is why the header exercises (c-08,
@@ -45,13 +47,33 @@ are not the same kind of problem:
   with no macro `EVEN(...)` or `ABS(...)` is a call to a function nobody
   authorised — are never blamed on you. A module's `deliverable_files` (a file
   outside every exercise folder) is listed here under its own name, whatever
-  else is written: a stub leaves nothing there.
+  else is written: a stub leaves nothing there. A rule of a library as a
+  whole (`ex00_norm`, `ex00_files`) is run by its own label here too, never
+  by `:ex00`, which runs the whole library's suite.
 - **YOUR NEXT EXERCISE** — the first exercise with a red `output` target at
   `basic` (a rush's `_defense`, `_survive` or `_sweep` too). On a stub
   that is what unwritten looks like, and it is the work. On a file you have
   written it is a bug, and the triage says so and names the test log to read,
-  rather than calling it unwritten. Only the first is named; the rest are
-  counted.
+  rather than calling it unwritten. It points you at that log's table of
+  cases only where the test prints one: a Makefile's build (`_build`) and a
+  shell exercise's script, among others, print none, and for those it says
+  only that the log says why. Only the first is named; the rest are
+  counted. In a library whose subject gives each function a box of its own
+  (its contract lists them, `exercise(functions = {...})`), the unit is the
+  function: its reds read `ex00 ft_strlen`, the command named runs that
+  function's suite (`42 test <project> ft_strlen`), and it is called written
+  only when that function's own body is more than a stub — another function
+  written in the same file says nothing about it. The heading then reads
+  **YOUR NEXT FUNCTION**. The library's own tests, which belong to no
+  function (`ex00_build`, `ex00_readme`), come before its functions. Each
+  reads one file of the turn-in (the Makefile for `ex00_build`, `README.md`
+  for `ex00_readme`), and it is that file `stub_check` is asked about, never
+  the rest of the folder: a stub README stays not written, whatever function
+  you have written. A file that is missing, or empty, is not written either,
+  and is said to be missing or empty, not a stub. They are named and run by
+  their own labels
+  (`bazel test //<project>:ex00_readme`), never by `:ex00`, which runs the
+  whole library.
 - **RAN OUT OF TIME** — a test Bazel stopped at its time limit. The runners
   stop a program themselves a few seconds before that and say so (see "When
   a test did not finish" below), so this one said nothing, and no cause is
@@ -256,6 +278,9 @@ An `*_output` test prints a per-line **PASS/FAIL table** (`CASE | EXPECTED | GOT
 | STATUS`). Passing rows are shown too — they document what the function should
 do. Cases run roughly trivial → harder, so the **first** failing row is usually
 the most fundamental thing to fix (after a crash, the marked row is: see below).
+A table with a failing row has the line `Each case below is named on its own
+line.` above it, as does the first failing case a sweep prints; `42 test`'s
+report reads it to know the log names its case. That is all it says.
 
 **The RESULT line says why it failed.** `FAIL (2/5 passed, 3 failed)` is about
 rows. `FAIL (lines match, bytes differ)` means every row matched and the bytes
@@ -274,7 +299,7 @@ ASCII, in hex (`\x00` a NUL, `\x0d` a carriage return, `\xff`). A trailing
 space or a stray NUL is therefore visible, and a legend under the table names
 the marks its shown rows hold. A few test programs print a value that cannot
 travel raw — Rush 00 prints a whole rectangle as one value, C 02 ex01 and ex10
-and C 03 ex05 a whole buffer, NUL bytes included — and they write it in these same marks, with one
+and C 03 ex05 a buffer's bytes, NULs included — and they write it in these same marks, with one
 more, `\n` for a line break inside that value; those cells are shown as the
 program wrote them, so `/\\\n` is a slash, one backslash and a line break.
 The tables, argument lines and excerpts the runners in `tools/` print use
@@ -343,15 +368,29 @@ stderr (not compared by this case)` with its first lines, and a generated
 corpus says how many of its cases wrote to standard error and shows the
 first. A debug line left in is what that note is for.
 
+**A generated corpus waits for the subject's example.** Each layer that
+replays one (`exNN_argv_diff`, `exNN_file_diff`, BSQ's `ex00_bsq_*`, Rush
+01's `ex00_sweep`, Rush 02's settled replays) says SKIP, naming the test it
+waits for, until the exercise's own output test passes -- the one a stub
+fails, which already shows what is wrong with a table and hints -- since
+hundreds of generated cases over the same program would only say it again.
+The red log of that output test lists them, under `WAITING FOR THIS
+OUTPUT`. A manual replay (Rush 02's `ex00_rush02_diff` and
+`ex00_rush02_dictfuzz`) waits for nothing: it runs only when you name it.
+Which test each one waits for is a table in
+[reference.md](reference.md#which-layers-wait-for-which).
+
 **A generated case can be run again.** The layers that replay a generated
 corpus (`exNN_argv_diff`, `exNN_file_diff`, BSQ's `ex00_bsq_*`, Rush 01's
 `ex00_sweep`, Rush 02's corpus) print each failing case with its input and
-what came out. All but Rush 01's sweep also print what was expected and the
-command line that runs the case again. The input it ran on — a map, a
+what came out, and the command line that runs the case again; all but Rush
+01's sweep also print what was expected. The input it ran on — a map, a
 dictionary, the files a C 10 program read — is kept under
 `bazel-testlogs/<package>/<target>/test.outputs/`, which is where that
-command line expects to be run. A long value is cut where it is shown,
-never where it is run or compared, and each layer cuts its own way.
+command line expects to be run. Rush 01's input is its argument alone, so
+its command line runs wherever its program is built. A long value is cut
+where it is shown, never where it is run or compared, and each layer cuts
+its own way.
 `exNN_argv_diff` shows a case's first 20 arguments, each to its first
 `RL_EXCERPT_WIDTH` bytes (300), and counts the rest; of what was expected
 and what was printed it shows the first six lines, each cut to the same
@@ -385,7 +424,10 @@ checker's own report, and what each kind of finding means is said once,
 after the cases; output without end is reported as such, not as a hang,
 and a run that does not finish in its time is said apart and never judged
 wrong (the target stays red: a case nobody judged has not passed).
-While your program does not build they say SKIP, as every memory layer does.
+While your program does not build they say SKIP, as every memory layer does,
+and they wait for the same output test as the replay they twin; Rush 02's,
+whose plain replays are manual and wait for nothing, wait for
+`ex00_dict_arg_42_output`, as its settled replays of the same corpora do.
 A target that runs probes rather than a corpus (Rush 01's argument-count and
 shape probes) has twins too, and they run exactly the probes it judges.
 
@@ -504,10 +546,10 @@ reported: look in your file for what you used from a header.
 
 Each `norm` target prints norminette's report, then a verdict, then how it ran:
 the norminette version, the `-R` rule that applied — norminette keeps only the
-**last** `-R` it is given — and a `bazel run //tools:norminette -- …` command
-that asks the same question by hand, from the repository root. A norminette you
+**last** `-R` it is given — and a `42 norm FILE… -- -R RULE` command that asks
+the same question by hand, from the repository root. A norminette you
 installed yourself may be another version with other rules;
-`bazel run //tools:env_drift` compares the two.
+`42 doctor --drift` compares the two.
 
 - The verdict comes from each file's own `OK!` / `Error!` line. norminette's
   exit status follows only the **last** file it checked, so it is not used.
@@ -649,7 +691,10 @@ maintainers'.
 module; in an exercise's folder (`deliverable/exNN` or `tests/exNN`), that
 exercise; at the root it asks which. Words narrow it, in any order: a module
 (`c-05`), an exercise (`ex03`), a layer (`norm`, `valgrind`), as in
-`42 test ex03 valgrind`. The level is `--level`, else `SUBMIT_GATE`, else
+`42 test ex03 valgrind`. In a library, whose one exercise holds many functions,
+a function's name (`ft_strlen`) is a word too, and so is its folder of tests
+(`tests/ex00/ft_strlen`): it runs that function's tests alone. Named with no
+project in scope, it is the one project that has it. The level is `--level`, else `SUBMIT_GATE`, else
 `.submit-level` (which `42 config set level` writes), else `basic`, which is
 how `//tools:submit`'s gate chooses it, and `42 test` selects the same tests that gate does: a module that is
 green under `42 test` is one submit will not block. A layer named runs whatever
@@ -690,7 +735,8 @@ shows the command), so nothing else is built again.
 
 **`42 doctor`** checks the machine before Bazel does anything: python, the
 `42` on your PATH, bazelisk, where Bazel keeps its state and how much room is
-left there, memory, your identity, tmux. It then runs `//tools:env_drift` when
+left there, the disk cache a Bazel settings file names, memory, the locale the
+tests run under, your identity, tmux. It then runs `//tools:env_drift` when
 Bazel is already warm (`--drift` asks for it anyway), and `--report` writes the
 campus report (`tools/env-audit.sh`). **`42 stop`** stops this checkout's Bazel
 server, which gives its memory back. The other commands (`submit`, `norm`,
@@ -712,14 +758,16 @@ does not.
 Both report, and the number is the lesson. Both stay quiet until the exercise
 is correct. **`cycles` never fails on what it measures**: a budget only changes
 the sentence printed, and a run too long to profile is reported too. **`perf`
-fails in three cases**, each a line this repo draws at `complete` — the time
+has three lines of its own**, each drawn by this repo at `complete` — the time
 over the number of cases growing at n^2.6 or steeper, confirmed by a second
 measurement; and, against the reference, 5000 times its time or 200 times its
 peak memory. Either layer also fails when a measured run crashes, as every
-layer does (a signal fails at every level). Nothing else turns them red: a size
-too slow to finish within `PERF_TIMEOUT` is halved and measured again, and one
-that never fits is reported, not failed — under `NO_SKIP=1`, the maintainers'
-sweep, a layer that measured nothing is red.
+layer does (a signal fails at every level), and `perf` when one exits with a
+status other than 0: a run that stopped early is no sample of the work, and
+one that could not start at all is the harness's error. Nothing else turns
+them red: a size too slow to finish within `PERF_TIMEOUT` is halved and
+measured again, and one that never fits is reported, not failed — under
+`NO_SKIP=1`, the maintainers' sweep, a layer that measured nothing is red.
 
 Their targets, like the long differentials, are declared `medium`: a time limit
 of 300 s rather than 60, so that a slow but correct answer, and callgrind's own
@@ -911,6 +959,12 @@ outlive the machine it was earned on.
   judged against a file it never read; the subject's is `cat /etc/passwd`.
   When the names such a run printed are this machine's own logins, the log
   says so under the line that failed them, and asks which file it read.
+  The invented file's names sort one way by bytes and another by the
+  collation of the test locale, `en_US.UTF-8`. Where that locale is not
+  installed, or collates as bytes do (C, POSIX, C.UTF-8), the two are one
+  order on any file: the line about them is a `[SKIP]` naming the locale,
+  in `ex07_output` and `ex07_literal` alike, and every other line is still
+  judged. `42 doctor` says whether the locale is there.
 - ex04 (`MAC.sh`) prints this machine's addresses, and is checked at `basic`
   on every machine, outside the sandbox. A machine without `ifconfig`, or with
   no hardware address on any interface, is one where a correct `MAC.sh`

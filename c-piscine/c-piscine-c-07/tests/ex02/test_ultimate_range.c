@@ -14,7 +14,9 @@ int	ft_ultimate_range(int **range, int min, int max);
  * says that for min >= max "range will point to NULL", and a pointer the test
  * had already set to NULL would print ptr=NULL whether or not the function
  * wrote it (finding 076). Still pointing at the sentinel afterwards reads
- * "untouched"; it is never walked and never freed. */
+ * "untouched"; it is never walked and never freed. The array is freed before
+ * the row's newline, so a crash in free() leaves this row unfinished and
+ * diff_output.sh marks it, not the next one. */
 static void	test(char *label, int min, int max)
 {
 	int	sentinel;
@@ -43,8 +45,8 @@ static void	test(char *label, int min, int max)
 		printf(" [%d]", range[i]);
 		i++;
 	}
-	printf("\n");
 	free(range);
+	printf("\n");
 }
 
 int	main(void)

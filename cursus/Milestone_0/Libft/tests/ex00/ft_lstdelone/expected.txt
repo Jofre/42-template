@@ -1,0 +1,4 @@
+delete b of [a b c]: del called with	B
+delete b of [a b c]: a	content unchanged, next unchanged
+delete b of [a b c]: c	content unchanged, next unchanged
+delete a lone node a: del called with	A

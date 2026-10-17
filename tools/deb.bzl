@@ -27,10 +27,19 @@ run against the box's copy of the library. So a program that is not
 self-contained is pinned by listing every package it needs in `debs`, and their
 payloads are laid over each other into one tree, the layout the packages were
 built for. clang_12_ubuntu and gcc_10_ubuntu in MODULE.bazel are built this
-way. The leaf libraries those compilers link against (libtinfo, libedit, libisl,
-libmpc, libmpfr, libgmp, libzstd) are left to the box on purpose. Pinning them
-as well would mean a sysroot, which is the wrong trade for a check that only
-needs the compiler's own build to match campus.
+way. Below the programs, the libraries they load are chosen one by one, and
+the result is no sysroot: the C library, its headers and its start files
+always come from the box, because every program a layer builds links and runs
+against the box's glibc, as it does on campus. A leaf library a fetched
+program loads is fetched when a release the harness runs on can lack it and
+cannot install it -- libxml2 and ICU, which libLLVM loads and an Ubuntu
+26.04 box could not install, are in clang_12_ubuntu (TO VERIFY V238) -- and
+is left to the box while such a release installs it by name: a fetched copy
+would change no output and cost a download. docs/environment.md lists what
+is left ("What the harness borrows from the box"), and
+//tools/tests:fetched_needed holds that list to the fetched programs, so a
+library a new fetch needs from the box is named there, or fetched, or the
+test is red.
 
 PIN BY sha256, ALWAYS. Ubuntu's pool moves: a package can be superseded and
 withdrawn, and an unpinned URL would then either 404 or, worse, serve different

@@ -696,6 +696,16 @@ const ERR_SLUGS: [&str; 17] = [
     "count_short",
 ];
 
+/// The non-printable characters a mutation draws for the third character:
+/// 0x01..0x1f with 0x0a, which would end the first line early and break the
+/// line structure instead, replaced in place by 0x7f. Thirty-one of them, as
+/// many as `0x01 + below(0x1f)` drew from, so the draw keeps the RNG stream
+/// and only the records that drew 0x0a change.
+const NONPRINTABLE: [u8; 31] = [
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x7f, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+];
+
 /// Mutate a valid map into an invalid file, one randomly chosen way.
 fn mutate_invalid(rng: &mut Rng, m: &MapSpec) -> Case {
     let f = m.file();
@@ -791,7 +801,7 @@ fn mutate_invalid(rng: &mut Rng, m: &MapSpec) -> Case {
             let n = head.len();
             let mut f2 = Vec::new();
             f2.extend_from_slice(head[..n - 1].as_bytes());
-            f2.push(0x01 + rng.below(0x1f) as u8);
+            f2.push(NONPRINTABLE[rng.below(NONPRINTABLE.len())]);
             f2.push(b'\n');
             for l in lines.iter().skip(1) {
                 f2.extend_from_slice(l.as_bytes());
@@ -1684,6 +1694,42 @@ pub fn check() -> usize {
             eprintln!("CHECK FAIL bsq mutate_invalid never produces {}", slug);
             fails += 1;
         }
+    }
+    // ---- a chars_nonprintable record breaks that rule alone ----
+    //
+    // Its first line is a count, two printable characters and one
+    // non-printable, and its body holds the count's own number of lines: a
+    // newline drawn as the third character would end the first line early,
+    // and the record would test the line structure instead. Split at len-3,
+    // not at the first non-digit: a map character can be a digit.
+    for c in errs.iter().chain(sample.iter()) {
+        if c.tag != "err:chars_nonprintable" {
+            continue;
+        }
+        let end = c.file.iter().position(|&b| b == b'\n').unwrap_or(c.file.len());
+        let head = &c.file[..end];
+        let n = head.len();
+        let count = if n > 3 { std::str::from_utf8(&head[..n - 3]).ok() } else { None }
+            .filter(|s| s.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|s| s.parse::<usize>().ok());
+        let shaped = count.is_some()
+            && head[n - 3..n - 1].iter().all(|&b| (0x20..0x7f).contains(&b))
+            && ((0x01..0x20).contains(&head[n - 1]) || head[n - 1] == 0x7f);
+        if !shaped || count != Some(body_lines(&c.file)) {
+            eprintln!(
+                "CHECK FAIL bsq chars_nonprintable record {:?} is not a count, two printable characters, \
+                 one non-printable, and that many lines",
+                String::from_utf8_lossy(&c.file)
+            );
+            fails += 1;
+        }
+    }
+    let drew_del = sample.iter().any(|c| {
+        c.tag == "err:chars_nonprintable" && c.file.split(|&b| b == b'\n').next().and_then(|h| h.last()) == Some(&0x7f)
+    });
+    if !drew_del {
+        eprintln!("CHECK FAIL bsq mutate_invalid never draws 0x7f as the non-printable character");
+        fails += 1;
     }
 
     // ---- the settled arms hold no open reading (header) ----

@@ -14,6 +14,10 @@
 #                [--rules a,b,c] [--graph] [--relink] [--overlay SRC DEST]...
 #                [--quotes FILE] [--recipe-cc any|ordered]
 #                [--foreign-object PATH] [--build-target NAME] [--clues FILE]
+#                [--archiver NAME] [--forbidden-command NAME]...
+#                [--forbidden-flag FLAG]...
+#                [--cc CC [--cc-lib LIB]... [--cc-under FILE] --ld LD
+#                 [--ld-lib LIB]... --gcc GCC --as AS --ar AR --ranlib RANLIB]
 #                [--exit-only | --rules-only | --recipe-only | --wildcards-only]
 #
 #   --anchor    $(location) of any file inside the exercise dir (its directory
@@ -21,7 +25,8 @@
 #   --artifact  file expected to exist after building (e.g. libft.a)
 #   --script    if set, run `sh <script>` instead of `make`. Every message
 #               after the build names what ran ('make' or 'sh <script>').
-#   --symbols   comma-separated symbols that must be defined in the artifact
+#   --symbols   comma-separated symbols that must be defined in the artifact,
+#               read with the pinned --nm, which --nm-lib must then come with
 #   --rules     which make rules THIS subject mandates, comma-separated, or
 #               "-" for none at all (c-piscine-bsq names no rule).
 #               Default "clean,fclean,re" -- what every caller wanted before this
@@ -101,8 +106,9 @@
 #               nothing else: this runner is shared, and a sentence written
 #               into it for one project was once quoted at every other (finding
 #               082). The keys: cc, print, unnecessary, objects, relink,
-#               wildcards (what a check needs), and all, clean, fclean, re
-#               (what a rule does, where the subject says). c_make writes the
+#               wildcards, archiver, forbidden_command, forbidden_flag (what
+#               a check needs), and all, clean, fclean, re (what a rule
+#               does, where the subject says). c_make writes the
 #               file from its `quotes`, and refuses a key it does not know.
 #               A check a flag asks for and no sentence backs is refused
 #               (exit 2): a requirement nobody can quote is one this layer
@@ -143,6 +149,80 @@
 #               pattern deletes them too. clean and fclean have to leave it,
 #               and it is never counted among the objects they left behind.
 #               Needs the `wildcards` quote.
+#   --archiver NAME
+#               the command that must make '$ARTIFACT' (ar), taking ar's
+#               arguments: some command a bare `make` runs has NAME for its
+#               command word -- less any path, so /usr/bin/ar is ar, and $(AR)
+#               is whatever make expands it to (ar, unless the Makefile sets
+#               it) -- and creates or adds to (its key holds r or q) the
+#               archive '$ARTIFACT', the operand after its key, options,
+#               RELPOS and COUNT and never a member; in a shell loop, an &&
+#               chain or behind env, xargs or sh -c as anywhere else; its
+#               flags (rcs, -rcs, crs) are its own business. Read from what
+#               `make -n` plans on the clean tree -- a shell comment on a
+#               line, and $(info ...) text no build ran (tool_phantoms), left
+#               out -- and from every call of NAME a build of a copy of that
+#               tree ran by name (a stand-in on PATH logs it, as for the
+#               compilers), never from the Makefile's text. A NAME line in a
+#               branch of the shell (then, else, elif, a loop's do, a case,
+#               after && or ||) that no stand-in logged is a way this box's
+#               shell did not go, and is set aside by the rules that set
+#               $(info ...) text aside (tool_phantoms): `cat $^ > $@ || ar rcs
+#               $@ $^` made the library with no ar, and so does a Makefile
+#               that runs NAME only on another system, read as this box's
+#               shell resolves it. A branch line those rules cannot judge
+#               counts as made by NAME, logged or not: NAME by a path or
+#               behind env, sh -c or another wrapper, a word the shell
+#               expands, a PATH, `.`, source or eval on the line, a build that
+#               stopped -- and a line whose archive the build wrote where no
+#               logged call and no other command the plan shows did. An
+#               artifact no such command writes -- copied, concatenated,
+#               linked by another tool -- is a FAIL that lists the commands
+#               that do name it. Where NAME writes an archive under another
+#               name or in another directory, and cp, mv, ln or install puts a
+#               file of that last component in place as '$ARTIFACT', this
+#               check passes: whether NAME "made" it then is a reading, and
+#               this check keeps to what every reading agrees on. A Makefile
+#               only. Needs the `archiver` quote.
+#   --forbidden-command NAME
+#               a command no recipe of a bare `make` may run (libtool), by its
+#               command word less its path, from the same two records. A
+#               stand-in logs NAME whether this box has it or not (one it
+#               lacks says "not found" and returns 127, as the shell would),
+#               so `T=libtool; $$T ...` is judged the same everywhere. Not
+#               seen: a call by a path that no plan line shows (a shell
+#               variable holding /usr/bin/libtool), and a call a Makefile runs
+#               past every stand-in with a PATH of its own set for one target
+#               (or by an earlier line of a .ONESHELL recipe). A call in a
+#               branch of the shell (then, else, elif, a loop's do, a case,
+#               after && or ||) is a call whether this box takes the branch or
+#               not, on the line that opens the branch and on the lines it is
+#               carried to: those an if, a loop or a case left open, and
+#               those after a line (of a .ONESHELL recipe) that ends on an &&
+#               or an ||, or on a | or with a { or a ( still open once it is
+#               in a branch. A conditional of make's own (ifeq on $(shell
+#               uname)) is read as this box's make resolves it, so a Makefile
+#               that runs NAME only on another system is not seen here. The
+#               branch rule reads $(info ...) text too, from the plan, where
+#               text and a shell line look alike: NAME after a branch inside
+#               the text -- a then, else, elif or do that starts a command
+#               there, a case, an && or an || ($(info building || libtool
+#               never)) -- and NAME in text on a later line while an earlier
+#               $(info ...) left such a branch open (in an if, a loop or a
+#               case it never closes, or at its end), are read as calls -- a
+#               FAIL, never a pass. Text that opens an if or a loop and no
+#               branch ($(info if needed)) carries nothing to the next line.
+#               A build that makes no '$ARTIFACT' names, under its FAIL, the
+#               forbidden command it calls, with the sentence: a box without
+#               the tool fails there. Repeatable. A Makefile only. Needs the
+#               `forbidden_command` quote.
+#   --forbidden-flag FLAG
+#               a word no compile command (as --recipe-cc counts them) may
+#               hold (-std=c99): the whole word, so -std=c11 and -std=gnu99
+#               are other flags. Read from the compile commands' words as
+#               make printed them, a variable (CFLAGS, CPPFLAGS) expanded,
+#               and as the compiler stand-ins logged them. Repeatable. A
+#               Makefile only. Needs the `forbidden_flag` quote.
 #   --rules-only
 #               the robust target (exNN_build_rules): what each rule the
 #               subject lists and does not define does, against this repo's
@@ -159,6 +239,19 @@
 #               source with an #error in it beside the sources the Makefile
 #               compiles, and a foreign object beside the objects it makes
 #               before each cleaning rule. Nothing else is judged.
+#   --cc, --cc-lib, --cc-under, --ld, --ld-lib, --gcc, --as, --ar, --ranlib
+#               THE TOOLS THE RECIPES RUN (TO VERIFY V60): the pinned clang-12
+#               with the libraries it loads and a file of its tree (rl_cc_pin),
+#               the pinned ld.bfd with its library (rl_ld_pin), the pinned
+#               gcc-10 driver, and binutils 2.38's as, ar and ranlib, which
+#               load the libraries --ld-lib names (one package). All of them
+#               or none: a run handed some would run the box's for the rest,
+#               so that is refused (exit 2), and so is --cc-lib, --cc-under
+#               or --ld-lib without them. Every test tools/defs.bzl writes
+#               is handed all of them (_pinned_make_args; pinned_cc_problem
+#               refuses one handed less than the set). A hand run that names
+#               none runs the recipes with the tools its PATH finds. See
+#               "THE PINNED TOOLCHAIN" below for what each name runs.
 #
 # Env: MAKE_TIMEOUT  seconds one run of make (or of the script) may take;
 #                    unset, what is left of the test's own time limit, which
@@ -202,7 +295,7 @@ require() {
 		exit 2
 	done
 }
-require awk basename cat chmod cksum comm cp dirname find fold grep head mkdir mktemp rm sed sleep sort touch tr wc
+require awk basename cat chmod cksum comm cp dirname env find fold grep head mkdir mktemp rm sed sleep sort touch tr wc
 
 # The shared runner helpers -- the time budget, how a run ended, exiting signal
 # traps and excerpts -- written once in tools/runner_lib.sh. The Makefile and
@@ -235,6 +328,25 @@ QUOTES=""
 RECIPE_CC=""
 FOREIGN=""
 CLUES=""
+# --archiver, and the --forbidden-command and --forbidden-flag lists (LISTS
+# OF WORDS, tools/runner_lib.sh: one per line).
+ARCHIVER=""
+FORBID_CMDS=""
+FORBID_FLAGS=""
+# The pinned toolchain the recipes run (--cc ... --ranlib, "THE PINNED
+# TOOLCHAIN" below). Named PIN_* and never CC, AR or LD: make reads each
+# variable of its environment as one of its own, and an exported CC in the
+# caller's would keep its export through an assignment here. The two lists
+# are LISTS OF WORDS (tools/runner_lib.sh): one file per line.
+PIN_CC=""
+PIN_CC_LIBS=""
+PIN_CC_UNDER=""
+PIN_LD=""
+PIN_LD_LIBS=""
+PIN_GCC=""
+PIN_AS=""
+PIN_AR=""
+PIN_RANLIB=""
 
 # ---------------------------------------------------------------------------
 # nm is SUPPLIED, never found. --nm is required and there is no PATH fallback,
@@ -275,6 +387,15 @@ while [ $# -gt 0 ]; do
 		--nm) need "$1" "$#"; NM="$2"; shift 2 ;;
 		--nm-lib) need "$1" "$#"; NM_LIBS="${NM_LIBS:+$NM_LIBS:}$(dirname "$2")"; shift 2 ;;
 		--make) need "$1" "$#"; MAKE_BIN="$2"; shift 2 ;;
+		--cc) need "$1" "$#"; PIN_CC="$2"; shift 2 ;;
+		--cc-lib) need "$1" "$#"; rl_list_add PIN_CC_LIBS "$2"; shift 2 ;;
+		--cc-under) need "$1" "$#"; PIN_CC_UNDER="$2"; shift 2 ;;
+		--ld) need "$1" "$#"; PIN_LD="$2"; shift 2 ;;
+		--ld-lib) need "$1" "$#"; rl_list_add PIN_LD_LIBS "$2"; shift 2 ;;
+		--gcc) need "$1" "$#"; PIN_GCC="$2"; shift 2 ;;
+		--as) need "$1" "$#"; PIN_AS="$2"; shift 2 ;;
+		--ar) need "$1" "$#"; PIN_AR="$2"; shift 2 ;;
+		--ranlib) need "$1" "$#"; PIN_RANLIB="$2"; shift 2 ;;
 		--anchor) need "$1" "$#"; ANCHOR="$2"; shift 2 ;;
 		--artifact) need "$1" "$#"; ARTIFACT="$2"; shift 2 ;;
 		--script) need "$1" "$#"; SCRIPT="$2"; shift 2 ;;
@@ -329,6 +450,37 @@ while [ $# -gt 0 ]; do
 			esac
 			FOREIGN="${2#./}"; shift 2 ;;
 		--build-target) need "$1" "$#"; T_BUILD="$2"; shift 2 ;;
+		# A command's name, matched against a command word less its path:
+		# a path or a blank in it would match nothing, and a check that
+		# matches nothing passes every Makefile.
+		--archiver | --forbidden-command)
+			need "$1" "$#"
+			case "$2" in
+				"" | */* | *[[:space:]]* | -*)
+					echo "make_test.sh: $1 is a command's name, with no path or blank in it: '$2'" >&2
+					exit 2 ;;
+			esac
+			if [ "$1" = --archiver ]; then
+				ARCHIVER="$2"
+			else
+				rl_list_add FORBID_CMDS "$2"
+			fi
+			shift 2 ;;
+		--forbidden-flag)
+			need "$1" "$#"
+			case "$2" in
+				-?*) ;;
+				*)
+					echo "make_test.sh: --forbidden-flag is one word of a compile command, starting with -: '$2'" >&2
+					exit 2 ;;
+			esac
+			case "$2" in
+				*[[:space:]]*)
+					echo "make_test.sh: --forbidden-flag is one word of a compile command, with no blank in it: '$2'" >&2
+					exit 2 ;;
+			esac
+			rl_list_add FORBID_FLAGS "$2"
+			shift 2 ;;
 		# Absolute, like --quotes: the hints are printed after the `cd` into
 		# the scratch copy, where a runfiles-relative path names nothing.
 		--clues)
@@ -350,6 +502,13 @@ done
 
 [ -n "$NM" ] || { echo "make_test.sh: --nm is required (no PATH fallback by design)" >&2; exit 2; }
 [ -x "$NM" ] || { echo "make_test.sh: --nm '$NM' is not executable" >&2; exit 2; }
+# nm runs under --symbols alone, so that is where its library is required.
+[ -z "$SYMS" ] || [ -n "$NM_LIBS" ] || {
+	echo "make_test.sh: --symbols reads the artifact with --nm, which needs --nm-lib," >&2
+	echo "  the directory of the pinned nm's own libbfd: without it the loader takes" >&2
+	echo "  this machine's, and the nm is pinned in name only (no fallback by design)." >&2
+	exit 2
+}
 
 # Absolute before anything uses them, like --make below. Bazel hands both over
 # as runfiles-relative paths, and the symbols check runs nm after the `cd` into
@@ -406,38 +565,18 @@ if [ -n "$NM_LIBS" ]; then
 	LD_LIBRARY_PATH="$NM_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 	export LD_LIBRARY_PATH
 
-	# PROVE THE LOADER AGREED, rather than that the flag arrived.
-	#
-	# The failure being guarded against is exactly one where the right file is
-	# exec'd and the wrong code runs, so checking which file we exec proves
-	# nothing. ld.so prints `calling init: <path>` for each library it actually
-	# LOADED -- the `trying file=` lines above it are only candidates -- so that
-	# is what gets read.
-	_loaded=$(LD_DEBUG=libs "$NM" --version 2>&1 > /dev/null |
-		sed -n 's/.*calling init: //p' | grep -E 'libbfd|libopcodes|libctf')
-	if [ -z "$_loaded" ]; then
-		echo "make_test.sh: could not observe which libraries '$NM' loaded." >&2
-		echo "  LD_DEBUG=libs printed no 'calling init:' line for libbfd, so" >&2
-		echo "  either this nm is statically linked (in which case delete" >&2
-		echo "  --nm-lib and this check together) or the loader does not" >&2
-		echo "  support LD_DEBUG. Refusing rather than assuming: the whole" >&2
-		echo "  point of the flag is that a wrong answer here is invisible." >&2
-		exit 2
-	fi
-	for _l in $_loaded; do
-		case "$_l" in
-			"$NM_LIBS"/*) ;;
-			*)
-				echo "make_test.sh: the pinned nm loaded '$_l'." >&2
-				echo "  That is not under --nm-lib ('$NM_LIBS'), so the symbol" >&2
-				echo "  table this layer is about to read would be parsed by" >&2
-				echo "  this machine's binutils rather than the pinned one." >&2
-				echo "  A version string proves nothing here: it lives in the" >&2
-				echo "  frontend, not in the library that does the work." >&2
-				exit 2
-				;;
-		esac
-	done
+	# PROVE THE LOADER AGREED, rather than that the flag arrived: the libbfd
+	# nm loaded, read by runner_lib.sh's rl_libs_under, under one of
+	# --nm-lib's directories. The failure being guarded against is exactly
+	# one where the right file is exec'd and the wrong code runs, so checking
+	# which file we exec proves nothing. In a subshell, so that the scratch
+	# file goes whatever it finds.
+	_dbg=$(mktemp) || { echo "make_test.sh: cannot create a scratch file" >&2; exit 2; }
+	env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$NM" --version > /dev/null 2> "$_dbg"
+	(rl_libs_under "the pinned nm" "$_dbg" "$NM_LIBS" libbfd)
+	_rc=$?
+	rm -f "$_dbg"
+	[ "$_rc" -eq 0 ] || exit 2
 fi
 
 # Does this subject mandate rule $1?
@@ -474,7 +613,7 @@ IFS=$_ifs
 # know is a sentence nothing quotes, and a check with no sentence behind it
 # is a requirement this layer would be inventing -- both are the call site's
 # mistake, so exit 2.
-QUOTE_KEYS='cc print unnecessary objects relink wildcards all clean fclean re'
+QUOTE_KEYS='cc print unnecessary objects relink wildcards archiver forbidden_command forbidden_flag all clean fclean re'
 if [ -n "$QUOTES" ]; then
 	_bad=$(awk -F'\t' -v keys=" $QUOTE_KEYS " '
 		/^[ \t]*(#|$)/ { next }
@@ -518,6 +657,24 @@ needs_quote() {
 [ -z "$RECIPE_CC" ] || needs_quote --recipe-cc cc
 [ -z "$FOREIGN" ] || needs_quote --foreign-object wildcards
 [ "$MODE" != wildcards ] || needs_quote --wildcards-only wildcards
+[ -z "$ARCHIVER" ] || needs_quote --archiver archiver
+[ -z "$FORBID_CMDS" ] || needs_quote --forbidden-command forbidden_command
+[ -z "$FORBID_FLAGS" ] || needs_quote --forbidden-flag forbidden_flag
+# What makes the artifact, and what a recipe may not run or pass, are read
+# from a Makefile's plan: a creator script has none.
+if [ -n "$SCRIPT" ] && [ -n "$ARCHIVER$FORBID_CMDS$FORBID_FLAGS" ]; then
+	echo "make_test.sh: --archiver, --forbidden-command and --forbidden-flag are read from a Makefile's plan, and --script names a creator script" >&2
+	exit 2
+fi
+if [ -n "$ARCHIVER" ] && printf '%s\n' "$FORBID_CMDS" | grep -qxF -- "$ARCHIVER"; then
+	echo "make_test.sh: '$ARCHIVER' is both the --archiver and a --forbidden-command" >&2
+	exit 2
+fi
+# blanked LIST: the list's words one blank apart, with a blank on each side,
+# for awk to find " WORD " in (none holds a blank: each is refused that way).
+blanked() {
+	printf ' %s \n' "$1" | tr '\n' ' '
+}
 # The Norm's sentence comes through --quotes like a subject's: written into
 # the runner, it was a second way for one fact to travel, and the first to go
 # stale when the Norm is revised.
@@ -646,6 +803,212 @@ esac
 # tools/exit_status is found beside this script, which is named relative to
 # where it was started: found now, before the cd below strands that path.
 rl_ready
+
+# ---------------------------------------------------------------------------
+# THE PINNED TOOLCHAIN (TO VERIFY V60). A Makefile's recipes, and a creator
+# script's commands, run the compiler and the archiver they name through
+# PATH: `cc`, $(CC), `ar rcs`. With the box's PATH those were the box's
+# tools, so a verdict was the box's: one Makefile with `cc -Wall -Wextra
+# -Werror` over a set-but-unused variable passed under campus's clang-12 and
+# failed under a gcc-11 `cc`, `x = x;` did the reverse, and a box with no
+# `cc` stopped at "make: cc: No such file or directory". Every other layer
+# that compiles was pinned before this one (V38).
+#
+# So, handed the pinned tools, this runner puts $AUX/pinbin first on PATH
+# for the whole run -- the build, every rule run, the relink checks and the
+# stand-ins' builds -- with one program for each name a recipe runs a
+# compiler or a binutils tool by:
+#   cc, clang, clang-12
+#                 the pinned clang-12, campus's `cc`, linking through the
+#                 pinned ld.bfd: rl_cc_wrap over what rl_cc_pin and
+#                 rl_ld_pin proved;
+#   gcc, gcc-10   the pinned gcc-10, campus's `gcc`, with -B to the folder
+#                 of the pinned as and ld, which it assembles and links
+#                 with, and the sanitizers' runtimes its own tree holds
+#                 (MODULE.bazel's gcc_10_ubuntu);
+#   c89, c99      that gcc with -std=c89 or -std=c99, as Ubuntu's c89-gcc
+#                 and c99-gcc (what the image's c89 and c99 are) run the
+#                 box's `gcc`, refusing a -std of another standard as they
+#                 do;
+#   ar, ranlib, as, ld
+#                 binutils 2.38's, each loading its libraries from the
+#                 folder of --ld-lib.
+# The stand-ins that log a recipe's compilers and tools (cc_shims,
+# tool_shims) go ahead of these and find them through `command -v`, as they
+# found the box's. ar and ranlib get no stand-in in $AUX/ccshim of their
+# own, so merge_compiles never counts them as compiles (an --archiver ar
+# gets tool_shims' stand-in, as before). A Makefile that puts a folder of
+# its own ahead of them on PATH runs what it finds there, and the stand-ins
+# record that it did (shim_bypass).
+#
+# What is still the box's: any other name or path a recipe runs (`gcc-11`,
+# `/usr/bin/cc`, `c++`), the C library's headers and start files, the
+# libgcc files the pinned clang finds in the box's GCC install, and the
+# sanitizer runtime a program gcc built with -fsanitize= loads when it runs
+# -- as for every layer that links (docs/environment.md).
+#
+# Each tool is proved before the first make: the loader took its libraries
+# from the fetched trees (rl_libs_under), each compiler searches its own
+# tree (rl_cc_pin), and each compiler builds a program that does nothing,
+# through the pinned linker, which then runs. A proof that fails is exit 2:
+# a build judged with some other toolchain says nothing about the Makefile.
+#
+# conventions: harness tool PIN_GCC -- the pinned gcc-10, proved below
+pin_wrap() {  # pin_wrap OUT TOOL DIRS: OUT runs TOOL with DIRS on the loader's path
+	printf "#!/bin/sh\nLD_LIBRARY_PATH='%s'\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\nexport LD_LIBRARY_PATH\nexec '%s' \"\$@\"\n" \
+		"$3" "$2" > "$1" && chmod +x "$1" || exit 2
+}
+pin_std() {  # pin_std NAME STD WORDS OURS...: pinbin/NAME runs pinbin/gcc with -std=STD, unless an argument is one of OURS
+	_ps_n=$1 _ps_std=$2 _ps_words=$3 _ps_ours=""
+	shift 3
+	for _ps; do _ps_ours="${_ps_ours:+$_ps_ours | }$_ps"; done
+	{
+		echo '#!/bin/sh'
+		echo "# make_test.sh: $_ps_n, as Ubuntu's $_ps_n-gcc runs gcc, over the pinned gcc-10."
+		echo "_f=-std=$_ps_std"
+		echo 'for _a; do'
+		echo '	case "$_a" in'
+		echo "		$_ps_ours) _f= ;;"
+		echo "		-std=* | -ansi) echo \"$_ps_n called with non $_ps_words option \$_a\" >&2; exit 1 ;;"
+		echo '	esac'
+		echo 'done'
+		# shellcheck disable=SC2016 # written for the stand-in to expand
+		echo "exec '$AUX/pinbin/gcc' \$_f \"\$@\""
+	} > "$AUX/pinbin/$_ps_n" && chmod +x "$AUX/pinbin/$_ps_n" || exit 2
+}
+pin_tools() {
+	for _pt in "--cc=$PIN_CC" "--ld=$PIN_LD" "--gcc=$PIN_GCC" "--as=$PIN_AS" \
+		"--ar=$PIN_AR" "--ranlib=$PIN_RANLIB"; do
+		[ -n "${_pt#*=}" ] && continue
+		echo "make_test.sh: ${_pt%%=*} is missing, and other pinned tools or their libraries" >&2
+		echo "  were given. The recipes would run this machine's ${_pt%%=*}: --cc, --ld, --gcc," >&2
+		echo "  --as, --ar and --ranlib go together (tools/defs.bzl's _pinned_make_args)." >&2
+		exit 2
+	done
+	[ -n "$PIN_LD_LIBS" ] || {
+		echo "make_test.sh: --ld needs its --ld-lib: binutils' as, ar, ranlib and ld load" >&2
+		echo "  libbfd by bare name, and without its folder the loader takes this machine's." >&2
+		exit 2
+	}
+	case "$AUX" in
+		*"'"*)
+			echo "make_test.sh: a path with a single quote in it cannot be put in a wrapper" >&2
+			exit 2 ;;
+	esac
+	# Clang's libraries go on the loader's path for its proofs alone: the
+	# wrappers carry their own, and the recipes run with the path they had.
+	_pt_had=${LD_LIBRARY_PATH+1}
+	_pt_lp=${LD_LIBRARY_PATH-}
+	rl_cc_pin "$PIN_CC" "$PIN_CC_LIBS" "$PIN_CC_UNDER"
+	rl_ld_pin "$PIN_CC" "$PIN_LD" "$PIN_LD_LIBS" "$AUX/pinld"
+	rl_cc_pin "$PIN_GCC" "" "$PIN_GCC"
+	if [ -n "$_pt_had" ]; then
+		LD_LIBRARY_PATH=$_pt_lp
+		export LD_LIBRARY_PATH
+	else
+		unset LD_LIBRARY_PATH
+	fi
+	_pt_dirs=""
+	while IFS= read -r _pt; do
+		[ -n "$_pt" ] || continue
+		case "$_pt" in /*) _pt=$(dirname "$_pt") ;; *) _pt=$(dirname "$PWD/$_pt") ;; esac
+		_pt_dirs="${_pt_dirs:+$_pt_dirs:}$_pt"
+	done <<PIN_LIBS
+$PIN_LD_LIBS
+PIN_LIBS
+	mkdir -p "$AUX/pinbin" || exit 2
+	for _pt in "as=$PIN_AS" "ar=$PIN_AR" "ranlib=$PIN_RANLIB" "gcc=$PIN_GCC"; do
+		_pt_n=${_pt%%=*}
+		_pt_f=${_pt#*=}
+		case "$_pt_f" in /*) ;; *) _pt_f="$PWD/$_pt_f" ;; esac
+		if ! [ -f "$_pt_f" ] || ! [ -x "$_pt_f" ]; then
+			echo "make_test.sh: --$_pt_n '$_pt_f' is not an executable file." >&2
+			echo "  Bazel passes the pinned one; if it is missing the target's data is" >&2
+			echo "  wrong, which is a harness fault and not a finding about this exercise." >&2
+			exit 2
+		fi
+		case "$_pt_f$_pt_dirs" in
+			*"'"*)
+				echo "make_test.sh: a path with a single quote in it cannot be put in a wrapper" >&2
+				exit 2 ;;
+		esac
+		case "$_pt_n" in
+			gcc)
+				printf "#!/bin/sh\nexec '%s' '-B%s/' \"\$@\"\n" "$_pt_f" "$AUX/pinld" \
+					> "$AUX/pinbin/gcc" && chmod +x "$AUX/pinbin/gcc" || exit 2 ;;
+			*)
+				pin_wrap "$AUX/pinbin/$_pt_n" "$_pt_f" "$_pt_dirs"
+				# PROVE THE LOADER AGREED: as loads libbfd and libopcodes,
+				# ar and ranlib libbfd.
+				# conventions: harness tool -- the pinned binutils' wrapper, written above
+				env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$AUX/pinbin/$_pt_n" --version > /dev/null 2> "$AUX/pinbin.debug"
+				if [ "$_pt_n" = as ]; then
+					rl_libs_under "the pinned as" "$AUX/pinbin.debug" "$_pt_dirs" libbfd libopcodes
+				else
+					rl_libs_under "the pinned $_pt_n" "$AUX/pinbin.debug" "$_pt_dirs" libbfd
+				fi ;;
+		esac
+	done
+	# The assembler and the linker gcc's -B folder offers it, beside the
+	# ld and ld.bfd rl_ld_pin wrote there; and ld for a recipe that names it.
+	cp "$AUX/pinbin/as" "$AUX/pinld/as" && cp "$AUX/pinld/ld" "$AUX/pinbin/ld" || exit 2
+	rl_cc_wrap "$PIN_CC" "$PIN_CC_LIBS" "$AUX/pinld" "$AUX/pinbin/cc"
+	cp "$AUX/pinbin/cc" "$AUX/pinbin/clang" || exit 2
+	# Each refuses another standard in its own script's words.
+	pin_std c89 c89 'ANSI/ISO C' -ansi -std=c89 -std=iso9899:1990
+	pin_std c99 c99 'ISO C99' -std=c99 -std=c9x -std=iso9899:1999 -std=iso9899:199x
+	# And the versioned names campus has as well, for a recipe that spells
+	# one: clang-12 is the clang above, gcc-10 the gcc.
+	cp "$AUX/pinbin/cc" "$AUX/pinbin/clang-12" && cp "$AUX/pinbin/gcc" "$AUX/pinbin/gcc-10" || exit 2
+	# PROVE GCC TAKES THEM: the programs -B names for as and ld, and the ld
+	# collect2 ran for a link (-Wl,-v prints its command line). A -B folder
+	# without them is passed over without a word, for the box's. The answer
+	# is its standard output alone: an LD_DEBUG set from outside writes the
+	# loader's lines to stderr (V276; runner_lib.sh now sends them to files
+	# of their own, V336, and the answer is read so still).
+	for _pt in as ld; do
+		_pt_said=$("$PIN_GCC" "-B$AUX/pinld/" "-print-prog-name=$_pt" 2> /dev/null)
+		[ "$_pt_said" = "$AUX/pinld/$_pt" ] && continue
+		echo "make_test.sh: the pinned gcc does not take the pinned $_pt: handed" >&2
+		echo "  -B$AUX/pinld/, -print-prog-name=$_pt answers another program." >&2
+		echo "  Refusing rather than building with this machine's." >&2
+		exit 2
+	done
+	# AND EVERY COMPILER NAME BUILDS A PROGRAM THAT DOES NOTHING, which runs,
+	# through its wrapper alone: the loader's path the proofs above had is
+	# gone, as it is for a recipe.
+	for _pt in cc gcc c99; do
+		rm -f "$AUX/pinld/nothing"
+		# conventions: harness tool -- the pinned compiler's wrapper, written above
+		if ! "$AUX/pinbin/$_pt" -v -Wl,-v "$AUX/pinld/nothing.c" -o "$AUX/pinld/nothing" \
+				> "$AUX/pinld/nothing.err" 2>&1; then
+			echo "make_test.sh: the pinned $_pt cannot build a program that does nothing," >&2
+			echo "  so a failure to build here would say nothing about the Makefile:" >&2
+			rl_excerpt "$AUX/pinld/nothing.err" 10 pinned-$_pt.txt >&2
+			exit 2
+		fi
+		if ! grep -q "^ *\"\{0,1\}$AUX/pinld/ld\"\{0,1\} " "$AUX/pinld/nothing.err"; then
+			echo "make_test.sh: the pinned $_pt linked with another program than the pinned ld" >&2
+			echo "  (-Wl,-v names the linker it ran). Refusing rather than linking with" >&2
+			echo "  this machine's:" >&2
+			rl_excerpt "$AUX/pinld/nothing.err" 10 pinned-$_pt.txt >&2
+			exit 2
+		fi
+		# conventions: harness tool -- the do-nothing program built just above
+		"$AUX/pinld/nothing" > /dev/null 2>&1 || {
+			echo "make_test.sh: a program that does nothing, built by the pinned $_pt, did" >&2
+			echo "  not end with 0. Refusing rather than reporting on this toolchain." >&2
+			exit 2
+		}
+	done
+	PATH="$AUX/pinbin:$PATH"
+	export PATH
+}
+# Any one of them given means all of them, --cc-lib, --cc-under and --ld-lib
+# too: a run handed only those would otherwise ignore them without a word.
+if [ -n "$PIN_CC$PIN_CC_LIBS$PIN_CC_UNDER$PIN_LD$PIN_LD_LIBS$PIN_GCC$PIN_AS$PIN_AR$PIN_RANLIB" ]; then
+	pin_tools
+fi
 
 cd "$WORK" || { echo "make_test.sh: cannot enter scratch dir" >&2; exit 2; }
 
@@ -885,11 +1248,14 @@ rm -f "$ARTIFACT"
 
 # ------------------------------------------------------- the compile commands
 # compile_cmds FILE KIND: the commands in FILE that compile a .c file, one
-# per line as "VERDICT<TAB>WHY<TAB>LINE<TAB>WORDS": VERDICT is ok or bad,
-# held to --recipe-cc, WHY says what is wrong ("gcc, not cc", "no
-# -Werror"), LINE is the line of FILE the command is on, and WORDS the
+# per line as "VERDICT<TAB>WHY<TAB>LINE<TAB>WORDS<TAB>HOW<TAB>HOW2": VERDICT
+# is ok or bad, held to --recipe-cc, WHY says what is wrong ("gcc, not cc",
+# "no -Werror"), LINE is the line of FILE the command is on, and WORDS the
 # command's own words, quotes removed, one space apart -- one command
-# however a trace quoted it, for telling two records of a run apart.
+# however a trace quoted it, for telling two records of a run apart. HOW
+# and HOW2 are recipe_cmds' (below): whether the shell finds the compiler by
+# its bare name in the line's own PATH, and whether the command is in a
+# branch of the shell (merge_compiles' phantoms read them).
 #
 # KIND is make -- what `make -n` printed, where one line may hold several
 # commands joined by ; && || | -- or trace -- what `sh -x` printed, one
@@ -920,8 +1286,28 @@ rm -f "$ARTIFACT"
 # 'STRING'` has STRING read as a command line of its own: these used to be in
 # the list of tools that compile nothing, so `env gcc -c x.c` was not judged
 # at all.
+#
+# EVERY COMMAND, NOT ONLY COMPILES (recipe_cmds FILE KIND): the same reading
+# -- the same words, wrappers looked through, `sh -c` strings read,
+# redirections taken off -- with every command printed, compiler or not, as
+# "cmd<TAB>TOOL<TAB>LINE<TAB>WORDS<TAB>TARGETS<TAB>HOW<TAB>HOW2": TOOL is the
+# command word less its path, WORDS the command's words from that one on,
+# TARGETS the files its redirections name, one space apart, HOW is bare where
+# the shell finds TOOL by that bare name in the PATH the line was started
+# with -- no path in the word, no wrapper or assignment before it (env,
+# VAR=x), not in an `sh -c` string -- and via otherwise, and HOW2 is branch
+# where the command is in a branch of the shell (oneline's COND) and plain
+# otherwise (tool_phantoms, which reads the two apart). The archiver and the
+# forbidden commands are read from it. `command -v NAME` runs nothing, and is
+# left out.
 compile_cmds() {
-	awk -v kind="$2" -v ordered="$([ "$RECIPE_CC" = ordered ] && echo 1)" '
+	cmds_awk "$1" "$2" compile
+}
+recipe_cmds() {
+	cmds_awk "$1" "$2" all
+}
+cmds_awk() {
+	awk -v kind="$2" -v emit="$3" -v ordered="$([ "$RECIPE_CC" = ordered ] && echo 1)" '
 		BEGIN {
 			n = split("do then else elif if ! { time", a, " ")
 			for (i = 1; i <= n; i++) lead[a[i]] = 1
@@ -934,24 +1320,56 @@ compile_cmds() {
 			for (i = 1; i <= n; i++) takes[a[i]] = 1
 			n = split("sh bash dash", a, " ")
 			for (i = 1; i <= n; i++) shell[a[i]] = 1
+			# The lead words after which a command runs only on a
+			# condition, and the keywords that open and close a construct.
+			n = split("then else elif do", a, " ")
+			for (i = 1; i <= n; i++) branch[a[i]] = 1
+			n = split("case for while until select", a, " ")
+			for (i = 1; i <= n; i++) opens[a[i]] = 1
+			n = split("fi esac done", a, " ")
+			for (i = 1; i <= n; i++) closes[a[i]] = 1
 		}
 		# Is B, a command word less its path, the name of a C compiler?
 		function is_cc(b) {
 			return b ~ /cc$/ || b ~ /cc-[0-9][0-9.]*$/ || b ~ /^(c89|c99|icx)$/ ||
 				b ~ /clang(-[0-9][0-9.]*)?$/ || b ~ /\+\+(-[0-9][0-9.]*)?$/
 		}
-		function judge(text,    s, b, j, hasc, st, fw, fx, fe, miss, why, ws) {
+		# judge TEXT: the command read so far, judged (or printed), and
+		# forgotten -- its words, and the targets of its redirections.
+		function judge(text) {
+			judge1(text)
+			nw = 0
+			nr = 0
+		}
+		function judge1(text,    s, b, j, hasc, st, fw, fx, fe, miss, why, ws, rs, via) {
 			if (nw == 0) return
 			s = 1
+			via = insh
 			while (s <= nw) {
 				b = W[s]
 				sub(/.*\//, "", b)
-				if ((W[s] in lead) || W[s] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { s++; continue }
+				if (W[s] in lead) {
+					if (W[s] == "if") depth++
+					else if (W[s] in branch) cond = 1
+					else if (W[s] == "{") brace++
+					s++
+					continue
+				}
+				if (W[s] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { s++; via = 1; continue }
 				if (!(b in wrap)) break
+				via = 1
+				# `command -v NAME` (or -V) says where NAME is, and runs nothing.
+				if (b == "command" && s < nw && (W[s + 1] == "-v" || W[s + 1] == "-V")) { nw = 0; return }
 				for (s++; s <= nw && (W[s] ~ /^-/ || (b == "env" && W[s] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)); s++)
 					if ((b ":" W[s]) in takes) s++
 			}
 			if (s > nw) { nw = 0; return }
+			# A shell keyword that opens or closes a construct, for the
+			# depth a line leaves open (oneline). A case runs its commands
+			# on a pattern: what follows it is conditional.
+			if (W[s] in opens) { depth++; if (W[s] == "case") cond = 1 }
+			else if (W[s] in closes) depth--
+			else if (W[s] == "}" && brace > 0) brace--
 			b = W[s]
 			sub(/.*\//, "", b)
 			# sh -c STRING: STRING is the command line, read once this one is.
@@ -962,6 +1380,16 @@ compile_cmds() {
 			}
 			ws = W[s]
 			for (j = s + 1; j <= nw; j++) ws = ws " " W[j]
+			if (emit == "all") {
+				rs = ""
+				for (j = 1; j <= nr; j++) rs = rs (j == 1 ? "" : " ") R[j]
+				gsub(/\t/, " ", ws)
+				gsub(/\t/, " ", rs)
+				if (index(W[s], "/") > 0) via = 1
+				printf "cmd\t%s\t%s\t%s\t%s\t%s\t%s\n", b, text, ws, rs, (via ? "via" : "bare"),
+					(cond ? "branch" : "plain")
+				return
+			}
 			hasc = 0
 			for (j = s + 1; j <= nw; j++)
 				if (W[j] ~ /\.c$/ && W[j] !~ /^-/) hasc = 1
@@ -992,7 +1420,9 @@ compile_cmds() {
 			if (miss != "") why = why (why == "" ? "" : "; ") "no" miss
 			else if (ordered && st != 3) why = why (why == "" ? "" : "; ") "-Wall -Wextra -Werror out of that order"
 			gsub(/\t/, " ", ws)
-			printf "%s\t%s\t%s\t%s\n", (why == "" ? "ok" : "bad"), why, text, ws
+			if (index(W[s], "/") > 0) via = 1
+			printf "%s\t%s\t%s\t%s\t%s\t%s\n", (why == "" ? "ok" : "bad"), why, text, ws,
+				(via ? "via" : "bare"), (cond ? "branch" : "plain")
 			nw = 0
 		}
 		# One command line, split into words and judged command by command.
@@ -1008,22 +1438,38 @@ compile_cmds() {
 			} else if (line ~ /^[^ ]*make(\[[0-9]+\])?: /)
 				return
 			t = line
-			gsub(/[ \t]+/, " ", t)
+			gsub(/[ \t\n]+/, " ", t)
 			sub(/^ /, "", t)
 			sub(/ $/, "", t)
-			nw = 0; cur = ""; inw = 0; q = ""; redir = 0
+			nw = 0; nr = 0; cur = ""; inw = 0; q = ""; redir = 0; cmt = 0
 			L = length(line)
 			for (i = 1; i <= L; i++) {
 				c = substr(line, i, 1)
+				# A COMMENT runs to the end of the line, or to the newline of
+				# a line the backslash joined (below): there the comment of
+				# the shell ends, and what follows is the next command -- the
+				# backslash is part of the comment, and continues nothing.
+				if (cmt) {
+					if (c == "\n") { cmt = 0; judge(t) }
+					continue
+				}
 				if (q != "") {
 					if (c == q) q = ""
 					else if (c == "\\" && q == "\"" && i < L) { i++; cur = cur substr(line, i, 1) }
-					else cur = cur c
+					else cur = cur (c == "\n" ? " " : c)
 					continue
 				}
 				if (c == "\047" || c == "\"") { q = c; inw = 1; continue }
 				if (c == "\\" && i < L) { i++; cur = cur substr(line, i, 1); inw = 1; continue }
-				if (c == " " || c == "\t") {
+				# A # that starts a word starts a COMMENT: make hands the line
+				# to the shell as it is written and `make -n` prints it whole,
+				# so `ar rcs x.a $^ # (not libtool)` came here as a second
+				# command, libtool, and a correct Makefile was failed for
+				# running it. In a word (-DX=a#b, $$#) it is a character like
+				# any. A trace has none: sh -x prints a word that starts with
+				# # unquoted.
+				if (k != "trace" && c == "#" && !inw) { cmt = 1; continue }
+				if (c == " " || c == "\t" || c == "\n") {
 					if (inw) endword()
 					continue
 				}
@@ -1047,6 +1493,16 @@ compile_cmds() {
 					if (inw) endword()
 					redir = 0
 					judge(t)
+					lastop = c
+					if (c == "(") paren++
+					else if (c == ")" && paren > 0) paren--
+					# && and ||: the command after one runs on the status
+					# of the one before, and so does every later one.
+					if ((c == "&" || c == "|") && i < L && substr(line, i + 1, 1) == c) {
+						i++
+						cond = 1
+						lastop = c c
+					}
 					continue
 				}
 				cur = cur c
@@ -1056,22 +1512,58 @@ compile_cmds() {
 			judge(t)
 		}
 		# endword: the word read so far ends. It is the next word of the
-		# command -- or, after a redirection operator, its target, and dropped.
+		# command -- or, after a redirection operator, its target, which is no
+		# word of it and is kept apart (R), for recipe_cmds.
 		function endword() {
-			if (redir) redir = 0
+			gsub(/\n/, " ", cur)
+			if (redir) { redir = 0; R[++nr] = cur }
 			else W[++nw] = cur
 			cur = ""
 			inw = 0
+			lastop = ""
 		}
 		# oneline LINE: one line of the file, and every `sh -c` string in
-		# it, and in those.
-		function oneline(l,    x) {
+		# it, and in those -- each run by a shell of its own, so its
+		# commands are via (insh: the HOW of recipe_cmds).
+		#
+		# COND: the line has gone into a branch -- a then, else, elif or
+		# do, a case, an && or an || -- and its later commands run only on
+		# a condition. Each is branch (HOW2): a forbidden call the build did
+		# not log may be one in a branch this box did not take (`if [
+		# "$$(uname)" = Darwin ]; then libtool ...`), and is never read as
+		# text, so the verdict is the same on a box that takes it
+		# (tool_phantoms). A line that leaves an if, a case
+		# or a loop open (DEPTH) carries COND to the next: a .ONESHELL
+		# recipe runs its lines in one shell, and elsewhere the shell
+		# refuses the line, so the build that would judge it stops there.
+		# So does a line in a branch left open at its end (CONT): one that
+		# ends on an && or an ||, or on a | or with a { or a ( still open
+		# once COND is set -- `false &&` with libtool on the next line of a
+		# .ONESHELL recipe was read as plain, and a call no build ran was
+		# set aside as text (V223). A } or ) that closes it ends the carry.
+		function oneline(l,    x, d, c, o, bd, pd) {
 			ninner = 0
+			insh = 0
+			if (depth < 0) depth = 0
+			if (depth == 0 && !cont) { cond = 0; brace = 0; paren = 0 }
+			lastop = ""
 			cmdline(l, kind)
+			d = depth
+			c = cond
+			bd = brace
+			pd = paren
+			o = (lastop == "&&" || lastop == "||" ||
+				(cond && (lastop == "|" || brace > 0 || paren > 0)))
+			insh = 1
 			while (ninner > 0) {
 				x = inner[ninner--]
 				cmdline(x, "make")
 			}
+			depth = d
+			cond = c
+			brace = bd
+			paren = pd
+			cont = o
 		}
 		# A recipe line that ends in a backslash goes on to the next, as the
 		# shell reads it: make prints the backslash and the newline as they
@@ -1081,7 +1573,7 @@ compile_cmds() {
 		# each command on one line, and needs none of it.
 		kind != "trace" && pend != "" { $0 = pend $0; pend = "" }
 		kind != "trace" && match($0, /\\+$/) && RLENGTH % 2 == 1 {
-			pend = substr($0, 1, length($0) - 1) " "
+			pend = substr($0, 1, length($0) - 1) "\n"
 			next
 		}
 		{ oneline($0) }
@@ -1095,8 +1587,14 @@ compile_cmds() {
 # block with its stderr sent away -- which made exNN_build_recipe SKIP,
 # saying no compile ran. What a Makefile compiles is read from `make -n`,
 # which prints a shell loop and not its turns. A compiler run by name goes
-# through PATH whatever the trace or the plan shows. Only a compiler that is
-# there gets one, so a name that is not found stays not found.
+# through PATH whatever the trace or the plan shows. The names are every name
+# THE PINNED TOOLCHAIN gives a compiler under (cc, clang, clang-12, gcc,
+# gcc-10, c89, c99): a compile through clang-12 or gcc-10 had none, and with
+# the trace off, or the name in a shell variable, it was judged nowhere -- a
+# SKIP, or an OK beside a compile that was seen (V298). Only a compiler that
+# is there gets one, so a name that is not found stays not found. Handed the
+# pinned tools, every name is there, and is $AUX/pinbin's: the stand-in runs
+# what `command -v` finds, which is the pinned one (THE PINNED TOOLCHAIN).
 #
 # Each word is logged as sh -x would print it, in single quotes when it holds
 # anything but letters, digits and . _ / = + : , @ % ^ -, so compile_cmds
@@ -1107,14 +1605,74 @@ cc_shims() {
 	mkdir -p "$AUX/ccshim"
 	: > "$AUX/ccshim.log"
 	: > "$AUX/ccshim.bypass"
-	for _n in cc gcc clang c89 c99; do
+	: > "$AUX/ccshim.srcdirs"
+	for _n in cc gcc clang c89 c99 clang-12 gcc-10; do
 		_r=$(command -v "$_n" 2> /dev/null) || continue
 		case "$_r" in /*) ;; *) continue ;; esac
 		{
 			echo '#!/bin/sh'
 			echo "# make_test.sh: logs this call of $_n, then runs it."
-			echo "{ printf '+ %s' '$_n'"
-			cat <<'SHIM_EOF'
+			shim_log "$_n" "$AUX/ccshim.log"
+			# The folder of each source it is handed (shim_srcdirs), and
+			# each name stood in for that this call's PATH finds elsewhere
+			# than its stand-in (shim_bypass).
+			shim_srcdirs
+			shim_bypass
+			echo "exec '$_r' \"\$@\""
+		} > "$AUX/ccshim/$_n"
+		chmod +x "$AUX/ccshim/$_n"
+	done
+	tool_shims
+}
+
+# tool_shims: in $AUX/ccshim/ too, a stand-in for the --archiver and each
+# --forbidden-command, which writes the call to $AUX/toolshim.log, as sh -x
+# would print it, and runs the tool. The plan shows `ar rcs $$lib $$o` in a
+# loop with the shell's variables in it; the stand-in logs what the shell
+# made of them.
+#
+# A tool that is NOT on PATH gets one too, which logs the call and then does
+# what the shell does with a name it cannot find: says so, and returns 127.
+# Without it, `T=libtool; $$T ...` -- a name only the shell spells out -- was
+# a FAIL on a box with libtool and a pass on one without: the verdict was
+# the host's. A name the shell finds as no file (a builtin) gets none, and
+# neither does a compiler's: its own stand-in (cc_shims) logs its calls, to
+# $AUX/ccshim.log, which recipe_cmds reads as well.
+tool_shims() {
+	: > "$AUX/toolshim.log"
+	_ts=$FORBID_CMDS
+	[ -z "$ARCHIVER" ] || rl_list_add _ts "$ARCHIVER"
+	rl_split_on
+	for _n in $_ts; do
+		rl_split_off
+		[ ! -e "$AUX/ccshim/$_n" ] || continue
+		_r=$(command -v "$_n" 2> /dev/null) || _r=""
+		case "$_r" in "" | /*) ;; *) continue ;; esac
+		{
+			echo '#!/bin/sh'
+			echo "# make_test.sh: logs this call of $_n, then runs it."
+			shim_log "$_n" "$AUX/toolshim.log"
+			shim_bypass
+			if [ -n "$_r" ]; then
+				echo "exec '$_r' \"\$@\""
+			else
+				echo "echo '$_n: not found' >&2"
+				echo "exit 127"
+			fi
+		} > "$AUX/ccshim/$_n"
+		chmod +x "$AUX/ccshim/$_n"
+	done
+	rl_split_off
+}
+
+# shim_log NAME LOG: the lines a stand-in starts with, which write its call
+# of NAME to LOG as sh -x would print it (cc_shims). One copy for every
+# stand-in: the tools' own once escaped a ' as ''' and not as '\'' -- a
+# word read back as another, so a call that ran matched no plan line, was
+# called text the Makefile prints, and its FAIL showed the mangled word.
+shim_log() {
+	echo "{ printf '+ %s' '$1'"
+	cat <<'SHIM_EOF'
   for a in "$@"; do
     case "$a" in
       '' | *[!A-Za-z0-9_./=+:,@%^-]*)
@@ -1124,18 +1682,33 @@ cc_shims() {
   done
   echo
 SHIM_EOF
-			echo "} >> '$AUX/ccshim.log'"
-			# And each compiler name this call's PATH finds elsewhere than
-			# its stand-in: a Makefile that puts a folder of its own first
-			# on PATH runs the compiler past the stand-ins, which then log
-			# nothing of it (merge_compiles' phantoms).
-			echo "for _x in cc gcc clang c89 c99; do [ ! -x '$AUX/ccshim/'\"\$_x\" ] ||" \
-				"[ \"\$(command -v \"\$_x\" 2> /dev/null)\" = '$AUX/ccshim/'\"\$_x\" ] ||" \
-				"echo \"\$_x\"; done >> '$AUX/ccshim.bypass'"
-			echo "exec '$_r' \"\$@\""
-		} > "$AUX/ccshim/$_n"
-		chmod +x "$AUX/ccshim/$_n"
-	done
+	echo "} >> '$2'"
+}
+
+# shim_srcdirs: the lines a compiler's stand-in writes, after its call, the
+# folder of each .c it is handed with, to $AUX/ccshim.srcdirs: the path with
+# no symbolic link in it (pwd -P), from where the compiler runs. A sub-make
+# compiles from its own folder (`$(MAKE) -C lib` runs `cc -c x.c` in lib/),
+# so a source's folder in this tree is read here, never from the line alone
+# (the decoy of --wildcards-only).
+shim_srcdirs() {
+	cat <<'SHIM_EOF'
+for _a in "$@"; do
+  case "$_a" in -*) continue ;; */*.c) _d=${_a%/*} ;; *.c) _d=. ;; *) continue ;; esac
+  (CDPATH= cd -P "${_d:-/}" 2> /dev/null && pwd -P)
+SHIM_EOF
+	echo "done >> '$AUX/ccshim.srcdirs'"
+}
+
+# shim_bypass: the line a stand-in ends its log with -- each name stood in
+# for that this call's PATH finds elsewhere than its stand-in, appended to
+# $AUX/ccshim.bypass. A Makefile that puts a folder of its own first on PATH
+# runs that name past the stand-ins, which then log nothing of it
+# (merge_compiles' phantoms, and tool_phantoms').
+shim_bypass() {
+	echo "for _p in '$AUX/ccshim/'*; do _x=\${_p##*/};" \
+		"[ \"\$(command -v \"\$_x\" 2> /dev/null)\" = \"\$_p\" ] ||" \
+		"echo \"\$_x\"; done >> '$AUX/ccshim.bypass'"
 }
 
 # merge_compiles FIRST SHIM: $AUX/recipe_all, every compile FIRST holds
@@ -1153,7 +1726,9 @@ SHIM_EOF
 #
 # PHANTOMS (1, from plan_compiles) lets a plan line no build ran be set
 # aside as text the Makefile printed, and WRITTEN names, one per line, the
-# files that build wrote (their last component).
+# files that build wrote (their last component). $AUX/plan_moved holds the
+# plan lines where the PATH a command is looked up in may not be the one
+# the line started with (plan_compiles).
 merge_compiles() {
 	: > "$AUX/recipe_hidden"
 	: > "$AUX/recipe_phantom"
@@ -1174,7 +1749,8 @@ merge_compiles() {
 		done
 	fi
 	awk -F'\t' -v hidden="$AUX/recipe_hidden" -v phantom="$AUX/recipe_phantom" \
-		-v phantoms="${3:-0}" -v shimmed=" $_mc_shimmed" -v written="${4:-/dev/null}" '
+		-v phantoms="${3:-0}" -v shimmed=" $_mc_shimmed" -v written="${4:-/dev/null}" \
+		-v movedf="$AUX/plan_moved" '
 		# The last components of the files the compile W writes: what
 		# follows -o; else, with -c, each source as its .o; else a.out.
 		function outs(w, o,    nw3, ww, i, out, hasc, k, b) {
@@ -1193,7 +1769,10 @@ merge_compiles() {
 				if (ww[i] ~ /\.c$/) { b = ww[i]; sub(/.*\//, "", b); sub(/\.c$/, ".o", b); o[++k] = b }
 			return k
 		}
-		BEGIN { while ((getline l < written) > 0) wrote[l] = 1 }
+		BEGIN {
+			while ((getline l < written) > 0) wrote[l] = 1
+			while ((getline l < movedf) > 0) moved[l] = 1
+		}
 		# Does the logged command W match the template T, word by word?
 		function fits(t, w,    nt, nw2, tw, ww, i, a, b, p, q) {
 			nt = split(t, tw, " ")
@@ -1242,24 +1821,32 @@ merge_compiles() {
 				# $(info ...) and $(warning ...) print to the same stream as
 				# the commands make -n plans, and `$(info gcc -c x.c)` read
 				# as a gcc compile -- failed, or counted twice beside the
-				# one it repeated. Only where the plan line starts with
-				# that compiler (a wrapper -- ccache, env -- may run one
-				# past the stand-ins), the build it is checked against
-				# ran to its end (phantoms = 1, plan_compiles), and that
-				# compiler was found as its stand-in (shimmed). And where
-				# nothing else wrote what it would have: a file of its
-				# output name the build wrote, and no logged compile did,
-				# was written by something the stand-ins did not see --
-				# that compiler run under a PATH one target sets.
+				# one it repeated. Each COMPILE of a line is judged, not the
+				# first word of the line ($(info [x] building; gcc -c x.c)
+				# is text too), by the rule tool_phantoms keeps for a
+				# forbidden command: the shell finds that compiler by its
+				# bare name in the PATH the line started with (HOW is bare: a
+				# wrapper -- ccache, env -- may run one past the stand-ins),
+				# in no branch of the shell (HOW2 is plain: a compile in a
+				# branch this box did not take is judged as one, so the
+				# verdict is the same on a box that takes it -- a .ONESHELL if
+				# that left it on a line of its own was set aside as text,
+				# V212), and nothing on its line can have changed that PATH
+				# (plan_moved). Only where the build it is checked against ran
+				# to its end (phantoms = 1, plan_compiles), and that compiler
+				# was found as its stand-in (shimmed). And where nothing else
+				# wrote what it would have: a file of its output name the
+				# build wrote, and no logged compile did, was written by
+				# something the stand-ins did not see -- that compiler run
+				# under a PATH one target sets.
 				if (phantoms == 1 && index(fw[i], "$") == 0 && n[fw[i]] > 0) {
 					split(fw[i], cw, " ")
 					split(first[i], ff, "\t")
-					split(ff[3], lw, " ")
 					unseen_out = 0
 					k = outs(fw[i], po)
 					for (x = 1; x <= k; x++)
 						if ((po[x] in wrote) && !(po[x] in logged_out)) unseen_out = 1
-					if (cw[1] == lw[1] && index(cw[1], "/") == 0 && !unseen_out &&
+					if (ff[5] == "bare" && ff[6] == "plain" && !(ff[3] in moved) && !unseen_out &&
 					    index(shimmed, " " cw[1] " ") > 0) {
 						n[fw[i]]--
 						print first[i] > phantom
@@ -1272,6 +1859,137 @@ merge_compiles() {
 				if (late[j]) { print shim[j] > hidden; print shim[j] }
 		}' \
 		"$1" "$2" > "$AUX/recipe_all"
+}
+
+# AR_AWK: two awk functions, for the programs that read an archiver's
+# commands (archiver_verdict, tool_phantoms). last(W): W less its path.
+# archive(N): the ARCHIVE operand of the command in w[1..N] -- ar
+# [-]KEY[MODIFIERS] [RELPOS] [COUNT] ARCHIVE [MEMBER...] -- or "" where its
+# key neither creates nor adds (t, x, p, d, m, s alone). Its long options,
+# --plugin X and --target X among them, are skipped, and so are the RELPOS
+# that a, b or i, and the COUNT that N, put before it.
+AR_AWK='
+		function last(x) { sub(/.*\//, "", x); return x }
+		function archive(n,    i, x, key, mods, skip) {
+			key = 0
+			mods = ""
+			skip = -1
+			for (i = 2; i <= n; i++) {
+				x = w[i]
+				if (x ~ /^--/) {
+					if (x ~ /^--(plugin|target|output|record-libdeps)$/) i++
+					continue
+				}
+				if (x ~ /^-/ && skip < 0) {
+					mods = mods substr(x, 2)
+					if (x ~ /[dmpqrstx]/) key = 1
+					continue
+				}
+				if (!key) { mods = mods x; key = 1; continue }
+				if (skip < 0) skip = (mods ~ /[abi]/ ? 1 : 0) + (mods ~ /N/ ? 1 : 0)
+				if (skip > 0) { skip--; continue }
+				return (mods ~ /[rq]/ ? x : "")
+			}
+			return ""
+		}
+'
+
+# tool_phantoms: $AUX/cmds_all, every command the stand-ins logged
+# ($AUX/cmds_logged) and every one the plan shows ($AUX/cmds_plan) less its
+# PHANTOMS, which go to $AUX/cmds_phantom: as for the compiles
+# (merge_compiles), $(info ...) and $(warning ...) print to the stream the
+# plan is read from, and `$(info libtool is not used here)` read as a call
+# of libtool -- a FAIL over a Makefile that never runs it -- while `$(info ar
+# makes x.a)` above a recipe that cats x.a passed as made by ar.
+#
+# Each COMMAND of a plan line is judged, not the line's first word: in
+# `$(info [x] archiving; libtool is not used)` the word libtool starts the
+# second command the line reads as, and the line's first word is [x]. A
+# command is a phantom when its tool is the --archiver or a
+# --forbidden-command, and no other -- a compiler's phantoms are
+# merge_compiles', and a project that asked for none of these checks is
+# told nothing new -- whose stand-in the build's recipes found by that name
+# (in no call's PATH elsewhere: shim_bypass); the shell would find it by that
+# bare name in the line's own PATH (HOW is bare, recipe_cmds: no path, no
+# wrapper or assignment before it, not in an `sh -c` string), in no branch
+# of the shell for a forbidden command (HOW2 is plain: a call this box did
+# not take is no text) and in a branch or not for the archiver, and
+# nothing on its line can have changed that PATH (no PATH in the line, no
+# `.`, source or eval on it); the build of the copy ran to its end (it
+# made '$ARTIFACT' and returned 0) with some stand-in reached; and no
+# logged call of that tool has its words -- each logged call accounts for
+# one plan command. A command with a word the shell expands ($, a glob, ~,
+# a brace) is never one: the call it stands for is logged with other
+# words. A tool a Makefile runs past every stand-in -- a PATH of its own
+# set for one target, or by an earlier line of a .ONESHELL recipe -- leaves
+# its command read as text: for a forbidden command that is a FAIL missed,
+# a limit the compiles share.
+# For the archiver it would be a FAIL over a library ar made, so an
+# archiver command is kept where the build wrote its archive, no logged call
+# of the archiver did, and no other command the plan shows writes it (a
+# redirection, cp, mv, ln or install): something ran that line, past the
+# stand-ins.
+# The two err in opposite directions, on purpose. A forbidden command in a
+# branch stays a call whether this box takes the branch or not: a miss is a
+# false green. An archiver command makes the artifact only where a stand-in
+# logged it or it is no phantom by the rules above, a branch or not: `cat
+# $^ > $@ || ar rcs $@ $^` and `if false; then ar ...; fi` before a cat
+# made the library with no ar, and counting the line would be the false
+# green. A Makefile that runs ar only on another system (`if [ "$$(uname)"
+# = Darwin ]; then ar ...; else cat ...; fi`) is read as this box's shell
+# resolves it, as make's own conditionals are.
+tool_phantoms() {
+	: > "$AUX/cmds_phantom"
+	_tp_on=0
+	if [ "$SHIM_BUILT" = 1 ] && [ "$SHIM_RC" -eq 0 ] &&
+		{ [ -s "$AUX/ccshim.log" ] || [ -s "$AUX/toolshim.log" ]; }; then
+		_tp_on=1
+	fi
+	_tp_shimmed=
+	_tp_names=$FORBID_CMDS
+	[ -z "$ARCHIVER" ] || rl_list_add _tp_names "$ARCHIVER"
+	rl_split_on
+	for _tp_n in $_tp_names; do
+		rl_split_off
+		[ -f "$AUX/ccshim/$_tp_n" ] || continue
+		grep -qxF -- "$_tp_n" "$AUX/ccshim.bypass" 2> /dev/null ||
+			_tp_shimmed="$_tp_shimmed$_tp_n "
+	done
+	rl_split_off
+	awk -F'\t' -v on="$_tp_on" -v shimmed=" $_tp_shimmed" -v phantom="$AUX/cmds_phantom" \
+		-v t="$ARCHIVER" -v written="$AUX/shim_written" "$AR_AWK"'
+		BEGIN { while ((getline l < written) > 0) wrote[l] = 1 }
+		FNR == 1 { f++ }
+		f == 1 {
+			logged[$2 FS $4]++
+			if ($2 == t && (x = archive(split($4, w, " "))) != "") logw[last(x)] = 1
+			print
+			next
+		}
+		# The plan, a first time: the files a command other than the
+		# archiver writes, by a redirection or as what cp, mv, ln or
+		# install puts in place; and the lines where the PATH a command
+		# is looked up in may not be the one the line started with.
+		f == 2 {
+			if ($3 ~ /PATH/ || $2 == "." || $2 == "source" || $2 == "eval") moved[$3] = 1
+			if ($2 == t) next
+			n = split($5, w, " ")
+			for (i = 1; i <= n; i++) vis[last(w[i])] = 1
+			if ($2 == "cp" || $2 == "mv" || $2 == "ln" || $2 == "install") {
+				n = split($4, w, " ")
+				if (n > 1) vis[last(w[n])] = 1
+			}
+			next
+		}
+		# A branch (HOW2) keeps a forbidden call, never the archiver.
+		on && $1 == "cmd" && $6 == "bare" && ($7 == "plain" || $2 == t) &&
+		    !($3 in moved) && $4 !~ /[$*?[~{]/ && index(shimmed, " " $2 " ") > 0 {
+			if (logged[$2 FS $4] > 0) logged[$2 FS $4]--
+			else if ($2 == t && (x = archive(split($4, w, " "))) != "" &&
+			    (last(x) in wrote) && !(last(x) in logw) && !(last(x) in vis)) ;
+			else { print > phantom; next }
+		}
+		{ print }' "$AUX/cmds_logged" "$AUX/cmds_plan" "$AUX/cmds_plan" > "$AUX/cmds_all"
 }
 
 # made_objects DIR BEFORE: the objects under DIR that are not in the list
@@ -1338,6 +2056,11 @@ plan_compiles() {
 	mk "$DRY" - "make -n" "$MAKE_BIN" -n
 	DRY_RC=$RC
 	compile_cmds "$DRY" make > "$AUX/recipe_plan"
+	# The plan lines where the PATH a command is looked up in may not be the
+	# one the line started with: PATH in the line, or a `.`, source or eval
+	# on it (merge_compiles' phantoms, as tool_phantoms' moved).
+	recipe_cmds "$DRY" make | awk -F'\t' '$3 ~ /PATH/ || $2 == "." || $2 == "source" || $2 == "eval" { print $3 }' |
+		sort -u > "$AUX/plan_moved"
 	rm -rf "$AUX/shimtree"
 	mkdir "$AUX/shimtree" && cp -R "$WORK"/. "$AUX/shimtree"/ || {
 		echo "make_test.sh: cannot copy the tree to build it with the compilers logged" >&2
@@ -1348,9 +2071,12 @@ plan_compiles() {
 	PATH="$AUX/ccshim:$PATH"
 	export PATH
 	cd "$AUX/shimtree" || { echo "make_test.sh: cannot enter the copy of the tree" >&2; exit 2; }
+	# Where the copy is, as shim_srcdirs writes a folder.
+	SHIM_TREE=$(pwd -P)
 	made_objects "$AUX/shimtree" /dev/null > "$AUX/shim_before"
 	tree_sums > "$AUX/shim_sums_before"
 	mk "$AUX/shimbuild" - "make" "$MAKE_BIN"
+	SHIM_RC=$RC
 	made_objects "$AUX/shimtree" "$AUX/shim_before" > "$AUX/shim_made"
 	# Every file the build wrote or changed, by its last component, for
 	# merge_compiles' phantoms. By content, not by time (made_objects).
@@ -1366,6 +2092,18 @@ plan_compiles() {
 	rm -rf "$AUX/shimtree"
 	RC=$DRY_RC
 	compile_cmds "$AUX/ccshim.log" trace > "$AUX/recipe_shim"
+	# Every command, for the archiver and the forbidden commands: what the
+	# plan shows, less its phantoms, and what the stand-ins logged. Only
+	# where one of those checks was asked for: a project that asked for none
+	# is told nothing new.
+	if [ -n "$ARCHIVER$FORBID_CMDS$FORBID_FLAGS" ]; then
+		recipe_cmds "$DRY" make > "$AUX/cmds_plan"
+		{
+			recipe_cmds "$AUX/toolshim.log" trace
+			recipe_cmds "$AUX/ccshim.log" trace
+		} > "$AUX/cmds_logged"
+		tool_phantoms
+	fi
 	merge_compiles "$AUX/recipe_plan" "$AUX/recipe_shim" "$SHIM_BUILT" "$AUX/shim_written"
 	unseen_compiles "$AUX/shim_made"
 	if [ -s "$AUX/recipe_phantom" ]; then
@@ -1373,6 +2111,27 @@ plan_compiles() {
 		echo "  build ran them: text the Makefile prints (\$(info ...), \$(warning ...)),"
 		echo "  not a command. Not judged:"
 		awk -F'\t' '{ print "    " $3 }' "$AUX/recipe_phantom" | sort -u
+	fi
+	# A phantom in a branch of the shell (HOW2) is no text: it is the
+	# archiver's, on a way this box's shell did not go (tool_phantoms).
+	: > "$AUX/cmds_phantom_lines"
+	: > "$AUX/cmds_branch_lines"
+	if [ -s "$AUX/cmds_phantom" ]; then
+		awk -F'\t' '$7 != "branch" { print $3 }' "$AUX/cmds_phantom" | sort -u > "$AUX/cmds_phantom_lines"
+		awk -F'\t' '$7 == "branch" { print $3 }' "$AUX/cmds_phantom" | sort -u > "$AUX/cmds_branch_lines"
+	fi
+	if [ -s "$AUX/cmds_phantom_lines" ]; then
+		echo "make_test.sh: NOTE — $(wc -l < "$AUX/cmds_phantom_lines" | tr -d ' ') line(s) 'make -n' printed read like a call of"
+		echo "  $(words_list "$(awk -F'\t' '$7 != "branch" { print $2 }' "$AUX/cmds_phantom" | sort -u)"), and no build ran them: text the Makefile prints"
+		echo "  (\$(info ...), \$(warning ...)), not a command. Not judged:"
+		rl_excerpt "$AUX/cmds_phantom_lines" 10 phantom-commands.txt
+	fi
+	if [ -s "$AUX/cmds_branch_lines" ]; then
+		echo "make_test.sh: NOTE — $(wc -l < "$AUX/cmds_branch_lines" | tr -d ' ') line(s) 'make -n' printed call $ARCHIVER in a branch of the"
+		echo "  shell (then, else, elif, a loop's do, a case, after && or ||) that no build"
+		echo "  took here: that call made nothing, and does not count as making"
+		echo "  '$ARTIFACT':"
+		rl_excerpt "$AUX/cmds_branch_lines" 10 branch-commands.txt
 	fi
 	if [ -s "$AUX/recipe_hidden" ]; then
 		echo "make_test.sh: NOTE — $(wc -l < "$AUX/recipe_hidden" | tr -d ' ') compile command(s) a bare 'make' ran are not in what"
@@ -1442,6 +2201,189 @@ recipe_ok() {
 	fi
 }
 
+# ------------------------------------- how the artifact is made, and with what
+# Judged after the build made '$ARTIFACT', from what plan_compiles read before
+# it: every command `make -n` planned and every call a tool's stand-in logged
+# ($AUX/cmds_all, recipe_cmds' records), and every compile ($AUX/recipe_all).
+# Each FAIL lists the commands it found, as make printed the line they are
+# on, and quotes the sentence the call site passed.
+
+# words_list LIST: "a", "a, b" -- a list (one word a line), for a line
+# that names what was asked.
+words_list() {
+	printf '%s\n' "$1" | awk '{ printf "%s%s", (NR == 1 ? "" : ", "), $0 }'
+}
+
+# forbidden_cmd_verdict: FAIL when a command a bare `make` runs is one of the
+# --forbidden-command names, by its command word less its path.
+forbidden_cmd_verdict() {
+	awk -F'\t' -v names="$(blanked "$FORBID_CMDS")" '
+		$1 == "cmd" && index(names, " " $2 " ") > 0 && !seen[$3 FS $2]++ {
+			print $3; print "      (" $2 ")"
+		}' "$AUX/cmds_all" > "$AUX/forbidden_cmds"
+	_fn=$(words_list "$FORBID_CMDS")
+	if [ ! -s "$AUX/forbidden_cmds" ]; then
+		echo "make_test.sh: no command a bare 'make' runs is $_fn."
+		return 0
+	fi
+	{
+		echo "make_test.sh: FAIL — a bare 'make' runs a command it may not ($_fn):"
+		rl_excerpt "$AUX/forbidden_cmds" 20 forbidden-commands.txt
+		echo ""
+		echo "  The sentence this applies:"
+		say forbidden_command
+		echo "  Under each line is the command found on it (what make printed, or what"
+		echo "  the shell ran). Which rule of your Makefile runs it?"
+	} >&2
+	exit 1
+}
+
+# forbidden_on_failure: under the FAIL of a build that made no '$ARTIFACT',
+# the --forbidden-command it called (a stand-in logged the call), with the
+# sentence. A tool that is not on this box fails the build before
+# forbidden_cmd_verdict could run, and the student met "libtool: No such
+# file" where a box that has it gave the sentence: the lesson was the
+# host's, and installing the tool its answer. With no such call logged, the
+# lines of the plan that read like one are shown as lines, never as a call:
+# a build that stopped was never there to tell a call from $(info ...) text
+# (tool_phantoms), and "make -n shows a call of libtool" over a line of text
+# sent the student looking for a call that was not in the Makefile.
+forbidden_on_failure() {
+	[ -f "$AUX/cmds_logged" ] || return 0
+	_fo_names=$(blanked "$FORBID_CMDS")
+	_fo_ran=$(awk -F'\t' -v names="$_fo_names" '
+		$1 == "cmd" && index(names, " " $2 " ") > 0 && !seen[$2]++ { print $2 }' "$AUX/cmds_logged")
+	if [ -n "$_fo_ran" ]; then
+		echo "  On the way the build calls $(words_list "$_fo_ran"), which this sentence rules out:"
+	else
+		awk -F'\t' -v names="$_fo_names" '
+			$1 == "cmd" && index(names, " " $2 " ") > 0 && !seen[$3]++ { print $3 }' \
+			"$AUX/cmds_all" > "$AUX/forbidden_plan"
+		[ -s "$AUX/forbidden_plan" ] || return 0
+		_fo_ran=$(awk -F'\t' -v names="$_fo_names" '
+			$1 == "cmd" && index(names, " " $2 " ") > 0 && !seen[$2]++ { print $2 }' "$AUX/cmds_all")
+		echo "  'make -n' prints $(wc -l < "$AUX/forbidden_plan" | tr -d ' ') line(s) that read like a call of $(words_list "$_fo_ran"):"
+		rl_excerpt "$AUX/forbidden_plan" 10 forbidden-lines.txt
+		echo "  If a rule of your Makefile runs it (and it is not text the Makefile"
+		echo "  prints, as \$(info ...) does), this sentence rules it out:"
+	fi
+	say forbidden_command
+}
+
+# archiver_verdict: FAIL when no command a bare `make` runs has the
+# --archiver for its command word and '$ARTIFACT' among its words. The
+# commands that name '$ARTIFACT' -- among their words, or as the file a
+# redirection writes -- are listed, so the student sees what made it.
+archiver_verdict() {
+	# Made by the archiver: one of its commands creates or updates (its key
+	# holds r or q) an archive named '$ARTIFACT', in this directory or
+	# another -- or cp, mv, ln or install puts in place as '$ARTIFACT' a file
+	# of the name of an archive one of them wrote, compared by its last
+	# component, as `cd dir && ar rcs x.a ...` and `cp dir/x.a ...` spell
+	# the one file two ways. Whether an archive the archiver wrote under
+	# another name or elsewhere, and a command then moved, was "made" by it
+	# is a reading, and this check keeps to what every reading agrees on: a
+	# library no archive the archiver wrote became. The ARCHIVE is the
+	# operand ar takes it to be -- ar [-]KEY[MODIFIERS] [RELPOS] [COUNT]
+	# ARCHIVE [MEMBER...] -- never a member: `ar rcs other.a x.o && cp x.o
+	# lib.a` puts an object in place, and no archive.
+	if awk -F'\t' -v t="$ARCHIVER" -v a="$ARTIFACT" '
+		function names(w) { return w == a || substr(w, length(w) - length(a)) == "/" a }
+'"$AR_AWK"'
+		$1 != "cmd" { next }
+		$2 == t {
+			x = archive(split($4, w, " "))
+			if (x == "") next
+			if (names(x)) made = 1
+			arw[last(x)] = 1
+			next
+		}
+		$2 == "cp" || $2 == "mv" || $2 == "ln" || $2 == "install" { put[++np] = $4 }
+		END {
+			if (made) exit 0
+			for (j = 1; j <= np; j++) {
+				n = split(put[j], w, " ")
+				if (!names(w[n])) continue
+				for (i = 2; i < n; i++) if (w[i] !~ /^-/ && (last(w[i]) in arw)) exit 0
+			}
+			exit 1
+		}' "$AUX/cmds_all"; then
+		echo "make_test.sh: '$ARTIFACT' is made by $ARCHIVER: a command a bare 'make' runs is"
+		echo "  $ARCHIVER writing the archive '$ARTIFACT' (or one put in place as '$ARTIFACT')."
+		return 0
+	fi
+	awk -F'\t' -v a="$ARTIFACT" '
+		function names(w) { return w == a || substr(w, length(w) - length(a)) == "/" a }
+		$1 == "cmd" {
+			hit = 0
+			n = split($4, w, " ")
+			for (i = 2; i <= n; i++) if (names(w[i])) hit = 1
+			n = split($5, w, " ")
+			for (i = 1; i <= n; i++) if (names(w[i])) hit = 1
+			if (hit && !seen[$3 FS $2]++) { print $3; print "      (" $2 ")" }
+		}' "$AUX/cmds_all" > "$AUX/artifact_cmds"
+	{
+		echo "make_test.sh: FAIL — '$BUILDER' built '$ARTIFACT', but not with $ARCHIVER: no command"
+		echo "  it runs is $ARCHIVER writing an archive named '$ARTIFACT'."
+		if [ -s "$AUX/artifact_cmds" ]; then
+			echo "  These commands name '$ARTIFACT' (under each line -- what make printed,"
+			echo "  or what the shell ran -- the command on it that names it):"
+			rl_excerpt "$AUX/artifact_cmds" 20 artifact-commands.txt
+		else
+			echo "  No command 'make -n' printed names '$ARTIFACT', and no call of"
+			echo "  $ARCHIVER that a build ran names it either."
+		fi
+		echo ""
+		echo "  The sentence this applies:"
+		say archiver
+		echo "  Which command in your Makefile creates '$ARTIFACT'?"
+	} >&2
+	exit 1
+}
+
+# forbidden_flag_verdict: FAIL when a compile command holds one of the
+# --forbidden-flag words, whole. A plan with no compile in it judged none, and
+# says so: an OK would claim a check that never saw a command.
+forbidden_flag_verdict() {
+	_ff=$(words_list "$FORBID_FLAGS")
+	_fk=$(grep -c '^ok\|^bad' "$AUX/recipe_all")
+	if [ "$_fk" -eq 0 ]; then
+		echo "make_test.sh: NOTE — no compile command was looked at for $_ff: 'make -n'"
+		echo "  planned no command that compiles a .c file, and a build ran none."
+		return 0
+	fi
+	awk -F'\t' -v flags="$(blanked "$FORBID_FLAGS")" '
+		($1 == "ok" || $1 == "bad") {
+			n = split($4, w, " ")
+			hit = ""
+			for (i = 2; i <= n; i++)
+				if (w[i] != "" && index(flags, " " w[i] " ") > 0 && index(" " hit " ", " " w[i] " ") == 0)
+					hit = hit (hit == "" ? "" : " ") w[i]
+			if (hit != "" && !seen[$3 FS hit]++) { print $3; print "      (" hit ")"; bad++ }
+		}
+		END { exit !bad }' "$AUX/recipe_all" > "$AUX/forbidden_flags" || {
+		echo "make_test.sh: none of the $_fk compile command(s) a bare 'make' runs passes $_ff."
+		return 0
+	}
+	_fb=$(awk -F'\t' -v flags="$(blanked "$FORBID_FLAGS")" '
+		($1 == "ok" || $1 == "bad") {
+			n = split($4, w, " ")
+			for (i = 2; i <= n; i++) if (w[i] != "" && index(flags, " " w[i] " ") > 0) { c++; break }
+		}
+		END { print c + 0 }' "$AUX/recipe_all")
+	{
+		echo "make_test.sh: FAIL — $_fb of the $_fk compile command(s) a bare 'make' runs pass $_ff:"
+		rl_excerpt "$AUX/forbidden_flags" 20 forbidden-flags.txt
+		echo ""
+		echo "  The sentence this applies:"
+		say forbidden_flag
+		echo "  make prints each command with its variables expanded, so a flag there"
+		echo "  comes from the recipe line itself or from a variable it uses. Which is"
+		echo "  it in your Makefile?"
+	} >&2
+	exit 1
+}
+
 # ---------------------------------------------------- what the recipes SAY
 # Runs BEFORE the build, and that is not a style choice: `make -n` on an
 # already-built tree prints "Nothing to be done", so every check below would
@@ -1462,7 +2404,13 @@ recipe_ok() {
 # the flags, so a Makefile that compiled one file right and the rest with gcc
 # passed (finding 097), and it ran for C 09 ex01 alone; it runs wherever the
 # call site quotes a sentence about cc (--recipe-cc).
-if [ "$MODE" = build ] && [ -z "$SCRIPT" ] && { [ -n "$RECIPE_CC" ] || [ "$GRAPH" = 1 ]; }; then
+#
+# The archiver and the forbidden commands and flags are read from the same
+# plan (and the same build of a copy), here, and judged once the build below
+# has made '$ARTIFACT': a FAIL about how a library is made, over a build that
+# made none, would be news about the wrong thing.
+if [ "$MODE" = build ] && [ -z "$SCRIPT" ] &&
+	{ [ -n "$RECIPE_CC" ] || [ "$GRAPH" = 1 ] || [ -n "$ARCHIVER$FORBID_CMDS$FORBID_FLAGS" ]; }; then
 	plan_compiles
 	# Nothing to judge. Where the build's own lesson is its compile commands
 	# and their graph (--graph: C 09 ex01), a plan with no compile in it is the
@@ -1470,7 +2418,9 @@ if [ "$MODE" = build ] && [ -z "$SCRIPT" ] && { [ -n "$RECIPE_CC" ] || [ "$GRAPH
 	# a Makefile that compiles nothing produced, and a recipe check that saw
 	# no compile claims none was right.
 	if ! grep -q '^ok\|^bad' "$AUX/recipe_all" && [ "$GRAPH" = 0 ]; then
-		if [ "$DRY_RC" -eq 0 ]; then
+		if [ -z "$RECIPE_CC" ]; then
+			:
+		elif [ "$DRY_RC" -eq 0 ]; then
 			echo "make_test.sh: NOTE — no compile command was judged against the sentence about cc:"
 			echo "  'make -n' planned no command that compiles a .c file, and a build ran none."
 		else
@@ -1594,20 +2544,33 @@ fi
 # source the Makefile compiles (the directories of the .c files `make -n`
 # plans and a build runs -- plan_compiles -- as the grader's own files could
 # sit beside yours); a Makefile that names its sources never touches it, and
-# one that takes *.c compiles it -- and the decoy is an #error that says so. The FOREIGN OBJECT goes beside
+# one that takes *.c compiles it -- and the decoy is an #error that says so.
+# The FOREIGN OBJECT goes beside
 # the objects the build made, before each cleaning rule (see ensure_foreign).
+#
+# A line of the plan names a source from where its make runs, and a
+# sub-make runs in its own folder: `$(MAKE) -C lib` plans `cc -c x.c` for
+# lib/x.c. Read from the top, the decoy went beside the top Makefile alone,
+# and a lib/Makefile taking *.c never met it. So the folders a compiler's
+# stand-in was handed a source in (shim_srcdirs), where that build ran, are
+# read too. A compiler run by its path in a sub-make (/usr/bin/cc) has no
+# stand-in: its sources are placed from the line alone, from the top.
 DECOY="zz_harness_decoy_not_in_your_makefile.c"
 if [ "$MODE" = wildcards ]; then
 	plan_compiles
-	# Every .c operand of a compile planned or run, as a directory of this
-	# tree.
-	awk -F'\t' '$1 == "ok" || $1 == "bad" { print $3 }' "$AUX/recipe_all" |
-		tr ' \t;&|()' '\n\n\n\n\n\n\n' | sed -n 's/^["'\'']*\(.*\.c\)["'\'']*$/\1/p' |
-		while IFS= read -r _c; do
-			_d=$(dirname "$_c")
-			case "$_d" in /* | .. | ../* | */.. | */../*) continue ;; esac
-			[ -d "$_d" ] && printf '%s\n' "$_d"
-		done | sort -u > "$AUX/decoy_dirs"
+	# Every .c operand of a compile planned or run, and every folder a
+	# compiler's stand-in was handed one in, as a directory of this tree.
+	{
+		awk -F'\t' '$1 == "ok" || $1 == "bad" { print $3 }' "$AUX/recipe_all" |
+			tr ' \t;&|()' '\n\n\n\n\n\n\n' | sed -n 's/^["'\'']*\(.*\.c\)["'\'']*$/\1/p' |
+			while IFS= read -r _c; do dirname "$_c"; done
+		awk -v t="$SHIM_TREE" '
+			$0 == t { print "."; next }
+			index($0, t "/") == 1 { print substr($0, length(t) + 2) }' "$AUX/ccshim.srcdirs"
+	} | while IFS= read -r _d; do
+		case "$_d" in /* | .. | ../* | */.. | */../*) continue ;; esac
+		[ -d "$_d" ] && printf '%s\n' "$_d"
+	done | sort -u > "$AUX/decoy_dirs"
 	if [ ! -s "$AUX/decoy_dirs" ]; then
 		[ "${NO_SKIP:-0}" != "1" ] || {
 			echo "NO_SKIP set: neither 'make -n' (it exited with status $DRY_RC) nor a build planned or ran a command that compiles a .c file, so there was nowhere to put a decoy; $T_BUILD says why." >&2
@@ -1717,6 +2680,7 @@ if [ "$RC" -ne 0 ] && [ ! -f "$ARTIFACT" ]; then
 			echo "  Your Makefile has no rule yet, so make has nothing to run."
 			not_written_yet
 		fi
+		[ -z "$FORBID_CMDS" ] || forbidden_on_failure
 	} >&2
 	exit 1
 fi
@@ -1726,6 +2690,8 @@ if [ ! -f "$ARTIFACT" ]; then
 		echo "make_test.sh: FAIL — '$BUILDER' ran but did not produce '$ARTIFACT'." >&2
 	else
 		echo "make_test.sh: FAIL — 'make' succeeded but did not produce '$ARTIFACT'." >&2
+		# A forbidden tool whose failure the Makefile ignored (-libtool).
+		[ -z "$FORBID_CMDS" ] || forbidden_on_failure >&2
 	fi
 
 	# The overwhelmingly common cause is a name that is nearly right: a hyphen
@@ -1762,6 +2728,7 @@ if [ ! -f "$ARTIFACT" ]; then
 
 	if [ -n "$NEAR" ]; then
 		echo "" >&2
+		# conventions: the call site's --artifact -- the program name the subject gives
 		echo "  It built './$NEAR' instead. Those differ only in punctuation or" >&2
 		echo "  case, so this is a naming mismatch and not a build problem: the" >&2
 		echo "  subject gives the name '$ARTIFACT', and that spelling is the one" >&2
@@ -1804,6 +2771,15 @@ fi
 BUILD_RC=$RC
 status_note "$BUILDER" "built '$ARTIFACT', and"
 
+# How it was made, and with what (--forbidden-command, --archiver,
+# --forbidden-flag), now that it was: the forbidden command first, as the
+# tool that made an artifact no archiver did is the more exact finding.
+if [ "$MODE" = build ] && [ -z "$SCRIPT" ]; then
+	[ -z "$FORBID_CMDS" ] || forbidden_cmd_verdict
+	[ -z "$ARCHIVER" ] || archiver_verdict
+	[ -z "$FORBID_FLAGS" ] || forbidden_flag_verdict
+fi
+
 if [ -n "$SYMS" ] && [ "$MODE" = build ]; then
 	# AN ARCHIVE WITH NO MEMBER is news of its own. `ar rcs libft.a` over a
 	# source list that came out empty still writes the archive -- its magic
@@ -1818,8 +2794,8 @@ if [ -n "$SYMS" ] && [ "$MODE" = build ]; then
 			if [ "$(wc -c < "$ARTIFACT" | tr -d ' ')" -le 8 ]; then
 				{
 					echo "make_test.sh: FAIL — '$BUILDER' built '$ARTIFACT', and it is an empty archive:"
-					echo "  not one object file went into it, so none of the functions the"
-					echo "  subject asks for is there. The command that made it is in the"
+					echo "  not one object file went into it, so none of the functions this"
+					echo "  test looks for is there. The command that made it is in the"
 					echo "  output above: which files did it put in the archive, and which"
 					echo "  source files did your $BUILT_BY compile before it?"
 				} >&2
@@ -2246,7 +3222,11 @@ if [ -z "$SCRIPT" ]; then
 	# can start with `RULE:` too: a continued line is printed from its first
 	# column, so `echo x \` over a line `clean: objects` read as a clean rule,
 	# and a clean named only in .PHONY passed as one whenever that recipe's
-	# block came first.
+	# block came first. A target-specific variable (`clean: VAR = x`, any of
+	# =, :=, ::=, +=, ?= and !=) is printed as a line of that shape above its
+	# target's own `RULE:` line, in the same block, and is no header: read as
+	# one, `VAR = x` was a prerequisite, and a Makefile whose only clean was
+	# that variable passed as having a clean rule (V184).
 	rule_is_empty() {
 		mk "$AUX/db" /dev/null "make -npq .DEFAULT" "$MAKE_BIN" -npq .DEFAULT
 		awk -v t="$1" '
@@ -2257,6 +3237,8 @@ if [ -z "$SCRIPT" ]; then
 			inb { next }
 			/^# Not a target:/ { nt = 1; next }
 			/^#/ || blk { next }
+			index($0, t ":") == 1 &&
+			    substr($0, length(t) + 2) ~ /^[ \t]*[^ \t:=#]+[ \t]*(::?|[+?!])?=/ { next }
 			{ blk = 1 }
 			index($0, t ":") == 1 && !nt {
 				rest = substr($0, length(t) + 2)
@@ -2276,7 +3258,10 @@ if [ -z "$SCRIPT" ]; then
 	# as make's own do. A .PHONY the copy did not rename (an included
 	# makefile's) leaves the target phony there, and the answer stays no: the
 	# verdict this check gave before it existed. The database is read block by
-	# block, for rule_is_empty's reason.
+	# block, for rule_is_empty's reason, and a target-specific variable's line
+	# is skipped for it too: here the "# Not a target:" of a name only .PHONY
+	# gave comes after that line, so the line read as the header of a rule
+	# the Makefile writes.
 	rule_is_written() {
 		_rw_mf=
 		for _rw_f in GNUmakefile makefile Makefile; do
@@ -2298,6 +3283,8 @@ if [ -z "$SCRIPT" ]; then
 			inb { next }
 			/^# Not a target:/ { nt = 1; next }
 			/^#/ || blk { next }
+			index($0, t ":") == 1 &&
+			    substr($0, length(t) + 2) ~ /^[ \t]*[^ \t:=#]+[ \t]*(::?|[+?!])?=/ { next }
 			{ blk = 1 }
 			index($0, t ":") == 1 && !nt {
 				if (substr($0, length(t) + 2) ~ /^:/) exit

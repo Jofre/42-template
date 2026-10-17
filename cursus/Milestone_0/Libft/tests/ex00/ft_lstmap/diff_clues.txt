@@ -1,0 +1,6 @@
+  One list per line, and the new list ft_lstmap returns for it: f makes a new
+  int, x*3-1, for the int x each content points to.
+    * an int left as it was   -> "(a content f did not make)": what does a new
+                                 node hold, the old content or f's result?
+    * ints out of order       -> in which order are the old nodes handed to f?
+    * fewer nodes             -> where does the new list end?

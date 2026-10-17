@@ -23,12 +23,15 @@ load(":provenance.bzl", "toolchain_provenance_test")
 # layers whose verdict is ABOUT the compiler (which -Werror warnings exist)
 # were pinned long ago; the binaries every other layer runs were not.
 #
-# WHAT IS PINNED NOW: the compiler driver AND its libclang-cpp/libLLVM, the
-# archiver, both linkers AND libbfd/libctf/libopcodes under them, and clang's
-# own resource headers, sanitizer ignore lists and libclang_rt runtimes.
+# WHAT IS PINNED NOW: the compiler driver AND its libclang-cpp/libLLVM AND the
+# libxml2 and ICU libLLVM loads, the archiver, both linkers AND
+# libbfd/libctf/libopcodes under them, and clang's own resource headers,
+# sanitizer ignore lists and libclang_rt runtimes.
 #
 # WHAT CANNOT BE, and is not pretended: the system headers under /usr/include,
-# glibc, the crt objects, libgcc, and leaf libraries like zlib. Measured: with
+# glibc, the crt objects, libgcc, and leaf libraries like zlib, which
+# docs/environment.md lists ("What the harness borrows from the box") and
+# //tools/tests:fetched_needed holds to the fetched programs. Measured: with
 # driver and libraries both pinned, a compile still reads the box's glibc
 # headers, so they are declared below as builtin include directories -- which
 # is to say, stated. Pinning them means shipping a sysroot, which is the wrong

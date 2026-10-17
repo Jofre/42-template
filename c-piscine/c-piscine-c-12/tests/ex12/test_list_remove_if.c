@@ -99,7 +99,9 @@ static t_list	*build(char **arr, int n)
  * `cap` nodes can only be looping back on itself, and gets a row saying so
  * instead of an endless run; its repeated node is freed at its first slot
  * only, so that mistake stays a readable wrong answer instead of turning into
- * a double-free crash. */
+ * a double-free crash. The last row's newline waits until those frees are
+ * done, so a crash in free() stops the table on it, where diff_output.sh marks
+ * it; every other row's comes just before the next node is read. */
 static void	show_nodes(char *label, t_list *l, int cap)
 {
 	t_list	*seen[9];
@@ -108,16 +110,18 @@ static void	show_nodes(char *label, t_list *l, int cap)
 	int		j;
 
 	if (!l)
-		printf("%s: nodes left\tnone\n", label);
+		printf("%s: nodes left\tnone", label);
 	k = 0;
 	while (l && k < cap)
 	{
-		printf("%s: node %d\t%s\n", label, k + 1, (char *)l->data);
+		if (k > 0)
+			printf("\n");
+		printf("%s: node %d\t%s", label, k + 1, (char *)l->data);
 		seen[k++] = l;
 		l = l->next;
 	}
 	if (l)
-		printf("%s: the list ends\tno, still going after %d nodes\n",
+		printf("\n%s: the list ends\tno, still going after %d nodes",
 			label, cap);
 	i = 0;
 	while (i < k)
@@ -129,11 +133,13 @@ static void	show_nodes(char *label, t_list *l, int cap)
 			free(seen[i]);
 		i++;
 	}
+	printf("\n");
 }
 
 /* What free_fct was given, against the elements that had to go: the ones
  * whose string equals the target, counted from the case's own data. Compared
- * as a set -- the order of the calls is the function's business. */
+ * as a set -- the order of the calls is the function's business. The case's
+ * data are freed before the last row's newline, as show_nodes() does. */
 static void	show_frees(char *label, char **arr, char *target)
 {
 	int	i;
@@ -157,24 +163,25 @@ static void	show_frees(char *label, char **arr, char *target)
 	}
 	printf("%s: free_fct calls\t%d\n", label, g_calls);
 	if (g_stray)
-		printf("%s: free_fct was given\ta pointer that is no element's data\n",
+		printf("%s: free_fct was given\ta pointer that is no element's data",
 			label);
 	else if (survivor)
-		printf("%s: free_fct was given\ta surviving element's data\n", label);
+		printf("%s: free_fct was given\ta surviving element's data", label);
 	else if (g_twice)
-		printf("%s: free_fct was given\tthe same data twice\n", label);
+		printf("%s: free_fct was given\tthe same data twice", label);
 	else if (missed)
-		printf("%s: free_fct was given\tnot every removed element's data\n",
+		printf("%s: free_fct was given\tnot every removed element's data",
 			label);
 	else if (want == 0)
-		printf("%s: free_fct was given\tnothing, as nothing was removed\n",
+		printf("%s: free_fct was given\tnothing, as nothing was removed",
 			label);
 	else
-		printf("%s: free_fct was given\teach removed element's data, once\n",
+		printf("%s: free_fct was given\teach removed element's data, once",
 			label);
 	i = 0;
 	while (i < g_n)
 		free(g_data[i++]);
+	printf("\n");
 }
 
 static void	run(char **arr, int n, char *target, char *label)

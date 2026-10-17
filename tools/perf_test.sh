@@ -15,16 +15,20 @@
 # being 20x slower than a reference is a perfectly acceptable place for a
 # student to be, and failing them for it would teach the wrong lesson.
 #
-# WHEN IT FAILS -- this repo's own lines, at the `complete` level, listed in
-# docs/testing.md ("The two cost layers") and in the banner below; nothing else
-# here exits 1:
+# WHEN IT FAILS -- this repo's own three lines, at the `complete` level,
+# listed in docs/testing.md ("The two cost layers") and in the banner below,
+# and a measured run that does not end normally, at every level; nothing
+# else here exits 1:
 #
 #   * the time over the CASE COUNT grows at n^GATE_EXPONENT (2.6) or steeper,
 #     and a second measurement from scratch agrees;
 #   * in ratio mode, GATE_SLOWDOWN (5000) times the reference's time, or
 #     GATE_MEMORY (200) times its peak memory;
 #   * a measured run that crashes (killed by a signal): a crash fails at every
-#     level (docs/reference.md, Run contract).
+#     level (docs/reference.md, Run contract);
+#   * a measured run that exits with a status other than 0: it stopped before
+#     doing the work, so it is no sample (V286). One that could not start at
+#     all (126 or 127) is the harness's fault, exit 2.
 #
 # A run that does not finish within its limit is NOT one of them: a fixed wall
 # clock establishes neither an exponent nor a ratio. The sizes are halved and
@@ -71,9 +75,18 @@
 #                [--length-oracle-fn FN --length-bin PATH
 #                 [--length-base L] [--length-cases K]]
 #                [--label NAME]
+#                [--gate-differ F --gate-bin P --gate-expected F
+#                 [--gate-stdin F] [--gate-sanitize] [--gate-labeled]
+#                 [--gate-label NAME] [--gate-count N] [--gate-asan-bin P]]
 #
-# Exit status: 0 unless a GATE threshold is exceeded or a run crashed (see
-# "WHEN IT FAILS" above); 2 when the harness itself could not run.
+#   --gate-label NAME  the output test the gate stands for, named in the SKIP
+#                  line (c_levels()' audit holds it to that test,
+#                  _gate_label_problems). Without it the line says "the
+#                  exercise's own output fixture", which names no test.
+#
+# Exit status: 0 unless a GATE threshold is exceeded or a measured run crashed
+# or exited non-zero (see "WHEN IT FAILS" above); 2 when the harness itself
+# could not run, a measured run that could not start among it.
 set -u
 
 # The external commands this runner takes from PATH. See diff_output.sh for why
@@ -122,6 +135,7 @@ GATE_BIN=""
 GATE_EXPECTED=""
 GATE_ASAN_BIN=""
 GATE_PASS=""
+GATE_LABEL=""
 GATE_COUNT="4000"
 
 # Gate thresholds. Chosen to be far outside "slow but reasonable": p=2.6 is well
@@ -163,12 +177,13 @@ while [ $# -gt 0 ]; do
 		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
+		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
 		*) echo "perf_test.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
 
 # A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
-rl_gate_whole perf_test "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS"
+rl_gate_whole perf_test "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS$GATE_LABEL"
 
 [ -n "$RUNNER" ] && [ -n "$STUDENT" ] && [ -n "$ORACLE" ] && [ -n "$FN" ] || {
 	echo "perf_test.sh: need --runner, --student-bin, --oracle and --oracle-fn" >&2
@@ -384,7 +399,9 @@ if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
 			$GATE_PASS >/dev/null 2>&1
 	_gate_rc=$?
 	rl_split_off
-	if [ "$_gate_rc" -ne 0 ]; then
+	if [ "$_gate_rc" -ne 0 ] && [ -n "$GATE_LABEL" ]; then
+		skip_gate "$GATE_LABEL, the exercise's own output fixture, is not passing yet."
+	elif [ "$_gate_rc" -ne 0 ]; then
 		skip_gate "the exercise's own output fixture is not passing yet."
 	fi
 fi
@@ -392,6 +409,11 @@ fi
 # --- stage 2: does it agree with the reference on inputs it did not choose? ---
 # A sample of the corpus, GATE_COUNT cases, bounded like every run of student
 # code here (rl_tmo). A run that never ends is not "diverges": it is named.
+# Nor is a run that returns non-zero green, whatever it printed: the
+# differential layer this stands for fails a replay that matched every case
+# and exited non-zero (rust_diff.sh), and the program is that layer's own
+# replay harness, so no subject lets it. This allowed it once (V290), and a
+# toy that echoed its input and exited 3 was announced "all green" here.
 if "$ORACLE" "$FN" "$SEED" "$GATE_COUNT" > "$T/gate_corpus" 2>/dev/null; then
 	if [ -s "$T/gate_corpus" ]; then
 		rl_tmo "${PERF_TIMEOUT:-25}" || out_of_time "the $GATE_COUNT-case correctness sample"
@@ -399,7 +421,9 @@ if "$ORACLE" "$FN" "$SEED" "$GATE_COUNT" > "$T/gate_corpus" 2>/dev/null; then
 		rl_classify "$?"
 		if [ "$RL_CAUSE" = timeout ]; then
 			skip_gate "the $GATE_COUNT-case correctness sample did not finish within ${RL_TMO}s."
-		elif [ "$RL_CAUSE" != ok ] && [ "$RL_CAUSE" != "exit" ]; then
+		elif [ "$RL_CAUSE" = "exit" ]; then
+			skip_gate "the $GATE_COUNT-case correctness sample $RL_WHY rather than 0, which the differential layer requires too."
+		elif [ "$RL_CAUSE" != ok ]; then
 			skip_gate "the $GATE_COUNT-case correctness sample $RL_WHY."
 		elif ! cmp -s "$T/gate_corpus" "$T/gate_out"; then
 			skip_gate "the differential layer still diverges from the reference."
@@ -455,12 +479,13 @@ else
 	echo "  cost is now worth looking at."
 fi
 echo ""
-echo "  NOTE: this layer REPORTS cost so you can think about it. It fails in"
-echo "        three cases only, this repo's own lines at the complete level:"
-echo "        time over the case count growing at n^$GATE_EXPONENT or steeper (measured"
-echo "        twice); against the reference, ${GATE_SLOWDOWN}x its time or ${GATE_MEMORY}x its"
-echo "        peak memory; and a run that crashes. Being several times slower"
-echo "        than a reference is fine, and a run too slow to finish is reported."
+echo "  NOTE: this layer REPORTS cost so you can think about it. Its own lines,"
+echo "        at the complete level, are three: time over the case count growing"
+echo "        at n^$GATE_EXPONENT or steeper (measured twice); and, against the reference,"
+echo "        ${GATE_SLOWDOWN}x its time or ${GATE_MEMORY}x its peak memory. Beyond those, it"
+echo "        fails only on a measured run that crashes or exits non-zero. Being"
+echo "        several times slower than a reference is fine, and a run too slow"
+echo "        to finish is reported."
 echo ""
 
 # ---------------------------------------------------------------- scaling mode
@@ -482,14 +507,6 @@ if ! "$ORACLE" "$FN" "$SEED" 200 > "$T/corpus.floor" 2>"$T/oerr" ||
 	! corpus_ok "$T/corpus.floor"; then
 	skip_corpus
 fi
-# shellcheck disable=SC2046
-set -- $(measure "$T/corpus.floor" "$STUDENT")
-[ "$4" != start ] || out_of_time "the 200-case floor run"
-[ "$4" != timeout ] ||
-	not_measured "even 200 cases did not finish within $(limit_note "$5" "$6"), so no size could be timed."
-FLOOR=$3
-[ "$FLOOR" -gt 0 ] 2>/dev/null || FLOOR=0
-
 # crashed N HOW -- a measured run killed by a signal: a finding, never a sample.
 # perf_run says which from wait4() ("sigN"), never as 128+N.
 crashed() {
@@ -499,6 +516,46 @@ crashed() {
 	echo "  says where."
 	exit 1
 }
+
+# ended WHAT HOW PROG -- how a measured run of PROG over WHAT ended (measure's
+# fourth field), judged before it is taken as a sample: 0, a timeout and no
+# time to start are the callers' to read; anything else ends the test here.
+# Any other status used to fall through to the table as a sample of the
+# milliseconds the run took before it stopped -- perf_run's 127 for a
+# program that is not there, a harness's exit 3 -- and was reported as "too
+# fast to measure reliably (good sign)", green, under NO_SKIP=1 too: a layer
+# that passed having measured nothing (V286). A run that could not start
+# (126 or 127: what perf_run and a shell exit with when exec fails) is the
+# harness's fault, exit 2; any other status is the program's, exit 1.
+ended() {
+	case "$2" in
+		0 | start | timeout) return 0 ;;
+		sig*) crashed "$1" "$2" ;;
+		error)
+			echo "perf_test.sh: perf_run could not run the measurement over $1" >&2
+			exit 2 ;;
+		126 | 127)
+			echo "perf_test.sh: the run over $1 ended with status $2, the status a" >&2
+			echo "  program that cannot be executed or is not there ends with, so it" >&2
+			echo "  never started: $3" >&2
+			echo "  Nothing was measured. That is wiring, not a finding about the code." >&2
+			exit 2 ;;
+	esac
+	echo ""
+	echo "  FAILED: the run over $1 exited with status $2 rather than 0, so it"
+	echo "  was not timed: a run that stopped early did not do the work the corpus"
+	echo "  asks for, and its time would say nothing about how the cost grows."
+	exit 1
+}
+
+# shellcheck disable=SC2046
+set -- $(measure "$T/corpus.floor" "$STUDENT")
+[ "$4" != start ] || out_of_time "the 200-case floor run"
+[ "$4" != timeout ] ||
+	not_measured "even 200 cases did not finish within $(limit_note "$5" "$6"), so no size could be timed."
+ended "200 cases" "$4" "$STUDENT"
+FLOOR=$3
+[ "$FLOOR" -gt 0 ] 2>/dev/null || FLOOR=0
 
 # measure_sizes -- the three sizes, best of PERF_REPEATS each, as a table.
 # Returns 0, or 1 when one did not finish within its limit (TIMED_N,
@@ -520,13 +577,8 @@ measure_sizes() {
 		[ "$_above" -ge 0 ] || _above=0
 		eval "MS$i=$1; CPU$i=$2; RSS$i=$3; ABOVE$i=$_above; EX$i=$4"
 		printf '  %-9s %9s %9s %11s %13s %7s\n' "$n" "$1" "$2" "$3" "$_above" "$4"
-		case "$4" in
-			"timeout") TIMED_N=$n; TIMED_LIMIT=$5; TIMED_CLAMPED=$6; return 1 ;;
-			sig*) crashed "$n cases" "$4" ;;
-			error)
-				echo "perf_test.sh: perf_run could not run the $n-case measurement" >&2
-				exit 2 ;;
-		esac
+		[ "$4" != "timeout" ] || { TIMED_N=$n; TIMED_LIMIT=$5; TIMED_CLAMPED=$6; return 1; }
+		ended "$n cases" "$4" "$STUDENT"
 		i=$((i + 1))
 	done
 	return 0
@@ -679,9 +731,17 @@ else
 		echo "  n^$EXPONENT is over the gate ($GATE_EXPONENT). Measuring again before"
 		echo "  calling it a failure — a verdict this expensive should not rest on"
 		echo "  one reading of a shared machine."
-		R0=$(measure_best "$T/corpus.$N1" "$STUDENT" | cut -d' ' -f2)
-		R1=$(measure_best "$T/corpus.$N2" "$STUDENT" | cut -d' ' -f2)
-		R2=$(measure_best "$T/corpus.$N3" "$STUDENT" | cut -d' ' -f2)
+		# Each judged as the first reading's were (ended): a run that
+		# crashed or exited non-zero now is no sample either.
+		# shellcheck disable=SC2046
+		set -- $(measure_best "$T/corpus.$N1" "$STUDENT")
+		ended "$N1 cases" "$4" "$STUDENT"; R0=$2
+		# shellcheck disable=SC2046
+		set -- $(measure_best "$T/corpus.$N2" "$STUDENT")
+		ended "$N2 cases" "$4" "$STUDENT"; R1=$2
+		# shellcheck disable=SC2046
+		set -- $(measure_best "$T/corpus.$N3" "$STUDENT")
+		ended "$N3 cases" "$4" "$STUDENT"; R2=$2
 		EXPONENT2=$(fit_exponent "$R0" "$R1" "$R2")
 		echo "  second reading: ${R0}ms, ${R1}ms, ${R2}ms of CPU — n^$EXPONENT2"
 		if [ "$EXPONENT2" != "na" ] && is_monotone "$R0" "$R1" "$R2" &&
@@ -840,9 +900,12 @@ length_series() {
 # student's function does. Not every function has a bench arm yet; one that does
 # not exits non-zero, and this falls back to scaling rather than inventing a
 # ratio.
+# REF_SAID names the reference for a run of it that went wrong: once
+# measure_best has replaced the positional parameters, they are its figures.
 if [ "$BASELINE_ORACLE" = "1" ] && [ -z "$BASELINE" ]; then
 	if "$ORACLE" bench "$FN" < "$T/corpus.floor" >/dev/null 2>&1; then
 		BASELINE="$ORACLE"
+		REF_SAID="$ORACLE bench $FN"
 		set -- "$T/corpus.$N3" "$ORACLE" bench "$FN"
 	else
 		echo ""
@@ -852,6 +915,7 @@ if [ "$BASELINE_ORACLE" = "1" ] && [ -z "$BASELINE" ]; then
 		exit $RC
 	fi
 elif [ -n "$BASELINE" ]; then
+	REF_SAID="$BASELINE"
 	set -- "$T/corpus.$N3" "$BASELINE"
 else
 	echo ""
@@ -867,6 +931,15 @@ if [ "$4" = start ]; then
 	echo "                 figures above stand on their own."
 	exit $RC
 fi
+# The reference is ours: a run of it that did not end normally is no
+# baseline, and a ratio over it would be a number about our wiring (V286).
+case "$4" in
+	0 | timeout) ;;
+	*)
+		echo "perf_test.sh: the reference's run over $N3 cases ended with '$4', so there" >&2
+		echo "  is no baseline to compare with: $REF_SAID" >&2
+		exit 2 ;;
+esac
 BMS=$1; BRSS=$3
 echo ""
 printf '  reference    : %s ms, %s KiB peak\n' "$BMS" "$BRSS"

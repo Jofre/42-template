@@ -13,8 +13,8 @@ import subprocess
 
 import bazel
 
-# The macros a project's BUILD file calls that declare tests (18 on
-# 2026-10-09), and the levels (tools/defs.bzl, _LEVEL_NAMES). A test whose
+# The macros a project's BUILD file calls that declare tests (19 on
+# 2026-10-12), and the levels (tools/defs.bzl, _LEVEL_NAMES). A test whose
 # macro is none of these would show "?": test_starlark holds every call a
 # project's BUILD file makes to this list or to NOT_TESTS, so a new macro is a
 # decision, not a gap.
@@ -22,6 +22,7 @@ MACROS = (
     "c_function", "c_program", "c_diff", "c_levels", "shell_exercise", "rush_variant",
     "c_mem_check", "c_make", "c_header", "hand_test", "c_cycles", "corpus_memory",
     "c_argv_table", "rush_common", "c_libft", "c_files", "c_reference_cost", "c_issued",
+    "c_library", "c_readme",
 )
 LEVELS = ("basic", "strict", "robust", "complete")
 

@@ -351,7 +351,7 @@ fn gen_case<W: Write>(w: &mut W, seed: u64, count: usize, xform: fn(&[u8]) -> Ve
     }
 }
 
-fn gen_strlcpy<W: Write>(w: &mut W, seed: u64, count: usize) {
+pub(crate) fn gen_strlcpy<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let mut done = 0usize;
     // Structured corners: size==0 (nothing written, ret==strlen), size==1 (only

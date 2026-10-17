@@ -872,6 +872,11 @@ hand_test(
 # the subject deliberately left to them -- the same reason rush-01 validates
 # rather than byte-diffs. What no reading explains gates above, at strict.
 #
+# Nor does it wait for the subject's example (no --gate-*, unlike the settled
+# targets above): a manual target runs only when someone names it, to read
+# a second opinion, and a SKIP there would stand between them and it. The
+# dictfuzz target below is the same.
+#
 # It exists because the subject's four examples cannot reach the interesting
 # ground: every value past 4294967295, every carry across a scale boundary, and
 # every group whose hundreds digit is zero live beyond them. The corpus sweeps
@@ -966,6 +971,11 @@ hand_test(
 #
 # -- paths none of the fixed cases reaches. c_levels()' audit holds each plain
 # replay to its twins, corpus by corpus.
+#
+# They wait, as the settled targets above replaying the same two corpora
+# do, for the subject's own example, ex00_dict_arg_42_output (RUSH02_GATE;
+# docs/reference.md, "Which layers wait for which"): on a program that does
+# not answer 42 yet, a memory report over 200 numbers is not where to look.
 [corpus_memory(
     stem = stem,
     runner = "//tools:rush02_check.sh",
@@ -974,11 +984,12 @@ hand_test(
         "$(location tests/ex00/fixtures/ref.dict)",
         "--oracle",
         "$(location //oracle:oracle)",
-    ] + corpus,
+    ] + corpus + RUSH02_GATE,
     data = [
         "//oracle:oracle",
         "tests/ex00/fixtures/ref.dict",
-    ],
+    ] + RUSH02_GATE_DATA,
+    waits = RUSH02_WAITS,
 ) for stem, corpus in [
     ("ex00_rush02", ["--count", "200"]),
     ("ex00_rush02_dictfuzz", ["--fn", "rush02_dicts", "--count", "150"]),

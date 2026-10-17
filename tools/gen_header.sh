@@ -50,13 +50,12 @@ require() {
 		exit 2
 	done
 }
-require awk basename cat date dirname grep head mktemp rm sed tr wc
+require awk basename cat date dirname grep mktemp rm sed tr wc
 
 ART_ROWS=9
 ART_COLS=33
 
 ROOT="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
-SETTINGS="$ROOT/.vscode/settings.json"
 ART_FILE="${HEADER_ART:-$ROOT/tools/header_art.txt}"
 
 FN="${1:-}"
@@ -73,14 +72,12 @@ case "$FN" in
 		exit 2 ;;
 esac
 
-# The identity, in bytes (LC_ALL=C), as tools/identity.sh writes it: under
-# UTF-8 the trailing '.*' stopped at a byte that is no UTF-8, in a comment
-# after the value, and that byte was left on the end of the login.
-read_42() {
-	LC_ALL=C sed -n "s/.*\"42header.$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
-		"$SETTINGS" 2>/dev/null | head -1
-}
-LOGIN="${2:-${LOGIN42:-$(read_42 username)}}"
+# The identity, read by tools/identity.sh, which writes it: the key VS Code
+# and the kube.42header extension read, and no other. A reader of its own
+# here stamped a login commented out above the live one, then one in a
+# /* */ comment or a "[c]" override (V186, V307).
+read_42() { sh "$ROOT/tools/identity.sh" get "$1"; }
+LOGIN="${2:-${LOGIN42:-$(read_42 login)}}"
 MAIL="${3:-${EMAIL42:-$(read_42 email)}}"
 : "${LOGIN:=marvin}"
 : "${MAIL:=marvin@42.fr}"
@@ -124,6 +121,9 @@ art_source() {
 # Normalise to exactly ART_ROWS lines, each exactly ART_COLS wide.
 ART_TMP="$(mktemp)"
 trap 'rm -f "$ART_TMP"' EXIT
+# dash runs no EXIT trap when a signal ends it: each signal trap exits.
+trap 'exit 143' TERM
+trap 'exit 130' INT
 art_source | awk -v rows="$ART_ROWS" -v cols="$ART_COLS" '
 	NR <= rows { printf "%-*.*s\n", cols, cols, $0; c++ }
 	END { while (c < rows) { printf "%-*.*s\n", cols, cols, ""; c++ } }

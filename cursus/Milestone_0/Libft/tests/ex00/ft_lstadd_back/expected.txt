@@ -1,0 +1,5 @@
+empty list, then a	a
+[a], then b	a b
+[a b c], then d	a b c d
+empty list, then a, b and c	a b c
+nodes 1 to 4999, then node 5000	5000 nodes, 1 to 5000 in order

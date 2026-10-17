@@ -23,6 +23,18 @@ everything in `basic` too.
 `tools/defs.bzl`'s `_LAYER_LEVEL` is the machine-readable source of this
 mapping — if this table and that constant ever disagree, the constant is right.
 
+One fact of a project moves a layer **down**: a subject whose own words say
+its grader judges memory (Libft's "Memory leaks will not be tolerated." and
+"Your functions should not quit unexpectedly ...") is transcribed as
+`subject(memory_graded = {"leaks": ..., "access": ...})`, and in that project
+the `valgrind` layer sits at `basic` — every test of it, whichever macro
+emits it, each red quoting the sentence its finding breaks: the `access` one
+for an invalid access, an uninitialised value or a crash, the `leaks` one for
+a leak (and never on a run that checks no leak). It is declared once, in the contract
+([The subject contract](#the-subject-contract)), never per target: a target's
+own level only ever raises it ([Targets raised above their
+layer](#targets-raised-above-their-layer)).
+
 A level is run one module at a time, as below; the second line, `complete`,
 runs the same as `//c-piscine/c-piscine-c-05/...`:
 
@@ -209,6 +221,7 @@ reports as `TIMEOUT` ran out of even that margin.
 | suite | runs |
 |---|---|
 | `//<module>:exNN` | every test of one exercise, whatever emitted it, but its manual ones |
+| `//<module>:<function>` | every test of one function of a library exercise (the contract's `functions`: `//<module>:ft_strlen`), whatever emitted it, but its manual ones |
 | `//<module>:basic` … `:complete` | one level, whole module |
 | `//<module>:manual` | the module's [manual targets](#manual-targets), and nothing else |
 | `//<module>/...` | the whole module, manual targets left out |
@@ -266,31 +279,72 @@ standard input, `--labeled` and run folder. A gate
 that runs the program some other way can be red on a correct program, and
 its layer then SKIPs, green, wherever `NO_SKIP=1` is not set.
 
+A LIBRARY (a Common Core project such as Libft) is one exercise whose
+contract lists its `functions`, a box per function, and whose turn-in is a
+Makefile building one archive. What is the whole library's is declared once,
+by `c_library()`: the unit every function's programs link (`exNN_lib`), the
+Makefile's `exNN_build` (`c_make`, the archive holding every function), the
+Norm, both compilers, the prototypes (`tests/exNN/prototype.h`, every
+function's, which may include the library's header), the parameter names
+the subject prints (`prototype_names`, a required choice: a file under
+`tests/exNN/` that includes nothing and declares a type it needs forward,
+or `"none: <the reason>"`, the reason alone with `prototype = False`), the forbidden layer over the union of the boxes, and the
+exported symbols, exactly the functions (`helpers_rule`, a required choice:
+the subject's sentence keeping every helper static in its own file, which
+then holds a helper two of the library's files share as well and is quoted
+under the red, or `"none: <the reason>"`, where such a helper may stay
+external). What is one function's -- its
+output, its memory layers, its corpus, its costs -- is a MEMBER: a
+`c_function`, `c_mem_check`, `c_diff`, `c_perf` or `c_cycles` call with
+`member` naming it, below `c_library()`. Its targets are
+`exNN_<function>_<what>`, its files are under `tests/exNN/<function>/`, its
+gated layers wait for `exNN_<function>_output`, its programs link the
+library's unit through the turn-in's Makefile (its sources standing in while
+the Makefile compiles nothing), and `malloc` is held to the function's own
+box. Each of its tests carries the tag `member=exNN/<function>`, derived from
+the name like the exercise's, which `//<module>:<function>` selects. The
+audit adds three rules for a library: every function has a test, every test
+of the exercise is one function's or the whole library's
+(`exNN<suffix>`), and every folder under `tests/exNN/` is one function's but
+a folder holding the grader's copies (`_member_problems`); a function whose
+cases are keyed keeps its hints in one `tests/exNN/<function>/clues.tsv`.
+`c_library()` refuses, while loading, a function whose name would make a
+member's target ambiguous: one that is a suite's or an exercise's name, that
+makes a target of the whole library (`build` makes `exNN_build_exit`), whose
+targets would end in another layer's suffix (`toy_probe` makes
+`exNN_toy_probe_memcheck`, a `_probe_memcheck`), or that another function's
+name begins with, followed by `_`. It refuses `hdrs` and `includes` too:
+the turned-in headers are staged already, and a header or directory of the
+call's own would reach the members' programs but not the layers a runner
+compiles itself.
+
 ## The layers
 
 | tag | level | checks |
 |---|---|---|
-| `norm` | basic | norminette (C) / a shell exercise's generator parses (`sh -n`); its shellcheck lint, and the lint of a script it writes, run as `_lint` and `_posix`, above basic (see [Shell turn-ins](#shell-turn-ins)). Red on any file's `Error!`, wherever it sits in the run. A Notice alone leaves the file `OK!` yet makes norminette exit 1, and no subject says which counts: this target passes it with a warning, and its `*_notice` twin, raised to strict, fails it. The log names the norminette version, the `-R` that took effect (norminette keeps only the last one) and a `bazel run //tools:norminette` command that reproduces the verdict. norminette does not enforce every rule of the Norm: a header with no protection from double inclusions at all, and the name of a struct, union or enum defined inside a `typedef`, both pass the pinned 3.3.58. `_norm_header`, at strict, checks those two in every header a project turns in |
+| `norm` | basic | norminette (C) / a shell exercise's generator parses (`sh -n`); its shellcheck lint, and the lint of a script it writes, run as `_lint` and `_posix`, above basic (see [Shell turn-ins](#shell-turn-ins)). Red on any file's `Error!`, wherever it sits in the run. A Notice alone leaves the file `OK!` yet makes norminette exit 1, and no subject says which counts: this target passes it with a warning, and its `*_notice` twin, raised to strict, fails it. The log names the norminette version, the `-R` that took effect (norminette keeps only the last one) and a `42 norm … -- -R …` command that reproduces the verdict. norminette does not enforce every rule of the Norm: a header with no protection from double inclusions at all, and the name of a struct, union or enum defined inside a `typedef`, both pass the pinned 3.3.58. `_norm_header`, at strict, checks those two in every header a project turns in |
 | `compile` | basic | clean under **both** clang-12 and gcc-10 at `-Wall -Wextra -Werror` |
 | `output` | basic | what the program printed, against the expected fixture. A Makefile or creator script's `exNN_build` carries this tag too: it builds the artifact, and checks each rule the subject names |
 | `files` | basic | the deliverable holds every file the subject names and nothing it does not allow, anywhere under the turn-in directory: a copy in a subfolder the subject does not allow is a file nobody asked for, named by its path. Such a file is this layer's report alone: every other layer compiles the files the subject names or allows, and no other. A shell exercise's is what its generator leaves in a scratch folder (never `deliverable/`): the turn-in is listed as present or not produced, which `exNN_output` reports, and anything else fails. Where a subject asks for "a Makefile and all the necessary files" (BSQ, Rush 02, C 10, C 11 ex05, Reloaded ex27: every exercise with a `c_make` whose contract allows `.c` files by pattern), a `.c` the Makefile never compiles (by `make -Bn`) is not necessary, and counts as one; while make cannot plan a build, or the Makefile compiles nothing yet, no `.c` is judged that way. A module's `deliverable_files` covers what is outside every exercise folder |
-| `forbidden` | basic | only the functions the subject authorises are called, plus any variable it allows by name (C 10's `errno`). Judged and reported under the names you wrote: where glibc compiles one into an internal symbol (`errno` into `__errno_location`, `<libgen.h>`'s `basename` into `__xpg_basename`, every `<ctype.h>` classifier into `__ctype_b_loc`), that symbol is mapped back first |
+| `forbidden` | basic | only the functions the subject authorises are called, plus any variable it allows by name (C 10's `errno`). Judged and reported under the names you wrote: where glibc compiles one into an internal symbol (`errno` into `__errno_location`, `<libgen.h>`'s `basename` into `__xpg_basename`, every `<ctype.h>` classifier into `__ctype_b_loc`), that symbol is mapped back first. A library whose functions each have a list of their own (Libft) is held to each list one function at a time too (`_forbidden_functions`), and to no variable outside a function (`_globals`) |
 | `prototype` | basic | your definition matches the signature the subject fixes, and your header holds the structure the subject prints, where it prints one (C 12's `t_list`, C 13's `t_btree`: the project's `tests/layout/<header>`; its names, `tests/layout/tag/<header>`, at strict). A red says which: the signature, the structure, its names, a header read twice with no include guard, a name defined in two places, or a file that does not compile on its own |
-| `symbols` | strict | the file exports exactly what the subject names; helpers are `static` |
+| `symbols` | strict | the file exports exactly what the subject names; helpers are `static`. A helper one turned-in file defines and another calls may stay external (two files a subject names must share it), except where the call site quotes a sentence keeping every helper static in its own file (`c_library`'s `helpers_rule`, Libft): there such a function is reported like any other, under that sentence, which is never quoted over a variable |
 | `method` | strict | how the turn-in is built, where its subject says so and nothing it prints can show it (`tools/method_check.sh`; [Sentences about how](#sentences-about-how) lists each). Recursive or iterative (`exNN_method`, `c_function`'s `method`): the exercise's own test program runs on the student's sources compiled with `-finstrument-functions`, and the layer reads whether a function of theirs is entered again while it is still running -- recursive when one is (the function, a static helper, or two calling each other), iterative when none ever is (a closed form or a table is iterative; a loop over a stack of its own is not recursive). A fixed-size array (`exNN_fixed_array`, `c_program`'s `fixed_array`): the pinned gcc names every array of variable length, every `alloca` and, where the subject bounds the array, every object of that many bytes or more -- an upper bound only, on the object and never on the stack frame that holds it |
-| `valgrind` | strict | no leaks or invalid access to the heap or to unmapped memory, and every descriptor the program opened is closed. memcheck does not see a write past an array on the stack while it stays inside the stack, and its OK line says so: an ASan build sees those (the exercise's `asan` layers, where it has them). Leaks only where the subject allows `malloc`; the invalid-access and uninitialised-value half runs over `c_mem_check`'s probes too, where nothing allocates at all. Where a program's subject allows `malloc` (Rush 01, Rush 02, BSQ, C 10 ex02/ex03), a sample of 25 cases of each generated corpus runs under memcheck as well (`_valgrind` on the corpus: `ex00_sweep_valgrind`, `ex00_readings_valgrind`, `ex00_rush02_valgrind`, `ex00_rush02_dictfuzz_valgrind`, `ex00_bsq_valgrind`, `ex00_bsq_stdin_valgrind`, `ex00_bsq_multi_valgrind`, `ex00_bsq_long_valgrind`, `ex00_bsq_long_stdin_valgrind`, `exNN_file_valgrind`; BSQ's big maps have none, `no_valgrind`). A red states the rule it applies, under its verdict and once for a corpus: the subject's own sentence where `c_program` has a `memory_rule` (Rush 02's p.7), which `corpus_memory()` hands its corpus's sample too, and otherwise this harness's rule, said to be so |
+| `valgrind` | strict | no leaks or invalid access to the heap or to unmapped memory, and every descriptor the program opened is closed. memcheck does not see a write past an array on the stack while it stays inside the stack, and its OK line says so: an ASan build sees those (the exercise's `asan` layers, where it has them). Leaks only where the subject allows `malloc`; the invalid-access and uninitialised-value half runs over `c_mem_check`'s probes too, where nothing allocates at all. Where a program's subject allows `malloc` (Rush 01, Rush 02, BSQ, C 10 ex02/ex03), a sample of 25 cases of each generated corpus runs under memcheck as well (`_valgrind` on the corpus: `ex00_sweep_valgrind`, `ex00_readings_valgrind`, `ex00_rush02_valgrind`, `ex00_rush02_dictfuzz_valgrind`, `ex00_bsq_valgrind`, `ex00_bsq_stdin_valgrind`, `ex00_bsq_multi_valgrind`, `ex00_bsq_long_valgrind`, `ex00_bsq_long_stdin_valgrind`, `exNN_file_valgrind`; BSQ's big maps have none, `no_valgrind`). A red states the rule it applies, under its verdict and once for a corpus: the subject's own sentence where `c_program` has a `memory_rule` (Rush 02's p.7), which `corpus_memory()` hands its corpus's sample too, else the contract's `memory_graded` sentence on leaks, and otherwise this harness's rule, said to be so. Where the contract declares `memory_graded`, a finding that is no leak (an invalid access, an uninitialised value, a crash) quotes its `access` sentence instead (`--access-rule`), a run showing both kinds quotes each once, and a crash quotes the `access` one alone (what a killed run still held is no leak it made). At basic, not strict, in a project whose `subject()` declares `memory_graded` ([The four levels](#the-four-levels)) |
 | `diff` | strict | a seeded corpus, against the Rust reference in `//oracle`: hundreds of thousands of cases for a function, hundreds for a program, and among them a few far past the capacities a student might pick (arrays of 5000 ints, strings of 5000 words), since a corpus large only in its number of cases never fills a fixed-size array (finding 041). The corpora seed `0x7f`/`0x80`/`0xff` on purpose, where a signed-`char` mistake hides. Some hand-written fixtures hold such bytes too, and always where an exercise repeats a contract another module fuzzes (C 04 ex00/ex01, C 09 ex00), since each module is graded on its own files; where a fixture holds none, this layer is the first to see that class. Every block malloc hands out there starts holding `0xa5`, never a zero, in its first 4 KiB and its last bytes (`tools/dirty_malloc.c`, linked by `//tools:diffio`), so a field, count or terminator a function never writes in memory it allocated does not read as the zero most of them should hold; no memcheck layer runs such a build, where the fill would read as written |
 | `diff_asan` | robust | the same corpus under ASan/UBSan, judging memory and how each run ended, never the output. For a function (`c_diff`), the first `asan_count` cases of its corpus (200000 of the 400000, by default) on its harness's ASan build; a crash names the case, symbolised by the pinned `llvm-symbolizer`. For a program, the corpus runner's `--sanitized` replay on the ASan build of the program: C 06 ex01–ex03 (on the guarded build `c_argv_table` makes, each argument in a heap block of its own, so a read past an argument's end is seen: `--guarded-argv`), C 10 ex00–ex03, Piscine Reloaded ex27, Rush 01's sweep (its 4x4 cases and the argc probes) and its reading's shape probes, Rush 02's generated dictionaries, and BSQ's maps, readings, long maps and big maps (`tools/runner_lib.sh`, "A CORPUS UNDER A MEMORY CHECKER"). Those with no guarded build say in their verdict that the arguments were not watched (`rl_mem_argv_note`). A replay under a checker makes no stderr choice: standard error is where the checker reports |
 | `asan` | robust | adversarial memory probes, and every program case under ASan/UBSan |
-| `allocfail` | basic | one `malloc` refused at a time; the error must be reported, not dereferenced. Opt-in per exercise, and only where the subject or a man page it cites states the contract. Its `_allocfail_leaks` target, at robust, also asks that nothing obtained before the refusal is left allocated: the repo's rigour, where the subject allows `free`. A program (`c_program`'s `allocfail`) is swept at robust as `_program_allocfail`: no grader at 42 refuses a program an allocation. Every allocfail target prints, under its verdict, the rule its call site states (`allocfail_rule`, required), and never one of its own: the runner cannot know which subject it reads |
+| `allocfail` | basic | one `malloc` refused at a time; the error must be reported, not dereferenced. Opt-in per exercise, and only where the subject or a man page it cites states the contract. Its `_allocfail_leaks` target, at robust, also asks that nothing obtained before the refusal is left allocated: the repo's rigour, where the subject allows `free`. A program (`c_program`'s `allocfail`) is swept at robust as `_program_allocfail`: no grader at 42 refuses a program an allocation, and a program whose subject lets it allocate, with cases, either asks for that sweep or says why not in `no_allocfail`, or does not load. Every allocfail target prints, under its verdict, the rule its call site states (`allocfail_rule`, required), and never one of its own: the runner cannot know which subject it reads |
 | `ilp32` | complete | the same cases where `long` is no wider than `int`, in a build that stops at undefined behaviour (`SIGILL`) |
-| `perf` | complete | how cost grows with the number of cases, in time and memory, and, where a BUILD file asks, with the length of one input (reported, never failed). Fails only past its own lines: the case-count exponent (2.6, measured twice), 5000x the reference's time or 200x its memory, or a crash |
-| `cycles` | complete | instructions per unit of work, via callgrind, the allocator and a harness callback shown apart; a corpus's capacity cases, far bigger than the rest, are left out where the call says so (`c_cycles`' `max_unit`: C 01 ex05 and ex06, C 02 ex00, ex01, ex02, ex03, ex04, ex05, ex06, ex07, ex08, ex09, ex10 and ex11, C 03 ex00, ex01, ex02, ex03, ex04 and ex05, C 07 ex00, ex03 and ex05, C 09 ex02, C 12 ex02, ex08 and ex14, C 13 ex01, ex05 and ex06, Piscine Reloaded ex16, ex17 and ex20), and the report says how many. Never fails on its numbers, nor on a run too long to profile (reported); fails when the function crashed under it or did not build |
+| `perf` | complete | how cost grows with the number of cases, in time and memory, and, where a BUILD file asks, with the length of one input (reported, never failed). Fails only past its own lines: the case-count exponent (2.6, measured twice), 5000x the reference's time or 200x its memory, a crash, or a measured run that exits non-zero (one that could not start is a harness error) |
+| `cycles` | complete | instructions per unit of work, via callgrind, the allocator and a harness callback shown apart; a corpus's capacity cases, far bigger than the rest, are left out where the call says so (`c_cycles`' `max_unit`: C 01 ex05 and ex06, C 02 ex00, ex01, ex02, ex03, ex04, ex05, ex06, ex07, ex08, ex09, ex10 and ex11, C 03 ex00, ex01, ex02, ex03, ex04 and ex05, C 07 ex00, ex03 and ex05, C 09 ex02, C 12 ex02, ex08 and ex14, C 13 ex01, ex05 and ex06, Piscine Reloaded ex16, ex17 and ex20, Libft ft_atoi, ft_bzero, ft_calloc, ft_lstadd_back, ft_lstadd_front, ft_lstclear, ft_lstiter, ft_lstlast, ft_lstmap, ft_lstsize, ft_memchr, ft_memcmp, ft_memcpy, ft_memmove, ft_memset, ft_putendl_fd, ft_putstr_fd, ft_split, ft_strchr, ft_strdup, ft_striteri, ft_strjoin, ft_strlcat, ft_strlcpy, ft_strlen, ft_strmapi, ft_strncmp, ft_strnstr, ft_strrchr, ft_strtrim and ft_substr), and the report says how many. Never fails on its numbers, nor on a run too long to profile (reported); fails when the function crashed under it or did not build |
 | `oracle` | complete | the reference's own cross-checks (`//oracle:oracle_check`), each fixture a model of a tool made, against that model (`exNN_<case>_model`), each argument table against the program it was emitted from (C 06's and Reloaded's `exNN_model`), fixtures the reference writes held to it (BSQ's, Rush 00's and Rush 02's `ex00_oracle_fixtures`), and named cases the reference program passes (C 11's `ex05_reference_cases`, and BSQ's, Rush 01's and Rush 02's `ex00_reference_cases`) |
 | `selftest` | complete | the harness's own guards (`//tools/tests:selftest*`, and one inside modules: a twin's `exNN_twin`, see [Shell turn-ins](#shell-turn-ins)) |
 
 `norm`, `compile`, `files`, `forbidden` and `prototype` are green on a fresh
-stub. `output` is the one that is red until you write the exercise.
+stub. `output` is the one that is red until you write the exercise -- a
+README a subject asks for (`_readme`) and a library's header that declares
+its functions (`_declares_output`) included, until you write them.
 
 A test can sit above its layer's level and keep its layer tag: by its name
 (the `_exit` twins of the Run contract table -- `exNN_exit`, `exNN_<case>_exit`,
@@ -333,7 +387,9 @@ no lower level.
 
 The end of a target's name says which layer it is: the longest of these
 suffixes it ends in. A case's or a variant's name sits in front of it
-(`ex05_modzero_output`, `ex00_rush03_asan`). Where a suffix sets the level
+(`ex05_modzero_output`, `ex00_rush03_asan`), and so does a library
+function's (`ex00_ft_strlen_output`, `ex00_ft_strchr_readings_diff_asan`; see
+[Suites](#suites)). Where a suffix sets the level
 itself, it is the one in this table, not the layer's. To read a target's
 tags: `bazel query --output=build //<module>:<target> | grep tags`.
 
@@ -357,6 +413,7 @@ tags: `bazel query --output=build //<module>:<target> | grep tags`.
 | `_compile_clang` | `compile` | basic | clean under clang-12 at `-Wall -Wextra -Werror` |
 | `_compile_gcc` | `compile` | basic | clean under gcc-10 at `-Wall -Wextra -Werror` |
 | `_cycles` | `cycles` | complete | instructions per unit of work |
+| `_declares_output` | `output` | strict | this harness's reading that a library's header, turned in, declares its functions: each turned-in header, included alone in a file of one line, must declare every function `tests/exNN/prototype.h` declares (`c_library`'s `declares_reading`, Libft); only presence, since `_prototype` judges the types. Red on a fresh stub, as `output` is |
 | `_defense` | `output` | basic | Rush 00: the subject's defense case, `rush(123, 42)`, compared in full with the reference's picture; one row, never the picture |
 | `_diff` | `diff` | strict | a generated corpus against the reference (`_argv_diff`, `_file_diff`, `_bsq_diff`, `_rush02_diff`; Rush 02's `_settled_*_diff` judge only what every reading agrees on) |
 | `_diff_asan` | `diff_asan` | robust | that corpus under ASan/UBSan, crashes and sanitizer reports only: for a function's corpus, its first `asan_count` cases; for a program's corpus, the corpus of the plain target whose name it extends, replayed the same way (`ex00_bsq_stdin_diff_asan` is `ex00_bsq_stdin`'s; `ex00_bsq_diff_asan` is `ex00_bsq_diff`'s), with Rush 01's `ex00_sweep_diff_asan` leaving the bonus sizes to the plain sweeps |
@@ -364,6 +421,9 @@ tags: `bazel query --output=build //<module>:<target> | grep tags`.
 | `_fixed_array` | `method` | strict | the subject's fixed-size array: no array of variable length, no `alloca`, and where the subject bounds it, no object of the bound or more, the bound being one reading of the subject's sentence, stated in the target's own hint (C 10 ex01) |
 | `_files` | `files` | basic | the files turned in; also a folder for an exercise the subject does not have, and `deliverable_files`, the module's files outside every exercise folder (no `exNN_` prefix: it is no exercise's) |
 | `_forbidden` | `forbidden` | basic | only the functions the subject allows |
+| `_forbidden_functions` | `forbidden` | basic | a library: each function uses only its own list, its box's (`c_library`'s `function_lists`, Libft): what its code and every helper it reaches reference, static or not, in any file; another of the library's functions it calls is held to its own list, not to the caller's. A red quotes the sentence that gives that function its list |
+| `_forbidden_through` | `forbidden` | strict | the same, under this harness's reading that what another of the library's functions uses counts against its caller too; a name reached only that way is marked as the reading's, and claims no KO |
+| `_globals` | `forbidden` | basic | no variable defined outside every function, external, `static` or `const` alike (`c_library`'s `globals`, Libft); one inside a function body is not one |
 | `_ilp32` | `ilp32` | complete | the cases where `long` is no wider than `int` |
 | `_issued` | `output` | basic | a file 42 issues and the subject turns in is in the turn-in (Rush 02's `numbers.dict`; `tools/resources.tsv`, `c_issued`) |
 | `_layout_prototype` | `prototype` | strict | the structure's names as the subject prints them (its tag, the type of each field pointing to another node), which memory does not see; and its layout too where the grader links no function built on it (C 12's and C 13's ex00), so that only the grader's own test code could expose a difference |
@@ -389,14 +449,18 @@ tags: `bazel query --output=build //<module>:<target> | grep tags`.
 | `_program_allocfail_leaks` | `allocfail` | robust | the same sweep, judging what a run that ended by itself still held at exit (Rush 02's freeing rule) |
 | `_prototype` | `prototype` | basic | the signature the subject fixes (return and parameter types), and the layout of the structure it prints where the grader links a function built on it |
 | `_prototype_names` | `prototype` | strict | the parameter names, where the subject fixes them too (Rush 00: "named x and y"); read from the pinned clang's AST |
-| `_readings` | `diff` | strict | this harness's reading of what a subject leaves open, over a corpus of the cases the readings part on, stated in the target's hints (BSQ: the count's form, a map with no final newline, the full character in a map's row; Rush 01: the one argument's blanks and a sign or zero before a digit; C 02 ex09: a byte above `0x7f` in a word; C 04 ex04 and ex05 and C 07 ex04: a byte above `0x7f`, or a control byte, in a base -- each with its ASan twin `exNN_readings_diff_asan`, `c_diff`'s `readings`). One the subject's words do not reach is a convention, raised to robust and listed among the targets raised above their layer (C 11 ex06: the order of a byte above `0x7f`) |
+| `_prototype_restrict` | `prototype` | basic | no `restrict` in the prototype of a function `tests/exNN/prototype.h` declares, in any turned-in source or header: written, `__restrict`, on a pointer inside a parameter or a function pointer's own parameters, on the return type, or through a typedef (`c_library`'s `restrict_rule`, Libft); read from the pinned clang's AST, since a conflicting-types compile accepts a parameter's own qualifier |
+| `_prototype_restrict_all` | `prototype` | strict | the same, under this harness's reading that the student's own functions -- static helpers included -- have prototypes the sentence covers: every function the turned-in files declare or define |
+| `_readings` | `diff` | strict | this harness's reading of what a subject leaves open, over a corpus of the cases the readings part on, stated in the target's hints (BSQ: the count's form, a map with no final newline, the full character in a map's row; Rush 01: the one argument's blanks and a sign or zero before a digit; C 02 ex09: a byte above `0x7f` in a word; C 03 ex00 and ex01, C 09 ex00 and Reloaded ex17: the int strcmp or strncmp returns beyond its sign (the plain `_diff` compares only the sign), read by a reader of the target's own (`c_diff`'s readings `harness`); C 04 ex04 and ex05 and C 07 ex04: a byte above `0x7f`, or a control byte, in a base; Libft: a `c` outside 0..255 for ft_memset, ft_strchr and ft_strrchr, a start past the end for ft_substr, a field with no byte for ft_split -- each with its ASan twin `exNN_readings_diff_asan`, a library's `exNN_<function>_readings_diff_asan`, `c_diff`'s `readings`, but one read by a reader of its own, whose cases the plain `_diff_asan` replays already). One the subject's words do not reach is a convention, raised to robust and listed among the targets raised above their layer (C 11 ex06: the order of a byte above `0x7f`) |
+| `_readme` | `output` | basic | the README a subject asks for (`c_readme`, Libft), in whatever language it is written: the file is there and shows something, its first line that shows something is one span in italics, and it has at least as many section headings as the subject names sections. Red on a fresh stub, as `output` is |
+| `_readme_wording` | `output` | strict | this harness's reading of the README's words, in the languages the subject is printed in: line 1 itself in italics, reading the subject's sentence and then the login(s); a heading naming each section the subject names; the section it says must describe the use of AI naming it. What the README says, and how well, no target reads |
 | `_reference_cases` | `oracle` | complete | every named case of a program, run as its output test runs it with `//oracle`'s reference program in the student's place (`c_program`'s `reference`; C 11 ex05, BSQ, Rush 01, Rush 02); runs nothing of yours |
 | `_refcost` | `cycles` | complete | instructions per unit of work, beside the reference's own |
 | `_regular` | `output` | strict | "files" where a directory can carry a matching name: what the target tests is in its exercise's row under [Shell turn-ins](#shell-turn-ins) |
 | `_rush02_dictfuzz` | `diff` | strict | Rush 02's corpus over generated dictionaries |
 | `_survive` | `output` | basic | Rush 00: degenerate sizes, survival only; counter-ceiling sizes, survival and — once `rush(3, 3)` draws anything — the rectangle's shape (it was `_robust`, which is a level's name) |
 | `_sweep` | `output` | basic | Rush 01: every 4x4 clue vector, each grid checked against the subject's rules alone, and the argument counts that are not one |
-| `_symbols` | `symbols` | strict | exactly the symbols the subject names are exported |
+| `_symbols` | `symbols` | strict | exactly the symbols the subject names are exported; with `c_library`'s `helpers_rule` sentence, a helper two files share is no exception, and the red quotes the sentence |
 | `_twin` | `selftest` | complete | Piscine Reloaded's twin shell exercises: their own `tests/exNN/` holds only the README pointing at the tests they read; runs nothing of yours |
 | `_valgrind` | `valgrind` | strict | a program case under memcheck; or, for a corpus (`_file_valgrind`, `_sweep_valgrind`, `_rush02_valgrind`, `_rush02_dictfuzz_valgrind`, `_bsq_valgrind`, `_bsq_stdin_valgrind`, `_bsq_multi_valgrind`, `_bsq_long_valgrind`, `_bsq_long_stdin_valgrind`, `_readings_valgrind`), 25 of its cases spread evenly over it (a case of `_bsq_multi_valgrind` is a run of up to three maps; Rush 01's runs every probe its plain target asks for besides, from the one list both read: `ex00_sweep_valgrind` its three argc probes, 28 in all, and `ex00_readings_valgrind` its six shape probes alone), each judged as a case's own arm is |
 
@@ -454,6 +518,11 @@ row says which reading it takes.
 | `//c-piscine-reloaded/c-piscine-reloaded:ex22_double_arg_output` | strict | the same as C 08 ex02's, for its twin |
 | `//c-piscine-reloaded/c-piscine-reloaded:ex23_int_fields_output` | complete | the same, for C 08 ex03's twin |
 | `//c-piscine-reloaded/c-piscine-reloaded:ex26_returns_one_output` | strict | a predicate that returns 2 as well as 0 and 1: this harness's reading takes "the elements of the array that return 1" literally, where C 11 ex03 counts those that do not return 0. The basic table's predicate returns only 0 and 1, where the two agree |
+| `//cursus/Milestone_0/Libft:ex00_ft_lstlast_empty_output` | strict | the empty list, which has no last node: ft_lstlast's box (page 15) does not say what comes back for it, and this target holds this harness's reading, NULL. The basic table and the corpus never ask it |
+| `//cursus/Milestone_0/Libft:ex00_ft_lstnew_allocfail` | robust | a refused allocation, of which ft_lstnew's box (page 14) says nothing: this target holds it to what ft_lstmap's box (page 16) says of its own, "NULL if the allocation fails.", a convention of this repo's |
+| `//cursus/Milestone_0/Libft:ex00_ft_memset_wide_c_output` | strict | a `c` outside 0..255: man memset says only "the constant byte c", and this target holds this harness's reading, that `c` is converted to `unsigned char`. The basic table and the plain corpus hold only the bytes 0..255 |
+| `//cursus/Milestone_0/Libft:ex00_ft_split_empty_fields_output` | strict | a field with no byte in it -- delimiters at either end or side by side, `""`, a string of delimiters, `c == '\0'` -- which ft_split's box (page 11) does not settle: this target holds this harness's reading, that such a field gives no string. The basic table and the plain corpus hold none of them |
+| `//cursus/Milestone_0/Libft:ex00_ft_substr_start_past_end_output` | strict | a `start` past the end of `s`, which ft_substr's box (page 10) does not mention: this target holds this harness's reading, a fresh empty string the caller frees. The basic table and the plain corpus hold only starts up to the string's length |
 
 ## Sentences about how
 
@@ -468,6 +537,12 @@ read is listed too, never dropped.
 | "declaring a fixed-size array" | C 10 ex00, ex01; Piscine Reloaded ex27 | `exNN_fixed_array`, strict: no array of variable length, no `alloca`. Whether the program declares an array at all is not read |
 | "This array should have a size limited to slightly less than 30 ko" | C 10 ex01 | `ex01_fixed_array`, strict: every object smaller than 30720 bytes (30 x 1024, since `ulimit`, which the subject names to test it, counts KiB); an upper bound only |
 | "You should use an array of pointers to function to take care of the operator" | C 11 ex05 | no layer: no output, and no call a program makes, shows that an array chose it. The exercise's hints restate the sentence, and an evaluator reads the code |
+| "Declaring global variables is strictly forbidden." | Libft | `ex00_globals`, basic: no variable defined outside every function, external, `static` or `const` alike |
+| "If you need helper functions to break down a more complex function, define them as static functions to restrict their scope to the appropriate file." | Libft | `ex00_symbols`, strict: the sources the archive is made of export no function but the 43, a helper one file defines and another calls included, and its red quotes the sentence (`c_library`'s `helpers_rule`; a variable is `ex00_globals`'s) |
+| "They must not rely on any external functions." (Part 1), and each Part 2 and Part 3 box's "External Function" line | Libft | `ex00_forbidden_functions`, basic: each function, and every helper it reaches, references only its own list; `ex00_forbidden_through`, strict, a reading of its own |
+| "Some of the function prototypes you need to reimplement use the ’restrict’ qualifier. [...] Therefore, it is forbidden to include it in your own prototypes and to compile your code with the -std=c99 flag." | Libft | the prototypes: `ex00_prototype_restrict`, basic, for the 43 functions; `ex00_prototype_restrict_all`, strict, a reading of its own. The flag: `ex00_build`, basic: no compile command a bare `make` plans or runs holds the word `-std=c99` |
+| "You must use the ar command to create your library. The use of libtool is strictly forbidden." | Libft | `ex00_build`, basic: no command a bare `make` plans or runs is `libtool`, and once the build made `libft.a`, some `ar` command among them creates or adds to it; read from `make -n` and from what the stand-ins on `PATH` log (`c_make`'s `archiver` and `forbidden_commands`) |
+| "Submitting unused files is not allowed." | Libft | `ex00_files`, basic: a file the subject neither names nor allows, anywhere in the turn-in, and an `ft_*.c` the Makefile does not compile, judged once it compiles something. Whether a function in a compiled file is used, no layer reads |
 
 ## Manual targets
 
@@ -497,9 +572,10 @@ forces every one of them open** and turns a missing tool into a failure.
 
 | layer | stays quiet until | why |
 |---|---|---|
-| `diff`, `diff_asan` | the exercise's `output` fixture passes | fuzzing a wrong answer reports the same wrongness thousands of times |
-| `valgrind` | the `output` fixture of the run it checks passes: for a function's `exNN_valgrind` or `exNN_memcheck`, `exNN_bin` against the exercise's expected file; for a program case's `_valgrind`, that case's own `_output`; for a corpus sample, the same gate as the replay it samples; for a rush variant's, its labelled table (`ex00_rush0N_output`). `exNN_probe_memcheck` and a survive case's arm wait for nothing | a memory report over a wrong answer speaks over the red that matters, and a stub leaks nothing; a probe is written so a stub survives it, and a survive case's run has no fixture to wait for |
+| `diff`, `diff_asan` | the exercise's own `output` test passes, the one a fresh stub fails, run as that test runs it: for a function's `exNN_diff` (and its `exNN_readings`), `exNN_bin` against the exercise's expected file (in a library, the function's own `_bin` and file); for a program's corpus replay, the `output` test `output_gate()` reads its gate off -- C 06's and Reloaded ex18's and ex19's argument table (`exNN_output`), C 10's `ex00_show_output`, `ex01_one_output`, `ex02_cbytes_output` and `ex03_canon_output`, Reloaded's `ex27_show_output` -- or the subject's example, BSQ's `ex00_subject_example_output`, Rush 01's `ex00_subject_output`, Rush 02's `ex00_dict_arg_42_output`; for a rush variant's `_diff`, its labelled table (`ex00_rush0N_output`). Every replay of a corpus waits behind the same gate as the plain one: its ASan twin, its memcheck sample and C 06's and Reloaded's `exNN_argv_diff_exit`. Rush 02's corpus twins (`ex00_rush02_diff_asan`, `ex00_rush02_dictfuzz_diff_asan` and their `_valgrind` samples) wait for `ex00_dict_arg_42_output` too, as the settled replays of the same two corpora do (`ex00_settled_words_diff`, `ex00_settled_dicts_diff`), though their own plain replays are manual. Rush 00's `ex00_rush0N_diff_asan` waits for nothing, and so do the manual replays themselves (Rush 02's `ex00_rush02_diff` and `ex00_rush02_dictfuzz`) | fuzzing a wrong answer reports the same wrongness thousands of times; Rush 00's sanitizer twin compares no output and none of its dimensions is a row of the table, so a crash on a zero or `INT_MIN` side is a fault the table never shows, and waiting for it would hide that crash behind a red of its own; a manual test runs only when someone names it |
+| `valgrind` | the `output` fixture of the run it checks passes: for a function's `exNN_valgrind` or `exNN_memcheck`, `exNN_bin` against the exercise's expected file; for a program case's `_valgrind`, that case's own `_output`, and for a survive case's, the case its `_output` and `_asan` wait for (the exercise's first case at basic with one expected file and plain arguments, run where the test runs; with no such case it waits for nothing); for a corpus sample, the same gate as the replay it samples (Rush 02's two, `ex00_rush02_valgrind` and `ex00_rush02_dictfuzz_valgrind`, wait for `ex00_dict_arg_42_output`, as its settled replays of the same corpora do, though the replays they sample are manual); for a rush variant's, its labelled table (`ex00_rush0N_output`). `exNN_probe_memcheck` waits for nothing | a memory report over a wrong answer speaks over the red that matters, and a stub leaks nothing; a survive case asks only that the program ends by itself, which a program nobody has written does too; a probe is written so a stub survives it |
 | `cycles` | the exercise's `output` fixture passes (its gate is `exNN_bin` against that fixture's expected file) | the cost of a wrong answer is not information |
+| `allocfail` | the `output` fixture of the run it sweeps passes: for a function's, `exNN_bin` against the exercise's expected file; for a program case's `_program_allocfail`, that case's own `_output`, and for a survive case's, the case its `_output` waits for, as its `_valgrind` does | a refusal report over a wrong answer speaks over the red that matters; a survive case asks only that the program ends by itself, which a program nobody has written, asking for no memory, does too |
 | `output`: Rush 00's `ex00_rush0N_defense` and `ex00_rush0N_main` | that variant's labelled table passes (`ex00_rush0N_output`) | both run the same `rush()`; while the table is red they fail with it, without its hints |
 | `output`: Rush 01's `ex00_sweep` | the subject's own example passes (`ex00_subject_output`) | the one case the subject printed says it first; 438 restatements of it do not |
 | `method`'s `exNN_method` | the exercise's own `output` fixture passes (`exNN_output`'s expected output, from its test program) | a stub calls nothing twice, and a wrong answer has no method worth reading yet |
@@ -510,8 +586,16 @@ forces every one of them open** and turns a missing tool into a failure.
 | a shell script turn-in's `exNN_posix`, and its half of `exNN_lint` | the generator parses and runs to its end, and writes a script `/bin/sh` can parse | there is no script to lint, or shellcheck would only repeat the parse error; `exNN_norm` or `exNN_output` says why (the generator's own lint in `exNN_lint` runs whenever the generator parses) |
 | `exNN_build_rules` | the build makes the artifact | what a rule does to a tree that was never built says nothing about the rule |
 | `exNN_build_recipe`, `exNN_build_wildcards` | `make -n` plans, or a build of a copy of the tree runs, a command that compiles a `.c` (the creator script runs one) | no compile command to judge, and nowhere to put a decoy source |
+| Shell 01 ex07 (`r_dwssap.sh`), `output`'s line about the fixture's two orders, and `literal` | the test locale (`en_US.UTF-8`) is installed and collates apart from bytes (`oracle shell01_rdwssap collates`) | where it is missing, or collates as bytes do, the two orders are one on any file, and no output could show them apart |
 | Shell 01 ex04 and Reloaded ex04 (`MAC.sh`), `output` and `literal`, past "is there and parses" | the machine has `ifconfig` and publishes a hardware address besides loopback (`oracle shell01_hwaddr --machine`) | in a container a correct `MAC.sh` has nothing to print, and a red there would not be about your script |
 | any layer | its tool is available | a missing valgrind is a gap, not a pass — `NO_SKIP=1` says so |
+
+`c_levels()`' audit holds the `diff` row to the build: a `diff` or
+`diff_asan` test that is not manual has a gate (`--gate-bin`,
+`--gate-expected` or `--gate-label`), or the tag only a macro sets, with
+the reason it waits for nothing written beside it (`_NO_GATE_TAG`, Rush
+00's sanitizer twin; `_ungated_diff_problems`). A `waits =` alone is no
+gate: it names a test, and nothing runs it.
 
 A test that waits says SKIP in its log, and Bazel shows it PASSED: a test
 that ran cannot report itself skipped. So the red log of the `output` test it
@@ -519,16 +603,20 @@ waits for names it, under `WAITING FOR THIS OUTPUT`, with its level. Which
 `output` test that is, is read from the gate: the program and expected file
 it gates on (`--gate-bin`, `--gate-expected`), or the test its
 `--gate-label` names (a survive case's, Rush 00's `_defense` and `_main`,
-the method and cycles layers', and the BSQ and Rush 01 and 02 replays',
-whose SKIP line names it too); where two `output` tests run that same pair
-(cases sharing an expected file), the call says which with
+the allocfail, diff, method, cycles, perf, `_refcost` and valgrind layers',
+the BSQ and Rush 01 and 02 replays', and the C 06, C 10 and Reloaded corpus
+replays', whose SKIP line names it too); where two `output` tests run that
+same pair (cases sharing an expected file), the call says which with
 `waits = "<that test>"` (`hand_test`, `corpus_memory`). `c_levels()`' audit
 refuses a gate that resolves to no `output` test or to two, or to the
-`output` test of another exercise, whose red log you would not be reading,
-and one that hands the program none of the input that test's run does. It
-also refuses a gated test whose runner can name its `output` test in the
-SKIP line and is not told to (`--gate-differ` with no `--gate-label`,
-`_gate_label_problems`): that SKIP would name no test.
+`output` test of another exercise, whose red log you would not be reading
+-- in a library, of another function, or of a function for a test of the
+whole library (or the other way round), whose red that function's suite
+never shows -- and one that hands the program none of the input that test's
+run does. It also refuses a gated test whose runner can name its `output` test in the
+SKIP line and is not told to (`--gate-differ`, or `diff_output.sh`'s own
+`--gate-expected`, with no `--gate-label`; `_gate_label_problems`): that
+SKIP would name no test.
 
 Two layers report one cause, on purpose, where each says something the other
 cannot: a copy of a file the grader brings, kept in a Makefile turn-in (C 09
@@ -728,6 +816,7 @@ target's time; one that takes a third of its limit or more is resized.
 | `ILP32_CC` | unset | a 32-bit compiler to try first, when the pinned zig is unavailable |
 | `ZIG_CACHE_HOME` | `${TMPDIR:-/tmp}/zig-cache-42-$USER` | shared across tests on purpose, one per user (a shared /tmp belongs to whoever created it first); per-test isolation costs ~15s each |
 | `ASAN_OPTIONS`, `UBSAN_OPTIONS` | unset | appended after the harness's own, so your key wins |
+| `LD_DEBUG`, `LD_DEBUG_OUTPUT` | unset | the loader's tracing (`man ld.so`), to see which libraries a program loaded: every program a runner starts writes it to `test.outputs/ld_debug.<pid>`, or to `LD_DEBUG_OUTPUT.<pid>` when that is set too, as an absolute path in a folder that can be written, never to the stderr or stdout a layer compares; a runner run by hand, outside `bazel test`, drops `LD_DEBUG` unless `LD_DEBUG_OUTPUT` is set so |
 | `ALLOCFAIL_TIMEOUT` | `10` | seconds one allocation-failure run gets |
 | `ALLOCFAIL_MAX` | `64` | how many allocations one sweep refuses, one per run: all of them up to that many, and past it that many, the first ones and then spread evenly to the last (a function's `_allocfail` and a program's `_program_allocfail` alike) |
 | `ALLOCFAIL_LOG_CAP` | 1 MiB | `ulimit -f` cap on what an allocation-failure run may write |
@@ -806,6 +895,10 @@ c-piscine/                 <- the C Piscine
                               ft_stock_str.h, Reloaded's ft_putchar.c). To compile
                               by hand against one, add -I <project>/tests; never
                               copy it into deliverable/
+    tests/exNN/<function>/ <- a library exercise's (the Common Core's): one
+                              folder per function its contract lists, holding
+                              that function's harnesses and expected output;
+                              c_levels() refuses a folder of no function
     tests/layout/<header>  <- the structure a subject prints for a header you
                               turn in (C 12's t_list, C 13's t_btree), which the
                               prototype layer checks yours against; tag/<header>
@@ -872,13 +965,15 @@ project's `BUILD.bazel`.
 | `grader` | who grades: `moulinette`, `defense` (peers at an evaluation) or `both` | every runner's words about where a failure costs, as `RL_GRADER` (`tools/runner_lib.sh`'s `rl_at`: "an outright KO at the defense"); the files layer's advice about an extra file |
 | `group` | a group project | recorded for the team rules ([rushes.md](rushes.md#working-as-a-team)) |
 | `mandatory`, `mandatory_quote` | the exercises the subject itself calls its mandatory part, where it says so (C 00, Shell 00 and Shell 01 each end that part with a sentence saying it), and that sentence with its page; left out where the subject says nothing of the kind | `submit --written-only`, which does not push the project while one of them is still a stub, and a blocked gate's advice (`tools/first_red.sh --written` reads the list from the call, and `macro_fixtures_test` holds that reading to the macros') |
+| `memory_graded` | the subject's own sentences saying its grader judges memory, a dict of exactly two keys, each one line with its project and page: `"leaks"` (Libft, p.3: "All heap-allocated memory must be properly freed when necessary. Memory leaks will not be tolerated.") and `"access"` (Libft, p.3: "Your functions should not quit unexpectedly (segmentation fault, bus error, double free, etc.) except for undefined behavior. If this occurs, your project will be considered non-functional and will receive a 0 during the evaluation."); left out where the subject says nothing of the kind | the level of the project's `valgrind` layer, `basic` instead of `strict` for every test of it (`_test()`'s tags, and `c_levels()`' audit, which holds each one there); the sentences their reds quote: `access` on every test of the layer, for a finding that is no leak (`--access-rule`, from `:memory_graded_access`), and `leaks` on every one that checks leaks and on none that does not (`--rule`, from `:memory_graded_leaks`), unless a `c_program`'s own `memory_rule` gives the leak one; `tools/first_red.sh`, which files such a red as a KO |
 | `strict` | whether it forbids files it did not ask for ("You cannot leave any additional file", "submit only the files requested"); every Piscine project does | the files layer: an extra file fails, or warns. A folder of no exercise, a file outside every exercise folder, and a file named as a program the exercise builds (c_program's `name`, c_make's `artifact`), fail either way |
 | `exercise(page = ...)` | the page the header box is printed on | a reader checking the entry |
 | `dir` | the "Turn-in directory" line, verbatim (`"ex00/"`); `None` where there is none | every path every layer builds: `deliverable/ex00`, or `deliverable` |
 | `files` | the "Files to turn in" line: the names it gives, `[]` where it names none, `None` where the name itself is the exercise | the files layer's required set; a header named here is staged first. A `c_make`, and a `c_program(makefile = True)`, build only from a Makefile (or creator script) named here, and refuse one the contract leaves out or only allows (finding 124) |
 | `optional` | what the subject allows without naming it, as names or patterns (`"*.c"`); a pattern with `/` or `**` lets files sit in subfolders. Beside a Makefile, `"*.c"` and `"*.h"` are refused while loading: the Makefile says where its sources lie, so "Makefile, \*.h, \*.c" is transcribed `"**/*.c"`, `"**/*.h"` | the files layer; the sources and headers every build globs |
 | `provided` | the files the grader brings, as `{harness copy under tests/: where the grader puts it}` | linked (a `.c`) or staged and on the include path (a `.h`), never judged as the student's; laid beside a Makefile turned in alone; reported when a copy turns up in the turn-in, in a subfolder too (the files layer walks the tree where a destination has one) |
-| `linked` | the functions the grader compiles in from its own code ("From exercise 01 onward, we'll use our ft_create_elem"), as `{function: grader_library() label}` -- a Rust crate under `oracle/grader/` (`tools/grader_lib.bzl`), never C under `tests/`, which would be an answer outside the zone | linked into every program the exercise builds, in place of the exercise that writes the function; its i686 archive into the `ilp32` layer's; the `forbidden` and `symbols` layers report a student's own definition of it. The contract's analysis (`bazel test //...`, or `bazel build //<project>:subject`) refuses a label that is no `grader_library()`, or whose `exports` lack the function; a macro that cannot link the library into what it builds fails while loading, naming itself (only `c_function`, `c_diff`, `c_perf`, `c_cycles` and `c_mem_check` can) |
+| `linked` | the functions the grader compiles in from its own code ("From exercise 01 onward, we'll use our ft_create_elem"), as `{function: grader_library() label}` -- a Rust crate under `oracle/grader/` (`tools/grader_lib.bzl`), never C under `tests/`, which would be an answer outside the zone | linked into every program the exercise builds, in place of the exercise that writes the function; its i686 archive into the `ilp32` layer's; the `forbidden` and `symbols` layers report a student's own definition of it. The contract's analysis (`bazel test //...`, or `bazel build //<project>:subject`) refuses a label that is no `grader_library()`, or whose `exports` lack the function; a macro that cannot link the library into what it builds fails while loading, naming itself (only `c_function`, `c_diff`, `c_perf`, `c_cycles` and `c_mem_check` can, and `c_library`, which builds no program) |
+| `functions` | where one exercise turns in a library and each function's box names its own External Functions: `{function: that list}`, `[]` for "None"; left out where the exercise has one box | the contract's own check while loading: every key a C name, every list a part of `allowed`, and `allowed` exactly the union of the lists; `c_library()`, which declares the whole library's layers once, and the archive's symbols from it; each function's `member` macro calls, a member's `malloc` held to its own list; `c_levels()`, a suite per function and the audit of a library (see [Suites](#suites)) |
 | `allowed`, `variables` | the "Allowed functions" line, `[]` for "None", `None` where there is none; variables it allows in a sentence of its own (`errno`) | the forbidden layer; whether a program's runs, and a corpus, get a leak check (malloc named, or no line); a `c_function` whose line names malloc or free is refused `malloc = False` (its `malloc` stays the call's, for a function that allocates through a helper the subject allows) |
 
 `c_levels()` emits the files layer for every exercise from it, and fails when
@@ -950,8 +1045,10 @@ item naming the check that holds it, is [new-project.md](new-project.md)):
   (`.devcontainer/Dockerfile`, the libbsd-dev RUN). Add the page's member
   there, and a clue that sends the student to it says `man 3bsd <name>` and
   names man.openbsd.org's page beside it, for a box without the package.
-  `//tools:conventions` holds both to its `LIBBSD_PAGES`; libft's
-  `ft_strnstr` is the next, its page `strnstr.3bsd`, in the same `.deb`.
+  `//tools:conventions` holds both to its `LIBBSD_PAGES`, wherever a
+  BUILD file names the function: as a turned-in `ft_<name>.c`, or as a key
+  of a library's `functions` (Libft's `ft_strnstr`, whose page,
+  `strnstr.3bsd`, is in the same `.deb`).
 
 **The include path is the grader's.** Where a subject lets headers sit in a
 subfolder (`optional = ["**/*.h"]`), the headers are staged for every build

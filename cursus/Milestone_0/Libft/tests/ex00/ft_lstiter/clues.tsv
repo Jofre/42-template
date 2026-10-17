@@ -1,0 +1,5 @@
+# clues.tsv for ft_lstiter -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+Which nodes does f reach: the first one, the last one, every one between? And what is f handed, the node or its content?	[a b c]: f called with	[a]: f called with	5000 nodes: f called with
+f changes what a content points to, and nothing else: after your walk, does every node still hold the content it held, in the list it was in?	[a b c], f adds 10: afterwards	[a], f adds 10: afterwards
+How many nodes does a list hold when its first node is NULL, and does your function look inside a node before it knows there is one?	NULL (the empty list): f called with

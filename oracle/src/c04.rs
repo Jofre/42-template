@@ -46,7 +46,7 @@ fn is_ws(b: u8) -> bool {
 
 /// ft_putnbr: the decimal text a correct impl write()s for `n` (handles INT_MIN).
 #[inline(never)] // keep this attributable under callgrind (see tools/)
-fn o_putnbr(n: i32) -> Vec<u8> {
+pub(crate) fn o_putnbr(n: i32) -> Vec<u8> {
     format!("{}", n).into_bytes()
 }
 

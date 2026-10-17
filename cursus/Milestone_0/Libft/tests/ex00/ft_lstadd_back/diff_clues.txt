@@ -1,0 +1,6 @@
+  The input's ints, each a node's content, are added at the end one by one,
+  from the empty list; the output is the list afterwards, first node first.
+    * empty, or one node      -> the first addition: which pointer changes
+                                 when there is no last node yet?
+    * nodes missing           -> which node's next changed: the last one?
+    * still going             -> a node whose next leads back into the list

@@ -1,0 +1,9 @@
+"" (empty)	0
+"a"	1
+"Hello"	5
+spaces and a tab: "a b<TAB>c"	5
+"ab", a NUL, then "cd"	2
+"caf" then bytes 0xc3 0xa9 (UTF-8)	5
+one byte 0xff	1
+three bytes 0x80	3
+5000 bytes, every value 1..255 among them	5000

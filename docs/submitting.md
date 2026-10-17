@@ -94,7 +94,11 @@ An exercise the test report calls *not written yet* (its files still the stub
 they started as, its output red) then does not block, and every other test of
 the module still has to pass: a red in an exercise you have written, or in a
 test of the whole module, still blocks it. The run names each exercise it let
-through, and those go to 42 as they are on disk, stubs included. When the
+through, and those go to 42 as they are on disk, stubs included. A library
+counts the same way: one with some functions written, whose only reds are
+functions still a stub or its own tests over a Makefile or `README.md` that
+is still the stub, missing or empty, is let through, and goes to 42 with those
+files as they are. When the
 test report cannot be read, nothing is let through, and the run says so, with
 the command that shows the report. It is off unless you ask for it.
 

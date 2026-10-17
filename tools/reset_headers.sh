@@ -116,6 +116,24 @@ NOW="$(date '+%Y/%m/%d %H:%M:%S')"
 done_n=0
 skip_n=0
 
+# Each file's scratch copy ($tmp) is removed on every exit, a Ctrl-C or a
+# kill included: dash runs no EXIT trap when a signal ends it, so each
+# signal trap exits. One copy is kept: while it is being written back over
+# its file it is that file's only whole copy, so it is named, not removed.
+tmp=""
+writing=""
+cleanup() {
+	if [ -n "$writing" ]; then
+		echo "reset_headers.sh: stopped while writing $writing; its full contents are in:" >&2
+		echo "      $tmp" >&2
+	elif [ -n "$tmp" ]; then
+		rm -f "$tmp"
+	fi
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
 # One name per line, read with `read`, never expanded bare: `for f in
 # $TARGETS` split a name at its blanks, and `ft_putchar copy.c` -- the name a
 # file manager gives a duplicate -- was looked for as `ft_putchar` and
@@ -161,18 +179,22 @@ while IFS= read -r f; do
 	elif ! tail -n +12 "$f" >> "$tmp"; then   # body, byte-for-byte
 		echo "could not copy the body of $f; it was left as it was" >&2
 		skip_n=$((skip_n + 1))
-	elif ! cat "$tmp" > "$f"; then
+	elif ! { writing=$f; cat "$tmp" > "$f"; }; then
 		echo "reset_headers.sh: could not write $f, which may now be cut short." >&2
 		echo "  Its full contents, new header and all, are in:" >&2
 		echo "      $tmp" >&2
 		echo "  Once it can be written again (is the disk full?), put them back with:" >&2
 		echo "      cat '$tmp' > '$f'" >&2
 		echo "  Stopped here: nothing after $f was touched." >&2
+		writing=""
+		tmp=""
 		exit 1
 	else
 		done_n=$((done_n + 1))
 	fi
+	writing=""
 	rm -f "$tmp"
+	tmp=""
 done <<EOF
 $TARGETS
 EOF

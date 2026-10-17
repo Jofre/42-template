@@ -1,0 +1,11 @@
+  This corpus holds only a c outside 0..255, which man memset ("the constant
+  byte c") leaves open. This harness's reading, not the subject's: c is
+  converted to unsigned char, its low eight bits, and that byte is stored.
+  Each line is the block before the call (hex), c, n, the block after the
+  call (hex), and 1 when the call returned the s it was handed.
+    * the block after diverges        -> what does converting this c to
+                                         unsigned char give, and what does
+                                         your function store instead?
+    * only a negative c diverges, or only one above 255 -> which conversion
+                                         does your function apply, and is it
+                                         the same for both?

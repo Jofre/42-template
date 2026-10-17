@@ -30,6 +30,11 @@ Exercise shapes:
                  sources. Its output layer compiles inside the runner too, so a
                  header turned in beside the sources can be a stub without
                  breaking the build.
+  c_library   -> a Common Core library: the whole library's layers once (its
+                 Makefile, Norm, compilers, prototypes, forbidden, symbols),
+                 and the unit each MEMBER links -- a c_function, c_mem_check,
+                 c_diff, c_perf or c_cycles call with `member`, one function
+                 of the contract's `functions`, its targets exNN_<member>_*.
   c_argv_table-> one labelled table for an argv program run over many invocations.
 
 Layers an exercise can add:
@@ -38,6 +43,8 @@ Layers an exercise can add:
   c_perf      -> informative cost measurement (time AND memory growth)
   c_files     -> the deliverable file SET, against the subject's turn-in line;
                  c_levels() emits one per exercise, from the contract
+  c_readme    -> the README.md a subject asks for, read as Markdown: basic in no
+                 language, the subject's wording at strict
   c_levels    -> the per-module suites (a level, an exercise, the manual
                  targets), and the audit of the module as a whole
   hand_test   -> a test written out in a BUILD file, derived like a macro's
@@ -61,7 +68,8 @@ covered by the modules that use them and by the rules below, not by a toy. A
 toy module of its own (tools/tests/macro_fixtures/levels) proves c_levels()
 and hand_test(): how exercises are found, a folder that is no exercise, the
 audit passed by a test declared after the call, and the kinds of a program
-case. It also holds the c_diff and c_issued toys.
+case. It also holds the c_diff and c_issued toys, and a toy library
+(c_library and two members).
 The VERDICT of each toy's layers cannot be checked by a test; it is measured
 by hand, with the command in that BUILD file:
 
@@ -97,7 +105,7 @@ load(
 # tools/subject.bzl.
 exercise = _exercise
 
-def subject(grader, group, exercises, strict = True, mandatory = None, mandatory_quote = None, name = "subject"):
+def subject(grader, group, exercises, strict = True, mandatory = None, mandatory_quote = None, memory_graded = None, name = "subject"):
     """A project's subject contract (tools/subject.bzl's subject()), and who waits for each output.
 
     The contract, as tools/subject.bzl declares it; then the finalizer that
@@ -114,6 +122,10 @@ def subject(grader, group, exercises, strict = True, mandatory = None, mandatory
         strict: the same.
         mandatory: the same.
         mandatory_quote: the same.
+        memory_graded: the same. Its two sentences are written out for the
+            runners as well, to :memory_graded_leaks (_MEMORY_GRADED) and
+            :memory_graded_access (_MEMORY_GRADED_ACCESS), which the
+            package's valgrind reds quote (_graded_rule).
         name: the same.
     """
     _subject(
@@ -123,8 +135,16 @@ def subject(grader, group, exercises, strict = True, mandatory = None, mandatory
         strict = strict,
         mandatory = mandatory,
         mandatory_quote = mandatory_quote,
+        memory_graded = memory_graded,
         name = name,
     )
+
+    # Each sentence, one line in a file: sh_test tokenises `args` on blanks,
+    # so a runner is handed its path (valgrind_test.sh's --rule and
+    # --access-rule), as c_program's memory_rule is.
+    if memory_graded:
+        names_file(name = _MEMORY_GRADED, names = [memory_graded["leaks"]])
+        names_file(name = _MEMORY_GRADED_ACCESS, names = [memory_graded["access"]])
 
     # Public, as the contract is: //tools/tests reads the macro fixtures'.
     _waiting(name = _WAITING, visibility = ["//visibility:public"])
@@ -344,6 +364,8 @@ _LAYER_LEVEL = {
     "forbidden": 1,
     "prototype": 1,
     "symbols": 2,
+    # Basic instead in a project whose subject() says its grader judges
+    # memory (memory_graded; _layer_level, below).
     "valgrind": 2,
     # HOW the turn-in is built, where a subject says so and no output can
     # show it: "Create a recursive function", "Create an iterative
@@ -411,6 +433,53 @@ _LAYER_LEVEL = {
 
 _LEVEL_NAMES = ["basic", "strict", "robust", "complete"]
 
+# THE ONE LEVEL A SUBJECT LOWERS. A subject that says its grader judges
+# memory -- subject(memory_graded = ...), Libft's "Memory leaks will not be
+# tolerated." -- makes a leak a KO wherever that project is graded, so there
+# the valgrind layer sits at basic instead of the strict above. It is the one
+# change of level that goes DOWN, and a fact of the project declared once in
+# its contract: never a target's `level` (which only raises), never a
+# _RAISED row, never a table of targets. _test() derives every test's tags
+# from it (_layer_level), _raise() a case's floor, and c_levels()' audit
+# holds every test of the package to it -- and to quoting the sentences
+# from the files subject() writes: --access-rule, the subject's sentence on
+# a crash or an invalid access (_MEMORY_GRADED_ACCESS), on every test of the
+# layer, and --rule, its sentence on a leak (_MEMORY_GRADED), on every one
+# that checks leaks and on none that does not (--no-leak-check).
+_GRADED_LAYER = "valgrind"
+_MEMORY_GRADED = "memory_graded_leaks"
+_MEMORY_GRADED_ACCESS = "memory_graded_access"
+
+def _layer_level(layer, memory_graded = False):
+    """A layer's level in a package: _LAYER_LEVEL's, but basic for _GRADED_LAYER where the contract declares memory_graded."""
+    if memory_graded and layer == _GRADED_LAYER:
+        return 1
+    return _LAYER_LEVEL[layer]
+
+def _memory_graded():
+    """The calling package's contract's memory_graded sentences, {"leaks", "access"}; {} where it has none, or no contract."""
+    r = native.existing_rule("subject")
+    if not r or r["kind"] != "subject_contract":
+        return {}
+    return json.decode(r["contract"]).get("memory_graded") or {}
+
+def _graded_rule(leaks = True):
+    """(args, data) handing a valgrind runner the contract's memory_graded sentences, or ([], []).
+
+    --access-rule always, the sentence on a crash or an invalid access; and
+    with `leaks` (the run checks leaks) --rule, the sentence on a leak. A
+    run with --no-leak-check passes leaks = False: it can find no leak, and
+    its red quoting the leak sentence named a rule its finding cannot break.
+    """
+    if not _memory_graded():
+        return [], []
+    args = ["--access-rule", "$(location :%s)" % _MEMORY_GRADED_ACCESS]
+    data = [":" + _MEMORY_GRADED_ACCESS]
+    if leaks:
+        args += ["--rule", "$(location :%s)" % _MEMORY_GRADED]
+        data.append(":" + _MEMORY_GRADED)
+    return args, data
+
 # The page whose table says why each test _RAISED lists sits where it does,
 # staged beside those tests (_test, runner_lib.sh's rl__raised).
 _DOC_REFERENCE = "//:docs/reference.md"
@@ -452,6 +521,7 @@ _SUFFIX_LAYER = {
     "_compile_clang": ("compile", None),
     "_compile_gcc": ("compile", None),
     "_cycles": ("cycles", None),
+    "_declares_output": ("output", 2),
     "_defense": ("output", None),
     "_diff": ("diff", None),
     "_diff_asan": ("diff_asan", None),
@@ -459,6 +529,9 @@ _SUFFIX_LAYER = {
     "_files": ("files", None),
     "_fixed_array": ("method", None),
     "_forbidden": ("forbidden", None),
+    "_forbidden_functions": ("forbidden", None),
+    "_forbidden_through": ("forbidden", 2),
+    "_globals": ("forbidden", None),
     "_ilp32": ("ilp32", None),
     "_issued": ("output", None),
     "_layout_prototype": ("prototype", 2),
@@ -482,7 +555,11 @@ _SUFFIX_LAYER = {
     "_progname": ("output", None),
     "_prototype": ("prototype", None),
     "_prototype_names": ("prototype", 2),
+    "_prototype_restrict": ("prototype", None),
+    "_prototype_restrict_all": ("prototype", 2),
     "_readings": ("diff", None),
+    "_readme": ("output", None),
+    "_readme_wording": ("output", 2),
     "_reference_cases": ("oracle", None),
     "_refcost": ("cycles", None),
     "_regular": ("output", 2),
@@ -537,11 +614,20 @@ _RAISED = {
     "c-piscine/c-piscine-rush-02:ex00_dict_crlf_strict_output": 2,
     "c-piscine/c-piscine-rush-02:ex00_dict_missing_strict_output": 2,
     "c-piscine/c-piscine-rush-02:ex00_past_dictionary_strict_output": 2,
+    "cursus/Milestone_0/Libft:ex00_ft_lstlast_empty_output": 2,
+    "cursus/Milestone_0/Libft:ex00_ft_lstnew_allocfail": 3,
+    "cursus/Milestone_0/Libft:ex00_ft_memset_wide_c_output": 2,
+    "cursus/Milestone_0/Libft:ex00_ft_split_empty_fields_output": 2,
+    "cursus/Milestone_0/Libft:ex00_ft_substr_start_past_end_output": 2,
+    "tools/tests/macro_fixtures/graded:ex02_open_output": 2,
+    "tools/tests/macro_fixtures/graded:ex02_open_valgrind": 2,
     "tools/tests/macro_fixtures/levels:ex00_raised_output": 2,
     "tools/tests/macro_fixtures/levels:ex00_reading_output": 2,
     "tools/tests/macro_fixtures/levels:ex01_staged_output": 2,
     "tools/tests/macro_fixtures/levels:ex03_open_output": 3,
     "tools/tests/macro_fixtures/levels:ex03_readings": 3,
+    "tools/tests/macro_fixtures/levels:ex12_toy_cat_open_output": 2,
+    "tools/tests/macro_fixtures/levels:ex12_toy_cat_readings": 3,
 }
 
 # THE RUNNERS THAT SAY WHY A TEST IS RAISED: those that source
@@ -576,6 +662,7 @@ _LIB_RUNNERS = [
     "//tools:perf_test.sh",
     "//tools:progname_test.sh",
     "//tools:prototype_check.sh",
+    "//tools:readme_check.sh",
     "//tools:ref_compare.sh",
     "//tools:reference_cases.sh",
     "//tools:run_check.sh",
@@ -647,7 +734,7 @@ def _suffix_of(name):
             best = s
     return best
 
-def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, oracle = None, makefiles = None, malloc = None, clues = None, diffio = None, suites = None, programs = None):
+def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, oracle = None, makefiles = None, malloc = None, clues = None, diffio = None, suites = None, programs = None, memory_graded = False, members = None, member_dirs = None):
     """What c_levels()' audit fails a package for, as a list of messages.
 
     A value before it is a fail(), like every contract check: contract_problem()
@@ -713,6 +800,15 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
             c_make judges the same exercise its exNN_build's --artifact is
             the program the Makefile builds: the two are one program, and
             one name.
+        memory_graded: whether the package's subject() contract declares
+            memory_graded: its valgrind layer then sits at basic
+            (_layer_level), and every test of that layer quotes a rule
+            (--rule), the contract's sentence where its call quotes none.
+        members: every function of a library exercise, as "exNN/<member>",
+            from the contract's `functions` (_member_problems).
+        member_dirs: every folder directly under a library exercise's
+            tests/exNN/, as "exNN/<folder>", but one holding a copy of what
+            the grader brings (_member_problems).
 
     Returns:
         The messages, in a stable order; empty when the package is sound.
@@ -783,10 +879,13 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
                              "name can collide with a longer suffix -- or fix its tag.") %
                             (n, suffix, s_layer, layer))
             continue
-        base = s_level or _LAYER_LEVEL[layer]
+        base = s_level or _layer_level(layer, memory_graded)
         if start < base:
-            problems.append("%s: it sits at %s, below its %s layer's %s." %
-                            (n, _LEVEL_NAMES[start - 1], suffix, _LEVEL_NAMES[base - 1]))
+            problems.append("%s: it sits at %s, below its %s layer's %s.%s" %
+                            (n, _LEVEL_NAMES[start - 1], suffix, _LEVEL_NAMES[base - 1],
+                             (" Only a subject() contract that declares memory_graded puts " +
+                              "the %s layer at basic, for the whole project.") % layer
+                             if layer == _GRADED_LAYER and not s_level and start == 1 else ""))
         elif start != base and raised.get(n) != start:
             problems.append(("%s: it sits at %s, above the %s its name gives it, and " +
                              "tools/defs.bzl's _RAISED does not say so. Add " +
@@ -812,6 +911,33 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
                              "with a runner that does, or have this one source the library " +
                              "and add it to tools/defs.bzl's _LIB_RUNNERS.") %
                             (n, ", ".join(srcs) or "no srcs"))
+        # A MEMORY FINDING IS A KO HERE BECAUSE THE SUBJECT SAYS SO, and its
+        # red says which sentence: the contract's on a crash or an invalid
+        # access (--access-rule) on every test of the layer, and on a leak
+        # (--rule: the contract's, or c_program's own memory_rule) on every
+        # one that checks leaks -- and on none that does not, whose red
+        # would quote a rule its finding cannot break. A red at basic
+        # stating this harness's rule, "not a sentence of your subject's",
+        # would contradict the level it sits at.
+        if memory_graded and layer == _GRADED_LAYER and srcs != ["//tools:no_turnin.sh"]:
+            g_args = tests[n].get("args") or []
+            if "--access-rule" not in g_args:
+                problems.append(("%s: the subject() contract declares memory_graded, so it " +
+                                 "sits at basic, and it quotes no sentence on an invalid access " +
+                                 "(--access-rule): its red would call the rule this harness's " +
+                                 "own. Hand its runner the contract's sentence, :%s " +
+                                 "(_graded_rule()).") % (n, _MEMORY_GRADED_ACCESS))
+            if "--no-leak-check" in g_args and "--rule" in g_args:
+                problems.append(("%s: it checks no leak (--no-leak-check) and quotes a sentence " +
+                                 "on leaks (--rule): its red would name a rule its finding " +
+                                 "cannot break. Hand its runner the access sentence alone " +
+                                 "(_graded_rule(leaks = False)).") % n)
+            elif "--no-leak-check" not in g_args and "--rule" not in g_args:
+                problems.append(("%s: the subject() contract declares memory_graded, so it " +
+                                 "sits at basic, and it checks leaks quoting no sentence on " +
+                                 "them (--rule): its red would call the rule this harness's " +
+                                 "own. Hand its runner the contract's sentence, :%s " +
+                                 "(_graded_rule()).") % (n, _MEMORY_GRADED))
         if "manual" in tags and not fixture and not [p for p in manual if _glob_match(p, n)]:
             problems.append(("%s: it is manual, so no suite and no /... pattern runs it, " +
                              "and tools/defs.bzl's _MANUAL does not list it. Add a " +
@@ -906,7 +1032,10 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
                              "are shown to nobody. Pass it where the exercise is judged " +
                              "-- clues = \"%s\" on its macro (c_function, c_program, " +
                              "c_make, ...) -- or delete it.") % (f, f, f.split("/")[-1]))
-    problems += _keyed_clue_problems(tests, clues or [])
+    problems += _keyed_clue_problems(tests, clues or [], members or [])
+
+    # A LIBRARY'S FUNCTIONS, EACH WITH ITS TESTS AND ITS FOLDER.
+    problems += _member_problems(tests, members or [], member_dirs or [])
 
     # A MAKEFILE THE CONTRACT ASKS FOR IS BUILT BY c_make. "recipe and
     # wildcards are decided at every c_make" binds only the c_make calls that
@@ -960,6 +1089,9 @@ def _audit_problems(pkg, tests, exercises, layouts = None, fixtures = None, orac
 
     # ...and a gate whose runner can name it in its SKIP line does.
     problems.extend(_gate_label_problems(tests))
+
+    # EVERY DIFF LAYER WAITS for its exercise's output test, or says why not.
+    problems.extend(_ungated_diff_problems(tests))
     return problems
 
 def _argv_guard_replay_problems(tests, fixtures):
@@ -1107,7 +1239,7 @@ def _memory_rule_reach_problems(tests):
                         (n, "--rule " + got if got else "no rule", arm, want))
     return problems
 
-def _keyed_clue_problems(tests, clues):
+def _keyed_clue_problems(tests, clues, members = None):
     """An exercise whose hints are keyed to its cases, with a hint file per case beside them.
 
     ONE KEYED clues.tsv PER EXERCISE (ruling R7). A test
@@ -1128,9 +1260,14 @@ def _keyed_clue_problems(tests, clues):
     An exercise none of whose tests is keyed (a function's table keys its
     rows by their labels) is not held to it.
 
+    A library's function (a member, see _member) is held to it one folder
+    deeper, as an exercise of its own: its tests are the ones its tag names
+    (_MEMBER_TAG), and its hints are tests/exNN/<member>/clues.tsv.
+
     Args:
         tests: _audit_problems()' tests.
         clues: every clues*.tsv under the package's tests/.
+        members: _audit_problems()' members, "exNN/<member>".
 
     Returns:
         The messages, in a stable order; empty when nothing breaks the rule.
@@ -1140,29 +1277,105 @@ def _keyed_clue_problems(tests, clues):
         args = tests[n].get("args") or []
         opts = args[:args.index("--")] if "--" in args else args
         if _is_ex(n[:4]) and "--case" in opts:
-            keyed.setdefault(n[:4], []).append(n)
+            keyed.setdefault(_unit_of(n, tests[n]), []).append(n)
     problems = []
     for f in sorted(clues):
         parts = f.split("/")
-        if len(parts) == 3 and parts[1] in keyed and parts[2] != "clues.tsv":
-            named = keyed[parts[1]]
+        unit = None
+        if len(parts) == 3:
+            unit = parts[1]
+        elif len(parts) == 4 and "%s/%s" % (parts[1], parts[2]) in (members or []):
+            unit = "%s/%s" % (parts[1], parts[2])
+        if unit in keyed and parts[-1] != "clues.tsv":
+            named = keyed[unit]
             shown = ([n for n in named if n.endswith("_output")] + named)[0]
             problems.append(("%s: %s keys its hints to its cases (--case, as %s does), " +
                              "so they live in one tests/%s/clues.tsv: fold these rows " +
                              "into it, each keyed to the cases that named this file " +
                              "(<hint><TAB><case>...), and delete it.") %
-                            (f, parts[1], shown, parts[1]))
+                            (f, unit, shown, unit))
     for n in sorted(tests):
-        ex = n[:4]
-        if ex not in keyed or n in keyed[ex]:
+        unit = _unit_of(n, tests[n])
+        if unit not in keyed or n in keyed[unit]:
             continue
         args = tests[n].get("args") or []
-        hands = [a for a in args if a.endswith("tests/%s/clues.tsv)" % ex)]
+        hands = [a for a in args if a.endswith("tests/%s/clues.tsv)" % unit)]
         if hands:
             problems.append(("%s: it hands %s's keyed clues.tsv to its runner without " +
                              "--case, so every row of it is shown, the rows keyed to " +
                              "other cases among them. Pass --case and the name its rows " +
-                             "are keyed to (its target's name after %s_).") % (n, ex, ex))
+                             "are keyed to (its target's name after %s_).") %
+                            (n, unit, unit.replace("/", "_")))
+    return problems
+
+def _unit_of(n, t):
+    """What test `n` (its _audit_problems() entry `t`) is part of: "exNN/<member>" by its tag, or exNN."""
+    for x in t["tags"]:
+        if x.startswith(_MEMBER_TAG):
+            return x[len(_MEMBER_TAG):]
+    return n[:4]
+
+def _member_problems(tests, members, member_dirs):
+    """A library's functions without a test, tests of no function, folders of no function, as messages.
+
+    A library exercise (the contract's `functions`, c_library) is judged one
+    function at a time, each by its own member macro calls (see _member):
+    every test of one is named exNN_<member>_<what> and carries its tag
+    (_MEMBER_TAG), so its suite (//<module>:<member>) runs it, and every
+    file of one is under tests/exNN/<member>/. So:
+      - a function with no test has a suite that runs nothing, and nothing
+        says it was never tested;
+      - a test of the exercise that is no function's and not the whole
+        library's (exNN<suffix>, a suffix of _LIBRARY_SUFFIXES: c_library's,
+        c_make's, c_readme's and c_levels') is one whose name lost its
+        function, or names one the contract does not list: no function's
+        suite runs it. A layer's suffix alone does not make it the
+        library's: exNN_asan is a function's ASan test without its name;
+      - a folder under tests/exNN/ that is no function's holds tests of
+        none, or a function's under a name the contract does not use.
+
+    Args:
+        tests: _audit_problems()' tests.
+        members: "exNN/<member>", every function of every library exercise.
+        member_dirs: "exNN/<folder>", every folder directly under a library
+            exercise's tests/exNN/, but one holding the grader's copies.
+
+    Returns:
+        The messages, in a stable order.
+    """
+    problems = []
+    tested = {}
+    library = {}
+    for m in members:
+        library[m.split("/")[0]] = True
+    for n in sorted(tests):
+        if n in _MODULE_TESTS or not _is_ex(n[:4]):
+            continue
+        unit = _unit_of(n, tests[n])
+        if unit != n[:4]:
+            tested[unit] = True
+        elif n[:4] in library and n[4:] not in _LIBRARY_SUFFIXES:
+            problems.append(("%s: exercise %s is a library (its subject() contract lists " +
+                             "its `functions`), and this test is named after none of them " +
+                             "(%s_<function>_<what>) and is none of the whole library's " +
+                             "(%s<suffix>, as c_library, c_make, c_readme and c_levels " +
+                             "name them: tools/defs.bzl's _LIBRARY_SUFFIXES), so no " +
+                             "function's suite runs it. Name it after the function it " +
+                             "tests, or add that function to the contract's `functions`.") %
+                            (n, n[:4], n[:4], n[:4]))
+    for m in sorted(members):
+        if m not in tested:
+            ex, fn = m.split("/")
+            problems.append(("%s: a function of library %s (the subject() contract's " +
+                             "`functions`) with no test, so //<module>:%s runs nothing. " +
+                             "Call its member macros: c_function(num = \"%s\", fn = " +
+                             "\"%s\", member = \"%s\", ...).") % (m, ex, fn, ex[2:], fn, fn))
+    for d in sorted(member_dirs):
+        if d not in members:
+            problems.append(("tests/%s/: a folder under library %s's tests that is no " +
+                             "function's (the subject() contract's `functions`), so no " +
+                             "member macro reads it. Name it after the function whose " +
+                             "files it holds, or move them.") % (d, d.split("/")[0]))
     return problems
 
 def _opt_values(args, opt):
@@ -1179,10 +1392,14 @@ def _gate_run(args):
     """What a corpus runner's gate runs, from its arguments; None where it has no gate.
 
     {"bin", "expected", "words": the run's arguments as written, "argv_file":
-    a file holding them, or None}. A runner takes the run's words as
-    --gate-arg, each one word (bsq_check.sh, rush01_check.sh); or a one-line
-    file as --gate-arg-file (rush01_check.sh); or, for a dictionary program,
-    its --dict and then --gate-number (rush02_check.sh).
+    a file holding them, or None, "scenarios": an argument table, or None,
+    "differ": the script --gate-differ names, which judges the run}.
+    A runner takes the run's words as --gate-arg, each one word
+    (bsq_check.sh, rush01_check.sh, file_check.sh); or a one-line file as
+    --gate-arg-file (rush01_check.sh); or, for a dictionary program, its
+    --dict and then --gate-number (rush02_check.sh); or, where the output
+    test is an argument table (c_argv_table's, argv_table.sh), the table's
+    rows as --gate-scenarios (argv_check.sh).
     """
     if not _opt_values(args, "--gate-differ"):
         return None
@@ -1191,24 +1408,54 @@ def _gate_run(args):
     if number:
         words = _opt_values(args, "--dict")[:1] + number[:1]
     files = _opt_values(args, "--gate-arg-file")
+    scenarios = _opt_values(args, "--gate-scenarios")
+    differ = _opt_values(args, "--gate-differ")[0]
     return {
         "bin": (_opt_values(args, "--gate-bin") or [None])[0],
         "expected": (_opt_values(args, "--gate-expected") or [None])[0],
         "words": words,
         "argv_file": files[0] if files else None,
+        "scenarios": scenarios[0] if scenarios else None,
+        "differ": _loc_of(differ) or differ,
+    }
+
+def _table_run(args):
+    """What an argv_table.sh test compares, from its arguments: _gate_run()'s fields but differ.
+
+    None for one that compares no table (--memory-only, --exit-only, --emit).
+    The program runs once per row of --scenarios, with no word of its own.
+    A caller that matches gates sets differ, from the test's runner
+    (_gate_problems).
+    """
+    for opt in ("--memory-only", "--exit-only", "--emit"):
+        if opt in args:
+            return None
+    scenarios = _opt_values(args, "--scenarios")
+    return {
+        "bin": (_opt_values(args, "--bin") or [None])[0],
+        "expected": (_opt_values(args, "--expected") or [None])[0],
+        "words": [],
+        "argv_file": None,
+        "scenarios": scenarios[0] if scenarios else None,
     }
 
 def _output_run(args):
-    """What a diff_output.sh test runs, from its arguments: _gate_run()'s fields.
+    """What a diff_output.sh test runs, from its arguments: _gate_run()'s fields but differ.
 
     None for a run a gate does not make, or a verdict it does not reach: one
     fed standard input, run under another name or from a folder of its own
-    (--stdin, --run-as, --cwd-file), and one that judges something else than
+    (--stdin, --run-as, --cwd-file), one that judges something else than
     standard output against one file (--stream, --expected-alt, --survive,
-    --exit-only).
+    --exit-only), and one that rewrites the output before comparing it
+    (--sanitize, the address column of a hex dump). A corpus gate hands its
+    differ none of these, so on a correct program a gate matched with such
+    a test would run red where the test is green, and every replay behind
+    it would SKIP, green, for ever: BSQ's no-argument gate, once more.
+    A caller that matches gates sets differ, from the test's runner
+    (_gate_problems).
     """
     opts = args[:args.index("--")] if "--" in args else args
-    for opt in ("--stdin", "--run-as", "--cwd-file", "--stream", "--expected-alt", "--survive", "--exit-only"):
+    for opt in ("--stdin", "--run-as", "--cwd-file", "--stream", "--expected-alt", "--survive", "--exit-only", "--sanitize"):
         if opt in opts:
             return None
     files = _opt_values(args, "--argv-file")
@@ -1217,6 +1464,7 @@ def _output_run(args):
         "expected": (_opt_values(args, "--expected") or [None])[0],
         "words": args[args.index("--") + 1:] if "--" in args else [],
         "argv_file": files[0] if files else None,
+        "scenarios": None,
     }
 
 def _gate_problems(tests):
@@ -1230,16 +1478,27 @@ def _gate_problems(tests):
     error", and every BSQ corpus target SKIPped on every correct tree, green,
     wherever NO_SKIP=1 was not set. So each gate is matched here with a
     diff_output.sh test of the package: the same program, the same expected
-    file, the same arguments (or argument file), and no standard input.
+    file, the same arguments (or argument file), and no standard input. Or,
+    for a gate on an argument table, an argv_table.sh test of the package
+    comparing the same program's table, row for row (_table_run). The
+    script that judges the gate (--gate-differ) is the matched test's own:
+    a gate judged by argv_table.sh on the run a diff_output.sh test makes,
+    or the reverse, compares another thing than that test does (V294).
     """
     problems = []
     cases = []
+    named = []
     for n in sorted(tests):
         srcs = tests[n].get("srcs") or []
+        run = None
         if srcs and srcs[0] == "//tools:diff_output.sh":
             run = _output_run(tests[n].get("args") or [])
-            if run != None:
-                cases.append(run)
+        elif srcs and srcs[0] == "//tools:argv_table.sh":
+            run = _table_run(tests[n].get("args") or [])
+        if run != None:
+            run["differ"] = srcs[0].split(":")[-1]
+            cases.append(run)
+            named.append((n, run))
     unmatched = {}
     for n in sorted(tests):
         srcs = tests[n].get("srcs") or []
@@ -1253,9 +1512,15 @@ def _gate_problems(tests):
             # that takes a gate is one of _GATE_LABEL_RUNNERS, whose audit
             # (_gate_label_problems) or the waiting audit names it.
             continue
+        other = [(c, r["differ"]) for c, r in named if dict(r, differ = gate["differ"]) == gate]
+        if other:
+            problems.append(_differ_problem(n, gate["differ"], other[0][0], other[0][1]))
+            continue
         how = " ".join(gate["words"]) or "no argument"
         if gate["argv_file"]:
             how = "the arguments in " + gate["argv_file"]
+        if gate["scenarios"]:
+            how = "each row of " + gate["scenarios"]
         what = "%s with %s against %s" % (gate["bin"], how, gate["expected"])
         unmatched.setdefault(what, []).append(n)
     for what in sorted(unmatched):
@@ -1263,15 +1528,30 @@ def _gate_problems(tests):
                          "the program that way, so the gate can be red on a program whose " +
                          "example passes, and these layers would SKIP on every correct " +
                          "program. Pass the example case's own arguments: --gate-arg once " +
-                         "per word (tools/runner_lib.sh, rl_gate).") %
+                         "per word (tools/runner_lib.sh, rl_gate), or an argument table's own " +
+                         "rows as --gate-scenarios; output_gate(<that test>) reads either off " +
+                         "it.") %
                         (", ".join(unmatched[what]), what))
     return problems
+
+def _differ_problem(n, differ, case, judge):
+    """Test `n`'s gate is judged by `differ` on the run test `case` makes, which `judge` judges."""
+    return (("%s: the gate hands its run to %s, and the output test that runs the program " +
+             "that way (%s) is judged by %s, a script that does not compare that run: " +
+             "argv_table.sh refuses diff_output.sh's run and diff_output.sh refuses " +
+             "argv_table.sh's (exit 2), and on that exit rl_gate runs the layer anyway, so " +
+             "it never waits for that test to pass. Hand --gate-differ that test's own " +
+             "script, as output_gate(<that test>) writes it for a corpus replay.") %
+            (n, differ, case, judge))
 
 # THE RUNNERS WHOSE GATE REPLAYS THE CASE THEY RUN: the gate is handed the
 # words after "--" and, by the runner itself, its --argv-file, --run-as and
 # --cwd-file; --gate-stdin, --gate-expected and the rest of the --gate-*
 # options say how it is fed and compared. c_levels()' audit holds each such
-# gate to an output test of the package (_case_gate_problems).
+# gate to an output test of the package (_case_gate_problems). One test of
+# them is read as a gate written out whole (_whole_gate_run): a survive
+# case's valgrind arm or allocfail sweep (--survive), which waits for
+# another case.
 _CASE_GATE_RUNNERS = [
     "//tools:allocfail_check.sh",
     "//tools:valgrind_test.sh",
@@ -1296,7 +1576,9 @@ def _compared_run(args, gate):
     `gate` False reads a diff_output.sh test's own options; True, the
     --gate-* options of one of _CASE_GATE_RUNNERS, with the run flags the
     runner forwards to its gate. None for a test that compares no output
-    (--survive, --exit-only), or a runner given no gate.
+    (--survive, --exit-only), or a runner given no gate. "differ" is the
+    script that judges the run: diff_output.sh for the test's own, the one
+    --gate-differ names for a gate (V294).
     """
     opts = args[:args.index("--")] if "--" in args else args
     p = "--gate-" if gate else "--"
@@ -1321,6 +1603,7 @@ def _compared_run(args, gate):
         "stdin": one(p + "stdin"),
         "stream": one(p + "stream"),
         "words": args[args.index("--") + 1:] if "--" in args else [],
+        "differ": (_loc_of(one("--gate-differ")) or one("--gate-differ")) if gate else "diff_output.sh",
     }
 
 def _whole_gate_run(args):
@@ -1330,6 +1613,7 @@ def _whole_gate_run(args):
     gate no argument file, no run folder and none of the words after its
     own "--". Without --gate-bin, diff_output.sh's gate runs the case's own
     program (--bin): a survive case's, which waits for its exercise's case.
+    Without --gate-differ, it is judged as diff_output.sh judges a case.
     """
     opts = args[:args.index("--")] if "--" in args else args
     if "--gate-expected" not in opts:
@@ -1351,6 +1635,7 @@ def _whole_gate_run(args):
         "stdin": one("--gate-stdin"),
         "stream": one("--gate-stream"),
         "words": _opt_values(opts, "--gate-arg"),
+        "differ": (_loc_of(one("--gate-differ")) or one("--gate-differ")) if "--gate-differ" in opts else "diff_output.sh",
     }
 
 def _case_gate_problems(tests):
@@ -1370,22 +1655,36 @@ def _case_gate_problems(tests):
     table's would SKIP on every correct tree.
     """
     outputs = []
+    named = []
     for n in sorted(tests):
         srcs = tests[n].get("srcs") or []
         if srcs and srcs[0] == "//tools:diff_output.sh":
             run = _compared_run(tests[n].get("args") or [], False)
             if run != None:
                 outputs.append(run)
+                named.append((n, run))
+    problems = []
     unmatched = {}
     for n in sorted(tests):
         srcs = tests[n].get("srcs") or []
-        if srcs and srcs[0] in _CASE_GATE_RUNNERS:
+        args = tests[n].get("args") or []
+        if srcs and srcs[0] in _CASE_GATE_RUNNERS and "--survive" in (args[:args.index("--")] if "--" in args else args):
+            # A survive case's valgrind arm or allocfail sweep: its gate is
+            # another case, written out whole (--survive). An option,
+            # before "--": after it, "--survive" is a word the program is
+            # handed, as _compared_run reads it.
+            gate = _whole_gate_run(args)
+        elif srcs and srcs[0] in _CASE_GATE_RUNNERS:
             gate = _compared_run(tests[n].get("args") or [], True)
         elif srcs and srcs[0] in _WHOLE_GATE_RUNNERS:
             gate = _whole_gate_run(tests[n].get("args") or [])
         else:
             continue
         if gate == None or gate in outputs:
+            continue
+        other = [c for c, r in named if dict(r, differ = gate["differ"]) == gate]
+        if other:
+            problems.append(_differ_problem(n, gate["differ"], other[0], "diff_output.sh"))
             continue
         how = ["on \"%s\"" % " ".join(gate["words"]) if gate["words"] else "with no argument"]
         if gate["argv_file"]:
@@ -1398,38 +1697,51 @@ def _case_gate_problems(tests):
             how.append("from the test's own folder")
         what = "%s %s, against %s%s" % (gate["bin"], ", ".join(how), gate["expected"], " (--labeled)" if gate["labeled"] else "")
         unmatched.setdefault(what, []).append(n)
-    return [
+    return problems + [
         ("%s: the gate runs %s, and no output test of this package runs the program " +
          "that way, so the gate can be red on a program whose case passes, and the " +
          "layer would SKIP on every correct program. Hand the runner the case's run " +
          "flags (_case_run), which it forwards to its gate, and --gate-stdin for its " +
-         "standard input; a gate written out whole (run_check.sh, diff_output.sh) " +
-         "takes all of that test's run in its --gate-* options.") %
+         "standard input; a gate written out whole (run_check.sh, diff_output.sh, " +
+         "valgrind_test.sh --survive) takes all of that test's run in its --gate-* " +
+         "options.") %
         (", ".join(unmatched[what]), what)
         for what in sorted(unmatched)
     ]
 
 # THE RUNNERS THAT NAME THEIR GATE'S OUTPUT TEST IN THEIR SKIP LINE, given
-# --gate-label (RL_GATE_NAME, tools/runner_lib.sh; cycles_check.sh's own).
+# --gate-label (RL_GATE_NAME, tools/runner_lib.sh; the others' own echo).
 # Without it the line falls back to "this exercise's own output fixture",
 # which names no test. The macros pass it on every gate they write; a
 # hand-written BSQ or rush target that lost the pair still built (its
 # waiting list still found it through `waits`), and its SKIP named nothing.
-# diff_output.sh takes --gate-label too, for a survive case, but runs its
-# own gate and so takes no --gate-differ. tools/conventions.sh holds this
-# list to the runners whose option loop takes both.
+# allocfail_check, perf_test, ref_compare and rust_diff took no --gate-label
+# at all, and said "this exercise's own output fixture" on every exercise
+# (V169). tools/conventions.sh holds this list to the runners whose option
+# loop takes both, and every runner that takes --gate-differ to taking
+# --gate-label. diff_output.sh takes --gate-label too, but runs its own gate
+# and so takes no --gate-differ: its gates are --gate-expected (a survive
+# case's, and a defense case's beside --gate-bin), which the audit below
+# holds to a label as well.
 _GATE_LABEL_RUNNERS = [
+    "//tools:allocfail_check.sh",
+    "//tools:argv_check.sh",
     "//tools:asan_run.sh",
     "//tools:bsq_check.sh",
     "//tools:cycles_check.sh",
+    "//tools:file_check.sh",
     "//tools:method_check.sh",
+    "//tools:perf_test.sh",
+    "//tools:ref_compare.sh",
     "//tools:run_check.sh",
     "//tools:rush01_check.sh",
     "//tools:rush02_check.sh",
+    "//tools:rust_diff.sh",
+    "//tools:valgrind_test.sh",
 ]
 
 def _gate_label_problems(tests):
-    """A gated test of one of _GATE_LABEL_RUNNERS that passes no --gate-label, as messages.
+    """A gated test of one of _GATE_LABEL_RUNNERS, or of diff_output.sh, that passes no --gate-label, as messages.
 
     Grouped by the output test the gate resolves to (_waits_for), which the
     message names as the fix. Where none resolves and the waiting audit says
@@ -1437,6 +1749,11 @@ def _gate_label_problems(tests):
     it again with no test to pass. Where none resolves and it says nothing,
     the gate is --gate-differ alone, which no other audit names and the
     runner refuses only when the test runs: that is said here.
+
+    A diff_output.sh test is gated by --gate-expected, an option before its
+    "--" (after it, a word the program is handed): it runs its own gate,
+    with no --gate-differ, and Rush 00's _defense and every survive case's
+    output test were held to no label (V169).
     """
     outputs = _waiting_outputs(tests)
     missing = {}
@@ -1444,11 +1761,15 @@ def _gate_label_problems(tests):
     for n in sorted(tests):
         srcs = tests[n].get("srcs") or []
         args = tests[n].get("args") or []
-        if not srcs or srcs[0] not in _GATE_LABEL_RUNNERS:
+        if srcs and srcs[0] == "//tools:diff_output.sh":
+            opts = args[:args.index("--")] if "--" in args else args
+            if "--gate-expected" not in opts or "--gate-label" in opts:
+                continue
+        elif not srcs or srcs[0] not in _GATE_LABEL_RUNNERS:
             continue
-        if "--gate-differ" not in args or "--gate-label" in args:
+        elif "--gate-differ" not in args or "--gate-label" in args:
             continue
-        o, why = _waits_for(n, tests[n], outputs)
+        o, why = _waits_for(n, tests, outputs)
         if o:
             missing.setdefault(o, []).append(n)
         elif not why:
@@ -1456,7 +1777,8 @@ def _gate_label_problems(tests):
     return [
         ("%s: each one's runner takes --gate-label and none is passed, so the SKIP " +
          "line each prints while its gate is red names no test. Pass --gate-label %s " +
-         "beside --gate-differ (in the shared gate list, if they share one).") %
+         "beside the gate's other options (--gate-differ, or diff_output.sh's " +
+         "--gate-expected; in the shared gate list, if they share one).") %
         (", ".join(missing[o]), o)
         for o in sorted(missing)
     ] + [
@@ -1466,6 +1788,46 @@ def _gate_label_problems(tests):
          "the output test it waits for.") % n
         for n in partial
     ]
+
+# THE DIFF LAYERS WAIT (V251, V150). docs/reference.md's "Which layers wait
+# for which" says a diff or diff_asan test stays quiet until its exercise's
+# own output test passes: on a stub, a corpus replayed over a program the
+# subject's example already fails reports that one red again, hundreds of
+# times and far less usefully. Nothing held the row to the build, and C 06's,
+# C 10's and Reloaded's corpus replays waited for nothing: C 10's four went
+# red on every fresh stub, at strict, beside the output test that said it
+# first. So each non-manual test of the two layers has a gate (_GATE_FLAGS,
+# as _waits_for reads one; output_gate() writes one off the output test), or
+# a declared reason to wait for nothing: the tag below, which only a macro
+# sets, with the reason written beside the line that sets it (rush_variant's
+# crash-only twin, which compares no output and replays no row of the
+# table). hand_test() refuses the tag, so a BUILD file cannot excuse a test
+# without a reason anywhere; a manual test waits for nothing by choice, run
+# only when someone names it.
+_NO_GATE_TAG = "no_gate"
+_DIFF_LAYERS = ["diff", "diff_asan"]
+
+def _ungated_diff_problems(tests):
+    """A non-manual diff or diff_asan test that waits for nothing with no reason, as messages."""
+    ungated = []
+    for n in sorted(tests):
+        tags = tests[n].get("tags") or []
+        args = tests[n].get("args") or []
+        if "manual" in tags or not [x for x in _DIFF_LAYERS if x in tags]:
+            continue
+        if _NO_GATE_TAG in tags or [f for f in _GATE_FLAGS if f in args]:
+            continue
+        ungated.append(n)
+    if not ungated:
+        return []
+    return [("%s: each one is a diff or diff_asan test that waits for nothing (no " +
+             "--gate-bin, --gate-expected or --gate-label) and says no reason why, so " +
+             "on a stub it replays its inputs and reports the output test's red again, " +
+             "a red docs/reference.md (\"Which layers wait for which\") says these " +
+             "layers never show. Gate it on its exercise's own output test, the one a " +
+             "stub fails (output_gate(<that test>)); or, where waiting would hide a " +
+             "fault that test cannot show, have the macro that emits it set " +
+             "_NO_GATE_TAG with the reason written beside it.") % ", ".join(ungated)]
 
 def _corpus_memory_problems(tests, malloc):
     """A corpus replayed on the plain build only, as messages (finding 113).
@@ -1667,7 +2029,7 @@ def _suite_problems(tests, suites):
                              "runs. List each one in its tests.") % (s, s, ", ".join(left)))
     return problems
 
-def _levels_audit_impl(name, visibility, exercises, layouts, makefiles, malloc, clues):
+def _levels_audit_impl(name, visibility, exercises, layouts, makefiles, malloc, clues, memory_graded, members, member_dirs):
     """c_levels()' finalizer: the audit, then the module's :manual suite."""
     rules = native.existing_rules()
     tests, fixtures, oracle, diffio = _audit_inputs(rules)
@@ -1684,6 +2046,9 @@ def _levels_audit_impl(name, visibility, exercises, layouts, makefiles, malloc, 
         diffio = diffio,
         suites = _audit_suites(rules),
         programs = _audit_programs(rules),
+        memory_graded = memory_graded,
+        members = members,
+        member_dirs = member_dirs,
     )
     if problems:
         fail(("c_levels: //%s breaks %d module-wide rule(s) (tools/defs.bzl, " +
@@ -1722,6 +2087,12 @@ _levels_audit = macro(
         "malloc": attr.string_list(configurable = False),
         # Every clues*.tsv under tests/, globbed by c_levels().
         "clues": attr.string_list(configurable = False),
+        # The contract declares memory_graded (_layer_level).
+        "memory_graded": attr.bool(configurable = False),
+        # A library's functions, "exNN/<member>", and the folders under its
+        # tests/exNN/ (_member_problems), read and globbed by c_levels().
+        "members": attr.string_list(configurable = False),
+        "member_dirs": attr.string_list(configurable = False),
     },
 )
 
@@ -1805,20 +2176,49 @@ def _runs(output, gb, ge):
             same += 1
     return same > 0
 
-def _other_exercise(name, o):
-    """Why test `name` cannot wait for output test `o`, an output test of another exercise, or ""."""
-    if not _is_ex(name[:4]) or o[:4] == name[:4]:
-        return ""
-    return (("%s: it waits for %s, the output test of another exercise, so its SKIP " +
-             "would be listed under that exercise's red and never under its own. A " +
-             "test waits for an output test of its own exercise (V104).") % (name, o))
+def _member_tag(t):
+    """The library member a test's tags say it is one of ("exNN/<member>"), or None."""
+    for x in t.get("tags") or []:
+        if x.startswith(_MEMBER_TAG):
+            return x[len(_MEMBER_TAG):]
+    return None
 
-def _waits_for(name, t, outputs):
-    """(the output test `t` waits for, None), (None, why it cannot be told), or (None, None): no gate.
+def _other_exercise(name, o, tests):
+    """Why test `name` cannot wait for output test `o`, another exercise's or member's, or "".
 
-    The output test is one of the test's own exercise: a wait on another's
-    is refused, on either path (V104).
+    V104: a test's SKIP is listed under the red of the output test it waits
+    for, and a student reads the red of the exercise in front of them. In a
+    library the unit read is one function: //<module>:<function> runs that
+    member's tests alone, so a wait on another member's output test -- or a
+    member's on the whole library's, or the library's on a member's -- would
+    be listed under a red that suite never shows. The member is read from
+    each test's tag (_MEMBER_TAG), which _test() derives from its name.
     """
+    if not _is_ex(name[:4]):
+        return ""
+    if o[:4] != name[:4]:
+        return (("%s: it waits for %s, the output test of another exercise, so its SKIP " +
+                 "would be listed under that exercise's red and never under its own. A " +
+                 "test waits for an output test of its own exercise (V104).") % (name, o))
+    mine = _member_tag(tests.get(name) or {})
+    theirs = _member_tag(tests.get(o) or {})
+    if mine == theirs:
+        return ""
+    return (("%s: it waits for %s, the output test of %s, and it is %s: its SKIP would " +
+             "be listed under a red its own suite never shows. A test of a library waits " +
+             "for an output test of its own function, or of the whole library if it is " +
+             "the library's (V104).") %
+            (name, o, ("the function " + theirs) if theirs else "the whole library",
+             ("a test of the function " + mine) if mine else "the whole library's"))
+
+def _waits_for(name, tests, outputs):
+    """(the output test `name` waits for, None), (None, why it cannot be told), or (None, None): no gate.
+
+    The output test is one of the test's own exercise, and of its own
+    library function or of the whole library as the test is: a wait on
+    another's is refused, on either path (V104, _other_exercise).
+    """
+    t = tests[name]
     args = t.get("args") or []
     said = _uniq([x[len(_WAITS_TAG):] for x in t["tags"] if x.startswith(_WAITS_TAG)] +
                  [x for x in [_arg_after(args, "--gate-label")] if x])
@@ -1839,10 +2239,12 @@ def _waits_for(name, t, outputs):
         if (gb or ge) and not _runs(outputs[o], gb, ge):
             return None, (("%s: it says it waits for %s, and its gate is %s, which %s " +
                            "does not run: it waits for another output test.") % (name, o, gate, o))
-        return (None, _other_exercise(name, o)) if _other_exercise(name, o) else (o, None)
+        why = _other_exercise(name, o, tests)
+        return (None, why) if why else (o, None)
     found = [o for o in sorted(outputs) if _runs(outputs[o], gb, ge)]
     if len(found) == 1:
-        return (None, _other_exercise(name, found[0])) if _other_exercise(name, found[0]) else (found[0], None)
+        why = _other_exercise(name, found[0], tests)
+        return (None, why) if why else (found[0], None)
     if not found:
         return None, (("%s: it waits for an output test (its gate is %s), and no output " +
                        "test of this package that runs that hands its list on (--waiting, " +
@@ -1869,7 +2271,7 @@ def _waiting_lists(tests):
     outputs = _waiting_outputs(tests)
     lists = {o: [] for o in outputs}
     for n in sorted(tests):
-        o, _ = _waits_for(n, tests[n], outputs)
+        o, _ = _waits_for(n, tests, outputs)
         if o == None or ("manual" in tests[n]["tags"] and "manual" not in tests[o]["tags"]):
             continue
         lvl = _level_of(tests[n]["tags"])
@@ -1878,9 +2280,10 @@ def _waiting_lists(tests):
 
 # What hands a program its input: in an output test's run, and in a gate's.
 # A runner that runs the case itself (--argv-file, valgrind_test.sh's) hands
-# its gate the same argument file.
-_RUN_INPUT_FLAGS = ["--stdin", "--argv-file"]
-_GATE_INPUT_FLAGS = ["--gate-arg", "--gate-arg-file", "--gate-stdin", "--gate-number", "--argv-file"]
+# its gate the same argument file. An argument table (argv_table.sh's
+# --scenarios, one run per row) is its gate's --gate-scenarios.
+_RUN_INPUT_FLAGS = ["--stdin", "--argv-file", "--scenarios"]
+_GATE_INPUT_FLAGS = ["--gate-arg", "--gate-arg-file", "--gate-stdin", "--gate-number", "--argv-file", "--gate-scenarios"]
 
 def _after_dashes(args):
     """The words after the first lone `--` in `args`: the program's own argv."""
@@ -1905,7 +2308,7 @@ def _waiting_problems(tests):
                              "list of who waits for it is named after it (_waiting_args(%r)).") %
                             (o, w, _waiting_name(o), o))
     for n in sorted(tests):
-        o, why = _waits_for(n, tests[n], outputs)
+        o, why = _waits_for(n, tests, outputs)
         if why:
             problems.append(why)
             continue
@@ -1940,10 +2343,12 @@ _waiting = macro(
     attrs = {},
 )
 
-def _level_tags(tags, level = None):
+def _level_tags(tags, level = None, memory_graded = False):
     """The lvl_* tags a test carries, given its layer tags.
 
     level raises this one test above where its layer would put it; see _test.
+    memory_graded: the package's contract declares it, and its valgrind
+    layer sits at basic (_layer_level).
 
     CUMULATIVE on purpose: a norm test is tagged lvl_basic AND lvl_strict AND
     lvl_robust AND lvl_complete, so `test_suite(tags = ["lvl_strict"])` picks up
@@ -1953,7 +2358,8 @@ def _level_tags(tags, level = None):
     """
     lvl = 0
     for t in tags:
-        lvl = max(lvl, _LAYER_LEVEL.get(t, 0))
+        if t in _LAYER_LEVEL:
+            lvl = max(lvl, _layer_level(t, memory_graded))
     if level != None:
         if lvl == 0:
             fail("_level_tags: level = %d on a test with no layer tag: %r" % (level, tags))
@@ -2126,6 +2532,20 @@ _QUOTES_CHOICE = (
     "transcribed from the project's own subject with where each is from",
 )
 
+# A RUNNER WHOSE DEFAULT MODE QUOTES NOTHING asks for --quotes only in the
+# modes that do: forbidden_symbols.sh's one-list check names the allowed list
+# it was handed and quotes no sentence, while its --globals and --function
+# reds quote the call site's (and the runner refuses --quotes without them);
+# prototype_check.sh's types mode reads the contract alone, while its
+# --no-restrict and --declares reds quote the call site's; symbols_test.sh's
+# default mode quotes nothing, while its --no-cross red quotes the call
+# site's sentence keeping helpers static (c_library's helpers_rule).
+_QUOTES_ONLY_WITH = {
+    "//tools:forbidden_symbols.sh": ["--globals", "--function"],
+    "//tools:prototype_check.sh": ["--no-restrict", "--declares"],
+    "//tools:symbols_test.sh": ["--no-cross"],
+}
+
 # The options that put a corpus runner's replay under a memory checker
 # (tools/runner_lib.sh, "A CORPUS UNDER A MEMORY CHECKER").
 _MEMORY_MODES = ["--sanitized", "--valgrind"]
@@ -2134,8 +2554,12 @@ _RUNNER_CHOICES = {
     "//tools:argv_check.sh": [_STDERR_CHOICE],
     "//tools:bsq_check.sh": [_STDERR_CHOICE, _QUOTES_CHOICE],
     "//tools:file_check.sh": [_STDERR_CHOICE],
+    "//tools:forbidden_symbols.sh": [_QUOTES_CHOICE],
+    "//tools:prototype_check.sh": [_QUOTES_CHOICE],
+    "//tools:readme_check.sh": [_QUOTES_CHOICE],
     "//tools:rush01_check.sh": [_STDERR_CHOICE, _QUOTES_CHOICE],
     "//tools:rush02_check.sh": [_STDERR_CHOICE],
+    "//tools:symbols_test.sh": [_QUOTES_CHOICE],
 }
 
 def _runner_choice_problem(name, runner, args):
@@ -2148,7 +2572,8 @@ def _runner_choice_problem(name, runner, args):
     ("unterminated quotation"). stderr_ignored() quotes it.
     """
     memory = [m for m in _MEMORY_MODES if m in args]
-    for flags, what in _RUNNER_CHOICES.get(runner, []):
+    for choice in _RUNNER_CHOICES.get(runner, []):
+        flags, what = choice[0], choice[1]
         given = [f for f in flags if f in args]
         if memory and flags == _STDERR_CHOICE[0]:
             if given:
@@ -2158,6 +2583,14 @@ def _runner_choice_problem(name, runner, args):
                         (name, memory[0], ", ".join(given)))
             continue
         if memory and flags == _QUOTES_CHOICE[0]:
+            continue
+        if (flags == _QUOTES_CHOICE[0] and runner in _QUOTES_ONLY_WITH and
+            not [o for o in _QUOTES_ONLY_WITH[runner] if o in args]):
+            if given:
+                return (("%s runs %s in its default mode, which quotes nothing, " +
+                         "so the runner refuses %s; drop it, or pass one of %s, " +
+                         "whose messages quote it (tools/defs.bzl, _QUOTES_ONLY_WITH).") %
+                        (name, runner, ", ".join(given), ", ".join(_QUOTES_ONLY_WITH[runner])))
             continue
         if len(given) != 1:
             return (("%s runs %s, which asks every call to say %s. Pass exactly " +
@@ -2275,6 +2708,7 @@ _CORPUS_RUNNERS = [
 # loud way to be wrong; //tools:conventions holds every row to an option a
 # corpus runner takes.
 _CORPUS_RUN_OPTS = {
+    "--access-rule": 1,
     "--bin": 1,
     "--case": 1,
     "--clues": 1,
@@ -2289,6 +2723,7 @@ _CORPUS_RUN_OPTS = {
     "--gate-expected": 1,
     "--gate-label": 1,
     "--gate-number": 1,
+    "--gate-scenarios": 1,
     "--guarded-argv": 0,
     "--label": 1,
     "--max-size": 1,
@@ -2511,7 +2946,8 @@ def _test(size = "small", level = None, turnin = None, turnin_where = None, gate
     ex_tag = kwargs.get("name", "")[:4]
     if not _is_ex(ex_tag):
         ex_tag = None
-    all_tags = tags + _level_tags(tags, level) + ([ex_tag] if ex_tag else [])
+    # The level, where the contract lowers the layer's (memory_graded).
+    all_tags = tags + _level_tags(tags, level, bool(_memory_graded())) + ([ex_tag] if ex_tag else [])
     if turnin != None and not turnin:
         where = turnin_where or _where(ex_tag or "")
         pkg_where = "%s/%s" % (native.package_name(), where) if native.package_name() else where
@@ -2579,7 +3015,17 @@ def _test(size = "small", level = None, turnin = None, turnin_where = None, gate
         fail(problem)
     r = native.existing_rule("subject")
     if r and r["kind"] == "subject_contract":
-        env["RL_GRADER"] = json.decode(r["contract"])["grader"]
+        contract = json.decode(r["contract"])
+        env["RL_GRADER"] = contract["grader"]
+
+        # ONE FUNCTION OF A LIBRARY, as a tag derived from the name like the
+        # exercise's: exNN_<member>_<what> is the member's, and its suite
+        # (//<module>:<member>, c_levels()) selects it by this tag, whoever
+        # declared it and wherever. No tag where the exercise lists no
+        # `functions`.
+        m = _member_of(kwargs.get("name", ""), contract)
+        if m:
+            all_tags = all_tags + [_MEMBER_TAG + m]
 
     # WHY IT SITS ABOVE ITS LAYER, under its red. A test _RAISED lists sits
     # higher than its name puts it, and the reason was in its BUILD comment
@@ -2600,6 +3046,27 @@ def _test(size = "small", level = None, turnin = None, turnin_where = None, gate
     if env:
         kwargs["env"] = env
     sh_test(size = size, tags = all_tags, data = data, **kwargs)
+
+# The tag of a library member's tests: member=exNN/<member> (_member_of).
+_MEMBER_TAG = "member="
+
+def _member_of(name, contract):
+    """The library member test `name` belongs to, as "exNN/<member>"; None if none.
+
+    The member whose exNN_<member>_ the name begins with, among its
+    exercise's `functions` in the decoded `contract`. library_members_problem
+    keeps that one at most: no member's name and a "_" begins another's.
+    """
+    ex = name[:4]
+    if not _is_ex(ex) or name[4:5] != "_":
+        return None
+    e = contract["exercises"].get(ex[2:])
+    if not e:
+        return None
+    for m in sorted(e.get("functions") or {}):
+        if name[5:].startswith(m + "_"):
+            return "%s/%s" % (ex, m)
+    return None
 
 def _test_env_problem(name, env):
     """Why a test's own `env` is refused, or None: it may not set RL_GRADER or RL_RAISED.
@@ -2652,18 +3119,40 @@ def hand_test(name, layer, level = None, tags = None, **kwargs):
             timeout, shard_count, env. `waits`, the output test of its own
             exercise a gated one waits for where its gate alone cannot tell
             (see _test). And, in
-            the macro fixtures alone, `refusals` (see _test and _refuse).
+            the macro fixtures alone, `refusals` (see _test and _refuse),
+            which also collects this call's own refusals of a tag only a
+            macro sets, and then declares nothing.
     """
+    refusals = kwargs.get("refusals")
+    who = "hand_test(name = %r)" % name
     for t in tags or []:
-        if t.startswith(_WAITS_TAG):
-            fail(("hand_test(name = %r): tags = [%r]. Say which output test it waits " +
-                  "for with waits = \"<that test>\", which the audit holds to its " +
-                  "gate.") % (name, t))
-        if t.startswith(_COVERS_TAG) or t == _NO_VALGRIND_TAG:
-            fail(("hand_test(name = %r): tags = [%r]. That tag is corpus_memory()'s, " +
-                  "which sets it from its `covers` or `no_valgrind` and asks for the " +
-                  "reason as a sentence: written here, it would excuse a corpus from " +
-                  "its memory twins with no reason anywhere.") % (name, t))
+        if t.startswith(_WAITS_TAG) and _refuse(
+            ("hand_test(name = %r): tags = [%r]. Say which output test it waits " +
+             "for with waits = \"<that test>\", which the audit holds to its " +
+             "gate.") % (name, t),
+            refusals,
+            who,
+        ):
+            return
+        if (t.startswith(_COVERS_TAG) or t == _NO_VALGRIND_TAG) and _refuse(
+            ("hand_test(name = %r): tags = [%r]. That tag is corpus_memory()'s, " +
+             "which sets it from its `covers` or `no_valgrind` and asks for the " +
+             "reason as a sentence: written here, it would excuse a corpus from " +
+             "its memory twins with no reason anywhere.") % (name, t),
+            refusals,
+            who,
+        ):
+            return
+        if t == _NO_GATE_TAG and _refuse(
+            ("hand_test(name = %r): tags = [%r]. That tag excuses a diff layer " +
+             "from waiting for its exercise's output test, and only a macro sets " +
+             "it, with the reason beside it (tools/defs.bzl, _ungated_diff_problems): " +
+             "written here, it would excuse one with no reason anywhere. Give it " +
+             "a gate (output_gate).") % (name, t),
+            refusals,
+            who,
+        ):
+            return
     _hand_test(name, layer, level, tags, **kwargs)
 
 def _hand_test(name, layer, level = None, tags = None, **kwargs):
@@ -2676,6 +3165,110 @@ def _hand_test(name, layer, level = None, tags = None, **kwargs):
                   "level ladder and the exercise tag are derived from it and from " +
                   "the name; a second copy is one that can disagree.") % (name, t))
     _test(name = name, level = level, tags = [layer] + tags, **kwargs)
+
+def _location_label(arg):
+    """The label inside "$(location X)", as written, or None."""
+    if arg and arg.startswith("$(location ") and arg.endswith(")"):
+        return arg[len("$(location "):-1]
+    return None
+
+def output_gate(test, refusals = None):
+    """(args, data): a corpus replay's gate on `test`, an output test of this package.
+
+    Every diff layer waits for its exercise's own output test, the one a
+    stub fails (docs/reference.md, "Which layers wait for which"; c_levels()'
+    audit, _ungated_diff_problems): while it is red the replay says SKIP,
+    since a corpus replayed over a program the example already fails says
+    that red again, hundreds of times and less usefully. The gate runs the
+    program exactly as that test does, so it is read off the test, never
+    written a second time: a diff_output.sh case (c_program's
+    exNN_<case>_output) hands its program its words, each one --gate-arg;
+    an argument table (c_argv_table's exNN_output) is run whole again,
+    --gate-scenarios. --gate-label names the test in the SKIP line and in
+    the test's own red log, which lists who waits for it. c_levels()' audit
+    holds every gate to an output test that runs the program the same way
+    (_gate_problems, _waiting_problems), the hand-written ones too.
+
+    For argv_check.sh and file_check.sh, the runners that take both kinds.
+    Call it below the macro that declares `test`.
+
+    Args:
+        test: the output test's name, "exNN_<case>_output" or "exNN_output".
+        refusals: in tools/tests/macro_fixtures alone, the list this call's
+            refusal is collected in instead of failing (_refuse); it then
+            returns None.
+
+    Returns:
+        (args, data): the --gate-* options, to add to the replay's args (in
+        corpus_memory's `args` too, so its twins wait behind the same gate),
+        and what they name but the gate's program -- the replay's own
+        :exNN_bin, which a replay lists already and corpus_memory adds to
+        its twins.
+    """
+    who = "output_gate(%r)" % test
+    _refuse(None, refusals, who)  # `refusals` anywhere but the fixtures
+    r = native.existing_rule(test)
+    if (r == None or not r["kind"].endswith("_test")) and _refuse(
+        ("output_gate(%r): no test of that name is declared above this call in " +
+         "//%s. The gate is read off the output test, so call it below the macro " +
+         "that declares it (c_program, c_argv_table).") % (test, native.package_name()),
+        refusals,
+        who,
+    ):
+        return None
+    runner = "//" + str((r.get("srcs") or [""])[0]).split("//", 1)[-1]
+    args = list(r.get("args") or [])
+    if "--waiting" not in args and _refuse(
+        ("output_gate(%r): it hands its runner no list of who waits for it " +
+         "(--waiting, _waiting_args), so its red log would never say what waits " +
+         "for it. A test a gate waits for is an output test that hands one.") % test,
+        refusals,
+        who,
+    ):
+        return None
+    if runner == "//tools:diff_output.sh":
+        run = _output_run(args)
+        if (run == None or run["argv_file"]) and _refuse(
+            ("output_gate(%r): that case is run in a way a gate does not replay (on " +
+             "standard input, under another name, from a folder of its own, judged " +
+             "on another stream or by its exit alone, or with its output rewritten " +
+             "before it is compared, --sanitize). Wait for a case of the same " +
+             "exercise that hands its program arguments and compares its output.") % test,
+            refusals,
+            who,
+        ):
+            return None
+        gate = ["--gate-differ", "$(location //tools:diff_output.sh)"]
+        data = ["//tools:diff_output.sh"]
+        words = []
+        for w in run["words"]:
+            words += ["--gate-arg", w]
+            if _location_label(w):
+                data.append(_location_label(w))
+    elif runner == "//tools:argv_table.sh":
+        run = _table_run(args)
+        if run == None and _refuse(
+            "output_gate(%r): that table compares nothing (--memory-only, --exit-only)." % test,
+            refusals,
+            who,
+        ):
+            return None
+        gate = ["--gate-differ", "$(location //tools:argv_table.sh)"]
+        # argv_table.sh renders its verdict through diff_output.sh, which it
+        # finds beside itself.
+        data = ["//tools:argv_table.sh", "//tools:diff_output.sh", _location_label(run["scenarios"])]
+        words = ["--gate-scenarios", run["scenarios"]]
+    else:
+        # Fails the load, or, in the macro fixtures, collects the refusal.
+        _refuse(
+            ("output_gate(%r): its runner is %s; a gate replays a diff_output.sh case " +
+             "or an argv_table.sh table.") % (test, runner),
+            refusals,
+            who,
+        )
+        return None
+    data.append(_location_label(run["expected"]))
+    return gate + ["--gate-bin", run["bin"], "--gate-expected", run["expected"]] + words + ["--gate-label", test], data
 
 def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample = 25, size = "medium", no_valgrind = None, covers = None, waits = None):
     """A corpus runner's replay under the memory checkers (finding 113).
@@ -2743,6 +3336,8 @@ def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample 
         waits: the output test of its own exercise the plain replay's gate
             (in `args`) waits for, where the gate alone cannot tell
             (hand_test's `waits`): both twins replay behind the same gate.
+            The gate's own program (--gate-bin, the plain :exNN_bin) is
+            added to each twin's data here, since a twin runs another build.
     """
     ex = stem.split("_")[0]
     if not _is_ex(ex):
@@ -2762,6 +3357,7 @@ def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample 
                  (stem, what, why))
 
     valgrind = _memcheck_allowed(_entry(ex[2:], "corpus_memory"))
+    gate_bin = _location_label(_arg_after(args, "--gate-bin"))
     if no_valgrind != None:
         _reason("no_valgrind", no_valgrind)
         if not valgrind:
@@ -2787,6 +3383,7 @@ def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample 
         return out
 
     guarded = ["--guarded-argv"] if asan_bin.endswith(_ARGV_GUARD_SUFFIX) else []
+    gate_data = [gate_bin] if gate_bin else []
     _hand_test(
         name = stem + "_diff_asan",
         layer = "diff_asan",
@@ -2794,7 +3391,7 @@ def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample 
         size = size,
         srcs = [runner],  # one of _CORPUS_RUNNERS
         args = ["--bin", "$(location %s)" % asan_bin] + args + ["--sanitized"] + guarded + _symbolizer_args(),
-        data = _uniq([asan_bin, runner] + data + _SYMBOLIZER_DATA),
+        data = _uniq([asan_bin, runner] + data + gate_data + _SYMBOLIZER_DATA),
         waits = waits,
     )
     if valgrind:
@@ -2802,13 +3399,15 @@ def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample 
         # declared one (memory_rule): a red quotes it once under its
         # verdict, as each fixed case's _valgrind arm does (V82). Read from
         # the file c_program writes, never passed again;
-        # _memory_rule_reach_problems refuses a twin without it.
+        # _memory_rule_reach_problems refuses a twin without it. Without
+        # one, the contract's (memory_graded), as c_program's arms quote it;
+        # the contract's sentence on an invalid access either way.
         rule = ex + "_memory_rule"
-        rule_args = []
-        rule_data = []
+        rule_args, rule_data = _graded_rule()
         if native.existing_rule(rule):
-            rule_args = ["--rule", "$(location :%s)" % rule]
-            rule_data = [":" + rule]
+            rule_args, rule_data = _graded_rule(leaks = False)
+            rule_args = rule_args + ["--rule", "$(location :%s)" % rule]
+            rule_data = rule_data + [":" + rule]
         _hand_test(
             name = stem + "_valgrind",
             layer = "valgrind",
@@ -2823,7 +3422,7 @@ def corpus_memory(stem, runner, args, data, bin = None, asan_bin = None, sample 
                    ["--sample", str(sample)] + rule_args,
             # valgrind_test.sh judges each sampled case; the runner finds it
             # beside itself in the runfiles (rl_mem_ready).
-            data = _uniq([bin, runner, "//tools:valgrind_test.sh"] + data + _valgrind_data() + rule_data),
+            data = _uniq([bin, runner, "//tools:valgrind_test.sh"] + data + gate_data + _valgrind_data() + rule_data),
             waits = waits,
         )
 
@@ -2959,6 +3558,7 @@ _TAKES_LINKED = {
     "c_cycles": "links it",
     # Build no program.
     "c_files": "builds none",
+    "c_readme": "builds none",
     "turnin_file": "builds none",
     "turnin_dir": "builds none",
     # The internal helpers: each reads one field, for a public macro that has
@@ -2969,6 +3569,10 @@ _TAKES_LINKED = {
     "linked": "a helper",
     "provided": "a helper",
     "turnin": "a helper",
+    "member": "a helper",
+    # Declares the library's unit, which every member's program links with
+    # _linked(num).libs, and builds no program itself.
+    "c_library": "builds none",
 }
 
 def _linked_reader_problem(num, what, e):
@@ -3109,6 +3713,9 @@ def contract_problem(check, args):
                                    package's contract (c_levels' check)
             "turnin_file"          num, name: turnin_file() in this package
             "issued"               num, file: c_issued() in this package
+            "readme"               num, file, quotes, sections, sentences,
+                                   ai_section, ai_words: c_readme() in this
+                                   package
             "case"                 shape ("program", "header", "reading"),
                                    case: one case dict, and optionally
                                    program: c_program's name
@@ -3124,8 +3731,13 @@ def contract_problem(check, args):
                                    test its tag names, or None for no
                                    tag}), makefiles (the exNN whose
                                    contract names a Makefile), malloc
-                                   (the exNN whose contract allows it) and
-                                   suites ({name: {"tags", "tests"}}):
+                                   (the exNN whose contract allows it),
+                                   suites ({name: {"tags", "tests"}}),
+                                   memory_graded (a bool: the contract
+                                   declares it, _layer_level), members
+                                   and member_dirs ("exNN/<x>": a
+                                   library's functions and the folders
+                                   under its tests/exNN/):
                                    c_levels()' audit of a whole package,
                                    fed an invented one (_audit_problems); its
                                    messages joined with " | "
@@ -3133,8 +3745,10 @@ def contract_problem(check, args):
                                    attributes existing_rules() gives it:
                                    kind, tags, srcs, args, harness, deps,
                                    and a test_suite's tests}), and
-                                   optionally layouts, makefiles and
-                                   malloc: the same audit fed
+                                   optionally layouts, makefiles,
+                                   malloc, memory_graded, members and
+                                   member_dirs: the same
+                                   audit fed
                                    rules rather than what it reads from
                                    them (_audit_inputs, _audit_suites,
                                    _audit_programs), so the reading of
@@ -3164,12 +3778,21 @@ def contract_problem(check, args):
                                    (_make_anchor_problem)
             "allocfail"            c_function's num, malloc, allocfail and
                                    allocfail_rule (_allocfail_problem)
-            "function_malloc"      num, malloc: c_function's `malloc` on
-                                   exercise num of THIS package, against its
-                                   contract (_function_malloc_problem)
+            "function_malloc"      num, malloc[, member]: c_function's
+                                   `malloc` on exercise num of THIS
+                                   package, against its contract, or the
+                                   member's own box (_function_malloc_problem)
             "memory_rule"          c_program's num, malloc, cases and
                                    memory_rule (_memory_rule_problem)
-            "libft_make"           make: c_libft's dict of c_make's
+            "library_suites"       libraries ({num: its function names}),
+                                   taken (the names a target above holds):
+                                   c_levels' suite per function
+                                   (library_suites_problem)
+            "rush_graded"          memory_graded, a bool: rush_variant in a
+                                   package whose contract declares it
+                                   (_rush_graded_problem)
+            "libft_make"           make[, who]: c_libft's (or who's,
+                                   "c_library") dict of c_make's
                                    arguments (_libft_make_problem)
             "standin_runner"       name, data, runner: a test of THIS package
                                    handing `data` to `runner`
@@ -3196,6 +3819,17 @@ def contract_problem(check, args):
         return _turnin_file_problem(args["num"], args["name"], _entry(args["num"], "turnin_file"))
     if check == "issued":
         return _issued_problem(args["num"], args["file"], _entry(args["num"], "c_issued"))
+    if check == "readme":
+        return _readme_problem(
+            args["num"],
+            args["file"],
+            args["quotes"],
+            args["sections"],
+            args["sentences"],
+            args["ai_section"],
+            args["ai_words"],
+            _entry(args["num"], "c_readme"),
+        )
     if check == "case":
         return _case_problem(args["case"], args["shape"], args.get("program"))
     if check == "diff_harness":
@@ -3218,6 +3852,9 @@ def contract_problem(check, args):
             malloc = args.get("malloc"),
             clues = args.get("clues"),
             suites = args.get("suites"),
+            memory_graded = args.get("memory_graded", False),
+            members = args.get("members"),
+            member_dirs = args.get("member_dirs"),
         )) or None
     if check == "waiting":
         # Not a problem but what _waiting writes, as one line: each output
@@ -3240,6 +3877,9 @@ def contract_problem(check, args):
             diffio = diffio,
             suites = _audit_suites(args["rules"]),
             programs = _audit_programs(args["rules"]),
+            memory_graded = args.get("memory_graded", False),
+            members = args.get("members"),
+            member_dirs = args.get("member_dirs"),
         )) or None
     if check == "harness_prototype":
         return _harness_prototype_problem(args["name"], args.get("harness"), args.get("prototype"))
@@ -3259,11 +3899,19 @@ def contract_problem(check, args):
     if check == "allocfail":
         return _allocfail_problem(**args)
     if check == "function_malloc":
-        return _function_malloc_problem(args["num"], args["malloc"], _entry(args["num"], "c_function"))
+        e = _entry(args["num"], "c_function")
+        m = args.get("member")
+        if m != None:
+            e = dict(e, allowed = e["functions"][m])
+        return _function_malloc_problem(args["num"], args["malloc"], e, m)
     if check == "memory_rule":
         return _memory_rule_problem(**args)
+    if check == "library_suites":
+        return library_suites_problem(args["libraries"], args.get("taken", []), native.package_name())
+    if check == "rush_graded":
+        return _rush_graded_problem(args["memory_graded"])
     if check == "libft_make":
-        return _libft_make_problem(args["make"])
+        return _libft_make_problem(args["make"], args.get("who", "c_libft"))
     if check == "standin_runner":
         return _standin_runner_problem(args["name"], args["data"], args["runner"], native.package_name())
     fail("contract_problem(check = %r): not a check this knows" % (check,))
@@ -3823,6 +4471,300 @@ def student_lib(name, srcs, hdrs = None, includes = None):
         includes = includes,
     )
 
+# ONE FUNCTION OF A LIBRARY: A MEMBER. A Common Core library is one exercise
+# whose subject prints a box per function (Libft's Part 2 and Part 3), and
+# whose turn-in is one Makefile building one archive: so the files, the
+# Makefile, the Norm, both compilers, the prototypes, the union of the
+# allowed functions and the exported names are the WHOLE library's
+# (c_library, once), while the output, the memory layers, the differential
+# corpus and the costs are each FUNCTION's. A member macro call --
+# c_function, c_mem_check, c_diff, c_perf or c_cycles with `member` -- is one
+# function's: every target it emits is named exNN_<member>_<what>, every
+# file it reads is under tests/exNN/<member>/, every gate waits for
+# exNN_<member>_output, and its programs link the library's unit
+# (:exNN_lib) through the turn-in's Makefile, as the grader builds it. The
+# contract's `functions` lists the members, each with the External Functions
+# its own box allows (tools/subject.bzl), and c_levels() gives each a suite
+# of its own name (//<module>:<member>) and audits the package for a member
+# with no test, a test of no member, and a folder of no member
+# (_member_problems).
+
+# What c_library() emits under exNN_<name> besides a test (its unit, the
+# Makefile's source-list build, c_make's quotes) and every suffix a test of
+# the whole library can take (_SUFFIX_LAYER): a member named so that
+# exNN_<member>_ begins one of them would make that target ambiguous -- the
+# audit could not tell whose it is -- or, for a non-test, a duplicate.
+_LIBRARY_NAMES = ["_lib", "_make_bin", "_make_quotes"]
+
+# The tests of the whole library, as exNN<rest>: what c_library, c_make,
+# c_readme and the norm and contract layers c_levels() gives an exercise
+# name a test of the library rather than of one function. The audit takes
+# these, and only these, as the library's own (_member_problems): a layer's
+# suffix alone is no proof, since _asan, _valgrind, _diff or _output on a
+# library are a function's layers that lost its name (V230). A macro that
+# comes to emit another test of the whole library adds it here, or the
+# audit refuses every library that has it, at load.
+_LIBRARY_SUFFIXES = [
+    "_build",
+    "_build_exit",
+    "_build_recipe",
+    "_build_rules",
+    "_build_wildcards",
+    "_compile_clang",
+    "_compile_gcc",
+    "_declares_output",
+    "_files",
+    "_forbidden",
+    "_forbidden_functions",
+    "_forbidden_through",
+    "_globals",
+    "_layout_prototype",
+    "_norm",
+    "_norm_header",
+    "_norm_notice",
+    "_norm_provided",
+    "_norm_provided_notice",
+    "_prototype",
+    "_prototype_names",
+    "_prototype_restrict",
+    "_prototype_restrict_all",
+    "_readme",
+    "_readme_wording",
+    "_symbols",
+]
+
+# Every target name a module declares outside its exercises (c_levels(),
+# subject()): a member's suite, named after it, may be none of them.
+_MODULE_NAMES = _LEVEL_NAMES + [
+    "conventions_srcs",
+    "deliverable_files",
+    "deliverable_files_names",
+    "mandatory",
+    "manual",
+    "subject",
+    "turnin_dirs",
+    _MEMORY_GRADED,
+    _MEMORY_GRADED_ACCESS,
+]
+
+# What a member macro appends to exNN_<member> to name a test, with the
+# suffix (_SUFFIX_LAYER) the name must then end in: a member named so that
+# the longest suffix of exNN_<member><what> is another one ("toy_probe" +
+# "_memcheck" reads as _probe_memcheck) would put that test in another layer.
+# A reading's case name is the call's, and the audit holds it the same way.
+_MEMBER_TAILS = {
+    "_allocfail": "_allocfail",
+    "_allocfail_leaks": "_allocfail_leaks",
+    "_asan": "_asan",
+    "_cycles": "_cycles",
+    "_diff": "_diff",
+    "_diff_asan": "_diff_asan",
+    "_ilp32": "_ilp32",
+    "_memcheck": "_memcheck",
+    "_method": "_method",
+    "_output": "_output",
+    "_perf": "_perf",
+    "_probe_memcheck": "_probe_memcheck",
+    "_readings": "_readings",
+    "_readings_diff_asan": "_diff_asan",
+    "_valgrind": "_valgrind",
+}
+
+def library_suites_problem(libraries, taken, package):
+    """Why c_levels() cannot name a suite after each function of a library; None if it can.
+
+    c_levels() names a suite after every function of every library exercise
+    (//<module>:<function>). Two things stop it: a target declared above it
+    with that name already (`taken`), and two exercises of one module listing
+    the same function, whose one suite would run one exercise's tests and
+    not the other's. A value, so the fixtures read each message
+    (contract_problem "library_suites").
+
+    Args:
+      libraries: {num: the contract's function names}, [] for an exercise
+        that is no library.
+      taken: the functions a target above c_levels() is named after.
+      package: the package, for the message.
+
+    Returns:
+      None, or the reason as a sentence.
+    """
+    owner = {}
+    for num in sorted(libraries):
+        ex = "ex" + num
+        for m in sorted(libraries[num]):
+            if m in taken:
+                return (("c_levels: %s's function %s names its suite (//%s:%s), and a " +
+                         "target above this call has that name already. Rename that " +
+                         "target.") % (ex, m, package, m))
+            if m in owner:
+                return (("c_levels: %s and %s both list the function %s, and its suite " +
+                         "(//%s:%s) could run one exercise's tests and not the other's. " +
+                         "A function is one exercise's: correct the contract's " +
+                         "`functions`.") % (owner[m], ex, m, package, m))
+            owner[m] = ex
+    return None
+
+def library_members_problem(num, functions):
+    """Why exercise `num`'s `functions` cannot each be a member; None if they can.
+
+    The checks c_library() makes before it emits anything: every target a
+    member macro names is exNN_<member><what>, and c_levels() names a suite
+    after the member, so a member's name must leave each of those names its
+    own and in its own layer. A decision made while loading, so a function
+    of its own that //tools/tests:starlark_unit calls both ways.
+
+    Args:
+      num: the exercise, two characters.
+      functions: the contract's `functions`, {member: its allowed list}.
+
+    Returns:
+      None, or the reason as a sentence.
+    """
+    ex = "ex" + num
+    where = "c_library(num = \"%s\")" % num
+    names = sorted(functions)
+    for m in names:
+        if m in _MODULE_NAMES or _is_ex(m) or m.startswith(_WAITING + "_"):
+            return (("%s: the function %s names a target every module has, and c_levels() " +
+                     "names a suite after each function of a library (//<module>:%s).") %
+                    (where, m, m))
+        for w in _LIBRARY_NAMES + [x for x in _LIBRARY_SUFFIXES if x not in _SUFFIX_LAYER] + sorted(_SUFFIX_LAYER):
+            if w == "_" + m or w.startswith("_" + m + "_"):
+                return (("%s: the function %s makes %s%s, a target of the whole library, " +
+                         "read as one of %s's: the audit could not tell whose it is.") %
+                        (where, m, ex, w, m))
+        for tail in sorted(_MEMBER_TAILS):
+            got = _suffix_of("%s_%s%s" % (ex, m, tail))
+            if got != _MEMBER_TAILS[tail]:
+                return (("%s: the function %s makes %s_%s%s, which ends in %s, not %s: its " +
+                         "test would sit in another layer (_SUFFIX_LAYER).") %
+                        (where, m, ex, m, tail, got, _MEMBER_TAILS[tail]))
+        for o in names:
+            if o != m and o.startswith(m + "_"):
+                return (("%s: the function %s begins with %s_, another function's name and " +
+                         "a \"_\", so %s_%s_<what> could be a test of either.") %
+                        (where, o, m, ex, m))
+    return None
+
+def _member_problem(num, member, fn, e, passed, library, who):
+    """Why a member macro call is refused; None where it may run.
+
+    Args:
+      num: the exercise.
+      member: the call's `member`.
+      fn: the call's `fn`, which must name the same function.
+      e: the exercise's contract entry.
+      passed: the names of the library-wide arguments the call passed
+        (srcs, hdrs, exports, prototype), which are c_library()'s.
+      library: whether :exNN_lib is declared above the call (c_library()).
+      who: the call, for the message.
+    """
+    functions = e.get("functions") or {}
+    if not functions:
+        return (("%s: exercise %s's subject() contract lists no `functions`, so it is no " +
+                 "library, and %s is no member of one. Transcribe each function's box " +
+                 "(exercise(functions = {...}), tools/subject.bzl), or drop `member`.") %
+                (who, num, member))
+    if member not in functions:
+        return (("%s: %s is not one of the functions exercise %s's subject() contract " +
+                 "lists (%s).") % (who, member, num, ", ".join(sorted(functions))))
+    if fn != member:
+        return (("%s: fn = %r, and the member is %s: a member is one function, and fn " +
+                 "names it.") % (who, fn, member))
+    if passed:
+        return (("%s: %s is the whole library's, which c_library(num = \"%s\") declares " +
+                 "once from the subject() contract. Drop it.") %
+                (who, " and ".join(passed), num))
+    if not library:
+        return (("%s: no :ex%s_lib above it. A member links the library c_library(num = " +
+                 "\"%s\") declares: call that first, above every member.") % (who, num, num))
+    return None
+
+def _unmembered_problem(num, fn, functions, who):
+    """Why a member macro called without `member` is refused; None where it may run.
+
+    Args:
+      num: the exercise.
+      fn: the call's `fn`.
+      functions: the exercise's contract `functions`, {} where it is no
+        library.
+      who: the call, for the message.
+    """
+    if not functions:
+        return None
+    return (("%s: exercise %s's subject() contract lists `functions` (%s), so it is a " +
+             "library, and each test of one of them is that function's: pass member = %r, " +
+             "the function fn names, below c_library(num = \"%s\").") %
+            (who, num, ", ".join(sorted(functions)), fn, num))
+
+def _member(num, member, fn, refusals, who, srcs = None, hdrs = None, exports = None, prototype = None):
+    """One function of a library exercise, as a member macro reads it: None, False or a struct.
+
+    None where `member` is None and the exercise's contract lists no
+    `functions`: the call is the exercise's own. Without `member` on an
+    exercise whose contract lists `functions` (a library), the call is
+    refused (_unmembered_problem): every test of a library is one
+    function's or the whole library's, and a member macro's is one
+    function's. False where the call is refused and the macro, in the macro fixtures
+    (`refusals`), must return having emitted nothing (_refuse). Otherwise
+    struct(stem = "exNN_<member>", the start of every target the call
+    names; tdir = "tests/exNN/<member>", where every file it reads is;
+    deps = [":exNN_lib"], the library's unit every program links; kw, the
+    Makefile its programs are built through (_student_bin's makefile and
+    make_data, as _manifest_build() builds it: `make -Bn` decides, and the
+    library's sources stand in while it compiles nothing); allowed, the
+    member's own box plus the contract's `variables`; proto, the
+    library's exNN_prototype, or why there is none; inc, the -I list of the
+    library's Makefile, which c_library() writes (_library_includes) and
+    every layer of the member that compiles the sources itself reads as
+    --inc-file).
+
+    srcs, hdrs, exports and prototype: the call's own, passed only by the
+    macros that take them, and each refused where it is not None: the
+    library's sources, headers, exported symbols and prototype test are
+    c_library()'s, and a member's harness is held to its exNN_prototype --
+    c_function's `prototype = False`, or another test named to c_mem_check,
+    c_diff or c_perf, would hold it to less, or to nothing, unseen.
+    c_function passes its `prototype` only where it is not its default.
+    """
+    if member == None:
+        # A library's every test is one function's or the whole library's
+        # (_member_problems), and a member macro's is one function's: called
+        # without `member`, it loaded beside c_library unseen, and the audit
+        # read its tests as the whole library's, which no function's suite
+        # runs (the libft review of 2026-10-13). The caller read the entry
+        # first (_entry), so the contract has it.
+        functions = _contract(who)["exercises"][num].get("functions") or {}
+        if _refuse(_unmembered_problem(num, fn, functions, who), refusals, who):
+            return False
+        return None
+    e = _entry(num, "member")
+    ex = "ex" + num
+    passed = [k for k, v in [("srcs", srcs), ("hdrs", hdrs), ("exports", exports), ("prototype", prototype)] if v != None]
+    problem = _member_problem(num, member, fn, e, passed, native.existing_rule(ex + "_lib") != None, who)
+    if _refuse(problem, refusals, who):
+        return False
+    d = turnin_dir(num)
+    kw = {}
+    if "Makefile" in (e["files"] or []) + e["optional"]:
+        kw = {
+            "makefile": d + "/Makefile",
+            "make_data": turnin_glob([d + "/**"], exclude = _not_build_products(d)),
+        }
+    proto = ex + "_prototype"
+    if not native.existing_rule(proto):
+        proto = "none: c_library(num = \"%s\", prototype = False), which says why" % num
+    return struct(
+        stem = "%s_%s" % (ex, member),
+        tdir = "tests/%s/%s" % (ex, member),
+        deps = [":" + ex + "_lib"],
+        kw = kw,
+        allowed = e["functions"][member] + e["variables"],
+        proto = proto,
+        inc = _LIBRARY_INCLUDES % ex,
+    )
+
 def _stray_exercise(ex, contract, where):
     """The files test of a student's folder or generator no exercise of the contract has.
 
@@ -3982,6 +4924,8 @@ def c_levels(name = None):
             is docs/reference.md's layer table, checked against _LAYER_LEVEL;
             it is not restated here, because every copy of it drifted.
       :exNN  every non-manual test of one exercise, whatever emitted it.
+      :<function>  every non-manual test of one function of a library
+            exercise (the contract's `functions`), whatever emitted it.
       :manual  every manual test of the module, and nothing else.
       exNN_files  the files layer of every exercise of the subject() contract
             (unless its `files` is None, or a macro emitted one already), and
@@ -4096,9 +5040,43 @@ def c_levels(name = None):
             tags = [ex],
         )
 
+    # ONE SUITE PER FUNCTION OF A LIBRARY (the contract's `functions`, see
+    # _member), named after it: //<module>:ft_strlen runs every non-manual
+    # test of that function, which _test() tags with it (_MEMBER_TAG), so a
+    # test declared below this call is in it too. The audit fails a function
+    # with no test, and a test or a tests/exNN/ folder of no function
+    # (_member_problems).
+    members = []
+    member_dirs = []
+    libraries = {
+        num: sorted(contract["exercises"][num].get("functions") or {})
+        for num in contract["exercises"]
+    }
+    taken = [m for num in libraries for m in libraries[num] if native.existing_rule(m)]
+    _refuse(library_suites_problem(libraries, taken, native.package_name()), None, "c_levels()")
+    for num in sorted(contract["exercises"]):
+        functions = contract["exercises"][num].get("functions") or {}
+        if not functions:
+            continue
+        ex = "ex" + num
+        for m in sorted(functions):
+            members.append("%s/%s" % (ex, m))
+            native.test_suite(
+                name = m,
+                tags = [_MEMBER_TAG + "%s/%s" % (ex, m)],
+            )
+        files = native.glob(["tests/%s/*" % ex], allow_empty = True)
+        copies = _provided(num).overlay
+        for d in native.glob(["tests/%s/*" % ex], exclude_directories = 0, allow_empty = True):
+            if d in files or [c for c in copies if c.startswith(d + "/")]:
+                continue
+            member_dirs.append(d[len("tests/"):])
+
     # THE AUDIT AND :manual, once everything is declared (see _levels_audit).
     _levels_audit(
         name = "manual",
+        members = members,
+        member_dirs = sorted(member_dirs),
         exercises = sorted(seen),
         layouts = native.glob(["tests/layout/**"], allow_empty = True),
         clues = native.glob(["tests/**/clues*.tsv"], allow_empty = True),
@@ -4112,6 +5090,7 @@ def c_levels(name = None):
             for n, e in contract["exercises"].items()
             if _memcheck_allowed(e)
         ]),
+        memory_graded = bool(contract.get("memory_graded")),
     )
 
     # EVERYTHING IN THIS MODULE THAT //tools:conventions READS, so the style
@@ -4373,6 +5352,29 @@ def _forbidden_test(name, srcs, allowed, hdrs = None, extra_tags = None, provide
         turnin = srcs if turnin == None else turnin,
     )
 
+def _forbidden_mode_test(name, srcs, hdrs, mode_args, data, level = None, inc_file = None):
+    """forbidden_symbols.sh in one of its two other modes, --globals or --function.
+
+    `mode_args` carries the mode, its --quotes and, for --function, the
+    pinned objdump; `data` what they name. The sources, headers and a
+    Makefile's include list (`inc_file`) are handed over as _forbidden_test
+    hands them.
+    """
+    args = _pinned_cc_args() + _pinned_nm_args() + _inc_args("--hdr", hdrs)
+    if inc_file:
+        args += ["--inc-file", "$(location %s)" % inc_file]
+    for s in srcs:
+        args += ["--src", "$(location %s)" % s]
+    _test(
+        name = name,
+        srcs = ["//tools:forbidden_symbols.sh"],
+        args = args + mode_args,
+        data = srcs + hdrs + _PINNED_CC_DATA + _PINNED_NM_DATA + data + ([inc_file] if inc_file else []),
+        tags = ["forbidden"],
+        turnin = srcs,
+        level = level,
+    )
+
 # The pinned diff, and the two runners that hand a unified diff straight to a
 # student. Everything else here compares bytes itself -- the diff LAYER never
 # shells out, despite the name -- so this is the whole surface.
@@ -4425,7 +5427,8 @@ _PINNED_CC_DATA = [_PINNED_CC, "@clang_12_ubuntu//:runtime"] + _PINNED_CC_LIBS
 
 # THE LINKER, for a runner that LINKS what it compiles at test time
 # (asan_check.sh, allocfail_check.sh, cycles_check.sh, ref_compare.sh,
-# header_check.sh, method_check.sh --expect). The clang package has no linker
+# header_check.sh, method_check.sh --expect, and make_test.sh, whose
+# recipes link). The clang package has no linker
 # of its own, so a link by the pinned clang ran the box's /usr/bin/ld, and the
 # first four did not even get the pinned clang: they took clang-12, cc or gcc
 # from PATH (TO VERIFY V38; LD_DEBUG under C 07 ex00's asan and allocfail
@@ -4458,6 +5461,49 @@ def _pinned_build_args():
 
 _PINNED_BUILD_DATA = _PINNED_CC_DATA + _PINNED_LD_DATA
 
+# THE TOOLS A MAKEFILE'S RECIPES RUN, for make_test.sh (TO VERIFY V60). Its
+# recipes run the compiler and the archiver they name through PATH -- `cc`,
+# `gcc`, $(CC), `ar rcs` -- and those were the box's: on a box with no `cc`
+# every build stopped at "make: cc: No such file or directory", and a
+# Makefile's -Werror verdict changed with the box's compiler (a variable set
+# and never read fails under gcc 11 and passes under campus's clang-12; x =
+# x; the reverse). make_test.sh puts wrappers over these first on PATH for
+# the whole run: cc, clang over the pinned build above, gcc (and c89, c99)
+# over campus's gcc-10 with -B to the pinned as and ld, and ar, ranlib, as
+# and ld from binutils 2.38, which load --ld-lib's libbfd. Every c_make test
+# takes all of them, through c_make and never at a call site.
+_PINNED_GCC = "@gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10"
+_PINNED_AS = "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-as"
+_PINNED_AR = "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ar"
+_PINNED_RANLIB = "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ranlib"
+
+def _pinned_make_args():
+    """The pinned build, gcc-10, and binutils' as, ar and ranlib, for make_test.sh."""
+    return _pinned_build_args() + [
+        "--gcc",
+        "$(location %s)" % _PINNED_GCC,
+        "--as",
+        "$(location %s)" % _PINNED_AS,
+        "--ar",
+        "$(location %s)" % _PINNED_AR,
+        "--ranlib",
+        "$(location %s)" % _PINNED_RANLIB,
+    ]
+
+# gcc's runtime is cc1, collect2, its crt objects and libgcc, which it finds
+# by walking up from its own path, and the sanitizers' shared runtimes its
+# libasan.so and siblings point at (MODULE.bazel); binutils' :runtime (in _PINNED_LD_DATA) is
+# what as, ar and ranlib load; and clang's sanitizer runtime is what a
+# Makefile that builds with -fsanitize= links, from the pinned clang's tree.
+_PINNED_MAKE_DATA = _PINNED_BUILD_DATA + [
+    "@clang_12_ubuntu//:sanitizer_runtime",
+    _PINNED_GCC,
+    "@gcc_10_ubuntu//:runtime",
+    _PINNED_AS,
+    _PINNED_AR,
+    _PINNED_RANLIB,
+]
+
 # THE RUNNERS THAT COMPILE AT TEST TIME, and when each links: "always", a
 # flag whose presence makes the run do it, or "never". A runner listed here
 # compiles with the --cc it is handed, and links with the --ld, and a test
@@ -4475,10 +5521,23 @@ _PINNED_CC_RUNNERS = {
     "//tools:forbidden_symbols.sh": ("always", "never"),
     "//tools:header_check.sh": ("always", "always"),
     "//tools:header_norm.sh": ("always", "never"),
+    "//tools:make_test.sh": ("always", "always"),
     "//tools:method_check.sh": ("always", "--expect"),
     "//tools:prototype_check.sh": ("always", "never"),
     "//tools:ref_compare.sh": ("always", "always"),
     "//tools:symbols_test.sh": ("always", "never"),
+}
+
+# A runner that takes a whole SET of pinned tools, and the helper that hands
+# it all of them. make_test.sh refuses a partial set at run time ("--gcc is
+# missing"), so a test handed _pinned_build_args() alone passed the check
+# below and failed every run; this names the helper that makes it whole.
+_PINNED_TOOL_SETS = {
+    "//tools:make_test.sh": (
+        ["--cc", "--ld", "--gcc", "--as", "--ar", "--ranlib"],
+        "_pinned_make_args()",
+        "_PINNED_MAKE_DATA",
+    ),
 }
 
 def _pinned_when(when, args):
@@ -4499,6 +5558,15 @@ def pinned_cc_problem(runner, args):
       None, or the reason as a sentence.
     """
     if runner not in _PINNED_CC_RUNNERS:
+        return None
+    if runner in _PINNED_TOOL_SETS:
+        flags, helper, data = _PINNED_TOOL_SETS[runner]
+        missing = [f for f in flags if f not in args]
+        if missing:
+            return ("%s runs its recipes with the pinned tools, and these args hand " +
+                    "it no %s: it refuses a partial set, and without any it would " +
+                    "run the machine's (TO VERIFY V60). Add %s to its args and %s " +
+                    "to its data.") % (runner, ", ".join(missing), helper, data)
         return None
     compiles, links = _PINNED_CC_RUNNERS[runner]
     if _pinned_when(compiles, args) and "--cc" not in args:
@@ -4521,7 +5589,10 @@ def pinned_cc_problem(runner, args):
 # library too and proves the loader took it (rl_sanitizers, tools/runner_lib.sh).
 _SYMBOLIZER = "@clang_12_ubuntu//:usr/lib/llvm-12/bin/llvm-symbolizer"
 _SYMBOLIZER_LIB = "@clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1"
-_SYMBOLIZER_DATA = [_SYMBOLIZER, _SYMBOLIZER_LIB]
+# And what libLLVM loads beside it that a release can lack, libxml2 and ICU
+# (MODULE.bazel, clang_12_ubuntu's :libllvm_deps), which rl_sanitizers' wrapper
+# finds in that same folder and proves it took from there (TO VERIFY V238).
+_SYMBOLIZER_DATA = [_SYMBOLIZER, _SYMBOLIZER_LIB, "@clang_12_ubuntu//:libllvm_deps"]
 
 def _symbolizer_args():
     """--symbolizer and --symbolizer-lib, for a runner that shows a sanitizer's report."""
@@ -4614,6 +5685,20 @@ def _pinned_nm_args():
 
 _PINNED_NM_DATA = [_PINNED_NM, "@binutils_x86_64_linux_gnu//:runtime"] + _PINNED_NM_LIBS
 
+# The pinned objdump, for forbidden_symbols.sh --function, which reads the
+# relocations of each function's own section. The same kind of frontend as
+# nm, over the same libraries (MODULE.bazel), proved the same way.
+_PINNED_OBJDUMP = "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-objdump"
+
+def _pinned_objdump_args():
+    """--objdump and its --objdump-lib, for forbidden_symbols.sh --function."""
+    a = ["--objdump", "$(location %s)" % _PINNED_OBJDUMP]
+    for lib in _PINNED_NM_LIBS:
+        a += ["--objdump-lib", "$(location %s)" % lib]
+    return a
+
+_PINNED_OBJDUMP_DATA = [_PINNED_OBJDUMP]
+
 # The two compilers the 42 campus box and the Moulinette have: clang-12 (its
 # `cc`) and gcc-10.5. Every C exercise compiles under BOTH, with -Wall -Wextra
 # -Werror, because their -Werror sets differ: a warning only one compiler emits
@@ -4651,6 +5736,7 @@ _CAMPUS_CCS = [
         # No progs: clang assembles internally, so there is no subprogram to point
         # at and -print-prog-name=as would answer "as" whatever we passed.
         "progs": "",
+        "progs_data": [],
     },
     {
         "label": "gcc",
@@ -4659,24 +5745,62 @@ _CAMPUS_CCS = [
             "@gcc_10_ubuntu//:runtime",
             "@gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10",
         ],
-        # No libs: the driver links against nothing unusual, and what cc1 needs
-        # (libisl, libmpc, libmpfr, libgmp) are leaf libraries taken from the
-        # box, the same trade clang's libtinfo and libedit get. `under` is what
-        # matters here instead -- gcc locates cc1 by walking up from its own
-        # path, so an unstaged tree means the box's cc1 with no diagnostic.
-        "libs": [],
+        # The ASSEMBLER's libraries, not the compiler's: the driver links
+        # against nothing unusual, and what cc1 needs (libisl, libmpc, libmpfr,
+        # libgmp) are leaf libraries taken from the box, the same trade clang's
+        # libtinfo and libedit get. The fetched `as` is another matter: a
+        # frontend over libbfd and libopcodes, named by bare soname with no
+        # RUNPATH, so without this directory on the loader's path it ran on the
+        # box's copies where the box has binutils 2.38 and did not start where
+        # it has another -- every compile then "gcc FAIL" on the student's file
+        # (TO VERIFY V228). The directory holds binutils' libraries alone, so
+        # the driver and cc1 load nothing different; compile_check.sh proves
+        # the assembler's come from it. `under` matters too -- gcc looks for
+        # cc1 in the tree it resolves its own path to, and a GCC_EXEC_PREFIX
+        # from outside moves that tree to the box's with no diagnostic (a cc1
+        # missing from the fetched tree is a loud "cannot execute 'cc1'"
+        # instead, never the box's: V297).
+        "libs": ["@binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so"],
         "under": "@gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10",
         # gcc, unlike clang, shells out to an assembler. binutils is already
         # pinned for nm, and -B makes gcc take its target-prefixed `as` from
         # there instead of the machine's.
         "progs": "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-as",
+        # What it loads, staged beside it: libbfd above names one file of the
+        # set, and libopcodes and libctf come with :runtime. Here and not in
+        # `data`, which _fixed_array_test also stages, and which assembles
+        # nothing.
+        "progs_data": ["@binutils_x86_64_linux_gnu//:runtime"],
     },
 ]
 
-def _symbols_test(name, srcs, exports, hdrs = None, extra_tags = None):
-    """Exactly `exports` may be visible to the linker; every helper is static."""
+def _symbols_test(name, srcs, exports, hdrs = None, extra_tags = None, functions_only = False, helpers_quote = None, inc_file = None):
+    """Exactly `exports` may be visible to the linker; every helper is static.
+
+    functions_only: compare the exported functions alone (symbols_test.sh
+    --functions-only), where a variable has a test of its own (c_library's
+    exNN_globals) that names it better than "make it static" would.
+
+    helpers_quote: the subject's sentence keeping every helper static in its
+    own file ("Project, p.N: \"...\""), or None. Given, the test runs with
+    --no-cross, so a helper one file defines and another calls is reported
+    like any other, and its red quotes the sentence (runner_quotes, key
+    `helpers`). None keeps the default: such a helper may stay external, as
+    two files a subject names must share one.
+
+    inc_file: the include directories a Makefile passes (see _compile_tests).
+    """
     hdrs = hdrs or []
     args = _pinned_cc_args() + _pinned_nm_args() + ["--expect", ",".join(exports)]
+    data = []
+    if inc_file:
+        args += ["--inc-file", "$(location %s)" % inc_file]
+        data.append(inc_file)
+    if functions_only:
+        args.append("--functions-only")
+    if helpers_quote != None:
+        args += ["--no-cross"] + runner_quotes(name + "_quotes", {"helpers": helpers_quote})
+        data.append(":%s_quotes" % name)
     for s in srcs:
         args += ["--src", "$(location %s)" % s]
     args += _inc_args("--inc", hdrs)
@@ -4684,7 +5808,7 @@ def _symbols_test(name, srcs, exports, hdrs = None, extra_tags = None):
         name = name,
         srcs = ["//tools:symbols_test.sh"],
         args = args,
-        data = srcs + hdrs + _PINNED_CC_DATA + _PINNED_NM_DATA,
+        data = srcs + hdrs + _PINNED_CC_DATA + _PINNED_NM_DATA + data,
         tags = ["symbols"] + (extra_tags or []),
         turnin = srcs,
     )
@@ -4739,7 +5863,7 @@ def _compile_tests(ex, srcs, hdrs = None, extra_tags = None, turnin = None, inc_
             srcs = ["//tools:compile_check.sh"],
             args = args + common,
             data = srcs + hdrs + spec["data"] + spec["libs"] +
-                   ([spec["progs"]] if spec["progs"] else []) +
+                   ([spec["progs"]] if spec["progs"] else []) + spec["progs_data"] +
                    ([inc_file] if inc_file else []),
             tags = ["compile"] + (extra_tags or []),
             turnin = turnin,
@@ -4763,7 +5887,7 @@ def _compile_tests(ex, srcs, hdrs = None, extra_tags = None, turnin = None, inc_
 _CASE_KEYS = {
     "header": ["args", "clues", "exit", "exit_quote", "labeled", "level", "main", "name", "stdin"],
     "program": ["args", "argv_file", "clues", "cwd_files", "exit", "exit_quote", "fixtures", "invalid_input", "labeled", "level", "missing_file", "name", "sanitize", "stdin", "stream", "valgrind"],
-    "reading": ["clues", "labeled", "level", "main", "name"],
+    "reading": ["clues", "escaped_values", "labeled", "level", "main", "name"],
 }
 
 # The keys a case of a shape cannot do without. A reading (c_function's
@@ -5007,17 +6131,23 @@ def _raise(layer, level):
 
     A case's level is a floor for every arm it emits: a case the subject
     leaves open is no more certain under a sanitizer. An arm whose layer
-    already sits at or above it stays where it is.
+    already sits at or above it stays where it is -- where this package
+    puts the layer (_layer_level): a reading's valgrind arm stays at the
+    reading's level in a project whose contract lowers the layer.
     """
-    if level != None and level > _LAYER_LEVEL[layer]:
+    if level != None and level > _layer_level(layer, bool(_memory_graded())):
         return level
     return None
 
-def _expected_args(ex, k, flag = "--expected", alt = "--expected-alt", survive = "--survive"):
-    """A checked case's comparison, as a runner's flags and the files they need."""
+def _expected_args(ex, k, flag = "--expected", alt = "--expected-alt", survive = "--survive", tdir = None):
+    """A checked case's comparison, as a runner's flags and the files they need.
+
+    `tdir` is the folder the files are under, default tests/<ex>/: a library
+    member's is tests/<ex>/<member>/ (see _member).
+    """
     if k.survive:
         return ([survive] if survive else []), []
-    files = ["tests/%s/%s" % (ex, f) for f in k.expected]
+    files = ["%s/%s" % (tdir or "tests/" + ex, f) for f in k.expected]
     args = [flag, "$(location %s)" % files[0]]
     for f in files[1:]:
         args += [alt, "$(location %s)" % f]
@@ -5834,6 +6964,46 @@ def starlark_selftest(name):
             None,
         ),
         (
+            "a forbidden_symbols --globals call that quotes no sentence is refused",
+            _runner_choice_problem("ex00_globals", "//tools:forbidden_symbols.sh", ["--globals", "--src", "x"]),
+            "Pass exactly one of --quotes; this call has none",
+        ),
+        (
+            "and a --function one",
+            _runner_choice_problem("ex00_forbidden_functions", "//tools:forbidden_symbols.sh", ["--function", "f=", "--src", "x"]),
+            "Pass exactly one of --quotes; this call has none",
+        ),
+        (
+            "while its one-list mode, which quotes nothing, is not held to one",
+            _runner_choice_problem("ex00_forbidden", "//tools:forbidden_symbols.sh", ["--allowed", "-", "--src", "x"]),
+            None,
+        ),
+        (
+            "and is refused one, which the runner would refuse when the test runs",
+            _runner_choice_problem("ex00_forbidden", "//tools:forbidden_symbols.sh", ["--allowed", "-", "--quotes", "q", "--src", "x"]),
+            "in its default mode, which quotes nothing",
+        ),
+        (
+            "a prototype_check --no-restrict call that quotes no sentence is refused",
+            _runner_choice_problem("ex00_prototype_restrict", "//tools:prototype_check.sh", ["--no-restrict", "--src", "x"]),
+            "Pass exactly one of --quotes; this call has none",
+        ),
+        (
+            "and a --declares one",
+            _runner_choice_problem("ex00_declares_output", "//tools:prototype_check.sh", ["--declares", "--hdr", "x"]),
+            "Pass exactly one of --quotes; this call has none",
+        ),
+        (
+            "while its types mode, which quotes nothing, is not asked for one",
+            _runner_choice_problem("ex00_prototype", "//tools:prototype_check.sh", ["--proto", "p", "--src", "x"]),
+            None,
+        ),
+        (
+            "and is refused one, which the runner would refuse when the test runs",
+            _runner_choice_problem("ex00_prototype", "//tools:prototype_check.sh", ["--proto", "p", "--quotes", "q", "--src", "x"]),
+            "in its default mode, which quotes nothing",
+        ),
+        (
             "an exit_quote with an ASCII apostrophe is accepted",
             _case_problem(dict(good, exit = 1, exit_quote = "the system's tool"), "program"),
             None,
@@ -5979,11 +7149,13 @@ def _shown_bin(binname):
     """
     return "bazel-bin/%s/%s" % (native.package_name(), binname)
 
-def _emit_cases(ex, binname, cases, prog, valgrind = False, memory_rule = None):
+def _emit_cases(ex, binname, cases, prog, valgrind = False, memory_rule = None, access_rule = None):
     """Emit one diff test (and optional valgrind test) per argv case.
 
     `memory_rule` is the label of the subject's memory sentence (c_program's
-    memory_rule), which each valgrind arm quotes when it fails.
+    memory_rule), which each valgrind arm quotes when it fails; and
+    `access_rule` the label of its sentence on a crash or an invalid access
+    (the contract's memory_graded), which a red that is no leak quotes.
 
     And, per case, the exit status where _case_exit() says one is judged: in
     the output test when the subject names it, otherwise in a robust twin,
@@ -6107,6 +7279,9 @@ def _emit_cases(ex, binname, cases, prog, valgrind = False, memory_rule = None):
             if memory_rule:
                 vargs += ["--rule", "$(location %s)" % memory_rule]
                 vdata.append(memory_rule)
+            if access_rule:
+                vargs += ["--access-rule", "$(location %s)" % access_rule]
+                vdata.append(access_rule)
 
             # Gate on the exercise's own fixture, the way rust_diff, ilp32,
             # perf and cycles already do. Without it this was the one rigour
@@ -6116,21 +7291,39 @@ def _emit_cases(ex, binname, cases, prog, valgrind = False, memory_rule = None):
             # there". Leaks are the LAST thing to think about, after the
             # function produces the right bytes at all.
             #
-            # A survive case has no fixture to gate on: its "output" is that
-            # it ended, and the memory report of a run that ended is news. So
-            # its arm runs ungated, as it does where a gate cannot answer.
+            # A survive case has no fixture of its own: its "output" is that
+            # it ended. So it waits on the case its output and asan arms wait
+            # on (_survive_gate), handed to the runner whole after --survive:
+            # a program nobody has written ends by itself, memory-clean, and
+            # over a Makefile that builds nothing this arm met the stand-in
+            # and was red at strict while the asan arm said SKIP (V253). No
+            # such case: it runs ungated, as it does where a gate cannot
+            # answer.
             #
             # The options that describe the gate go with it, never alone: a
             # survive case fed standard input was handed --gate-stdin with no
             # gate to run, which valgrind_test.sh now refuses as the wiring
             # mistake it is.
             gate, _ = _expected_args(ex, k, "--gate-expected", "--gate-expected-alt", None)
+            sgate, sdata = _survive_gate(ex, cases) if k.survive else ([], [])
+            if sgate:
+                vargs += [
+                    "--survive",
+                    "--gate-differ",
+                    "$(location //tools:diff_output.sh)",
+                    "--gate-bin",
+                    "$(location :%s)" % binname,
+                ] + sgate
+                vdata += sdata
             if gate:
                 vargs += [
                     "--gate-differ",
                     "$(location //tools:diff_output.sh)",
                     "--gate-bin",
                     "$(location :%s)" % binname,
+                    # Its SKIP line names the test it waits for.
+                    "--gate-label",
+                    "%s_output" % stem,
                 ] + gate
                 if c.get("stream"):
                     vargs += ["--gate-stream", c["stream"]]
@@ -6233,7 +7426,10 @@ def _reference_cases_test(ex, cases, prog):
             a.append("--labeled")
         basic_exit, _ = _case_exit(ex, c)
         if basic_exit != None:
-            a += ["--exit", str(basic_exit), "--exit-source", "subject"]
+            # Whose rule the status is, as its output test says it: a
+            # status a sentence is READ as naming is a reading here too,
+            # never the subject's (V145). The sentence itself is left out.
+            a += ["--exit", str(basic_exit), "--exit-source", _exit_source(c)]
         a += run_flags + ["--"] + c.get("args", [])
         args += ["--case-run", k.name, str(len(a))] + a
         data += expected_fs + run_files
@@ -6287,7 +7483,7 @@ def _layouts(num):
             tags += native.glob(["tests/layout/tag/" + h], allow_empty = True)
     return struct(files = files, tags = tags)
 
-def _prototype_test(ex, srcs, hdrs = None, extra_includes = None, required = True, layouts = None, layout_certain = False, grader_hdrs = None, name = None, extra_tags = None):
+def _prototype_test(ex, srcs, hdrs = None, extra_includes = None, required = True, layouts = None, layout_certain = False, grader_hdrs = None, name = None, extra_tags = None, inc_file = None):
     """Prototype conformance: the definition matches the signature the subject fixes.
 
     Tag "prototype".
@@ -6329,7 +7525,8 @@ def _prototype_test(ex, srcs, hdrs = None, extra_includes = None, required = Tru
 
     `name` is the test's, default exNN_prototype (a rush variant's is
     exNN_rushNN_prototype), and `extra_tags` reach it too ("manual" for a
-    variant nobody owes).
+    variant nobody owes). `inc_file` is a Makefile's include list (see
+    _compile_tests), on the path of both tests.
 
     Returns:
         The name of the test it declared, which the exercise's harnesses
@@ -6356,6 +7553,10 @@ def _prototype_test(ex, srcs, hdrs = None, extra_includes = None, required = Tru
     common += _inc_args("--inc", hdrs)
     for d in (extra_includes or []):
         common += ["--inc", d]
+    inc_data = []
+    if inc_file:
+        common += ["--inc-file", "$(location %s)" % inc_file]
+        inc_data = [inc_file]
 
     # A header the grader brings is named on a red, with the -I a compile by
     # hand needs (_grader_hdr_args).
@@ -6376,7 +7577,7 @@ def _prototype_test(ex, srcs, hdrs = None, extra_includes = None, required = Tru
         name = name,
         srcs = ["//tools:prototype_check.sh"],
         args = p_args,
-        data = [proto_f] + srcs + hdrs + _PINNED_CC_DATA + basic_layouts,
+        data = [proto_f] + srcs + hdrs + _PINNED_CC_DATA + basic_layouts + inc_data,
         tags = ["prototype"] + (extra_tags or []),
         turnin = srcs,
     )
@@ -6386,38 +7587,77 @@ def _prototype_test(ex, srcs, hdrs = None, extra_includes = None, required = Tru
             name = name[:-len("_prototype")] + "_layout_prototype",
             srcs = ["//tools:prototype_check.sh"],
             args = _pinned_cc_args() + ([] if layout_certain else lay_args) + tag_args + common,
-            data = twin_layouts + srcs + hdrs + _PINNED_CC_DATA,
+            data = twin_layouts + srcs + hdrs + _PINNED_CC_DATA + inc_data,
             tags = ["prototype"] + (extra_tags or []),
             level = _SUFFIX_LAYER["_layout_prototype"][1],
             turnin = srcs,
         )
     return name
 
-def _prototype_names_test(name, ex, srcs, hdrs = None, extra_includes = None, extra_tags = None):
+def _prototype_mode_test(name, ex, srcs, hdrs, provided, mode_args, quotes, quotes_data, proto = True, tags = None, level = None, inc_file = None):
+    """prototype_check.sh in --no-restrict or --declares mode, over a library's turn-in.
+
+    `hdrs` are the TURNED-IN headers alone (--hdr: the files whose
+    declarations are the student's); a header the grader brings is on the
+    include path (--inc, and named on a red: _grader_hdr_args), never one
+    of them. `proto` False is --all-functions, which reads no prototype.h.
+    `inc_file` is the library's Makefile's include list (see _compile_tests).
+    """
+    proto_f = "tests/%s/prototype.h" % ex
+    args = _pinned_cc_args() + mode_args
+    if proto:
+        args += ["--proto", "$(location %s)" % proto_f]
+    for s in srcs:
+        args += ["--src", "$(location %s)" % s]
+    args += _inc_args("--hdr", hdrs)
+    for d in provided.includes:
+        args += ["--inc", d]
+    if inc_file:
+        args += ["--inc-file", "$(location %s)" % inc_file]
+    args += _grader_hdr_args(provided.hdrs)
+    _test(
+        name = name,
+        srcs = ["//tools:prototype_check.sh"],
+        args = args + quotes,
+        data = ([proto_f] if proto else []) + srcs + hdrs + provided.hdrs + _PINNED_CC_DATA + quotes_data +
+               ([inc_file] if inc_file else []),
+        tags = tags or ["prototype"],
+        # --declares reads the headers alone; --no-restrict any file.
+        turnin = hdrs if "--declares" in mode_args else srcs + hdrs,
+        level = level,
+    )
+
+def _prototype_names_test(name, ex, srcs, hdrs = None, extra_includes = None, extra_tags = None, proto = "prototype.h", inc_file = None):
     """The parameter NAMES the subject fixes, at strict: tests <name>, ending _prototype_names.
 
     For a subject that names the parameters as well as typing them (Rush 00:
     "It must take two integer arguments, named x and y"): the definition in
-    `srcs` must name them as tests/exNN/prototype.h does, which says so in a
-    comment quoting the subject. tools/prototype_check.sh --names reads both
+    `srcs` must name them as tests/exNN/<proto> does, which says so in a
+    comment quoting the subject -- prototype.h for a rush, a file of its own
+    for a library (c_library's prototype_names), whose prototype.h includes
+    the library's header. A names file includes nothing (tools/
+    prototype_check.sh --names refuses one that does), and reads both
     through the pinned clang's AST dump. The suffix puts it at strict
     (_SUFFIX_LAYER): a name changes no behaviour, and only an evaluator
     reading the code can mark it, which is "real, but not certain". The
     basic _prototype test beside it keeps checking the types only.
+    `inc_file` is a Makefile's include list (see _compile_tests).
     """
     hdrs = hdrs or []
-    proto_f = "tests/%s/prototype.h" % ex
+    proto_f = "tests/%s/%s" % (ex, proto)
     p_args = _pinned_cc_args() + ["--names", "--proto", "$(location %s)" % proto_f]
     for s in srcs:
         p_args += ["--src", "$(location %s)" % s]
     p_args += _inc_args("--inc", hdrs)
     for d in (extra_includes or []):
         p_args += ["--inc", d]
+    if inc_file:
+        p_args += ["--inc-file", "$(location %s)" % inc_file]
     _test(
         name = name,
         srcs = ["//tools:prototype_check.sh"],
         args = p_args,
-        data = [proto_f] + srcs + hdrs + _PINNED_CC_DATA,
+        data = [proto_f] + srcs + hdrs + _PINNED_CC_DATA + ([inc_file] if inc_file else []),
         tags = ["prototype"] + (extra_tags or []),
         turnin = srcs,
         # The level its suffix gives it (_SUFFIX_LAYER), which the audit
@@ -6453,7 +7693,7 @@ def _allocfail_problem(num, malloc, allocfail, allocfail_rule):
         return "%s sets allocfail: %s" % (where, why)
     return None
 
-def _function_malloc_problem(num, malloc, e):
+def _function_malloc_problem(num, malloc, e, member = None):
     """c_function's message when its contract names malloc or free and `malloc` is off; None otherwise.
 
     c_program reads whether a program may allocate from the contract alone
@@ -6474,7 +7714,9 @@ def _function_malloc_problem(num, malloc, e):
     Args:
         num: the exercise, for the message.
         malloc: as c_function takes it.
-        e: the exercise's contract entry.
+        e: the exercise's contract entry; for a library's member, with
+            `allowed` its own box's list (`functions`), never the union.
+        member: c_function's, which names the call and the layer.
 
     Returns:
         The message, or None.
@@ -6485,6 +7727,12 @@ def _function_malloc_problem(num, malloc, e):
     named = [f for f in ["malloc", "free"] if f in allowed]
     if not named:
         return None
+    if member != None:
+        return (("c_function(num = \"%s\", member = %r): the function's own allowed " +
+                 "functions name %s, and malloc = %r turns off the leak layer " +
+                 "(ex%s_%s_valgrind), the one layer that sees a block never accounted " +
+                 "for. Pass malloc = True.") %
+                (num, member, " and ".join(named), malloc, num, member))
     return (("c_function(num = \"%s\"): the contract's allowed functions name %s, and " +
              "malloc = %r turns off the leak layer (exNN_valgrind), the one layer that " +
              "sees a block never accounted for. Pass malloc = True.") %
@@ -6678,6 +7926,8 @@ def c_function(
         allocfail_leaks = False,
         method = None,
         method_rule = None,
+        member = None,
+        refusals = None,
         name = None):
     """A function exercise: library + norm + harness binary + stdout diff.
 
@@ -6797,7 +8047,10 @@ def c_function(
             HARNESS-ESCAPED VALUES there). Default False. //tools:conventions
             refuses a harness that writes an escape of its own (a string
             literal starting with an escaped backslash) without it. Reaches
-            the output layer and the ilp32 replay, the two that print a table.
+            the output layer and the ilp32 replay, the two that print a table,
+            and never a reading: a reading's harness is its own, and says it
+            in its own case ("escaped_values": True, see `readings`), which
+            //tools:conventions holds a reading's main to, whatever this says.
         clues: a tab-separated hint file under tests/exNN/, conventionally
             clues.tsv: one concept group per line, the hint text first and then
             the CASE labels that belong to it. A group fires when ANY of its
@@ -6927,7 +8180,13 @@ def c_function(
             reads `test`'s fixture. C 12 ex11's "returns the address of the
             first element's data" against a t_list * return type is one,
             ex11_element_output at strict; C 07 ex04's whitespace in base_to
-            another, ex04_base_to_space_output at strict. Default none.
+            another, ex04_base_to_space_output at strict. A reading's "labeled"
+            and "escaped_values" are its own, never the call's: its harness
+            is another program, and one that prints a value raw (with "%s")
+            would have a wrong answer's backslash shown as the notation's
+            if the call's flag reached it. "escaped_values": True hands its
+            target --escaped-values, as `escaped_values` does the exercise's
+            own, and needs "labeled": True for the same reason. Default none.
         allocfail_leaks: True adds exNN_allocfail_leaks, at robust: the same
             sweep with free() wrapped too, judging whether a run that reported
             the error left any block it had obtained still allocated
@@ -6956,19 +8215,58 @@ def c_function(
         method_rule: the subject's sentence that asks for `method`, quoted,
             with where it is from: the report prints it under its verdict
             (method_problem). One line; written to exNN_method_rule.
+        member: one function of a library exercise, the contract's
+            `functions` key that `fn` names too (see _member): the call then
+            emits that function's layers alone -- exNN_<member>_bin,
+            _output, the memory, allocfail, method and ilp32 layers and its
+            readings -- every file under tests/exNN/<member>/, its programs
+            linking c_library()'s :exNN_lib through the turn-in's Makefile,
+            and none of the library's own (the unit :fn, norm, compile,
+            prototype, forbidden, symbols: c_library declares them once).
+            `malloc` and allocfail_leaks are held to the member's own box.
+            srcs, hdrs and exports are the library's, and refused with it;
+            so is `prototype` other than its default: c_library's
+            exNN_prototype holds every member. Default None: the
+            exercise's own, refused where its contract lists `functions`
+            (a library: pass member, see _member).
+        refusals: in tools/tests/macro_fixtures alone, the list a refusal
+            of `member`, or of escaped_values without labeled (the call's or
+            a reading's), is collected in instead of failing (_refuse).
         name: unused, for the reason c_levels gives: every macro takes one,
             and buildifier's unnamed-macro check holds this one to it since it
             declares rules (the :fn unit, the programs). Every target here is
             named from `num` and `fn`, so there is nothing for it to
             control."""
-    _entry(num, "c_function")  # first: a contract error names this macro
-    problem = _function_malloc_problem(num, malloc, _entry(num, "c_function"))
+    e = _entry(num, "c_function")  # first: a contract error names this macro
+    u = _member(num, member, fn, refusals, "c_function(num = \"%s\", member = %r)" % (num, member), srcs, hdrs, exports, None if prototype == True else prototype)
+    if u == False:
+        return
+    problem = _function_malloc_problem(num, malloc, dict(e, allowed = e["functions"][member]) if u else e, member)
     if problem:
         fail(problem)
-    if escaped_values and not labeled:
-        fail(("c_function(num = \"%s\") sets escaped_values but not labeled = True: " +
-              "the notation is the VALUE's, and only a labeled row has one.") % num)
+    if escaped_values and not labeled and _refuse(
+        ("c_function(num = \"%s\") sets escaped_values but not labeled = True: " +
+         "the notation is the VALUE's, and only a labeled row has one.") % num,
+        refusals,
+        "c_function(num = \"%s\")" % num,
+    ):
+        return
+
+    # A reading is handed the notation by its own case (see `readings`), and
+    # held to the same rule as the call before anything is emitted.
+    for c in readings or []:
+        if type(c) == "dict" and c.get("escaped_values") and not c.get("labeled"):
+            unlabeled = ("c_function(num = \"%s\"), reading %r sets \"escaped_values\" but not " +
+                         "\"labeled\": True: the notation is the VALUE's, and only a labeled row " +
+                         "has one.") % (num, c.get("name", "run"))
+            if _refuse(unlabeled, refusals, "c_function(num = \"%s\")" % num):
+                return
     ex = "ex" + num
+
+    # Every target this call names starts with `stem`, and every file it
+    # reads is under `tdir`: the exercise's, or one member's (see _member).
+    stem = u.stem if u else ex
+    tdir = u.tdir if u else "tests/" + ex
     if srcs == None:
         srcs = _deliverable_srcs(ex)
         hdrs = _deliverable_hdrs(ex, hdrs)
@@ -6992,52 +8290,63 @@ def c_function(
     # the student's code alone.
     build_srcs = srcs + provided_srcs
 
-    # The unit every binary of this exercise links. It builds nothing: each
-    # binary compiles it with its own flags, so the ASan twin needs no library
-    # of its own.
-    _student_lib(
-        name = fn,
-        srcs = build_srcs,
-        hdrs = all_hdrs,
-        includes = includes,
-    )
-    _norm_test(ex + "_norm", srcs + hdrs)
+    # A member's programs link the library's unit through its Makefile, and
+    # the library's own layers are c_library()'s (see _member).
+    if u:
+        deps = u.deps
+        kw = u.kw
+        proto_test = u.proto
+    else:
+        # The unit every binary of this exercise links. It builds nothing:
+        # each binary compiles it with its own flags, so the ASan twin needs
+        # no library of its own.
+        _student_lib(
+            name = fn,
+            srcs = build_srcs,
+            hdrs = all_hdrs,
+            includes = includes,
+        )
+        deps = [":" + fn]
+        kw = {}
+        _norm_test(ex + "_norm", srcs + hdrs)
 
-    # A provided header is still held to the Norm -- it is just not the
-    # STUDENT's red. Separate target, separate name, and level 4 so it can never
-    # appear in the `basic` suite a beginner runs or in the submit gate: what it
-    # reports is "this repo's own staged header drifted", which is a maintainer's
-    # job and nothing the person doing the exercise can act on.
-    if provided_hdrs:
-        _norm_test(ex + "_norm_provided", provided_hdrs, level = 4)
+        # A provided header is still held to the Norm -- it is just not the
+        # STUDENT's red. Separate target, separate name, and level 4 so it can
+        # never appear in the `basic` suite a beginner runs or in the submit
+        # gate: what it reports is "this repo's own staged header drifted",
+        # which is a maintainer's job and nothing the person doing the
+        # exercise can act on.
+        if provided_hdrs:
+            _norm_test(ex + "_norm_provided", provided_hdrs, level = 4)
 
-    _compile_tests(ex, srcs, all_hdrs, grader_hdrs = provided_hdrs)
+        _compile_tests(ex, srcs, all_hdrs, grader_hdrs = provided_hdrs)
 
-    # Declared ahead of the fixture that links the function, which names it.
-    # The subject's structure, at basic where the grader links a function
-    # built on it (see _prototype_test), at strict elsewhere.
-    proto_test = _prototype_test(
-        ex,
-        srcs,
-        all_hdrs,
-        extra_includes,
-        prototype,
-        layouts = _layouts(num),
-        layout_certain = bool(linked.libs),
-        grader_hdrs = provided_hdrs,
-    )
+        # Declared ahead of the fixture that links the function, which names it.
+        # The subject's structure, at basic where the grader links a function
+        # built on it (see _prototype_test), at strict elsewhere.
+        proto_test = _prototype_test(
+            ex,
+            srcs,
+            all_hdrs,
+            extra_includes,
+            prototype,
+            layouts = _layouts(num),
+            layout_certain = bool(linked.libs),
+            grader_hdrs = provided_hdrs,
+        )
 
-    binname = ex + "_bin"
-    test_f = "tests/%s/%s" % (ex, test)
+    binname = stem + "_bin"
+    test_f = "%s/%s" % (tdir, test)
     _output_fixture_binary(
         name = binname,
         harness = [test_f],
         prototype = proto_test or "none: prototype = False at the call site, which says why",
-        deps = [":" + fn] + linked.libs,
+        deps = deps + linked.libs,
         dir = turnin_dir(num),
+        **kw
     )
 
-    expected_f = "tests/%s/%s" % (ex, expected)
+    expected_f = "%s/%s" % (tdir, expected)
     out_data = [":" + binname, expected_f]
     args = [
         "--bin",
@@ -7060,13 +8369,13 @@ def c_function(
     # ilp32 block below is the same condition, and reports it as possibly
     # uninitialised. A warning that is always noise teaches people to ignore
     # warnings, so the cheaper fix is to remove the ambiguity.
-    clues_f = "tests/%s/%s" % (ex, clues) if clues else None
+    clues_f = "%s/%s" % (tdir, clues) if clues else None
     if clues:
         args += ["--clues", "$(location %s)" % clues_f]
         out_data.append(clues_f)
-    w_args, w_data = _waiting_args(ex + "_output")
+    w_args, w_data = _waiting_args(stem + "_output")
     _test(
-        name = ex + "_output",
+        name = stem + "_output",
         srcs = ["//tools:diff_output.sh"],
         args = args + w_args,
         data = out_data + w_data,
@@ -7077,16 +8386,17 @@ def c_function(
     # same unit, above basic (see `readings`).
     for c in readings or []:
         k = _case(c, "reading", "c_function(num = \"%s\")" % num)
-        r_bin = "%s_%s_bin" % (ex, k.name)
-        reading_test_f = "tests/%s/%s" % (ex, c["main"])
+        r_bin = "%s_%s_bin" % (stem, k.name)
+        reading_test_f = "%s/%s" % (tdir, c["main"])
         _output_fixture_binary(
             name = r_bin,
             harness = [reading_test_f],
             prototype = proto_test or "none: prototype = False at the call site, which says why",
-            deps = [":" + fn] + linked.libs,
+            deps = deps + linked.libs,
             dir = turnin_dir(num),
+            **kw
         )
-        compare, expected_fs = _expected_args(ex, k)
+        compare, expected_fs = _expected_args(ex, k, tdir = tdir)
         r_args = ["--bin", "$(location :%s)" % r_bin, "--harness-fixture"] + compare
         r_data = [":" + r_bin] + expected_fs
 
@@ -7097,12 +8407,17 @@ def c_function(
             r_args.append("--sanitize")
         if c.get("labeled"):
             r_args.append("--labeled")
+
+        # Its own harness's notation, never the call's (see `readings`); one
+        # without "labeled" was refused above.
+        if c.get("escaped_values"):
+            r_args.append("--escaped-values")
         if c.get("clues"):
-            r_clues = "tests/%s/%s" % (ex, c["clues"])
+            r_clues = "%s/%s" % (tdir, c["clues"])
             r_args += ["--clues", "$(location %s)" % r_clues]
             r_data.append(r_clues)
         _test(
-            name = "%s_%s_output" % (ex, k.name),
+            name = "%s_%s_output" % (stem, k.name),
             srcs = ["//tools:diff_output.sh"],
             args = r_args,
             data = r_data,
@@ -7130,6 +8445,9 @@ def c_function(
             "$(location :%s)" % binname,
             "--gate-expected",
             "$(location %s)" % expected_f,
+            # Its SKIP line names the test it waits for.
+            "--gate-label",
+            stem + "_output",
         ]
         if sanitize:
             v_args.append("--gate-sanitize")
@@ -7145,11 +8463,15 @@ def c_function(
         if clues:
             v_args += ["--clues", "$(location %s)" % clues_f]
             v_data.append(clues_f)
+
+        # The subject's sentences, where its contract says the grader judges
+        # memory (memory_graded): this red then sits at basic.
+        r_args, r_data = _graded_rule()
         _test(
-            name = ex + "_valgrind",
+            name = stem + "_valgrind",
             srcs = ["//tools:valgrind_test.sh"],
-            args = v_args + _valgrind_args(),
-            data = v_data + _valgrind_data(),
+            args = v_args + r_args + _valgrind_args(),
+            data = v_data + r_data + _valgrind_data(),
             size = "small",
             tags = ["valgrind"],
         )
@@ -7192,16 +8514,22 @@ def c_function(
             "$(location :%s)" % binname,
             "--gate-expected",
             "$(location %s)" % expected_f,
+            "--gate-label",
+            stem + "_output",
         ]
         if sanitize:
             m_args.append("--gate-sanitize")
         if labeled:
             m_args.append("--gate-labeled")
+
+        # The subject's sentence on an invalid access, where its contract
+        # says the grader judges memory: this run checks no leak.
+        r_args, r_data = _graded_rule(leaks = False)
         _test(
-            name = ex + "_memcheck",
+            name = stem + "_memcheck",
             srcs = ["//tools:valgrind_test.sh"],
-            args = m_args + _valgrind_args(),
-            data = [":" + binname, expected_f, "//tools:diff_output.sh"] +
+            args = m_args + r_args + _valgrind_args(),
+            data = [":" + binname, expected_f, "//tools:diff_output.sh"] + r_data +
                    _valgrind_data(),
             size = "small",
             tags = ["valgrind"],
@@ -7210,19 +8538,19 @@ def c_function(
     if problem:
         fail(problem)
     if allocfail_leaks:
-        why = allocfail_leaks_problem(allocfail, _allowed(num))
+        why = allocfail_leaks_problem(allocfail, u.allowed if u else _allowed(num))
         if why:
             fail("c_function(num = \"%s\") sets allocfail_leaks, and %s" % (num, why))
     if allocfail:
         _no_linked(num, "c_function", "allocfail")
         names_file(
-            name = ex + "_allocfail_rule",
+            name = stem + "_allocfail_rule",
             names = [allocfail_rule],
         )
-        af_f = "tests/%s/%s" % (ex, allocfail)
+        af_f = "%s/%s" % (tdir, allocfail)
         af_args = [
             "--rule",
-            "$(location :%s_allocfail_rule)" % ex,
+            "$(location :%s_allocfail_rule)" % stem,
             "--harness",
             "$(location %s)" % af_f,
             "--shim",
@@ -7232,30 +8560,35 @@ def c_function(
             # Gated on the exercise's own fixture, exactly like valgrind above:
             # a stub that returns nothing has no error path worth discussing,
             # and this layer's report would speak over the top of the one red
-            # test that actually matters.
+            # test that actually matters. Its SKIP line names that test.
             "--gate-differ",
             "$(location //tools:diff_output.sh)",
             "--gate-bin",
             "$(location :%s)" % binname,
             "--gate-expected",
             "$(location %s)" % expected_f,
+            "--gate-label",
+            stem + "_output",
         ]
         for s in build_srcs:
             af_args += ["--src", "$(location %s)" % s]
         af_args += _inc_args("--inc", all_hdrs)
+        af_inc = [u.inc] if u else []
+        for f in af_inc:
+            af_args += ["--inc-file", "$(location %s)" % f]
         af_args += _pinned_build_args()
         if sanitize:
             af_args.append("--gate-sanitize")
         if labeled:
             af_args.append("--gate-labeled")
         _test(
-            name = ex + "_allocfail",
+            name = stem + "_allocfail",
             srcs = ["//tools:allocfail_check.sh"],
             args = af_args,
-            data = build_srcs + all_hdrs + _PINNED_BUILD_DATA + [
+            data = build_srcs + all_hdrs + af_inc + _PINNED_BUILD_DATA + [
                 af_f,
                 ":" + binname,
-                ":%s_allocfail_rule" % ex,
+                ":%s_allocfail_rule" % stem,
                 expected_f,
                 "//tools:allocfail_shim.c",
                 "//tools:allocfail_counter.h",
@@ -7269,13 +8602,13 @@ def c_function(
         )
         if allocfail_leaks:
             _test(
-                name = ex + "_allocfail_leaks",
+                name = stem + "_allocfail_leaks",
                 srcs = ["//tools:allocfail_check.sh"],
                 args = af_args + ["--leaks"],
-                data = build_srcs + all_hdrs + _PINNED_BUILD_DATA + [
+                data = build_srcs + all_hdrs + af_inc + _PINNED_BUILD_DATA + [
                     af_f,
                     ":" + binname,
-                    ":%s_allocfail_rule" % ex,
+                    ":%s_allocfail_rule" % stem,
                     expected_f,
                     "//tools:allocfail_shim.c",
                     "//tools:allocfail_counter.h",
@@ -7296,14 +8629,14 @@ def c_function(
     if method:
         _no_linked(num, "c_function", "method")
         names_file(
-            name = ex + "_method_rule",
+            name = stem + "_method_rule",
             names = [method_rule],
         )
         m_args = _pinned_cc_args() + _pinned_ld_args() + [
             "--expect",
             method,
             "--rule",
-            "$(location :%s_method_rule)" % ex,
+            "$(location :%s_method_rule)" % stem,
             "--harness",
             "$(location %s)" % test_f,
             "--shim",
@@ -7319,7 +8652,7 @@ def c_function(
             "--gate-expected",
             "$(location %s)" % expected_f,
             "--gate-label",
-            ex + "_output",
+            stem + "_output",
         ]
         # The gate compares the fixture as the output test does, or a
         # sanitized or labeled one would read red on a right answer and the
@@ -7333,15 +8666,18 @@ def c_function(
         for s in provided_srcs:
             m_args += ["--grader-src", "$(location %s)" % s]
         m_args += _inc_args("--inc", all_hdrs)
+        m_inc = [u.inc] if u else []
+        for f in m_inc:
+            m_args += ["--inc-file", "$(location %s)" % f]
         _test(
-            name = ex + "_method",
+            name = stem + "_method",
             srcs = ["//tools:method_check.sh"],
             args = m_args,
-            data = srcs + provided_srcs + all_hdrs + _PINNED_CC_DATA + _PINNED_LD_DATA + [
+            data = srcs + provided_srcs + all_hdrs + m_inc + _PINNED_CC_DATA + _PINNED_LD_DATA + [
                 test_f,
                 expected_f,
                 ":" + binname,
-                ":%s_method_rule" % ex,
+                ":%s_method_rule" % stem,
                 "//tools:method_shim.c",
                 "//tools:diff_output.sh",
             ],
@@ -7350,7 +8686,8 @@ def c_function(
             gated = True,
         )
 
-    if allowed != None:
+    # The library's forbidden and symbols layers are c_library()'s.
+    if allowed != None and not u:
         _forbidden_test(
             ex + "_forbidden",
             srcs,
@@ -7361,7 +8698,7 @@ def c_function(
 
     # Linkage hygiene: exactly the subject's function is visible to the linker.
     if exports == None:
-        exports = [fn]
+        exports = [] if u else [fn]
     if exports:
         # The pinned clang as well as the pinned nm: this test used to get
         # the nm alone, so it compiled with the box's cc (SYMBOLS_CC's
@@ -7398,6 +8735,8 @@ def c_function(
             turnin = srcs,
             linked = linked,
             escaped_values = escaped_values,
+            stem = stem,
+            inc_file = u.inc if u else None,
         )
 
 def _ilp32_test(
@@ -7413,7 +8752,9 @@ def _ilp32_test(
         gate_bin,
         turnin = None,
         linked = None,
-        escaped_values = False):
+        escaped_values = False,
+        stem = None,
+        inc_file = None):
     """The 32-bit replay of one exercise's own fixture (tag "ilp32").
 
     Rebuilds the SAME harness and the SAME sources against a target where long
@@ -7452,6 +8793,10 @@ def _ilp32_test(
             linked already.
         escaped_values: c_function's; the harness writes each value in the
             table's notation (diff_output.sh --escaped-values).
+        stem: what the target's name starts with, default `ex`: a library
+            member's exNN_<member> (see _member).
+        inc_file: a library's Makefile's include list (see _compile_tests
+            and _member's `inc`), or None.
     """
     i_args = [
         "--gate-bin",
@@ -7474,6 +8819,8 @@ def _ilp32_test(
     i_args += _inc_args("--inc", hdrs)
     for d in (extra_includes or []):
         i_args += ["--inc", d]
+    if inc_file:
+        i_args += ["--inc-file", "$(location %s)" % inc_file]
     if sanitize:
         i_args.append("--sanitize")
     if labeled:
@@ -7488,7 +8835,7 @@ def _ilp32_test(
         "//tools:diff_output.sh",
         "@zig_linux_x86_64//:zig",
         "@zig_linux_x86_64//:sdk",
-    ] + srcs + hdrs
+    ] + srcs + hdrs + ([inc_file] if inc_file else [])
     if clues_f:
         i_args += ["--clues", "$(location %s)" % clues_f]
         i_data.append(clues_f)
@@ -7497,7 +8844,7 @@ def _ilp32_test(
             i_args += ["--lib32", "$(location %s)" % lib]
         i_data += linked.libs32
     _test(
-        name = ex + "_ilp32",
+        name = (stem or ex) + "_ilp32",
         srcs = ["//tools:ilp32_test.sh"],
         args = i_args,
         data = i_data,
@@ -7506,7 +8853,7 @@ def _ilp32_test(
         gated = True,
     )
 
-def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name = None):
+def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, member = None, refusals = None, name = None):
     """Memory-safety layer: run fn plus a probe under ASan/UBSan (tag "asan").
 
     Catches out-of-bounds reads and writes past an n/size bound that still
@@ -7523,12 +8870,16 @@ def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name
             the same one the exercise's c_function() was given. It selects
             deliverable/exNN/ and tests/exNN/ and names every target this
             macro emits: exNN_asan (tag "asan", level `robust`) and
-            exNN_probe_memcheck (tag "valgrind", level `strict`), over the
-            exNN_memprobe binary.
-        fn: the subject's function, used for ONE thing here: it labels the
-            memcheck report ("exNN/<fn>-probe"). It is not part of any target
-            name -- exNN_asan is named from num alone. Keep it identical to the
-            c_function() call for the same num.
+            exNN_probe_memcheck (tag "valgrind", at the package's valgrind
+            level: `strict`, or `basic` where the subject() contract declares
+            memory_graded, see _layer_level), over the exNN_memprobe binary.
+            With `member`, every one of them is exNN_<member>_<what> instead.
+        fn: the subject's function. Without `member` it is used for ONE thing
+            here: it labels the memcheck report ("exNN/<fn>-probe"), and no
+            target name holds it -- exNN_asan is named from num alone. With
+            `member` it must name the member, so it is in every target name
+            (exNN_<fn>_asan). Keep it identical to the c_function() call for
+            the same num.
         probe: an adversarial main() under tests/exNN/, named mem_*.c by
             convention. It hands the function blocks sized to fit EXACTLY, with
             nothing valid on either side, so that a single step past what the
@@ -7538,9 +8889,13 @@ def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name
             invisible to every diff of stdout. Probes here are written so that
             an unimplemented stub survives them (it touches nothing, so it
             cannot overrun anything), which is why this layer needs no
-            correctness gate of the kind valgrind and allocfail carry. Say at
-            the CALL SITE which fault the probe is aimed at, and put the
-            details in the probe's own header comment.
+            correctness gate of the kind valgrind and allocfail carry. The
+            probe's own header comment, which opens the file, is where the
+            fault it is aimed at is written down: asan_check.sh prints it
+            under an out-of-bounds red of the probe, and //tools:conventions
+            holds each probe a call names to one. A comment at the call site is
+            optional, for what the call itself does unusually (a member,
+            code the grader links).
         srcs: the deliverable sources compiled together with the probe.
             Defaults to a GLOB of the .c files the contract names or allows in
             the turn-in directory (see _deliverable_srcs); when there is none, the
@@ -7571,6 +8926,17 @@ def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name
             "exNN_prototype", the one c_function declares for this exercise.
             c_levels()' audit fails a package that does not declare it. Where
             there is none, say why: "none: <the reason>".
+        member: one function of a library exercise, as c_function takes it
+            (see _member): the targets are exNN_<member>_asan,
+            exNN_<member>_memprobe and exNN_<member>_probe_memcheck, the
+            probe is under tests/exNN/<member>/, and the memcheck program
+            links c_library()'s :exNN_lib through the turn-in's Makefile.
+            srcs, hdrs and `prototype` are the library's, and refused
+            with it: the probe is held to c_library's exNN_prototype.
+            Default None: the exercise's own, refused where its contract
+            lists `functions` (a library: pass member, see _member).
+        refusals: in tools/tests/macro_fixtures alone, the list a refusal
+            of `member` is collected in instead of failing (_refuse).
         name: unused, for the reason c_levels gives: every macro takes one,
             and buildifier's unnamed-macro check holds this one to it since it
             declares a rule (a program built from the student's files, see
@@ -7578,7 +8944,12 @@ def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name
             nothing for it to control.
     """
     _entry(num, "c_mem_check")  # first: a contract error names this macro
+    u = _member(num, member, fn, refusals, "c_mem_check(num = \"%s\", member = %r)" % (num, member), srcs, hdrs, prototype = prototype)
+    if u == False:
+        return
     ex = "ex" + num
+    stem = u.stem if u else ex
+    tdir = u.tdir if u else "tests/" + ex
     if srcs == None:
         srcs = _deliverable_srcs(ex)
         hdrs = _deliverable_hdrs(ex, hdrs)
@@ -7587,7 +8958,7 @@ def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name
     hdrs = _zone(hdrs or [])
     hdrs = hdrs + [h for h in provided.hdrs if h not in hdrs]
     srcs = own_srcs + provided.srcs
-    probe_f = "tests/%s/%s" % (ex, probe)
+    probe_f = "%s/%s" % (tdir, probe)
 
     # The grader's own functions (the contract's `linked`): the x86_64
     # archive, linked after the sources in both probe builds.
@@ -7607,13 +8978,17 @@ def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name
     for s in srcs:
         args += ["--src", "$(location %s)" % s]
     args += _inc_args("--hdr", hdrs)
+    # A member's library: its Makefile's -I, as every build of it has them.
+    inc = [u.inc] if u else []
+    for f in inc:
+        args += ["--inc-file", "$(location %s)" % f]
     for lib in libs:
         args += ["--lib", "$(location %s)" % lib]
     _test(
-        name = ex + "_asan",
+        name = stem + "_asan",
         srcs = ["//tools:asan_check.sh"],
         args = _pinned_build_args() + args + _symbolizer_args(),
-        data = _uniq(srcs + [probe_f] + hdrs + libs + _SYMBOLIZER_DATA + _PINNED_BUILD_DATA +
+        data = _uniq(srcs + [probe_f] + hdrs + inc + libs + _SYMBOLIZER_DATA + _PINNED_BUILD_DATA +
                      ["@clang_12_ubuntu//:sanitizer_runtime"]),
         tags = ["asan"],
         turnin = own_srcs,
@@ -7636,32 +9011,37 @@ def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name
     # leak report would be a finding about the probe. The exercise's own leaks,
     # where its subject allows allocation at all, are exNN_valgrind's.
     #
-    # Tagged `valgrind`, so it sits at level 2 with the rest of memcheck's
-    # findings: real, and conditional on something outside the subject.
+    # Tagged `valgrind`, so it sits at the package's valgrind level with the
+    # rest of memcheck's findings (_layer_level): `strict` -- real, and
+    # conditional on something outside the subject -- or `basic` where the
+    # contract's memory_graded makes memory a sentence of the subject.
     probe_dirs = depset(
         [_dirname(f) for f in [probe_f] + srcs + hdrs],
     ).to_list()
 
     # Every file linked directly, probe first, as the cc_binary this used to be
-    # linked them: the probe is a main() over exactly these sources.
+    # linked them: the probe is a main() over exactly these sources. A
+    # member's are the library's unit, built as its Makefile builds it.
     _student_bin(
-        name = ex + "_memprobe",
+        name = stem + "_memprobe",
         harness = [probe_f],
-        prototype = prototype or ex + "_prototype",
-        srcs = srcs,
+        prototype = prototype or (u.proto if u else ex + "_prototype"),
+        srcs = provided.srcs if u else srcs,
         hdrs = hdrs,
-        deps = libs,
+        deps = (u.deps if u else []) + libs,
         includes = probe_dirs,
         archive = False,
         dir = turnin_dir(num),
         tags = ["manual"],
+        **(u.kw if u else {})
     )
+    r_args, r_data = _graded_rule(leaks = False)
     _test(
-        name = ex + "_probe_memcheck",
+        name = stem + "_probe_memcheck",
         srcs = ["//tools:valgrind_test.sh"],
         args = [
             "--bin",
-            "$(location :%s_memprobe)" % ex,
+            "$(location :%s_memprobe)" % stem,
             # NO SPACE in the label: sh_test tokenises `args` on whitespace,
             # so "ex00/ft_foreach probe" arrives as two arguments and the
             # runner rejects the second as an unknown option. The same trap
@@ -7669,8 +9049,8 @@ def c_mem_check(num, fn, probe, srcs = None, hdrs = None, prototype = None, name
             "--label",
             "%s/%s-probe" % (ex, fn),
             "--no-leak-check",
-        ] + _valgrind_args(),
-        data = [":%s_memprobe" % ex] + _valgrind_data(),
+        ] + r_args + _valgrind_args(),
+        data = [":%s_memprobe" % stem] + r_data + _valgrind_data(),
         size = "small",
         tags = ["valgrind"],
     )
@@ -7680,8 +9060,10 @@ def diff_readings_problem(num, readings):
 
     One dict: "oracle_fn" (the arm writing the cases the readings part on, a
     name, required), and optionally "diff_clues" (a file under tests/exNN/),
-    "count" (a positive int) and "level" (3 or 4: the reading's own level,
-    strict, is the diff layer's). An unknown key fails, as a case key does.
+    "count" (a positive int), "harness" (a reader of its own, a diff_<what>.c
+    under tests/exNN/, as c_diff's `harness` is) and "level" (3 or 4: the
+    reading's own level, strict, is the diff layer's). An unknown key fails,
+    as a case key does.
 
     Public so //tools/tests:starlark_unit can check it at load time.
 
@@ -7697,7 +9079,7 @@ def diff_readings_problem(num, readings):
     where = "c_diff(num = \"%s\", readings = %r)" % (num, readings)
     if type(readings) != "dict":
         return "%s: one dict, {\"oracle_fn\": ..., ...}: one reading per exercise." % where
-    keys = ["count", "diff_clues", "level", "oracle_fn"]
+    keys = ["count", "diff_clues", "harness", "level", "oracle_fn"]
     for k in sorted(readings):
         if k not in keys:
             return "%s: %r is not a key; the keys are %s." % (where, k, ", ".join(keys))
@@ -7710,6 +9092,13 @@ def diff_readings_problem(num, readings):
         return "%s: \"diff_clues\" is a file name under tests/ex%s/." % (where, num)
     if "count" in readings and (type(readings["count"]) != "int" or readings["count"] < 1):
         return "%s: \"count\" is the corpus's size, a positive int." % where
+    if "harness" in readings:
+        h = readings["harness"]
+        if type(h) != "string" or not h or "/" in h:
+            return "%s: \"harness\" is a file name under tests/ex%s/." % (where, num)
+        hp = _diff_harness_problem(num, h)
+        if hp:
+            return "%s: \"harness\": %s" % (where, hp)
     if "level" in readings and readings["level"] not in (3, 4):
         return ("%s: \"level\" is 3 or 4, where the reading is this repo's convention " +
                 "rather than one reading of the sentence; a reading sits at strict, the " +
@@ -7737,6 +9126,8 @@ def c_diff(
         size = "small",
         prototype = None,
         readings = None,
+        member = None,
+        refusals = None,
         name = None):
     """Live differential test (tag "diff").
 
@@ -7857,7 +9248,10 @@ def c_diff(
             duplicating an already-red functional layer. DERIVED rather than
             re-declared so it cannot drift; a hand-written gate that drifts
             skips forever while looking green. Pass "" to run the corpus
-            ungated. The gate fails OPEN by design: no gate, or a gate binary
+            ungated, which c_levels()' audit refuses in a project
+            (_ungated_diff_problems: every diff layer waits for its
+            exercise's output test, or its macro says why not); only the
+            harness's own fixtures turn it. The gate fails OPEN by design: no gate, or a gate binary
             that cannot run, still runs the differential, since a wrongly
             skipped layer would turn a real divergence green. NO_SKIP=1 forces
             every gated layer to run anyway -- `bazel test //...
@@ -7929,26 +9323,49 @@ def c_diff(
             (optional), "count": its size (optional, default 20000: the
             corpus is one family, not the exercise's whole input space, and
             its ASan twin replays as many or `asan_count`, the fewer),
-            "level": above strict (optional)}. D3 reads an ambiguous sentence
-            at strict at most, and only there: so `oracle_fn`'s corpus holds
-            only the cases every reading agrees on, and this one the rest.
-            Emits exNN_readings, the same harness and gate over that corpus
-            (layer diff, strict, the `_readings` suffix BSQ's and Rush 01's
-            corpus readings take), and, with `sanitize`, its crash-fuzz twin
-            exNN_readings_diff_asan, so the parted cases stay under ASan:
-            moved out of the main corpus without a twin, a byte above 0x7f
-            no reading agrees on would have left the one layer that sees a
-            signed-char index read out of bounds. The twin is handed no
+            "harness": a reader of its own (optional; a diff_<what>.c under
+            tests/exNN/, built as `harness` is), where the reading is in what
+            a case's result is read as rather than in which cases there
+            are: C 03 ex00's plain reader prints a sign, its readings reader
+            the int (V206). Such a reading has no ASan twin: its cases are
+            the plain corpus's, which exNN_diff_asan replays already, and a
+            twin judges no value, so it would only repeat that replay
+            (V299). "level": above strict (optional)}. D3 reads an
+            ambiguous sentence at strict at most, and only there: so
+            `oracle_fn`'s corpus holds only the cases every reading agrees
+            on, and this one the rest -- or, with a "harness", cases the
+            plain corpus holds too, each result read as the reading reads
+            it, which every reading does not agree on.
+            Emits exNN_readings, the same harness (or its own) and gate over
+            that corpus (layer diff, strict, the `_readings` suffix BSQ's and
+            Rush 01's corpus readings take), and, with `sanitize` and no
+            "harness", its crash-fuzz twin exNN_readings_diff_asan, so the
+            parted cases stay under ASan: moved out of the main corpus
+            without a twin, a byte above 0x7f no reading agrees on would have
+            left the one layer that sees a signed-char index read out of
+            bounds. The twin is handed no
             `diff_clues`: it sits above strict, and a legend that states the
             reading is the strict target's alone. C 02 ex09 takes one (its
             BUILD file says which reading), and C 11 ex06 one at "level": 3:
             "ascii order" does not reach a byte above 0x7f, so the order its
-            reference gives one is a convention of this repo's, as C 06
-            ex03's is (docs/reference.md, "Run contract"), listed in _RAISED;
+            reference gives one is a convention of this repo's, as C 06 ex03's
+            is (docs/reference.md, "Run contract"), listed in _RAISED;
             tools/conventions.sh holds the corpus's hint file to its level.
             One per exercise, as the target's name allows. Checked by
             diff_readings_problem().
             Default None.
+        member: one function of a library exercise, as c_function takes it
+            (see _member): every target is exNN_<member>_<what> (diffbin,
+            diff, diff_asan, readings, readings_diff_asan, and c_perf's,
+            which it is handed on to), every file is under
+            tests/exNN/<member>/, the gate defaults to :exNN_<member>_bin,
+            and both programs link c_library()'s :exNN_lib through the
+            turn-in's Makefile. `prototype` is the library's, and refused
+            with it: both are held to c_library's exNN_prototype.
+            Default None: the exercise's own, refused where its contract
+            lists `functions` (a library: pass member, see _member).
+        refusals: in tools/tests/macro_fixtures alone, the list a refusal
+            of `member` is collected in instead of failing (_refuse).
         name: unused, for the reason c_levels gives: every macro takes one,
             and buildifier's unnamed-macro check holds this one to it since it
             declares a rule (a program built from the student's files, see
@@ -7956,22 +9373,33 @@ def c_diff(
             nothing for it to control.
     hermetically by Bazel — no system rustc needed."""
     _entry(num, "c_diff")  # first: a contract error names this macro
+    u = _member(num, member, fn, refusals, "c_diff(num = \"%s\", member = %r)" % (num, member), prototype = prototype)
+    if u == False:
+        return
     problem = _diff_harness_problem(num, harness) or diff_readings_problem(num, readings)
     if problem:
         fail(problem)
     ex = "ex" + num
 
+    # Every target is named from `stem`, and every file is under `tdir`:
+    # the exercise's, or one member's (see _member).
+    stem = u.stem if u else ex
+    tdir = u.tdir if u else "tests/" + ex
+
     # What the grader links into this exercise (the contract's `linked`) is
     # linked into both programs.
     deps = _linked(num).libs
-    prototype = prototype or ex + "_prototype"
-    binname = ex + "_diffbin"
+    unit = u.deps if u else [":" + fn]
+    kw = u.kw if u else {}
+    prototype = prototype or (u.proto if u else ex + "_prototype")
+    binname = stem + "_diffbin"
     _student_bin(
         name = binname,
-        harness = ["tests/%s/%s" % (ex, harness)],
+        harness = ["%s/%s" % (tdir, harness)],
         prototype = prototype,
-        deps = [":" + fn] + deps,
+        deps = unit + deps,
         diffio = True,
+        **kw
     )
 
     # The harness SOURCE ships with the test, not just the binary built from it.
@@ -7980,7 +9408,7 @@ def c_diff(
     # even for an exercise with no diff_clues.txt of its own. That comment sits
     # beside the parsing code it describes, which is what stops the legend and
     # the parser drifting apart -- they are the same lines.
-    harness_src = "tests/%s/%s" % (ex, harness)
+    harness_src = "%s/%s" % (tdir, harness)
     data = ["//oracle:oracle", ":" + binname, harness_src]
     args = [
         "--oracle",
@@ -7999,7 +9427,7 @@ def c_diff(
     clue_args = []
     clue_data = []
     if diff_clues:
-        clues_f = "tests/%s/%s" % (ex, diff_clues)
+        clues_f = "%s/%s" % (tdir, diff_clues)
         clue_args = ["--clues", "$(location %s)" % clues_f]
         clue_data = [clues_f]
     args += clue_args
@@ -8014,9 +9442,9 @@ def c_diff(
     gate_args = []
     gate_data = []
     if gate_bin == None:
-        gate_bin = ":" + ex + "_bin"
+        gate_bin = ":" + stem + "_bin"
     if gate_bin:
-        gate_expected_f = "tests/%s/%s" % (ex, gate_expected)
+        gate_expected_f = "%s/%s" % (tdir, gate_expected)
         gate_args = [
             "--gate-differ",
             "$(location //tools:diff_output.sh)",
@@ -8024,6 +9452,10 @@ def c_diff(
             "$(location %s)" % gate_bin,
             "--gate-expected",
             "$(location %s)" % gate_expected_f,
+            # Its SKIP line names the test it waits for, as c_cycles' does;
+            # the audit holds the name to the gate (_waits_for).
+            "--gate-label",
+            stem + "_output",
         ]
         gate_data = ["//tools:diff_output.sh", gate_bin, gate_expected_f]
         if gate_labeled:
@@ -8050,7 +9482,7 @@ def c_diff(
         # finite headroom. Raise `size` to "medium" (300s) before raising
         # `count` much beyond 1M, and lower a heavy exercise's `count` if you
         # want it faster.
-        name = ex + "_diff",
+        name = stem + "_diff",
         srcs = ["//tools:rust_diff.sh"],
         args = args,
         data = data,
@@ -8073,7 +9505,7 @@ def c_diff(
         if not sanitize:
             fail(("c_diff(num = %r): sanitize = False with perf = True. The perf " +
                   "layer's gate wants :%s_diffbin_asan, which only sanitize = True " +
-                  "builds. Set perf = False, or leave sanitize on.") % (num, ex))
+                  "builds. Set perf = False, or leave sanitize on.") % (num, stem))
         c_perf(
             num = num,
             fn = fn,
@@ -8087,6 +9519,7 @@ def c_diff(
             gate_stdin = gate_stdin,
             gate_bin = gate_bin,
             length = perf_length,
+            member = member,
         )
 
     # Crash-fuzz variant (tag "diff_asan"): replay the corpus through an
@@ -8097,21 +9530,22 @@ def c_diff(
     if asan_count_problem:
         fail(asan_count_problem)
     if sanitize:
-        asan_bin = ex + "_diffbin_asan"
+        asan_bin = stem + "_diffbin_asan"
 
         # The same unit, compiled under the sanitizer: there is no separate
         # _asan library any more, because each binary compiles what it links
         # with its own flags.
         _student_bin(
             name = asan_bin,
-            harness = ["tests/%s/%s" % (ex, harness)],
+            harness = ["%s/%s" % (tdir, harness)],
             prototype = prototype,
-            deps = [":" + fn] + deps,
+            deps = unit + deps,
             diffio = True,
             asan = True,
+            **kw
         )
         _test(
-            name = ex + "_diff_asan",
+            name = stem + "_diff_asan",
             srcs = ["//tools:rust_diff.sh"],
             args = [
                 "--oracle",
@@ -8144,9 +9578,24 @@ def c_diff(
         r_clue_args = []
         r_clue_data = []
         if readings.get("diff_clues"):
-            r_clues_f = "tests/%s/%s" % (ex, readings["diff_clues"])
+            r_clues_f = "%s/%s" % (tdir, readings["diff_clues"])
             r_clue_args = ["--clues", "$(location %s)" % r_clues_f]
             r_clue_data = [r_clues_f]
+
+        # A reader of its own, or the plain one (see `readings`).
+        r_bin = binname
+        r_src = harness_src
+        if readings.get("harness"):
+            r_bin = stem + "_readingsbin"
+            r_src = "%s/%s" % (tdir, readings["harness"])
+            _student_bin(
+                name = r_bin,
+                harness = [r_src],
+                prototype = prototype,
+                deps = unit + deps,
+                diffio = True,
+                **kw
+            )
         r_common = [
             "--oracle",
             "$(location //oracle:oracle)",
@@ -8156,17 +9605,17 @@ def c_diff(
             str(seed),
         ]
         _test(
-            name = ex + "_readings",
+            name = stem + "_readings",
             srcs = ["//tools:rust_diff.sh"],
             args = r_common + [
                 "--count",
                 str(r_count),
                 "--student-bin",
-                "$(location :%s)" % binname,
+                "$(location :%s)" % r_bin,
                 "--harness-src",
-                "$(location %s)" % harness_src,
+                "$(location %s)" % r_src,
             ] + r_clue_args + gate_args,
-            data = ["//oracle:oracle", ":" + binname, harness_src] + r_clue_data + gate_data,
+            data = ["//oracle:oracle", ":" + r_bin, r_src] + r_clue_data + gate_data,
             size = size,
             tags = ["diff"],
             level = _raise("diff", r_level),
@@ -8177,21 +9626,27 @@ def c_diff(
         # may not be printed: it states the reading, which only the strict
         # target's own hint does (AGENTS.md section 2). The harness's "Line:"
         # sentence still names the columns of the case that crashed. Rush 01's
-        # and BSQ's readings twins (corpus_memory) carry no hints either.
-        if sanitize:
+        # and BSQ's readings twins (corpus_memory) carry no hints either. A
+        # reading with a reader of its own has none (V299): its cases are the
+        # plain corpus's, so exNN_diff_asan replays them already, and the
+        # twin would run them again through the plain ASan reader -- 20000
+        # cases repeated, and a crash would show the reading's reference
+        # under the plain reader's "Line:", which names that column for what
+        # the plain reader prints.
+        if sanitize and not readings.get("harness"):
             _test(
-                name = ex + "_readings_diff_asan",
+                name = stem + "_readings_diff_asan",
                 srcs = ["//tools:rust_diff.sh"],
                 args = r_common + [
                     "--count",
                     str(min(r_count, asan_count)),
                     "--crash-only",
                     "--student-bin",
-                    "$(location :%s)" % (ex + "_diffbin_asan"),
+                    "$(location :%s)" % (stem + "_diffbin_asan"),
                     "--harness-src",
                     "$(location %s)" % harness_src,
                 ] + gate_args + _symbolizer_args(),
-                data = ["//oracle:oracle", ":" + ex + "_diffbin_asan", harness_src] +
+                data = ["//oracle:oracle", ":" + stem + "_diffbin_asan", harness_src] +
                        gate_data + _SYMBOLIZER_DATA,
                 size = size,
                 tags = ["diff_asan"],
@@ -8219,6 +9674,8 @@ def c_perf(
         enabled = False,
         prototype = None,
         length = None,
+        member = None,
+        refusals = None,
         name = None):
     """Performance layer (tag "perf"), at `complete`: it reports, and fails only past a gate.
 
@@ -8438,6 +9895,17 @@ def c_perf(
                   while a run is too short to time, and halves it on a run
                   that does not finish);
               "cases": how many lines at each length, default 20.
+        member: one function of a library exercise, as c_function takes it
+            (see _member): its programs are exNN_<member>_diffbin, _perfbin
+            and _lenbin, linking c_library()'s :exNN_lib through the
+            turn-in's Makefile, its test exNN_<member>_perf, its files under
+            tests/exNN/<member>/, and its gates default to
+            :exNN_<member>_bin and :exNN_<member>_diffbin_asan. c_diff hands
+            its own on. `prototype` is the library's, and refused with it.
+            Default None: the exercise's own, refused where its contract
+            lists `functions` (a library: pass member, see _member).
+        refusals: in tools/tests/macro_fixtures alone, the list a refusal
+            of `member` is collected in instead of failing (_refuse).
         name: unused, for the reason c_levels gives: every macro takes one,
             and buildifier's unnamed-macro check holds this one to it since it
             declares a rule (a program built from the student's files, see
@@ -8445,23 +9913,35 @@ def c_perf(
             nothing for it to control.
     """
     _entry(num, "c_perf")  # first: a contract error names this macro
+    u = _member(num, member, fn, refusals, "c_perf(num = \"%s\", member = %r)" % (num, member), prototype = prototype)
+    if u == False:
+        return
     ex = "ex" + num
+
+    # Every target is named from `stem`, and every file is under `tdir`:
+    # the exercise's, or one member's (see _member).
+    stem = u.stem if u else ex
+    tdir = u.tdir if u else "tests/" + ex
+    unit = u.deps if u else [":" + fn]
+    kw = u.kw if u else {}
+    prototype = prototype or (u.proto if u else ex + "_prototype")
     deps = _linked(num).libs
     tags = ["perf"] + ([] if enabled else ["manual"])
 
     # Reuse c_diff's reader binary when it exists; build our own only if this
     # exercise has a perf layer without a diff layer.
     if harness == None:
-        binname = ex + "_diffbin"
+        binname = stem + "_diffbin"
     else:
-        binname = ex + "_perfbin"
+        binname = stem + "_perfbin"
         _student_bin(
             name = binname,
-            harness = ["tests/%s/%s" % (ex, harness)],
-            prototype = prototype or ex + "_prototype",
-            deps = [":" + fn] + deps,
+            harness = ["%s/%s" % (tdir, harness)],
+            prototype = prototype,
+            deps = unit + deps,
             diffio = True,
             tags = ["manual"],
+            **kw
         )
 
     args = [
@@ -8498,13 +9978,14 @@ def c_perf(
         if bad or "oracle_fn" not in length or "harness" not in length:
             fail(("c_perf(num = %r): length takes oracle_fn and harness, and " +
                   "base and cases; got %r") % (num, sorted(length.keys())))
-        lenbin = ex + "_lenbin"
+        lenbin = stem + "_lenbin"
         _student_bin(
             name = lenbin,
-            harness = ["tests/%s/%s" % (ex, length["harness"])],
-            prototype = prototype or ex + "_prototype",
-            deps = [":" + fn] + deps,
+            harness = ["%s/%s" % (tdir, length["harness"])],
+            prototype = prototype,
+            deps = unit + deps,
             tags = ["manual"],
+            **kw
         )
         args += [
             "--length-oracle-fn",
@@ -8527,11 +10008,11 @@ def c_perf(
     # gating on. Pass explicit values only for an exercise whose layers do not
     # follow that naming (c_libft's docstring says why every shape keeps it).
     if gate_bin == None:
-        gate_bin = ":" + ex + "_bin"
+        gate_bin = ":" + stem + "_bin"
     if gate_asan_bin == None:
-        gate_asan_bin = ":" + ex + "_diffbin_asan"
+        gate_asan_bin = ":" + stem + "_diffbin_asan"
     if gate_bin:
-        expected_f = "tests/%s/%s" % (ex, gate_expected)
+        expected_f = "%s/%s" % (tdir, gate_expected)
         args += [
             "--gate-differ",
             "$(location //tools:diff_output.sh)",
@@ -8539,6 +10020,9 @@ def c_perf(
             "$(location %s)" % gate_bin,
             "--gate-expected",
             "$(location %s)" % expected_f,
+            # Its SKIP line names the test it waits for (_waits_for holds it).
+            "--gate-label",
+            stem + "_output",
             "--gate-count",
             str(gate_count),
         ]
@@ -8555,7 +10039,7 @@ def c_perf(
         data.append(gate_asan_bin)
 
     _test(
-        name = ex + "_perf",
+        name = stem + "_perf",
         srcs = ["//tools:perf_test.sh"],
         args = args,
         data = data,
@@ -8616,6 +10100,7 @@ def c_program(
         allocfail_rule = None,
         allocfail_leaks = False,
         allocfail_leaks_rule = None,
+        no_allocfail = None,
         fixed_array = None,
         fixed_array_bytes = None):
     """A program exercise: the deliverable owns main() and is run with argv.
@@ -8863,16 +10348,18 @@ def c_program(
             strict), each gated on that case's own output fixture so a stub
             is met with "your output layer is still red" rather than with a
             memcheck report; a "survive" case has no fixture, and its arm
-            runs ungated. A program that cannot allocate has nothing to leak.
+            waits on the case its output test waits on (_survive_gate). A
+            program that cannot allocate has nothing to leak.
             It used to be an argument, typed at each call beside the
             contract that already said it, so the two could disagree; a call
             that still passes it is refused while loading.
         memory_rule: the subject's own sentence about memory, naming where it
             is from (Rush 02, p.7: "Any memory allocated on the heap ... must
             be freed correctly."), for the valgrind arms to quote when one
-            fails. Default None: they state the rule the layer applies and
-            say it is this repo's, since most subjects have no such sentence
-            (finding 082). Needs a subject that lets the program allocate
+            fails. Default None: they quote the contract's memory_graded
+            where it declares one, and otherwise state the rule the layer
+            applies and say it is this repo's, since most subjects have no
+            such sentence (finding 082). Needs a subject that lets the program allocate
             (`malloc`). One line; written to a file
             (exNN_memory_rule), since sh_test tokenises `args` on blanks.
         makefile: True for a project whose subject mandates a Makefile and
@@ -8995,6 +10482,14 @@ def c_program(
             because the reason to ask what a run holds at exit is a different
             sentence from the reason to refuse it memory. Required with
             `allocfail_leaks`; written to exNN_program_allocfail_leaks_rule.
+        no_allocfail: why this program has no allocfail sweep, as a sentence,
+            where its subject lets it allocate and it has cases: then one of
+            `allocfail` and this is required, and both are refused
+            (program_allocfail_choice_problem). A sweep missing by omission
+            reads as one nobody needed; a sweep left out says why. Refused
+            where nothing asks for it (a subject that does not let the
+            program allocate, or runs driven elsewhere, cases = None): a
+            reason that is no longer true is worse than none. Default None.
         fixed_array: the subject's sentence asking for a fixed-size array
             ("You must complete this exercise by declaring a fixed-size
             array"), quoted with where it is from: emits exNN_fixed_array,
@@ -9047,6 +10542,16 @@ def c_program(
     if _refuse(_reference_exit_problem(ex, reference, cases), refusals, "c_program(%s)" % ex):
         return
     if _refuse(_memory_rule_problem(num, malloc, cases, memory_rule), refusals, "c_program(%s)" % ex):
+        return
+    af_choice = program_allocfail_choice_problem(
+        malloc,
+        cases,
+        allocfail,
+        no_allocfail,
+        allocfail_rule,
+        allocfail_leaks_rule,
+    )
+    if _refuse(af_choice and "c_program(%s): %s" % (ex, af_choice), refusals, "c_program(%s)" % ex):
         return
     if srcs == None:
         srcs = _deliverable_srcs(ex)
@@ -9185,7 +10690,21 @@ def c_program(
                 names = [memory_rule],
             )
             rule = ":%s_memory_rule" % ex
-        _emit_cases(ex, binname, cases, name, valgrind = malloc, memory_rule = rule)
+        elif _memory_graded():
+            # No sentence of the call's own: the contract's, which puts
+            # these arms at basic (memory_graded).
+            rule = ":" + _MEMORY_GRADED
+        _emit_cases(
+            ex,
+            binname,
+            cases,
+            name,
+            valgrind = malloc,
+            memory_rule = rule,
+            # The contract's sentence on an invalid access, whoever's the
+            # sentence on a leak is.
+            access_rule = (":" + _MEMORY_GRADED_ACCESS) if _memory_graded() else None,
+        )
         if model:
             _emit_model(ex, cases, model, name)
         if reference:
@@ -9260,6 +10779,53 @@ def c_program(
             provided = _provided_names(provided_srcs),
             inc_file = (":" + inc_file) if inc_file else None,
         )
+
+def program_allocfail_choice_problem(malloc, cases, allocfail, no_allocfail, rule = None, leaks_rule = None):
+    """Why c_program may not leave its allocfail sweep unchosen; None if it may.
+
+    A program whose subject lets it allocate, with cases to replay, either
+    asks for the sweep (`allocfail`) or says why not (`no_allocfail`): a
+    check a project could forget is a choice its macro will not load
+    without (AGENTS.md, "Decide at the call site"). Nothing asked before,
+    and a program project could ship without the layer with nothing to say
+    so (W5-CC). A decision made while loading, so
+    //tools/tests:starlark_unit calls it both ways.
+
+    Args:
+      malloc: whether the subject() contract lets the program allocate
+        (_memcheck_allowed).
+      cases: c_program's `cases` (None: its runs are driven elsewhere).
+      allocfail: c_program's `allocfail`.
+      no_allocfail: c_program's `no_allocfail`, a sentence or None.
+      rule: c_program's `allocfail_rule`. Without `allocfail` it would back
+        no check, and say which rule a sweep applies beside a call that has
+        none (c_function refuses the same in _allocfail_problem).
+      leaks_rule: c_program's `allocfail_leaks_rule`, held the same way.
+
+    Returns:
+      None, or the reason as a sentence.
+    """
+    if allocfail == None and (rule != None or leaks_rule != None):
+        return ("sets %s without allocfail: the sentence would back no check." %
+                ("allocfail_rule" if rule != None else "allocfail_leaks_rule"))
+    if no_allocfail != None and (type(no_allocfail) != "string" or not no_allocfail.strip()):
+        return "no_allocfail is a sentence saying why the program has no allocfail sweep."
+    if allocfail != None and no_allocfail != None:
+        return ("allocfail and no_allocfail together: the sweep is asked for, and " +
+                "no_allocfail says why there is none. Keep the one that is true.")
+    if not malloc or not cases:
+        if no_allocfail != None:
+            return (("no_allocfail says why there is no allocfail sweep, and nothing " +
+                     "asks for one: %s. Drop the sentence.") %
+                    ("the subject() contract does not let the program allocate" if not malloc else "no case is replayed here (cases = None)"))
+        return None
+    if allocfail == None and no_allocfail == None:
+        return ("the subject() contract lets this program allocate, and it has cases, " +
+                "and the call neither sweeps its allocations nor says why not. Replay " +
+                "a case that allocates with each malloc() refused in turn (allocfail, " +
+                "with allocfail_rule), or say in no_allocfail why the program needs " +
+                "no such sweep.")
+    return None
 
 def program_allocfail_problem(allocfail, case_names, malloc, leaks, allowed, rule, leaks_rule):
     """Why c_program may not emit its allocfail targets as asked; None if it may.
@@ -9380,18 +10946,38 @@ def _program_allocfail(ex, num, prog, cases, cnames, rule, leaks_rule, binname, 
             _shown_bin(af_bin),
         ]
         data = [":" + af_bin, "//tools:diff_output.sh"] + run_files
+
+        # A survive case has no fixture of its own: its sweep waits on the
+        # case its output, asan and valgrind arms wait on (_survive_gate),
+        # handed to the runner whole after --survive. A program nobody has
+        # written ends by itself and allocates nothing, so its sweep refused
+        # nothing and passed, the asymmetry V253 removed from the memory
+        # arms (V282). No such case: it runs ungated.
+        sgate, sdata = _survive_gate(ex, cases) if k.survive else ([], [])
+        if sgate:
+            args += [
+                "--survive",
+                "--gate-differ",
+                "$(location //tools:diff_output.sh)",
+                "--gate-bin",
+                "$(location :%s)" % binname,
+            ] + sgate
+            data += [":" + binname] + sdata
         if gate:
             args += [
                 "--gate-differ",
                 "$(location //tools:diff_output.sh)",
                 "--gate-bin",
                 "$(location :%s)" % binname,
+                # Its SKIP line names the test it waits for.
+                "--gate-label",
+                "%s_output" % _case_stem(ex, cases, k.name),
             ] + gate
             data += [":" + binname] + gate_fs
 
             # The options that describe the gate go with it, never alone: a
-            # survive case has no gate, and its options with none are a
-            # wiring mistake allocfail_check.sh refuses.
+            # gate's options with no gate are a wiring mistake
+            # allocfail_check.sh refuses.
             if c.get("stream"):
                 args += ["--gate-stream", c["stream"]]
             if c.get("sanitize"):
@@ -9756,6 +11342,137 @@ def c_issued(num, file, name = None):
         tags = ["output"],
     )
 
+# The subject's sentences tools/readme_check.sh quotes: the basic check's
+# keys, then the ones only --wording quotes.
+_README_KEYS = ["file", "first-line", "sections"]
+_README_WORDING_KEYS = ["ai", "language"]
+
+def _readme_problem(num, file, quotes, sections, sentences, ai_section, ai_words, e):
+    """c_readme()'s message when its arguments cannot make its two tests; None if they can.
+
+    `e` is exercise `num`'s contract entry. The README must be in its
+    `files`: a subject that asks for one says it "must be provided", the files
+    layer then names it when it is missing, and the missing-file red says so.
+    One in `optional` would be a file the subject lets the student leave out
+    while this test demands it.
+    """
+    where = "c_readme(num = \"%s\")" % num
+    if type(file) != "string" or not file or "/" in file:
+        return "%s: file = %r. It is the README's name, as the contract's `files` lists it." % (where, file)
+    if file not in (e["files"] or []):
+        return (("%s: file = %r is not in exercise %s's `files` (%s). A README the subject " +
+                 "asks for is a file it requires: transcribe it into `files`.") %
+                (where, file, num, e["files"]))
+    want = sorted(_README_KEYS + _README_WORDING_KEYS)
+    if type(quotes) != "dict" or sorted(quotes) != want:
+        return (("%s: quotes = {key: sentence} with exactly the keys %s, each the subject's own " +
+                 "words with where they are from; it has %s.") %
+                (where, ", ".join(want), ", ".join(sorted(quotes)) if type(quotes) == "dict" else repr(quotes)))
+    for what, words in [("sections", sections), ("sentences", sentences), ("ai_words", ai_words)]:
+        if type(words) != "list" or not words:
+            return "%s: %s is a list of one or more strings." % (where, what)
+        for w in words:
+            if type(w) != "string" or not w.strip() or "\n" in w or "\t" in w:
+                return "%s: %s holds %r; each is one line of text." % (where, what, w)
+    for s in sections:
+        if [n for n in s.split("|") if not n.strip()]:
+            return "%s: sections holds %r, with an empty name between its | marks." % (where, s)
+    if type(ai_section) != "string" or not ai_section.strip() or "\n" in ai_section:
+        return "%s: ai_section is the section that must mention AI, its names separated by |, as `sections` writes them." % where
+    return None
+
+def c_readme(num, file, quotes, sections, sentences, ai_section, ai_words, name = None):
+    """The README a subject asks the turn-in to carry, read as Markdown (tag "output").
+
+    Two tests, both on tools/readme_check.sh, which reads the file and runs
+    nothing of the student's:
+
+      exNN_readme          basic, no language assumed: the file is there and
+                           shows something (blank lines and HTML comments, the
+                           stub, show nothing), its first line that shows
+                           something is one span in italics (a heading whose
+                           text is, too), and it has at least len(sections)
+                           section headings.
+      exNN_readme_wording  strict, this harness's reading in the words given
+                           here: line 1 itself is in italics and reads one of
+                           `sentences` and the login(s); a heading names each
+                           of `sections`; the section `ai_section` names one of
+                           `ai_words`.
+
+    What the README says, and how well: no check reads that, and both tests
+    say a peer does.
+
+    The file is found by a glob, never named as a label, so a README that is
+    missing makes these tests red rather than taking the package down; its
+    path is turnin_file()'s, so loading fails unless the contract lets the
+    exercise hold it. Every word the runner accepts and every sentence its
+    messages quote is written here, at the call site (tools/runner_lib.sh, "A
+    SUBJECT'S SENTENCE COMES FROM THE CALL SITE").
+
+    Args:
+        num: the exercise whose turn-in holds the README.
+        file: its name, as the contract's `files` lists it ("README.md").
+        quotes: {key: "Project, p.N: \\"the sentence\\""} for the keys file,
+            first-line, sections (basic and strict) and ai, language
+            (strict); split here into one runner_quotes() file per test.
+        sections: one string per section the subject names, its accepted
+            names separated by | ("Description|Descripción").
+        sentences: the first-line sentences accepted at strict, each up to
+            the logins, one per language the subject is printed in.
+        ai_section: the section that must mention AI, written as in
+            `sections`.
+        ai_words: the words that name AI there, matched as words, in the
+            case given.
+        name: unused; the targets are named from `num`.
+    """
+    problem = _readme_problem(num, file, quotes, sections, sentences, ai_section, ai_words, _entry(num, "c_readme"))
+    if problem:
+        fail(problem)
+    ex = "ex" + num
+    path = turnin_file(num, file)
+    found = native.glob([path], allow_empty = True)
+    pkg = native.package_name()
+    names_file(
+        name = ex + "_readme_found",
+        names = ["%s/%s" % (pkg, f) for f in found],
+    )
+    common = [
+        "--path",
+        shell_word("%s/%s" % (pkg, path)),
+        "--found-list",
+        "$(rootpath :%s_readme_found)" % ex,
+    ]
+    data = [":%s_readme_found" % ex] + found
+    _test(
+        name = ex + "_readme",
+        srcs = ["//tools:readme_check.sh"],
+        args = common + ["--min-sections", str(len(sections))] + runner_quotes(
+            ex + "_readme_quotes",
+            {k: quotes[k] for k in _README_KEYS},
+        ),
+        data = data + [":%s_readme_quotes" % ex],
+        tags = ["output"],
+    )
+    wording = ["--wording"]
+    for s in sentences:
+        wording += ["--sentence", shell_word(s)]
+    for s in sections:
+        wording += ["--section", shell_word(s)]
+    wording += ["--ai-section", shell_word(ai_section)]
+    for w in ai_words:
+        wording += ["--ai-word", shell_word(w)]
+    _test(
+        name = ex + "_readme_wording",
+        srcs = ["//tools:readme_check.sh"],
+        args = common + wording + runner_quotes(
+            ex + "_readme_wording_quotes",
+            {k: quotes[k] for k in _README_KEYS + _README_WORDING_KEYS},
+        ),
+        data = data + [":%s_readme_wording_quotes" % ex],
+        tags = ["output"],
+        level = _SUFFIX_LAYER["_readme_wording"][1],
+    )
+
 def _built_manifest(ex):
     """The label of the .c list `make -Bn` gave exercise `ex`'s Makefile, or None.
 
@@ -9767,6 +11484,44 @@ def _built_manifest(ex):
     if r and r["kind"] == "student_binary" and r.get("sources_out"):
         return ":%s_bin_sources.txt" % ex
     return None
+
+# The label of the include list c_library() writes for exercise exNN
+# (_library_includes), % "exNN".
+_LIBRARY_INCLUDES = ":%s_make_bin_includes.txt"
+
+def _library_includes(num, d):
+    """The -I list of a library's Makefile, written once; its label.
+
+    A LIBRARY'S INCLUDE PATH IS ITS MAKEFILE'S. Each member's program is
+    built through the Makefile (_member's kw), so a header the library
+    keeps in a subfolder (inc/toy.h, reached by `-I inc`) is found there;
+    every layer that compiles the sources itself -- the compile, forbidden,
+    prototype and symbols layers of the whole library, and a member's ilp32,
+    allocfail, method, asan and cycles -- compiled with no -I, found no
+    header, and blamed the include path or 32-bit portability (V198).
+    ft_printf's subject allows `*/*.h` and keeps the student's libft in a
+    folder of its own. One manual build of the Makefile, the same
+    `make -Bn` every member's program reads, writes the list
+    (tools/student_build.sh --includes-out), and each of those layers reads
+    it as --inc-file; empty where the Makefile passes no -I, is not written
+    yet, or compiles nothing (the layers then compile as before). It also
+    writes the .c list, which the files layer reads where the contract
+    allows .c by pattern (_manifest_build), so the Makefile is planned once.
+
+    Args:
+        num: the exercise.
+        d: its turn-in directory (turnin_dir(num)).
+    """
+    ex = "ex" + num
+    _student_bin(
+        name = ex + "_make_bin",
+        makefile = d + "/Makefile",
+        includes_out = ex + "_make_bin_includes.txt",
+        sources_out = ex + "_make_bin_sources.txt",
+        make_data = turnin_glob([d + "/**"], exclude = _not_build_products(d)),
+        tags = ["manual"],
+    )
+    return _LIBRARY_INCLUDES % ex
 
 def _manifest_build(num, e, d):
     """A build of exercise `num`'s Makefile for its .c list alone, declared; its label, or None.
@@ -9794,6 +11549,9 @@ def _manifest_build(num, e, d):
     if not [p for p in e["optional"] if "*" in p and p.endswith(".c")]:
         return None
     ex = "ex" + num
+    if native.existing_rule(ex + "_make_bin"):
+        # A library's, which c_library() declared (_library_includes).
+        return ":%s_make_bin_sources.txt" % ex
     _student_bin(
         name = ex + "_make_bin",
         makefile = d + "/Makefile",
@@ -9819,7 +11577,9 @@ def c_cycles(
         gate_expected = "expected.txt",
         gate_labeled = False,
         gate_sanitize = False,
-        gate_stdin = None):
+        gate_stdin = None,
+        member = None,
+        refusals = None):
     """Instruction and syscall accounting for one function (tag "cycles").
 
     Counts INSTRUCTIONS via callgrind, attributed to the exercise's function and
@@ -9993,10 +11753,28 @@ def c_cycles(
             the way c_diff and c_perf wire theirs, because it used to expand the
             label with $(location) and NOT declare it, which would have failed
             analysis for whoever passed the first one.
+        member: one function of a library exercise, as c_function takes it
+            (see _member): the test is exNN_<member>_cycles, its harness and
+            gate file are under tests/exNN/<member>/, and its gate is
+            :exNN_<member>_bin, exNN_<member>_output. The runner still
+            compiles the library's sources at -O2 and counts `fn` alone.
+            srcs and hdrs are the library's, and refused with it. Default
+            None: the exercise's own, refused where its contract lists
+            `functions` (a library: pass member, see _member).
+        refusals: in tools/tests/macro_fixtures alone, the list a refusal
+            of `member` is collected in instead of failing (_refuse).
     """
     _entry(num, "c_cycles")  # first: a contract error names this macro
+    u = _member(num, member, fn, refusals, "c_cycles(num = \"%s\", member = %r)" % (num, member), srcs, hdrs)
+    if u == False:
+        return
     libs = _linked(num).libs
     ex = "ex" + num
+
+    # Every target is named from `stem`, and every file is under `tdir`:
+    # the exercise's, or one member's (see _member).
+    stem = u.stem if u else ex
+    tdir = u.tdir if u else "tests/" + ex
 
     # sh_test tokenises args on spaces, so a two-word unit name silently becomes
     # two arguments and the script rejects the second. Catch it where the error
@@ -10015,8 +11793,8 @@ def c_cycles(
     hdrs = hdrs + [h for h in provided.hdrs if h not in hdrs]
     own_srcs = srcs
     srcs = srcs + provided.srcs
-    harness_f = "tests/%s/%s" % (ex, harness)
-    expected_f = "tests/%s/%s" % (ex, gate_expected)
+    harness_f = "%s/%s" % (tdir, harness)
+    expected_f = "%s/%s" % (tdir, gate_expected)
 
     args = [
         "--oracle",
@@ -10036,17 +11814,22 @@ def c_cycles(
         "--gate-differ",
         "$(location //tools:diff_output.sh)",
         "--gate-bin",
-        "$(location :%s_bin)" % ex,
+        "$(location :%s_bin)" % stem,
         "--gate-expected",
         "$(location %s)" % expected_f,
         # The output test that gate is, named in the SKIP line; the audit
         # holds it to the gate's program and file (_waits_for).
         "--gate-label",
-        ex + "_output",
+        stem + "_output",
     ]
     for src in srcs:
         args += ["--src", "$(location %s)" % src]
     args += _inc_args("--inc", hdrs)
+
+    # A member's library: its Makefile's -I, as every build of it has them.
+    inc = [u.inc] if u else []
+    for f in inc:
+        args += ["--inc-file", "$(location %s)" % f]
 
     # The grader's own functions (the contract's `linked`), linked after
     # the sources.
@@ -10078,7 +11861,7 @@ def c_cycles(
         extra_data.append(gate_stdin)
 
     _test(
-        name = ex + "_cycles",
+        name = stem + "_cycles",
         srcs = ["//tools:cycles_check.sh"],
         args = _pinned_build_args() + args + _valgrind_args(tool = _VG_CALLGRIND, annotate = True),
         data = _valgrind_data(tool = _VG_CALLGRIND, annotate = True) + _PINNED_BUILD_DATA + [
@@ -10087,8 +11870,8 @@ def c_cycles(
             "//tools:diffio.h",
             harness_f,
             expected_f,
-            ":%s_bin" % ex,
-        ] + srcs + hdrs + libs + extra_data,
+            ":%s_bin" % stem,
+        ] + srcs + hdrs + inc + libs + extra_data,
         # callgrind is ~90x slower than native; 3000 cases keeps it a few
         # seconds. Instruction counts are deterministic, so more cases would
         # buy nothing.
@@ -10266,6 +12049,9 @@ def c_reference_cost(
         "$(location :%s_bin)" % ex,
         "--gate-expected",
         "$(location %s)" % expected_f,
+        # Its SKIP line names the test it waits for.
+        "--gate-label",
+        ex + "_output",
     ]
     for src in srcs:
         args += ["--src", "$(location %s)" % src]
@@ -10398,7 +12184,7 @@ def c_argv_table(num, scenarios = "scenarios.tsv", expected = "table.txt", clues
     exp_f = "tests/%s/%s" % (ex, expected)
     clues_f = "tests/%s/%s" % (ex, clues)
 
-    def _table_test(name, binlabel, tag, memory_only = False, exit_only = False, level = None, guarded = False):
+    def _table_test(name, binlabel, tag, memory_only = False, exit_only = False, level = None, guarded = False, waiting = False):
         t_args = [
             "--bin",
             "$(location %s)" % binlabel,
@@ -10421,6 +12207,10 @@ def c_argv_table(num, scenarios = "scenarios.tsv", expected = "table.txt", clues
         if memory_only:
             t_args += _symbolizer_args()
             t_data = _SYMBOLIZER_DATA
+        if waiting:
+            w_args, w_data = _waiting_args(name)
+            t_args += w_args
+            t_data = t_data + w_data
         _test(
             name = name,
             srcs = ["//tools:argv_table.sh"],
@@ -10436,7 +12226,10 @@ def c_argv_table(num, scenarios = "scenarios.tsv", expected = "table.txt", clues
             level = level,
         )
 
-    _table_test(ex + "_output", ":%s_bin" % ex, "output")
+    # The table is the exercise's output test, the one a stub fails, so the
+    # corpus replays of the same program wait for it (output_gate) and its
+    # red log lists them (--waiting, _waiting_args).
+    _table_test(ex + "_output", ":%s_bin" % ex, "output", waiting = True)
 
     # The table, held to the model it was emitted from (`model` above).
     if model:
@@ -10639,7 +12432,7 @@ def c_libft(
             student's build system does not.
         test: a main() under tests/exNN/ exercising all of `srcs`. exNN_output
             compiles it with them AT TEST TIME, through header_check.sh
-            --shape libft, and diffs what it prints -- see the comment in the
+            --shape sources, and diffs what it prints -- see the comment in the
             body for why that is not a prebuilt program. The same sources also
             build :exNN_bin, tagged manual, for the correctness gates:
             c_diff, c_perf and c_cycles reach for :exNN_bin without being told,
@@ -10791,7 +12584,7 @@ def c_libft(
     clues_f = "tests/%s/%s" % (ex, clues)
     args = _pinned_cc_args() + _pinned_ld_args() + [
         "--shape",
-        "libft",
+        "sources",
         "--differ",
         "$(location //tools:diff_output.sh)",
         "--main",
@@ -10862,6 +12655,9 @@ def c_libft(
 # c_libft passes itself. A new c_make argument is refused there until it is
 # added here, which names this list.
 _LIBFT_MAKE_KEYS = [
+    "archiver",
+    "forbidden_commands",
+    "forbidden_flags",
     "foreign_object",
     "graph",
     "not_checked",
@@ -10874,18 +12670,419 @@ _LIBFT_MAKE_KEYS = [
     "wildcards",
 ]
 
-def _libft_make_problem(make):
-    """c_libft's message for a `make` dict it cannot hand to c_make; None if none."""
+def _libft_make_problem(make, who = "c_libft"):
+    """c_libft's or c_library's message for a `make` dict it cannot hand to c_make; None if none.
+
+    c_library hands c_make num, artifact and symbols (the contract's
+    `functions`) itself, and has no `script`: a library's build is its
+    Makefile, so `script` is no argument it may carry either.
+    """
     if type(make) != "dict":
-        return "c_libft(make = %r): c_make's arguments, as a dict" % (make,)
+        return "%s(make = %r): c_make's arguments, as a dict" % (who, make)
+    own = ["num", "artifact", "symbols", "script"] if who == "c_libft" else ["num", "artifact"]
     for k in sorted(make):
-        if k in ["num", "artifact", "symbols", "script"]:
-            return (("c_libft(make = {%r: ...}): %s is c_libft's own argument, which it " +
-                     "hands to c_make itself. Pass it to c_libft.") % (k, k))
+        if k in own:
+            return (("%s(make = {%r: ...}): %s is %s's own argument, which it " +
+                     "hands to c_make itself. Pass it to %s.") % (who, k, k, who, who))
+        if k == "symbols":
+            return (("%s(make = {%r: ...}): the symbols the archive must hold are the " +
+                     "contract's `functions`, which %s hands to c_make itself.") % (who, k, who))
         if k not in _LIBFT_MAKE_KEYS:
-            return (("c_libft(make = {%r: ...}): no argument of c_make it may carry " +
-                     "(%s; tools/defs.bzl's _LIBFT_MAKE_KEYS).") % (k, ", ".join(_LIBFT_MAKE_KEYS)))
+            return (("%s(make = {%r: ...}): no argument of c_make it may carry " +
+                     "(%s; tools/defs.bzl's _LIBFT_MAKE_KEYS).") % (who, k, ", ".join(_LIBFT_MAKE_KEYS)))
     return None
+
+def _quote_or_reason_problem(who, what, v, about):
+    """Why `v` is neither a quoted sentence nor "none: <the reason>"; None if it is one."""
+    if type(v) == "string" and v.startswith("none: ") and v[6:].strip() and "\n" not in v:
+        return None
+    if type(v) == "string" and v.strip() and not v.startswith("none:") and "\n" not in v and "\t" not in v:
+        return None
+    return (("%s: %s = %r. Quote %s, one line with where it is from " +
+             "(\"Project, p.N: \\\"the sentence\\\"\"), or say why there is none: " +
+             "\"none: <the reason>\".") % (who, what, v, about))
+
+def _prototype_names_problem(who, num, p, prototype):
+    """c_library's message for its prototype_names (see _library_args_problem); None if it takes it."""
+    if type(p) == "string" and p.startswith("none: ") and p[6:].strip():
+        return None
+    if type(p) == "string" and p.endswith(".h") and "/" not in p and p != ".h" and \
+       p != "prototype.h" and not p.startswith("none:"):
+        if prototype == False:
+            return (("%s: prototype = False says the subject fixes no prototype, so it prints " +
+                     "no parameter names, and prototype_names = %r would check names nothing " +
+                     "printed. Say so instead: prototype_names = \"none: <the reason>\".") % (who, p))
+        return None
+    return (("%s: prototype_names = %r. Name the file under tests/ex%s/ holding the " +
+             "declarations whose parameter names the subject prints, and nothing else " +
+             "(prototype_names = \"prototype_names.h\": it includes nothing, and declares a " +
+             "type it needs forward), or say why there is none: \"none: <the reason>\". " +
+             "Never prototype.h, which states the types, and may include the library's " +
+             "header.") % (who, p, num))
+
+def _library_args_problem(num, hdrs, includes, prototype_names, prototype, globals, function_lists, functions, restrict_rule = None, declares_reading = None, helpers_rule = None):
+    """c_library's message for an argument it refuses; None if it takes them all.
+
+    hdrs and includes: refused until a project needs them. Every header the
+    contract lets the turn-in hold is staged already (_deliverable_hdrs),
+    and an include directory or a header of the call's own would reach the
+    members' programs (through :exNN_lib) but none of the layers a runner
+    compiles itself -- allocfail, method, ilp32, c_mem_check's ASan probe,
+    c_cycles -- which read the turn-in's headers and its Makefile's -I
+    alone (_library_includes): a library whose header needed them would be
+    red there and green everywhere else. A header in a subfolder is
+    reached as the grader reaches it, through the Makefile's -I.
+
+    prototype_names: a choice the macro will not load without. A file name
+    under tests/exNN/ holding the declarations whose parameter NAMES the
+    subject prints, and nothing else -- never prototype.h, which states
+    the TYPES and may include the library's header (a names file includes
+    nothing: prototype_check.sh --names refuses one that does) -- or
+    "none: <the reason>" where the subject names no parameter -- and the
+    reason alone where `prototype` is False: a subject that fixes no
+    prototype prints no parameter names, and a names file there would hold
+    names nothing printed.
+
+    globals: a choice the macro will not load without. The subject's
+    sentence forbidding a variable outside every function, which
+    exNN_globals quotes, or "none: <the reason>".
+
+    function_lists: a choice too. {function: sentence} for exactly the
+    contract's `functions`, each the sentence that gives that function its
+    list (its box's External Functions row, or its part's own sentence),
+    which exNN_forbidden_functions and exNN_forbidden_through quote under
+    that function's red -- or "none: <the reason>". One sentence for every
+    function would be untrue of most of their lists.
+
+    restrict_rule and declares_reading: choices too, each a quoted sentence
+    or "none: <the reason>" -- the reason alone where `prototype` is False,
+    since both read the functions tests/exNN/prototype.h declares. The
+    first is the subject's sentence forbidding `restrict` in the student's
+    prototypes (exNN_prototype_restrict and exNN_prototype_restrict_all
+    quote it); the second the sentence exNN_declares_output's reading reads
+    (a library's header, turned in, declares the library's functions).
+
+    helpers_rule: a choice too, a quoted sentence or "none: <the reason>":
+    the subject's sentence keeping every helper static in its own file,
+    which exNN_symbols then applies to a helper two of the library's files
+    share (symbols_test.sh --no-cross) and quotes under its red. With the
+    reason, such a helper may stay external, as where a subject names the
+    files that share it.
+    """
+    who = "c_library(num = \"%s\")" % num
+    for k, v in [("hdrs", hdrs), ("includes", includes)]:
+        if v != None:
+            return (("%s: %s is refused until a project needs it. Every header the contract " +
+                     "lets the turn-in hold is staged already, and %s of the call's own would " +
+                     "reach the members' programs but not the layers a runner compiles " +
+                     "itself (allocfail, method, ilp32, c_mem_check's probe, c_cycles). " +
+                     "Carry it to them, with a fixture, first.") % (who, k, k))
+    problem = _prototype_names_problem(who, num, prototype_names, prototype)
+    if problem:
+        return problem
+    problem = _quote_or_reason_problem(who, "globals", globals, "the subject's sentence forbidding a variable outside every function")
+    if problem:
+        return problem
+    fl = function_lists
+    if type(fl) == "dict":
+        want = sorted(functions or {})
+        if sorted(fl) != want:
+            return (("%s: function_lists names %s; it takes exactly the contract's `functions`, " +
+                     "%s, each with the sentence that gives it its list.") %
+                    (who, ", ".join(sorted(fl)) or "none", ", ".join(want)))
+        for f in want:
+            q = fl[f]
+            if type(q) != "string" or not q.strip() or q.startswith("none:") or "\n" in q or "\t" in q:
+                return (("%s: function_lists[%r] = %r. Quote the sentence that gives %s its list, " +
+                         "one line with where it is from.") % (who, f, q, f))
+    elif not (type(fl) == "string" and fl.startswith("none: ") and fl[6:].strip() and "\n" not in fl):
+        return (("%s: function_lists = %r. Quote the sentence that gives each function its list, " +
+                 "as {function: sentence} for exactly the contract's `functions` -- one sentence " +
+                 "for all of them is true of no list but its own -- or say why there is none: " +
+                 "\"none: <the reason>\".") % (who, fl))
+    for what, v, about in [
+        ("restrict_rule", restrict_rule, "the subject's sentence forbidding restrict in your own prototypes"),
+        ("declares_reading", declares_reading, "the sentence whose reading has the turned-in header declare each function"),
+    ]:
+        problem = _quote_or_reason_problem(who, what, v, about)
+        if problem:
+            return problem
+        if prototype == False and not v.startswith("none: "):
+            return (("%s: prototype = False says the subject fixes no prototype, so there is " +
+                     "no tests/ex%s/prototype.h whose functions %s = %r would judge. Say so " +
+                     "instead: %s = \"none: <the reason>\".") % (who, num, what, v, what))
+    return _quote_or_reason_problem(who, "helpers_rule", helpers_rule, "the subject's sentence keeping every helper static in its own file")
+
+def c_library(
+        num,
+        artifact = "libft.a",
+        hdrs = None,
+        includes = None,
+        prototype = True,
+        prototype_names = None,
+        globals = None,
+        function_lists = None,
+        restrict_rule = None,
+        declares_reading = None,
+        helpers_rule = None,
+        make = None,
+        refusals = None,
+        name = None):
+    """A library exercise's layers of the WHOLE library, once: the members' unit, its build and its shape.
+
+    A library (a Common Core project such as Libft) is one exercise whose
+    contract lists its `functions` (tools/subject.bzl), each with the
+    External Functions its own box allows, and whose turn-in is a Makefile
+    building one archive. What is the whole library's is declared here, once;
+    what is one function's -- its output, memory, differential corpus and
+    costs -- is a member macro call's (c_function, c_mem_check, c_diff,
+    c_perf or c_cycles with `member`, see _member), each below this one.
+    Emits:
+
+      exNN_lib          the unit every member's program links, through the
+                        turn-in's Makefile (a student_unit: builds nothing)
+      exNN_make_bin     the Makefile's `make -Bn`, built only for what it
+                        writes (manual): the -I list every layer below and
+                        every member's that compiles the sources itself
+                        reads (_library_includes)
+      exNN_build ...    c_make over the Makefile: the archive holds each of
+                        the `functions`, and what `make` asks besides
+      exNN_norm         norminette over every turned-in source and header
+      exNN_compile_*    both campus compilers, -Wall -Wextra -Werror
+      exNN_prototype    every signature tests/exNN/prototype.h fixes, and the
+                        layouts the subject prints (_layouts)
+      exNN_prototype_names  the parameter names the subject prints, at
+                        strict: tests/exNN/<prototype_names>'s
+      exNN_prototype_restrict  no `restrict` in the prototype, written or
+                        through a typedef, of a function prototype.h declares,
+                        in any turned-in source or header (prototype_check.sh
+                        --no-restrict), which a conflicting-types compile
+                        cannot see
+      exNN_prototype_restrict_all  strict, this harness's reading: the same
+                        of every function the turn-in declares or defines, its
+                        static helpers' included (--all-functions)
+      exNN_declares_output  strict, this harness's reading: each turned-in
+                        header, included alone, declares every function
+                        prototype.h declares (--declares); red on a stub,
+                        as `output` is
+      exNN_forbidden    only the functions some box allows (the union, the
+                        contract's `allowed`); each member's own box holds
+                        its `malloc` (c_function's) and allocfail_leaks
+      exNN_forbidden_functions  each function uses only its own box's
+                        list: what its own code and every helper it reaches
+                        reference (forbidden_symbols.sh --function), another
+                        listed function held to its own list
+      exNN_forbidden_through  strict, this harness's reading: what another
+                        listed function uses counts against its caller too
+                        (--through); its reds say so and claim no KO
+      exNN_globals      no variable outside every function, external,
+                        static or const (forbidden_symbols.sh --globals)
+      exNN_symbols      the archive's sources export the `functions` alone
+                        (functions only where exNN_globals names a variable);
+                        with a helpers_rule sentence, a helper one file
+                        defines and another calls is no exception, and the
+                        red quotes the sentence
+
+    Refused while loading (_refuse, so the macro fixtures can watch each): a
+    contract with no `functions`, a turn-in with no Makefile, a function
+    whose name would make a member's target ambiguous
+    (library_members_problem), and an argument _library_args_problem
+    refuses.
+
+    Args:
+        num: the exercise, two characters.
+        artifact: the archive the Makefile builds, as c_make takes it.
+        hdrs: refused until a project needs it (_library_args_problem):
+            the turned-in headers are globbed (_deliverable_hdrs).
+        includes: refused until a project needs it, as hdrs.
+        prototype: as c_function's: False says the subject fixes no
+            prototype, and every member's harness then says so.
+        prototype_names: required, a choice: the file under tests/exNN/
+            holding the declarations whose parameter NAMES the subject
+            prints, alone and including nothing ("prototype_names.h"; a
+            type one needs is declared forward, typedef struct s_x t_x;),
+            which exNN_prototype_names holds each definition's names to --
+            or "none: <the reason>" where the subject prints none. Never
+            prototype.h, the types' contract, which may include the
+            library's header. Default None, refused: a check a project
+            could forget is on with its file or off with its reason. With
+            `prototype = False`, only the reason.
+        globals: required, a choice: the subject's sentence forbidding a
+            variable outside every function ("Project, p.N: \"...\""),
+            which exNN_globals quotes, or "none: <the reason>" where it
+            forbids none, and there is no exNN_globals.
+        function_lists: required, a choice: {function: sentence} for
+            exactly the contract's `functions`, each the sentence that gives
+            that function its list -- its box's External Functions row, or
+            its part's own sentence -- quoted under that function's red by
+            exNN_forbidden_functions and exNN_forbidden_through; or "none:
+            <the reason>", and there is neither.
+        restrict_rule: required, a choice: the subject's sentence forbidding
+            `restrict` in the student's own prototypes, which
+            exNN_prototype_restrict and exNN_prototype_restrict_all quote,
+            or "none: <the reason>", and there is neither. With
+            `prototype = False`, only the reason.
+        declares_reading: required, a choice: the sentence whose reading
+            exNN_declares_output tests (a library's header, turned in,
+            declares its functions), which its red quotes, or "none: <the
+            reason>". With `prototype = False`, only the reason.
+        helpers_rule: required, a choice: the subject's sentence keeping
+            every helper static in its own file ("Project, p.N: \"...\""),
+            which exNN_symbols applies to a helper two files share too
+            (symbols_test.sh --no-cross) and quotes under its red; or
+            "none: <the reason>", and a helper one of the library's files
+            defines and another calls may stay external.
+        make: more of c_make's arguments (_LIBFT_MAKE_KEYS); num, artifact
+            and symbols are this macro's.
+        refusals: in tools/tests/macro_fixtures alone, the list a refusal is
+            collected in instead of failing (_refuse).
+        name: unused, for the reason c_levels gives.
+    """
+    e = _entry(num, "c_library")  # first: a contract error names this macro
+    ex = "ex" + num
+    who = "c_library(num = \"%s\")" % num
+    functions = e.get("functions") or {}
+    problem = None
+    if not functions:
+        problem = (("%s: exercise %s's subject() contract lists no `functions`, so it is " +
+                    "no library. Transcribe each function's box (exercise(functions = " +
+                    "{...}), tools/subject.bzl).") % (who, num))
+    elif "Makefile" not in (e["files"] or []):
+        problem = (("%s: exercise %s's subject() contract turns in no Makefile, and a " +
+                    "library's members are built through it, as the grader builds " +
+                    "the archive. Add it to the exercise's `files`.") % (who, num))
+    else:
+        problem = (library_members_problem(num, functions) or
+                   _libft_make_problem(make or {}, "c_library") or
+                   _library_args_problem(num, hdrs, includes, prototype_names, prototype, globals, function_lists, functions, restrict_rule, declares_reading, helpers_rule))
+    if _refuse(problem, refusals, who):
+        return
+    d = turnin_dir(num)
+    srcs = _zone(_deliverable_srcs(ex))
+    hdrs = _zone(_deliverable_hdrs(ex, hdrs))
+    provided = _provided(num)
+    linked = _linked(num)
+    all_hdrs = hdrs + provided.hdrs
+    extra_includes = provided.includes + (includes or [])
+
+    # The Makefile's -I, for every layer below that compiles the sources
+    # itself, and for each member's (_member's inc).
+    inc = _library_includes(num, d)
+
+    # The unit: the library's sources and headers, which each member's
+    # program builds through the Makefile (see _member) -- and builds from
+    # these while the Makefile compiles nothing.
+    _student_lib(
+        name = ex + "_lib",
+        srcs = srcs + provided.srcs,
+        hdrs = all_hdrs,
+        includes = [d] + extra_includes,
+    )
+    c_make(
+        num = num,
+        artifact = artifact,
+        symbols = sorted(functions),
+        **(make or {})
+    )
+    _norm_test(ex + "_norm", srcs + hdrs)
+    if provided.hdrs:
+        # As c_function's: the grader's header, a maintainer's red.
+        _norm_test(ex + "_norm_provided", provided.hdrs, level = 4)
+    _compile_tests(ex, srcs, all_hdrs, grader_hdrs = provided.hdrs, inc_file = inc)
+    _prototype_test(
+        ex,
+        srcs,
+        all_hdrs,
+        extra_includes,
+        prototype,
+        layouts = _layouts(num),
+        layout_certain = bool(linked.libs),
+        grader_hdrs = provided.hdrs,
+        inc_file = inc,
+    )
+    if not prototype_names.startswith("none: "):
+        _prototype_names_test(ex + "_prototype_names", ex, srcs, all_hdrs, extra_includes, proto = prototype_names, inc_file = inc)
+    if not restrict_rule.startswith("none: "):
+        q = runner_quotes(ex + "_prototype_restrict_quotes", {"restrict": restrict_rule})
+        qd = [":%s_prototype_restrict_quotes" % ex]
+        _prototype_mode_test(ex + "_prototype_restrict", ex, srcs, hdrs, provided, ["--no-restrict"], q, qd, inc_file = inc)
+        _prototype_mode_test(
+            ex + "_prototype_restrict_all",
+            ex,
+            srcs,
+            hdrs,
+            provided,
+            ["--no-restrict", "--all-functions"],
+            q,
+            qd,
+            proto = False,
+            level = _SUFFIX_LAYER["_prototype_restrict_all"][1],
+            inc_file = inc,
+        )
+    if not declares_reading.startswith("none: "):
+        _prototype_mode_test(
+            ex + "_declares_output",
+            ex,
+            srcs,
+            hdrs,
+            provided,
+            ["--declares"],
+            runner_quotes(ex + "_declares_output_quotes", {"declares": declares_reading}),
+            [":%s_declares_output_quotes" % ex],
+            tags = ["output"],
+            level = _SUFFIX_LAYER["_declares_output"][1],
+            inc_file = inc,
+        )
+    allowed = _allowed(num)
+    if allowed != None:
+        _forbidden_test(
+            ex + "_forbidden",
+            srcs,
+            allowed,
+            hdrs = all_hdrs,
+            provided = _provided_names(provided.srcs) + linked.names,
+            inc_file = inc,
+        )
+    if not globals.startswith("none: "):
+        _forbidden_mode_test(
+            ex + "_globals",
+            srcs,
+            all_hdrs,
+            ["--globals"] + runner_quotes(ex + "_globals_quotes", {"globals": globals}),
+            [":%s_globals_quotes" % ex],
+            inc_file = inc,
+        )
+    if type(function_lists) == "dict":
+        lists = []
+        for f in sorted(functions):
+            lists += ["--function", "%s=%s" % (f, ",".join(functions[f] + e["variables"]) or "-")]
+        lists += _pinned_objdump_args() + runner_quotes(
+            ex + "_forbidden_functions_quotes",
+            {"functions:" + f: function_lists[f] for f in function_lists},
+        )
+        data = [":%s_forbidden_functions_quotes" % ex] + _PINNED_OBJDUMP_DATA
+        _forbidden_mode_test(ex + "_forbidden_functions", srcs, all_hdrs, lists, data, inc_file = inc)
+        _forbidden_mode_test(
+            ex + "_forbidden_through",
+            srcs,
+            all_hdrs,
+            lists + ["--through"],
+            data,
+            level = _SUFFIX_LAYER["_forbidden_through"][1],
+            inc_file = inc,
+        )
+    # Functions alone where exNN_globals names a variable as one; where there
+    # is no exNN_globals, a variable is still this test's. With helpers_rule's
+    # sentence, a helper two files share is held too, and the red quotes it.
+    _symbols_test(
+        ex + "_symbols",
+        srcs,
+        sorted(functions),
+        hdrs = all_hdrs,
+        functions_only = not globals.startswith("none: "),
+        helpers_quote = None if helpers_rule.startswith("none: ") else helpers_rule,
+        inc_file = inc,
+    )
 
 def c_header(num, main, hdr = None, extra_srcs = None, cases = None, norm_flags = None, probe = None):
     """A header-only exercise (c-08): norm the .h, compile a main that uses it.
@@ -11107,10 +13304,11 @@ def c_header(num, main, hdr = None, extra_srcs = None, cases = None, norm_flags 
         )
 
 # The sentences c_make's `quotes` may hold: what each check applies (cc,
-# print, unnecessary, objects, relink, wildcards) and what a rule does, where
-# the subject says (all, clean, fclean, re). tools/make_test.sh --quotes reads
-# the same keys.
-_MAKE_QUOTE_KEYS = ["cc", "print", "unnecessary", "objects", "relink", "wildcards", "all", "clean", "fclean", "re"]
+# print, unnecessary, objects, relink, wildcards, archiver,
+# forbidden_command, forbidden_flag) and what a rule does, where the subject
+# says (all, clean, fclean, re). tools/make_test.sh --quotes reads the same
+# keys.
+_MAKE_QUOTE_KEYS = ["cc", "print", "unnecessary", "objects", "relink", "wildcards", "archiver", "forbidden_command", "forbidden_flag", "all", "clean", "fclean", "re"]
 
 # THE NORM'S SENTENCES a c_make call quotes, written once: they are a fact of
 # every project that binds the Norm, not of one subject, and a copy typed out
@@ -11139,6 +13337,9 @@ def c_make(
         recipe_strict = False,
         foreign_object = None,
         wildcards = False,
+        archiver = None,
+        forbidden_commands = None,
+        forbidden_flags = None,
         not_checked = None,
         clues = None,
         name = None):
@@ -11212,7 +13413,8 @@ def c_make(
             the check that fails, and by nothing else (finding 082: the
             runner used to quote C 09's definitions at every project). The
             keys are _MAKE_QUOTE_KEYS: cc, print, unnecessary, objects,
-            relink and wildcards back a check this macro is asked for, and
+            relink, wildcards, archiver, forbidden_command and
+            forbidden_flag back a check this macro is asked for, and
             one asked for without its sentence fails here -- a requirement
             nobody can quote is one the layer would be inventing; all,
             clean, fclean and re are what the subject says those rules DO.
@@ -11249,6 +13451,63 @@ def c_make(
             ex27). A decoy source beside those the Makefile compiles, and an
             object no rule made beside its objects before each cleaning
             rule. Needs the `wildcards` quote, the Norm's sentence.
+        archiver: the command that must make `artifact` ("ar"), for a
+            subject that names it, taking ar's arguments: some command a
+            bare `make` runs has it for its command word, a path, a shell
+            loop, an && chain or $(AR) allowed, and creates or adds to (its
+            key holds r or q) an archive named `artifact` -- or one of the
+            same last component that cp, mv, ln or install then puts in
+            place as `artifact`, from this folder or another (whether that
+            counts is a reading, and basic keeps to what every reading
+            agrees on). A member is not the archive. Read from what `make
+            -n` plans, its comments and $(info ...) text left out, and
+            what a stand-in on PATH logs, never from the Makefile's text.
+            A line of it in a branch of the shell (then, else, elif, a
+            loop's do, a case, after && or ||) that no stand-in logged is
+            set aside by the rules that set $(info ...) text aside: `cat $^
+            > $@ || ar rcs $@ $^` made the library with no ar, and a
+            Makefile that runs the archiver only on another system is read
+            as this box's shell resolves it (forbidden_commands err the
+            other way, on purpose). A branch line those rules cannot judge
+            counts, logged or not: the archiver by a path or behind a
+            wrapper, a word the shell expands, a PATH, `.`, source or eval
+            on the line, a build that stopped, or an archive the build
+            wrote that no logged call and no other planned command did.
+            At basic, in exNN_build, after the build made `artifact`.
+            Needs the `archiver` quote. A Makefile only.
+        forbidden_commands: commands no recipe of a bare `make` may run
+            (["libtool"]), by command word less its path, from the same two
+            records: a name only the shell spells out ($$T) is logged by a
+            stand-in whether the box has the tool or not. Not seen: a call
+            by a path while a plan line shows no such name, or one a
+            Makefile runs past every stand-in with a PATH of its own set
+            for one target. A call in a branch of the shell (then, else,
+            elif, a loop's do, a case, after && or ||) is judged whether
+            this box takes it or not, on its own line and on the lines the
+            branch is carried to: those an if, a loop or a case left open,
+            and those after a .ONESHELL line that ends on an && or an ||,
+            or on a | or with a { or a ( still open in a branch. A
+            conditional of make's own (ifeq on $(shell uname)) is read as
+            this box's make resolves it, so a Makefile that runs the tool
+            only on another system is not seen here.
+            $(info ...) text is read by the same branch rule, because the
+            plan alone cannot tell text from a shell line, and what it
+            reads as a call is a FAIL, never a pass: the tool after a
+            branch inside the text (a then, else, elif or do that starts a
+            command there, a case, an && or an ||: $(info building ||
+            libtool never)), and the tool in text on a later line while an
+            earlier $(info ...) left such a branch open in an if, a loop
+            or a case. Text that opens an if or a loop and no branch
+            ($(info if needed)) carries nothing on. A build that makes no
+            `artifact` is told, under its FAIL, which of them it calls,
+            with the sentence (a box without the tool fails there). Only a
+            bare `make` is read: a goal it does not reach (bonus) is not.
+            At basic, in exNN_build. Needs the `forbidden_command` quote. A
+            Makefile only.
+        forbidden_flags: words no compile command may hold (["-std=c99"]),
+            matched whole, so -std=c11 is another flag; read with every
+            variable expanded, as make prints the command. At basic, in
+            exNN_build. Needs the `forbidden_flag` quote. A Makefile only.
         not_checked: {check: why}, for a check this call leaves off, and the
             reason, naming what the subject says instead. `recipe` and
             `wildcards` are off unless asked for, and a check that is off by
@@ -11291,7 +13550,7 @@ def c_make(
             fail(("c_make(num = \"%s\"): rules names \"%s\", which make_test.sh has " +
                   "no check for. It checks all, clean, fclean, re and the " +
                   "artifact's own rule (\"%s\").") % (num, r, artifact))
-    problem = _make_problem(num, quotes, script, graph, relink, relink_source, recipe, recipe_strict, foreign_object, wildcards, not_checked)
+    problem = _make_problem(num, quotes, script, graph, relink, relink_source, recipe, recipe_strict, foreign_object, wildcards, not_checked, archiver, forbidden_commands, forbidden_flags)
     if problem:
         fail(problem)
     problem = _make_anchor_problem(num, script or "Makefile", _entry(num, "c_make"))
@@ -11303,7 +13562,7 @@ def c_make(
     build = ex + "_build"
     d = turnin_dir(num)
     anchor = d + "/" + (script or "Makefile")
-    args = _pinned_nm_args() + [
+    args = _pinned_nm_args() + _pinned_make_args() + [
         "--make",
         "$(location %s)" % _MAKE,
         "--anchor",
@@ -11341,6 +13600,12 @@ def c_make(
         args += ["--recipe-cc", recipe]
     if foreign_object:
         args += ["--foreign-object", foreign_object + "/" + _FOREIGN_OBJECT]
+    if archiver:
+        args += ["--archiver", archiver]
+    for c in forbidden_commands or []:
+        args += ["--forbidden-command", c]
+    for f in forbidden_flags or []:
+        args += ["--forbidden-flag", f]
     clue_data = []
     if clues:
         clue_f = "tests/%s/%s" % (ex, clues)
@@ -11356,10 +13621,11 @@ def c_make(
     # on untracked files is not a test. make_test.sh also rm -f's the
     # artifact before building, which closes the same hole from the other
     # side.
+    # _uniq: nm and the binutils tools load the same libraries.
     data = turnin_glob(
         [d + "/**"],
         exclude = _not_build_products(d),
-    ) + _PINNED_NM_DATA + [_MAKE] + sorted(overlay.keys()) + quote_data + clue_data
+    ) + _uniq(_PINNED_NM_DATA + _PINNED_MAKE_DATA) + [_MAKE] + sorted(overlay.keys()) + quote_data + clue_data
     _test(
         name = build,
         srcs = ["//tools:make_test.sh"],
@@ -11512,7 +13778,7 @@ def _make_anchor_problem(num, anchor, e, macro = "c_make"):
              "subject's turn-in line: %s goes in the exercise's `files`.") %
             (where, macro, anchor, e["files"], e["optional"], anchor))
 
-def _make_problem(num, quotes, script = None, graph = False, relink = False, relink_source = None, recipe = None, recipe_strict = False, foreign_object = None, wildcards = False, not_checked = None):
+def _make_problem(num, quotes, script = None, graph = False, relink = False, relink_source = None, recipe = None, recipe_strict = False, foreign_object = None, wildcards = False, not_checked = None, archiver = None, forbidden_commands = None, forbidden_flags = None):
     """What is wrong with a c_make call's quotes and the checks they back, or None.
 
     Every check that says what a subject requires quotes the sentence that
@@ -11534,6 +13800,9 @@ def _make_problem(num, quotes, script = None, graph = False, relink = False, rel
         foreign_object: as c_make takes it.
         wildcards: as c_make takes it.
         not_checked: as c_make takes it.
+        archiver: as c_make takes it.
+        forbidden_commands: as c_make takes it.
+        forbidden_flags: as c_make takes it.
 
     Returns:
         The message, or None.
@@ -11557,6 +13826,27 @@ def _make_problem(num, quotes, script = None, graph = False, relink = False, rel
         return "%s: a creator script has no rules and no objects to judge; graph, relink, foreign_object and wildcards are for a Makefile." % where
     if foreign_object != None and (not foreign_object or foreign_object.startswith("/") or ".." in foreign_object.split("/") or foreign_object.endswith("/")):
         return "%s: foreign_object is a directory of the turn-in, like \"srcs\", not %r" % (where, foreign_object)
+
+    # What makes the artifact, and what a recipe may not run or pass: each a
+    # command's name, or one word of a compile command, as make_test.sh
+    # matches them -- a path or a blank in one would match nothing, and a
+    # check that matches nothing passes every Makefile.
+    names = ([("archiver", archiver)] if archiver != None else [])
+    for k, v in [("forbidden_commands", forbidden_commands), ("forbidden_flags", forbidden_flags)]:
+        if v != None and type(v) != "list":
+            return "%s: %s is a list of strings, not %r" % (where, k, v)
+        names += [(k, x) for x in (v or [])]
+    for k, v in names:
+        if type(v) != "string" or not v or " " in v or "\t" in v or "\n" in v:
+            return "%s: %s holds %r: one word, with no blank in it." % (where, k, v)
+        if k != "forbidden_flags" and ("/" in v or v.startswith("-")):
+            return "%s: %s holds %r: a command's name, with no path, as its command word is matched less its path." % (where, k, v)
+        if k == "forbidden_flags" and (not v.startswith("-") or v == "-"):
+            return "%s: forbidden_flags holds %r: a flag, starting with -." % (where, v)
+    if archiver != None and archiver in (forbidden_commands or []):
+        return "%s: %s is both the archiver and a forbidden command." % (where, archiver)
+    if script and (archiver != None or forbidden_commands or forbidden_flags):
+        return "%s: archiver, forbidden_commands and forbidden_flags are read from a Makefile's plan, and a creator script has none." % where
     need = []
     if graph:
         need += [("graph", k) for k in ["print", "unnecessary", "objects"]]
@@ -11566,6 +13856,12 @@ def _make_problem(num, quotes, script = None, graph = False, relink = False, rel
         need.append(("foreign_object", "wildcards"))
     if wildcards:
         need.append(("wildcards", "wildcards"))
+    if archiver != None:
+        need.append(("archiver", "archiver"))
+    if forbidden_commands:
+        need.append(("forbidden_commands", "forbidden_command"))
+    if forbidden_flags:
+        need.append(("forbidden_flags", "forbidden_flag"))
     if relink_source not in [None, "norm"]:
         return "%s: relink_source is None (the subject's words) or \"norm\", not %r" % (where, relink_source)
     if relink_source and not relink and not graph:
@@ -12590,6 +14886,22 @@ def rush_common(num = "00", clues = "clues_putchar.tsv", name = None):
         tags = ["output", _case_reads_tag([expected_f])],
     )
 
+def _rush_graded_problem(memory_graded):
+    """rush_variant's message in a package whose contract declares memory_graded; None elsewhere.
+
+    No rush subject says its grader judges memory, and rush_variant's
+    valgrind arm was never proven quoting the contract's sentences
+    (_graded_rule) or sitting at basic: refused until a project needs it,
+    rather than wired and unproven. A value, so the macro fixtures can feed
+    it both ways (contract_problem("rush_graded", ...)).
+    """
+    if not memory_graded:
+        return None
+    return ("rush_variant: the subject() contract declares memory_graded, and no rush " +
+            "subject says its grader judges memory: its valgrind arm has never been proven " +
+            "quoting the contract's sentences at basic. Wire _graded_rule() into it, with a " +
+            "fixture in tools/tests/macro_fixtures/graded, before a project needs it.")
+
 def rush_variant(
         variant,
         name = None,
@@ -12674,6 +14986,9 @@ def rush_variant(
             and a fixture failure send a student to different places.
     """
     _entry(num, "rush_variant")  # first: a contract error names this macro
+    problem = _rush_graded_problem(bool(_memory_graded()))
+    if problem:
+        fail(problem)
     ex = "ex" + num
     p = "%s_rush%s" % (ex, variant)
     lib = "rush" + variant
@@ -13016,6 +15331,9 @@ def rush_variant(
             "--gate-stdin",
             "$(location %s)" % cases_f,
             "--gate-labeled",
+            # Its SKIP line names the test it waits for.
+            "--gate-label",
+            p + "_output",
             "--clues",
             "$(location %s)" % clues_f,
         ] + _valgrind_args(),
@@ -13090,6 +15408,9 @@ def rush_variant(
             "--gate-stdin",
             "$(location %s)" % cases_f,
             "--gate-labeled",
+            # Its SKIP line names the test it waits for.
+            "--gate-label",
+            p + "_output",
         ],
         data = [
             "//oracle:oracle",
@@ -13108,6 +15429,14 @@ def rush_variant(
     # compared there — the subject does not define them — so this asks only
     # whether a zero/negative/INT_MIN dimension is survivable, and catches the
     # negation of INT_MIN that UBSan alone can see.
+    #
+    # IT WAITS FOR NOTHING, unlike the variant's _diff above (_NO_GATE_TAG,
+    # which c_levels()' audit reads): a gate is there so a corpus does not
+    # report the labelled table's red again, and this one cannot. It
+    # compares no output, and none of its dimensions is a row of the table:
+    # a crash on a zero or an INT_MIN width is a fault the table never
+    # shows, red or green, and waiting for the table would hide it from a
+    # team whose table is red for a reason of its own.
     asan_diffbin = p + "_diffbin_asan"
     _student_bin(
         name = asan_diffbin,
@@ -13145,7 +15474,7 @@ def rush_variant(
             "%s/diff_rush.c" % tests,
             diff_clues_f,
         ] + _SYMBOLIZER_DATA,
-        tags = ["diff_asan"] + extra,
+        tags = ["diff_asan", _NO_GATE_TAG] + extra,
     )
 
     # A per-variant suite, so a bonus variant can be run in one go even though

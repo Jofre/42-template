@@ -1,0 +1,11 @@
+  The string and c, then where the result points: an offset into the
+  string, NULL, or OUTSIDE. Every c here is a byte value, 0 to 255.
+    * c == 0 diverges                  -> whether the terminator is part of
+                                          the string (man 3 strrchr)
+    * an earlier offset than expected  -> which occurrence is asked for
+    * NULL where an offset is expected -> where your search stops
+    * only long strings                -> what the types holding your
+                                          position can count to
+    * only inputs holding a byte of 0x80 or more, or c of 128 or more ->
+                                          whether the byte and c are the same
+                                          value when you compare them

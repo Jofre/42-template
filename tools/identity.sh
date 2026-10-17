@@ -3,7 +3,9 @@
 # and "42header.email" keys of .vscode/settings.json, which the kube.42header
 # VS Code extension, tools/gen_header.sh and tools/submit.sh read, and this
 # checkout's local git identity. tools/init.sh and `42 config set login|email`
-# both write through it, so the two cannot write the file two ways.
+# both write through it, so the two cannot write the file two ways. And their
+# one reader: gen_header.sh, submit.sh and `42 config get` (with `42 doctor`)
+# read the keys through it, so none of them reads a key VS Code does not.
 #
 # Usage, run from anywhere (the checkout is BUILD_WORKSPACE_DIRECTORY, else the
 # folder above this file), KIND being login or email, each named once at most:
@@ -13,6 +15,8 @@
 #                                                        as it is now?
 #   sh tools/identity.sh set KIND VALUE [KIND VALUE]     check them, then store
 #                                                        them, all or none
+#   sh tools/identity.sh get KIND                        print the value stored
+#                                                        (nothing when unset)
 #
 # Exit 0 when they are stored (or would be, for check). 1 when a value is
 # refused, or a write failed (and what it had changed was put back, or it
@@ -21,7 +25,8 @@
 # does not rewrite, a file it cannot read), or its new contents could not be
 # prepared. 2 for a call it does not take, or a tool missing from PATH. 128
 # and a signal's number when that signal (HUP, INT, TERM) stopped it, after
-# it put back what it had changed. Why is on stderr.
+# it put back what it had changed. Why is on stderr. get exits 0, and 3 when
+# .vscode/settings.json is there and cannot be read.
 #
 # All or none, because tools/init.sh sets both kinds in one call: it set the
 # new login, then could not set the email (a file shape the rewrite refuses,
@@ -65,8 +70,75 @@ SETTINGS="$WS/.vscode/settings.json"
 
 usage() {
 	echo "usage: sh tools/identity.sh check|set login|email VALUE [login|email VALUE]" >&2
+	echo "       sh tools/identity.sh get login|email" >&2
 	exit 2
 }
+
+# read_key FILE KEY: the value of FILE's member "42header.KEY", printed with
+# its escapes as they are (a value this script stores has none), and nothing
+# when it is not set. Read as VS Code reads its settings: a string (with its
+# \ escapes) and a comment are no structure, a string ends with its line as
+# VS Code ends one left open, and only a member of the top-level object
+# counts, which is where the kube.42header extension asks for its keys: it
+# names no language, so a "[c]" override is not read either. Of two such
+# members VS Code keeps the last, and so does this; one whose value is no
+# string, or an empty one, is no value. A string is a key wherever no ':'
+# comes just before it, so a member after a missing comma is read, as VS
+# Code reads it (a version of this reader that asked for a '{' or a ','
+# first read no login there, where 42 submit had read one). Each reader
+# took the first line that held the key and was no // comment line,
+# wherever the key sat on it: a key inside a /* */ comment, after a
+# member's //, or in a "[c]" override was the login they stamped and
+# pushed, where VS Code read another or none (V307).
+read_key() {
+	awk -v key="42header.$2" '
+		function string(s) {
+			if (want == 2) val = s
+			want = (depth == 1 && top == "{" && !colon && s == key) ? 1 : 0
+			colon = 0
+		}
+		{
+			n = length($0)
+			for (i = 1; i <= n; i++) {
+				c = substr($0, i, 1)
+				if (blk) {
+					if (c == "*" && substr($0, i + 1, 1) == "/") { blk = 0; i++ }
+				} else if (str) {
+					if (c == "\\") { s = s c substr($0, i + 1, 1); i++ }
+					else if (c == "\"") { str = 0; string(s) }
+					else s = s c
+				} else if (c == " " || c == "\t" || c == "\r") {
+				} else if (c == "/" && substr($0, i + 1, 1) == "/") break
+				else if (c == "/" && substr($0, i + 1, 1) == "*") { blk = 1; i++ }
+				else if (c == "\"") { str = 1; s = "" }
+				else {
+					if (want == 2) val = ""
+					want = (want == 1 && c == ":") ? 2 : 0
+					colon = (c == ":")
+					if (c == "{" || c == "[") { if (++depth == 1) top = c }
+					else if (c == "}" || c == "]") depth--
+				}
+			}
+			if (str) { str = 0; string(s) }
+		}
+		END { printf "%s", val }' "$1"
+}
+
+if [ "${1:-}" = get ]; then
+	[ $# -eq 2 ] || usage
+	case "$2" in
+		login) _key=username ;;
+		email) _key=email ;;
+		*) usage ;;
+	esac
+	[ -e "$SETTINGS" ] || exit 0
+	if [ ! -f "$SETTINGS" ] || [ ! -r "$SETTINGS" ]; then
+		echo "identity.sh: cannot read .vscode/settings.json." >&2
+		exit 3
+	fi
+	read_key "$SETTINGS" "$_key"
+	exit 0
+fi
 [ $# -eq 3 ] || [ $# -eq 5 ] || usage
 ACTION=$1
 shift
@@ -223,6 +295,49 @@ count() {
 	[ $? -le 1 ] || { echo "identity.sh: could not read $1." >&2; drop; exit 3; }
 }
 
+# live FILE ERE: N, the number of FILE's lines that match and are no //
+# comment line (one whose first non-blanks are //). VS Code and the
+# kube.42header extension skip those, and so does read_key: a login
+# commented out above the live one was counted, and a file holding both
+# refused, with advice to edit the live line, which the readers then
+# skipped for the comment.
+live() {
+	count "$1" "$2"
+	[ "$N" = 0 ] || N=$(grep -E -- "$2" "$1" | grep -c -v -E '^[[:space:]]*//')
+}
+
+# where FILE LINE: WHERE says what holds the start of FILE's line LINE,
+# read as VS Code reads the file, where a string (with its \ escapes) and a
+# comment are no structure: "comment" inside a /* */ comment, else the
+# number of objects and lists open around it, 1 for a member of the
+# top-level object. { and [ count alike, so a key in a top-level list, or in
+# a second top-level object, reads 1 too: neither is a settings file VS Code
+# reads. The kube.42header extension reads its keys there and
+# nowhere else: it asks VS Code for them with no language, so a "[c]"
+# override is not read either. A string ends with its line, as VS Code ends
+# one left open.
+where() {
+	WHERE=$(awk -v ln="$2" '
+		NR == ln { print (blk ? "comment" : depth + 0); exit }
+		{
+			n = length($0)
+			str = 0
+			for (i = 1; i <= n; i++) {
+				c = substr($0, i, 1)
+				if (blk) {
+					if (c == "*" && substr($0, i + 1, 1) == "/") { blk = 0; i++ }
+				} else if (str) {
+					if (c == "\\") i++
+					else if (c == "\"") str = 0
+				} else if (c == "\"") str = 1
+				else if (c == "/" && substr($0, i + 1, 1) == "/") break
+				else if (c == "/" && substr($0, i + 1, 1) == "*") { blk = 1; i++ }
+				else if (c == "{" || c == "[") depth++
+				else if (c == "}" || c == "]") depth--
+			}
+		}' "$1")
+}
+
 if [ -e "$SETTINGS" ] && { [ ! -f "$SETTINGS" ] || [ ! -r "$SETTINGS" ]; }; then
 	echo "identity.sh: cannot read .vscode/settings.json, so it was left as it was." >&2
 	exit 3
@@ -232,10 +347,13 @@ fi
 # member set. Three shapes are rewritten, and no other. VS Code's
 # settings.json allows comments and spreads its members over lines in many
 # ways, and a rewrite that guessed at one it did not know reported success
-# while the key stayed as it was, or left a file no JSON reader could open:
+# while the key stayed as it was, or left a file no JSON reader could open.
+# A // comment line holding the key is left as it is, and counts as no key:
 #   - no file, or an empty object: the member alone;
 #   - the key on one line of its own with a plain string value, and a //
-#     comment after it at most, and nowhere else: that value replaced;
+#     comment after it at most, a member of the top-level object (not in a
+#     /* */ comment, a nested object such as "[c]", or a list), and on no
+#     other line: that value replaced;
 #   - no key yet, and the object's '{' alone on the file's first line that is
 #     neither blank nor a // comment, a // comment after it at most: the
 #     member put right after it, with a comma when a member follows (one line
@@ -248,18 +366,33 @@ rewrite() {
 		printf '{\n  %s\n}\n' "$MEMBER" > "$2"
 		return
 	fi
-	count "$1" "$TAG"
+	live "$1" "$TAG"
 	if [ "$N" != 0 ]; then
 		_tags=$N
-		count "$1" '^[[:space:]]*'"$TAG"'[[:space:]]*:[[:space:]]*"[^"\]*"[[:space:]]*,?[[:space:]]*(//.*)?$'
-		# A // comment holding the key counts: tools/submit.sh and
-		# tools/gen_header.sh read the first line that holds it.
+		_alone='^[[:space:]]*'"$TAG"'[[:space:]]*:[[:space:]]*"[^"\]*"[[:space:]]*,?[[:space:]]*(//.*)?$'
+		count "$1" "$_alone"
 		[ "$_tags" = 1 ] ||
-			hand_edit "holds \"42header.$KEY\" on more than one line (a // comment" \
-				"line counts: 42 submit and the file headers read the first one)."
+			hand_edit "holds \"42header.$KEY\" on more than one line that is no // comment" \
+				"(two members, or one inside a /* */ comment, a \"[c]\" override or" \
+				"after a member's //). This script rewrites the key only when one line holds" \
+				"it, so which of them to change is yours to say."
 		[ "$N" = 1 ] ||
 			hand_edit "holds \"42header.$KEY\" on a line that is not that member alone, with a" \
 				"string value and at most a // comment after it."
+		# Where that line sits. Each of these was rewritten and reported
+		# done, while the 42header extension went on reading no key.
+		_line=$(grep -n -E -- "$_alone" "$1") || return 1
+		where "$1" "${_line%%:*}" || return 1
+		case "$WHERE" in
+			1) ;;
+			comment)
+				hand_edit "holds \"42header.$KEY\" inside a /* */ comment, which VS Code and" \
+					"the 42header extension skip." ;;
+			*)
+				hand_edit "holds \"42header.$KEY\" inside a nested object or a list (\"[c]\": {...}" \
+					"among them), or before the object: the 42header extension reads" \
+					"only the members of the top-level object." ;;
+		esac
 		sed "s|^\([[:space:]]*\"42header\.$KEY\"[[:space:]]*:[[:space:]]*\"\)[^\"]*\"|\1$VALUE\"|" \
 			"$1" > "$2"
 		return
@@ -297,14 +430,13 @@ not_prepared() {
 	exit 3
 }
 
-# read_back KIND VALUE: NEW holds that value the way tools/submit.sh and
-# tools/gen_header.sh read it: the first line holding the key, and its value
-# between the quotes. A rewrite that did not leave exactly that is not put
-# in place, whatever went wrong.
+# read_back KIND VALUE: NEW holds that value the way every reader reads it
+# (read_key), on one line that is no // comment. A rewrite that did not
+# leave exactly that is not put in place, whatever went wrong.
 read_back() {
 	pair "$1" "$2"
-	count "$NEW" "$TAG"
-	_got=$(sed -n "s/.*\"42header.$KEY\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$NEW" | head -n 1)
+	live "$NEW" "$TAG"
+	_got=$(read_key "$NEW" "$KEY")
 	[ "$N" = 1 ] && [ "$_got" = "$VALUE" ] || hand_edit "could not be rewritten safely."
 }
 

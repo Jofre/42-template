@@ -1,0 +1,4 @@
+# clues.tsv for ft_lstlast -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+What tells the last node apart from every other node of a list, and is it something about the node itself or about the one after it?	1 node	2 nodes	3 nodes
+Does anything in your function depend on how long the list is?	5000 nodes

@@ -8,6 +8,7 @@ nudge, which is shipped prose under AGENTS.md section 2: no advice of its own.
 
 import hashlib
 import os
+import re
 import subprocess
 import time
 
@@ -15,8 +16,9 @@ from bazel import child_env
 
 LOG_CAP = 80
 
-# The layers a fresh stub passes (first_red.sh's STUB_GREEN): a red one at basic
-# is the "ko" bucket, so its log is the one to show for that bucket.
+# The layers a fresh stub passes: a red one at basic is in first_red's "ko"
+# bucket (with every other basic layer but output), and its log is the one to
+# show for that bucket first. //tools:conventions holds each to a basic layer.
 STUB_GREEN = ("norm", "compile", "files", "forbidden", "prototype")
 
 NUDGE = "Stuck on a red? Talk it through with the peer on your right — that is how 42 expects you to learn."
@@ -109,27 +111,97 @@ def read_next(next_path):
 # order.
 PREFER = {"build": ("compile", "files"), "ko": STUB_GREEN}
 
+# THE STAND-IN MARKS, read from tools/standin.sh, whose words are the
+# contract (first_red.sh reads the same file): STANDIN_MARK anywhere in a
+# line of a test's log, NOTURNIN_MARK at the start of one, says that test
+# ran no program built from the turn-in. So does tools/runner_lib.sh's
+# RL_BUILD_MARK at the start of a line: a test whose own test program did
+# not build (tools/header_check.sh), which first_red files with what does
+# not build too. Where a file cannot be read, its marks are none, and no
+# log is taken for a stand-in's by them.
+TOOLS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STANDIN_SH = os.path.join(TOOLS_DIR, "standin.sh")
+RUNNER_LIB = os.path.join(TOOLS_DIR, "runner_lib.sh")
+
+
+def _read_marks(path, pattern):
+    """{name: words} for each line of path that pattern matches; {} when it cannot be read."""
+    marks = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(pattern, line.rstrip("\n"))
+                if m:
+                    marks[m.group(1)] = m.group(2)
+    except OSError:
+        pass
+    return marks
+
+
+def standin_marks(path=STANDIN_SH, lib=RUNNER_LIB):
+    """(STANDIN_MARK, NOTURNIN_MARK, RL_BUILD_MARK) as tools/standin.sh and
+    tools/runner_lib.sh set them; "" for one they do not."""
+    marks = _read_marks(path, r"^(STANDIN_MARK|NOTURNIN_MARK)='(.+)'$")
+    marks.update(_read_marks(lib, r'^(RL_BUILD_MARK)="(.+)"$'))
+    return marks.get("STANDIN_MARK", ""), marks.get("NOTURNIN_MARK", ""), marks.get("RL_BUILD_MARK", "")
+
+
+def is_standin_log(path, marks=None):
+    """True when the test.log at path holds a stand-in mark; False when it holds none or cannot be read."""
+    mark, nomark, buildmark = marks if marks is not None else standin_marks()
+    if not path or not (mark or nomark or buildmark):
+        return False
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if (mark and mark in line) or (nomark and line.startswith(nomark)) or \
+                        (buildmark and line.startswith(buildmark)):
+                    return True
+    except OSError:
+        pass
+    return False
+
 
 def pick_label(nxt, bep):
     """The test whose log to show for what first_red names next, or None.
 
     first_red names a label for a red output and a timeout; for the other
     buckets it names an exercise, and the label is that exercise's red test
-    of the layer PREFER puts first, else its first red test by name.
+    of the layer PREFER puts first, else its first red test by name. An
+    exercise "ex00 ft_strlen" is one function of a library, whose tests are
+    named ex00_ft_strlen_<layer>.
+
+    For a build failure, a test whose log holds a stand-in mark comes next,
+    after the compile and files tests and before every other red: it is the
+    log that says why nothing was built. A library's prefix (ex00) matches
+    every test of it, and with its compile layers green -- one function's
+    link failure, which they never see -- the first red by name was another
+    function's wrong answer, or the Makefile's rules (V233). A test whose
+    own test program did not build (the build mark) ranks with them: its log
+    is the one that quotes the compiler.
     """
     bucket, module, ex, label = nxt
     if label != "-":
         return label
-    prefix = module + ":" + ex
+    prefix = module + ":" + "_".join(ex.split())
     order = PREFER.get(bucket, ())
+    marks = standin_marks() if bucket == "build" else None
 
     def rank(l):
         tags = set(bep.tags.get(l, ()))
-        first = next((i for i, layer in enumerate(order) if layer in tags), len(order))
+        first = next((i for i, layer in enumerate(order) if layer in tags), None)
+        if first is None:
+            first = len(order) + (0 if marks and is_standin_log(bep.logs.get(l), marks) else 1)
         return (first, l)
     mine = sorted((l for l in bep.failed() if l == prefix or l.startswith(prefix + "_")), key=rank)
     with_log = [l for l in mine if bep.logs.get(l)]
     return with_log[0] if with_log else None
+
+
+def clue_word(ex):
+    """The word `42 clues` takes for an exercise first_red names: exNN, or the
+    function alone for one function of a library ("ex00 ft_strlen")."""
+    return ex.split()[-1] if ex else ex
 
 
 def log_path(label, bep):

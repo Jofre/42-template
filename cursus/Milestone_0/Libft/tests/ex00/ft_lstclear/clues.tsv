@@ -1,0 +1,7 @@
+# clues.tsv for ft_lstclear -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+Who frees each node's content, you or del, and is the content of every node of the list, from the one you were handed to the last, handed to it once?	[a]: del called with	[a b c]: del called with	from b of [a b c]: del called with	5000 nodes: del called with
+Once every node is freed, what does the box say the pointer to the list holds, and is that pointer the one the caller reads, or a copy of it?	[a]: *lst afterwards	[a b c]: *lst afterwards	from b of [a b c]: a->next afterwards	5000 nodes: *lst afterwards
+What is there to delete when the pointer to the list already holds NULL, and does your function look inside a node before it knows there is one?	*lst NULL: del called with	*lst NULL: *lst afterwards
+Once a node is freed, is anything in it, its next included, still yours to read?	[a b c]: del called with	5000 nodes: del called with
+The pointer you are handed may be a next inside a node the caller keeps: which nodes are yours to delete, and which one is not?	from b of [a b c]: a's content afterwards

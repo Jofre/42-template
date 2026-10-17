@@ -15,6 +15,12 @@ port to C almost line for line (*Why Rust*, below). It has to be here: the tests
 compare your output against it at runtime, so removing it would take the harness
 down.
 
+It answers most of Libft as well: `libft_mem.rs`, `libft_str.rs`,
+`libft_part2.rs`, `libft_fd.rs` and `libft_list.rs` hold a reference for each
+Libft function that has an arm, beside the four Piscine arms Libft reuses
+(*Libft's arms*, below). Reading one forfeits that function as reading
+`c05.rs` forfeits its exercises.
+
 `shell00.rs` and `shell01.rs` hold the references a shell check needs and
 cannot build from a fixture -- each one there so that a check does not have to
 run the exercise's own command to know what to expect, which would put the
@@ -39,13 +45,17 @@ does: `shell01_rdwssap` (shell-01 ex07) and `shell01_chelou` (shell-01 ex08).
   breaks (a comment printed, a name that is no reversed login, the wrong lines,
   the order, the window), computed from the passwd file the program read.
   shell-01 ex07's check prints PASS or FAIL for each; neither prints the names.
-  Three more forms read only the passwd file (`--passwd FILE`), not stdin, and
-  answer by exit code before the program runs: `shell01_rdwssap orders`
-  (whether the locale's order and byte order differ on the names kept),
-  `reaches <n>` (whether at least n names are kept) and `shows` (whether a
-  fixture file shows what ex07's check needs from it; on failure it prints a
-  word for each thing it lacks). ex07's `check.sh` and `literal.sh` ask them;
-  the module header of `shell01.rs` has the details.
+  Four more forms read no stdin and answer by exit code before the program
+  runs. `shell01_rdwssap collates` reads no file: it exits 0 where the test
+  locale collates apart from bytes, and 1 where it collates as they do (the
+  locale is not installed, or is C, POSIX or C.UTF-8). The other three read
+  only the passwd file (`--passwd FILE`): `orders` (whether the locale's order
+  and byte order differ on the names kept), `reaches <n>` (whether at least n
+  names are kept) and `shows` (whether a fixture file shows what ex07's check
+  needs from it; on failure it prints a word for each thing it lacks, and it
+  leaves "orders" out where `collates` is 1, since no file could show it
+  there). ex07's `check.sh` and `literal.sh` ask `collates` first, then the
+  others; the module header of `shell01.rs` has the details.
 - `oracle shell01_chelou` prints the sum of `$FT_NBR1` and `$FT_NBR2` in the
   exercise's bases, and `shell01_chelou cases <seed>` the pairs shell-01 ex08's
   check runs: one for each class of input it covers. The check compares byte
@@ -60,6 +70,14 @@ the functions C 12 and C 13 say the grader brings from exercise 01 on
 (`ft_create_elem`, `btree_create_node`), compiled into a C library that every
 later exercise's tests link in place of your ex00 (`tools/grader_lib.bzl`). Each
 is also its ex00's answer, in Rust, like everything else here.
+
+`standin/c02_strlcpy.rs` is not compared with anything either: it holds two
+stand-ins for C 02 ex10's function, which differ only in the bytes between the
+terminator and `size`, where the manual page says nothing. The harness's own
+self-test builds C 02 ex10's output fixture over each, and both must pass, so
+the fixture never asks for more than the page does. Like `grader/`, it is that
+exercise's answer, in Rust. `standin/c03_strlcat.rs` does the same for C 03
+ex05's function and fixture.
 
 One more verb runs a whole program's reference, the way the student's program
 is run:
@@ -487,6 +505,86 @@ than its 1 KiB buffer (ex05 and ex06) bypasses the buffer entirely. A refactor
 that buffers differently can cost the syscall silently, so re-measure rather than
 assume.
 
+### Libft's arms (libft_mem, libft_str, libft_part2, libft_fd, libft_list)
+
+Libft's functions get corpora of the same kind as the Piscine's: one case per
+line, its inputs and then the reference's answer, for a C reader that replays
+them against the function. Five modules hold them: `libft_mem.rs` the memory
+functions of Part 1 and ft_calloc, `libft_str.rs` the string functions of Part
+1 and ft_atoi, `libft_part2.rs` the string functions of Part 2, `libft_fd.rs`
+its fd output, and `libft_list.rs` the list functions.
+
+Strings and memory blocks travel as lowercase hex, and every number in
+decimal. A string never holds a NUL; a memory block can, and each block field
+is a whole block, so a reader can allocate it at exactly its own length. A list
+travels as C 12's do: its values comma-joined, `""` for the empty (NULL) list.
+A size_t field in `libft_str`'s own corpora and in substr's is at most
+4294967295 or exactly 18446744073709551615, which stands for SIZE_MAX: read
+with `strtoull` and converted to size_t, it means the same under ILP32.
+`libft_calloc`'s two fields are 64-bit, and its `NULL` lines are the pairs
+whose product overflows 64 bits. A trailing `1` stands for a fact the reader
+checks: in memset's, memcpy's and memmove's arms, that the function returned
+the pointer it was handed; in split's, that the array is not NULL; in
+strmapi's and striteri's, the reader's record of the calls to f; in
+`c12_create_elem`'s, that the new node's next is NULL.
+
+Where the man page or the subject leaves a case open, the function's plain arm
+holds only the cases every reading agrees on, and a `_readings` twin holds the
+others: for memset, a c outside 0..=255 (never with n 0); for strchr and
+strrchr, a c outside 0..=255; for substr, a start past the end of s; for
+split, an empty s, a NUL c, or a delimiter at either end of s or beside
+another. lstlast's corpus leaves the empty list out and has no twin.
+
+| arm | Libft function | one line is |
+| --- | --- | --- |
+| `libft_memset` | ft_memset | a block, c in 0..=255, n, the block afterwards, and 1 |
+| `libft_memset_readings` | ft_memset | the same, with c outside 0..=255 only and n never 0 |
+| `libft_bzero` | ft_bzero | a block, n, and the block afterwards |
+| `libft_memcpy` | ft_memcpy | src, n, dest (a separate block), dest afterwards, and 1 |
+| `libft_memmove` | ft_memmove | one block, the offsets of src and dest in it, n, the block afterwards, and 1 |
+| `libft_memchr` | ft_memchr | a block, c (from -512 to 767, and INT_MIN and INT_MAX), n, and the match's offset or `NULL` |
+| `libft_memcmp` | ft_memcmp | two blocks, n, and the sign of the result: -1, 0 or 1 |
+| `libft_calloc` | ft_calloc | nmemb, size, and `zeroed` (nmemb * size bytes, every one 0), `nonnull` (nmemb or size is 0) or `NULL` (the product overflows) |
+| `libft_strlcat` | ft_strlcat | dst, the size of the buffer it sits in (size, or strlen(dst) + 1 when dst's NUL lies at or past size), src, size, the buffer afterwards up to its first NUL, and the return value |
+| `libft_strchr` | ft_strchr | a string, c in 0..=255, and the result's offset or `NULL` |
+| `libft_strchr_readings` | ft_strchr | the same, with c outside 0..=255 only |
+| `libft_strrchr` | ft_strrchr | as `libft_strchr` |
+| `libft_strrchr_readings` | ft_strrchr | as `libft_strchr_readings` |
+| `libft_strncmp` | ft_strncmp | two strings, n, and the sign of the result |
+| `libft_strnstr` | ft_strnstr | big, little, len, and the result's offset or `NULL` |
+| `libft_atoi` | ft_atoi | a string, and the int it reads; no line's value overflows an int |
+| `c01_strlen` | ft_strlen | C 01's arm, reused as it is: a string and its length |
+| `c02_strlcpy` | ft_strlcpy | C 02's arm, reused as it is: src, size, dst's content up to its NUL, and the return value |
+| `c07_strdup` | ft_strdup | C 07's arm, reused as it is: a string and its copy |
+| `libft_substr` | ft_substr | s, start (never past the end of s), len, and the substring |
+| `libft_substr_readings` | ft_substr | the same, with start past the end of s only |
+| `libft_strjoin` | ft_strjoin | s1, s2, and the joined string |
+| `libft_strtrim` | ft_strtrim | s1, set, and the trimmed string |
+| `libft_split` | ft_split | s, the delimiter (one byte), the word count, each word, and 1; s never empty, the delimiter never NUL, and never at either end of s or beside another |
+| `libft_split_readings` | ft_split | the same, with only the other cases: an empty s, a NUL delimiter, or one at either end of s or beside another |
+| `libft_itoa` | ft_itoa | n, and its decimal text (raw, not hex) |
+| `libft_strmapi` | ft_strmapi | s, its result under a fixed f the reader implements too, and 1 |
+| `libft_striteri` | ft_striteri | s, s afterwards under the same f, and 1 |
+| `libft_putstr_fd` | ft_putstr_fd | s, and the bytes written to the fd |
+| `libft_putendl_fd` | ft_putendl_fd | s, and the bytes written: s, then one newline |
+| `libft_putnbr_fd` | ft_putnbr_fd | n, and the bytes written |
+| `c12_create_elem` | ft_lstnew | C 12's arm, reused as it is: a value, the content stored, and 1 |
+| `libft_lstadd_front` | ft_lstadd_front | a list, and the list once a node per value is added at the front, in order, from the empty list: the input reversed |
+| `libft_lstsize` | ft_lstsize | a list, and its size |
+| `libft_lstlast` | ft_lstlast | a list, never the empty one, and its last value |
+| `libft_lstadd_back` | ft_lstadd_back | a list, and the list once a node per value is added at the end, in order, from the empty list: the input |
+| `libft_lstclear` | ft_lstclear | a list, how many times del is called, and 1: the pointer to the list is NULL afterwards |
+| `libft_lstiter` | ft_lstiter | a list of values within ±1 000 000, and the list after a fixed f turns each x into x*3-1 in place |
+| `libft_lstmap` | ft_lstmap | the same input, and the new list the same f makes (`""` for the empty list) |
+
+Every arm in the table has a `bench` arm too. ft_strnstr's perf length series
+is `c03_strstr_len`, with len the line's length, and ft_split's is
+`libft_split_len` (*Length series for the perf layer*, below). Nine of the
+subject's functions have no arm: ft_isalpha, ft_isdigit, ft_isalnum,
+ft_isascii, ft_isprint, ft_toupper, ft_tolower, ft_putchar_fd and
+ft_lstdelone. The headers of `libft_fd.rs` and `libft_list.rs` say why for the
+last two.
+
 ### Length series for the perf layer (length.rs)
 
 `oracle <arm> <seed> <count> <length>` — a FOURTH argument — writes `<count>`
@@ -498,6 +596,13 @@ series holds the number of cases still and grows the input instead. There is no
 reference column: the exercise's length harness (`tests/exNN/len_*.c`) checks
 its own result. `oracle check` holds each arm to its line count, its element
 count and its seed.
+
+`libft_split_len` is Libft's ft_split series: words of letters joined by
+exactly one `_`, none at either end, then a tab and the same words
+comma-joined, so every reading of ft_split agrees on every line of length 1 or
+more. `oracle check` also holds each of its lines of length 1 or more to that
+shape, and the words after the tab to the string's. ft_strnstr has no length
+arm of its own: it reuses `c03_strstr_len`, with len the line's length.
 
 ## Why this is not flaky (the determinism contract)
 
@@ -524,10 +629,11 @@ delivers.
 ### What `oracle check` actually asserts
 
 `check_all()` sums the failure count of each module's `check()` — `c00`–`c13`,
-`rush00`, `rush01`, `rush02`, plus `rush01_bonus::check()`,
+the five Libft modules `libft_mem`, `libft_str`, `libft_part2`, `libft_fd` and
+`libft_list`, `rush00`, `rush01`, `rush02`, plus `rush01_bonus::check()`,
 `rush01_validate::check()`, `bsq::check()`, `shell01::check()`,
 `shell00::check()` and `length::check()` (the length-series generators' own
-self-check, see *Length series for the perf layer*), twenty-three calls in all
+self-check, see *Length series for the perf layer*), twenty-eight calls in all
 — and a
 non-zero total exits 1. (The two shell modules hold their line-range,
 MAC-address and diff-replay references to hand-worked tables and to seeded
@@ -538,7 +644,9 @@ named eleven and called the first rush
 module `rush`, a file renamed to `rush00.rs`; in the one section whose stated
 purpose is being exhaustive.) The checks come
 in three kinds, all of them **internal to the crate**. Kinds 1 and 2 are in every
-module but `length`, which has kind 2 only; kind 3 is in only eighteen, so do not read it as blanket coverage:
+module but `length`, whose check has no reference to hold to a table or a sweep:
+it holds its series generators to what they promise, kind 3 alone. Kind 3 is
+only in the modules item 3 names, so do not read it as blanket coverage:
 
 1. **Hand-written case tables** — literal input/output pairs typed into the Rust
    source and verified once by a human. These pin the values a property cannot:
@@ -580,7 +688,12 @@ module but `length`, which has kind 2 only; kind 3 is in only eighteen, so do no
    cite the module's own number rather than a round one: `c03` 5 000, `c04`
    20 000 + 5 000, `c05` 506 exhaustive probes (`-5…500`) plus 2 000 random,
    `c13` 8 000 generated corpora, `rush01` all 438 solvable vectors plus 4 000
-   random well-formed ones, the rest 20 000 — each off its own fixed seed.
+   random well-formed ones, `libft_list` 20 000 lists of which every 2 000th
+   has 4 097 nodes, the rest 20 000 — each off its own fixed seed. Over its
+   sweep `libft_mem` holds its references to second constructions (std slice
+   methods, memset 0 for bzero, a u128 product for calloc's overflow), and
+   `libft_str` each of its references to a second implementation of its man
+   page.
    Five references are not sampled at all but held against a **second,
    independently written construction in the same crate**: `rush00` renders
    *every* 1…60 × 1…60 box for all five variants; `c05_ten_queens` must agree
@@ -631,8 +744,9 @@ module but `length`, which has kind 2 only; kind 3 is in only eighteen, so do no
    values included.
 3. **Generator self-checks** — that the *corpus* still contains what it claims,
    which nothing else in the suite would notice. **Only `c00`, `c01`, `c02`,
-   `c03`, `c04`, `c06`, `c07`, `c08`, `c10`, `c11`, `c12`, `c13`, `shell01`,
-   `rush00`, `rush01`, `rush01_bonus`, `bsq` and `rush02` do this.** `c01`,
+   `c03`, `c04`, `c06`, `c07`, `c08`, `c10`, `c11`, `c12`, `c13`, `libft_mem`,
+   `libft_str`, `libft_part2`, `libft_fd`, `libft_list`, `shell01`, `rush00`,
+   `rush01`, `rush01_bonus`, `bsq`, `rush02` and `length` do this.** `c01`,
    `c02`, `c03`, `c04`, `c06`, `c07` and `c11` read back what
    their generators write and assert that the corpora they name for an
    input with no bound still hold a case past every round capacity (16, 64, 256, 1024 and
@@ -672,8 +786,10 @@ module but `length`, which has kind 2 only; kind 3 is in only eighteen, so do no
    map whose answer differs from its input, the space, backslash and all-digit
    character triples and every error slug, that each count slug ISOLATES its
    rule (the count a program skipping that rule reads is the body's own line
-   count, so the line-count rule cannot reject the file first), that no settled
-   record holds a form only `bsq_readings` may, and that its named fixtures are
+   count, so the line-count rule cannot reject the file first), that each
+   `chars_nonprintable` record isolates its rule too (its first line is a count,
+   two printable characters and one of 0x01..0x1f or 0x7f, and its body holds
+   that many lines), that no settled record holds a form only `bsq_readings` may, and that its named fixtures are
    files a test can hold. `rush02` does it too: its generated dictionaries,
    parsed back by its own reading of the subject's grammar, answer what the
    corpus expects of them, hold no key twice, and include values with colons
@@ -685,6 +801,97 @@ module but `length`, which has kind 2 only; kind 3 is in only eighteen, so do no
    subject states in words has the shape every reading agrees on (a teen
    that is one key, a one-word group other than one before its scale, a
    unit missing mid-number, every value replaced).
+   `length` asserts that each series arm writes `count` lines of exactly `len`
+   elements, an empty line for length 0, the same lines from the same seed,
+   strstr's needle found first at the end of its line, and `c12`'s list values
+   inside the comparator's range.
+
+   `libft_mem` reads back each of its eight corpora at 3 000 lines and
+   recomputes every line by a second construction (a slice fill,
+   `copy_from_slice`, `copy_within`, `position`, slice ordering, a u128
+   product). Each corpus comes out the same twice for a seed and otherwise for
+   another, keeps its structured head the same at seeds 1 and 7, has its arm's
+   field count on every line, and holds an n past 4096 and a block past 4096
+   bytes within its first 200 lines (calloc, a zeroed product past 4096).
+   `libft_memset` holds only c in 0..=255, all 256 of them;
+   `libft_memset_readings` holds only c outside it, -1, 256, INT_MIN and
+   INT_MAX among them, and never n 0. `libft_memmove` holds both overlap
+   directions, each also past 4096 bytes, dst == src and a disjoint pair.
+   `libft_memchr` holds every c from -512 to 767, a match for a negative c and
+   one for a c past 255, a NUL found, a miss, and a miss whose byte occurs
+   somewhere past n. `libft_memcmp` holds all three signs, a first difference
+   after a NUL, one that signed char would give the other sign, n 0 over
+   different first bytes, and a 0 whose blocks differ in the byte just past n.
+   In `libft_calloc` every label follows the u128 product, `NULL` exactly when
+   it passes 64 bits; no product that does not overflow passes 1 MiB; and every
+   overflow wraps to at most 1 MiB or past PTRDIFF_MAX; the corpus holds all
+   three labels, and a wrap to 0, a small wrap and a far one.
+
+   `libft_str` reads back each of its eight corpora at a count of 2 000 and
+   holds every line to a second implementation written apart from the reference
+   (a second strlcat, a scan, a slice comparison, a brute-force search, Rust's
+   integer parsing). Each comes out the same twice for its seed and holds an
+   input string past 4096 bytes. The plain strchr and strrchr corpora hold only
+   c in 0..=255, and each a hit on the terminator and one on a byte above 0x7f;
+   their `_readings` hold only c outside it. Every strlcat line's buffer is
+   `size` bytes, or `strlen(dst) + 1` when dst's NUL lies at or past size, and
+   the result fits it; every size is under 2^32; the corpus holds a size past
+   4096, a dst longer than size, one exactly size long, and a truncated result.
+   Every strncmp answer is -1, 0 or 1. strncmp's n and strnstr's len are each
+   at most 4294967295 or exactly 18446744073709551615; strncmp's corpus holds
+   an n of 0 over different strings, SIZE_MAX over strings that differ, an n
+   past 4096 over an s1 past 4096 bytes, and an n that stops before the
+   difference; strnstr's holds a match cut off by len and one ending exactly at
+   len (each with len past 4096), an empty little at len 0, a match at
+   SIZE_MAX, and a len past the end of big that finds nothing. No atoi line
+   overflows an int, and the corpus holds two signs in a row and both int
+   limits. It also reads back each Piscine corpus Libft reuses as it is, at a
+   count of 2 000 (`c01_strlen`, `c02_strlcpy`, `c07_strdup`), each still
+   holding a string past 4096 bytes (and strlcpy a size past 4096), and holds
+   every line to the man page (strlen(3), strlcpy(3bsd), strdup(3)), so a later
+   change to one for its own exercise that Libft cannot share turns the check
+   red.
+
+   `libft_part2` (300 lines a corpus) and `libft_fd` (200) read every corpus
+   back: the same seed gives the same bytes and another seed others, a count of
+   3 is a prefix of it, it has as many lines as asked, no string in a line's
+   first field holds a NUL, and every line is the reference's own answer for
+   its inputs. Some lines are also held to a property derived apart from the
+   reference: the plain substr result is the slice of s at start, min(len,
+   strlen(s) - start) bytes long; strmapi's and striteri's results are as long
+   as s, hold no NUL, and give s back through f's inverse at every index;
+   putstr writes s, and putendl s and one newline. strjoin's, strtrim's,
+   split's, itoa's and putnbr_fd's lines are compared with the reference alone
+   (split's count field with its number of words). `libft_substr` and
+   `libft_split` hold only the cases every reading agrees on, and their
+   `_readings` only the others; substr's len fields are each at most 4294967295
+   or exactly 18446744073709551615. Every input string reaches past 4096 bytes
+   (strjoin's and strtrim's two fields each alone, beside a short other), and
+   so do substr's plain result and a word in each split corpus; both split
+   corpora hold a case of more than 4096 words, and putstr's and putendl's a
+   string past 65536 bytes. The corpora hold: for substr, a start on the
+   terminator, len SIZE_MAX past start 0, a start past 65535 and a byte above
+   0x7f, and for its `_readings`, a start one past the terminator, a start of
+   4294967295 and an empty s; for strtrim, an empty set, a string of set bytes
+   only and a set byte kept in the middle; for split, a delimiter above 0x7f
+   and one absent from s, and for its `_readings`, an empty s, a NUL delimiter,
+   a string of delimiters only, a doubled delimiter and one at either end; for
+   itoa, 0, INT_MIN and INT_MAX; for strmapi, the empty string and an index
+   past 255; for striteri, the empty string; for putstr and putendl, the empty
+   string and a byte above 0x7f; for putnbr, 0, -1, INT_MIN and INT_MAX.
+   Neither module claims the made-up name `libft_nope`.
+
+   `libft_list` reads back each of its seven corpora at 200 lines: each arm is
+   dispatched to itself, seed 1 gives the same bytes twice, a count of 0 keeps
+   the whole fixed head, a list of more than 4096 nodes is there at a count of
+   0 and of 200, and its long lists (13 values or more) are exactly two, the
+   same at seeds 1 and 9. Every line has its arm's field count, a well-formed
+   list of ints, and the reference's answer for that list. The two callback
+   corpora (lstiter, lstmap) keep every value within ±1 000 000; every corpus
+   but lstlast's holds the empty list, and lstlast's holds none and no `NULL`
+   answer; each holds both ends of its value range. It claims none of
+   `libft_lstnew`, `libft_lstdelone`, `c12_list_size` or
+   `libft_lstlast_readings`.
 
 ### What it does not assert
 
@@ -699,14 +906,25 @@ hands it, as it would hand them to the program it stands for (for example
 `shell00_diff_apply`'s two, the maps `oracle run bsq` is given, the dictionary
 `oracle run rush-02` is given), or, for a shell reference, the system file the
 exercise's own command reads: `/sys/class/net` for `shell01_hwaddr`, and
-`/etc/passwd` for `shell01_rdwssap` unless `--passwd` names another (grep it).
+`/etc/passwd` for `shell01_rdwssap` unless `--passwd` names another (grep it);
+and `oracle check`'s own scratch folder under `TMPDIR`, the one place the
+crate writes, which `main.rs` creates, fills (the `numbers.dict` that
+`check_args_bytes` hands rush-02, the corpus file `check_bench_stdin` gives
+`oracle bench`), reads back and removes.
 Beside the modules' checks, `oracle check` runs this binary itself
 (`env::current_exe`, in `main.rs`'s `check_args`) with an argument that is not
 UTF-8 -- to each reference program `oracle run` knows, to c-06's and c-10's,
 and once to the commands that take words -- and holds each run to a status of
 that command's own, never Rust's panic; those runs open what their command
 would, the dictionary `run rush-02` reads from the working directory and the
-path `run bsq` is given.
+path `run bsq` is given. `check_args_bytes` holds Rush 01 and Rush 02 to their
+bytes as well: each one's output on an argument holding 0xff is its output on
+the same argument with an ASCII `x` in its place, run in a temporary folder
+holding a `numbers.dict` the check writes there from `rush02::big_dict`.
+`check_bench_stdin` runs `bench` with a regular file as its stdin: an unknown
+arm, which every module is asked about, and `c05_ten_queens`, which reads no
+corpus, must leave the file unread, since a module that read stdin before it
+knew the arm was its own would eat the first line of every arm asked after it.
 No line count here, deliberately: it would rot, and the property it was
 supporting does not depend on one.
 No C exercise's library function is the reference for any comparison here.
@@ -822,6 +1040,15 @@ From the oracle's folder, an arm runs with a seed and a count, as in
 cd oracle
 cargo run --offline -- <fn> <seed> <count>
 ```
+
+`<count>` sizes an arm's generated part; it is not a line count. A seeded arm
+writes its structured head whole whatever the count, so a small count prints
+at least the head (`c03_strcmp 42 5` prints every hand-chosen pair and long
+case it has), and above the head how the count maps to lines is the arm's own:
+an arm may print more lines than the count, fewer, a capped number, or the
+same lines whatever the count. So a runner takes its case count from the
+corpus it got (`wc -l`, as `tools/rust_diff.sh` and `tools/cycles_check.sh`
+do), never from the count it asked for.
 
 The zero-input arms ignore both numbers and print their exercise's expected
 output, so every one of them is its own regression test. These and the

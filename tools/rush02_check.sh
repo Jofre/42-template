@@ -84,14 +84,15 @@
 # ASan build and --valgrind a sample under memcheck, judging memory and how
 # each run ended and never the words (tools/runner_lib.sh, "A CORPUS UNDER A
 # MEMORY CHECKER"); --symbolizer PATH --symbolizer-lib FILE, with --sanitized,
-# name each frame of a report's stack (rl_sanitizers). That asserts what every reading agrees on -- p.7 itself
+# name each frame of a report's stack (rl_sanitizers). That asserts what every
+# reading agrees on -- p.7 itself
 # asks for heap memory to be freed -- so those targets are not `manual`.
 #
 # Usage:
 #   rush02_check.sh --bin PATH --dict PATH --oracle PATH
 #                   [--fn NAME] [--seed N] [--count N] [--show N] [--settled]
 #                   [--sanitized | --valgrind PATH --valgrind-tools FILE
-#                    [--sample N] [--rule FILE]]
+#                    [--sample N] [--rule FILE] [--access-rule FILE]]
 #                   [--gate-differ PATH --gate-bin PATH --gate-expected PATH
 #                    --gate-number N [--gate-label NAME]]
 #                   (--stderr-empty | --stderr-ignored REASON)
@@ -188,7 +189,7 @@ while [ $# -gt 0 ]; do
 		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
 		--gate-number) need "$1" "$#"; GATE_NUMBER="$2"; shift 2 ;;
 		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
-		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --symbolizer | --symbolizer-lib)
+		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
 		*) echo "rush02_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -416,6 +417,7 @@ replay_line() {
 	_rp_n=$(($(wc -c < "$REPLAYF") - 1))
 	if [ "$_rp_n" -le "$SHOW_W" ]; then
 		printf '    replay:   %s\n' "$(cat "$REPLAYF")"
+	# conventions: rl_save keeps no input -- the replay line, which names the kept dictionary
 	elif rl_save "$REPLAYF" "replay-case-$1.sh"; then
 		printf '    replay:   sh replay-case-%s.sh (a command line of %d bytes, kept in %s/, where it runs)\n' \
 			"$1" "$_rp_n" "${RL_SAVED%/*}"
@@ -426,15 +428,12 @@ replay_line() {
 }
 
 # show_replay N NUMBER DICT -- how to run case N again: its dictionary, kept
-# beside the others, and the command line. DICT_KEPT says whether the case's
-# dictionary, generated or fixed, was kept: not run by hand outside bazel
-# test, where there is nowhere to keep it.
-DICT_KEPT=0
+# beside the others (tools/runner_lib.sh's rl_keep_input, which a memory
+# report then names it by), and the command line. Run by hand outside bazel
+# test, there is nowhere to keep it.
 show_replay() {
-	DICT_KEPT=0
 	if [ -n "$3" ]; then
-		if rl_save "$3" "case-$1.dict"; then
-			DICT_KEPT=1
+		if rl_keep_input "$3" "case-$1.dict"; then
 			printf '    dictionary: generated for this case, kept as %s\n' "$RL_SAVED"
 			replay_line "$1" "case-$1.dict" "$2"
 		else
@@ -445,8 +444,7 @@ show_replay() {
 		# line too runs from test.outputs/, where the docs say every replay
 		# line does (docs/testing.md); its workspace path, named from there,
 		# reached nothing. Outside bazel test there is nowhere to keep it.
-		if rl_save "$DICT" "${DICT##*/}"; then
-			DICT_KEPT=1
+		if rl_keep_input "$DICT" "${DICT##*/}"; then
 			replay_line "$1" "${DICT##*/}" "$2"
 		else
 			replay_line "$1" "$DICT_SHOWN" "$2"
@@ -608,18 +606,11 @@ show_mem_case() {
 	printf '    number:   %s\n' "$(printf '%s' "$2" | rl_vis arg "" "$SHOW_W")"
 	show_replay "$@"
 	# A report that names the dictionary (memcheck's open descriptors)
-	# shows it by the name show_replay keeps it under, which the replay line
+	# shows it by the name show_replay kept it under, which the replay line
 	# uses: a generated one is a scratch file gone with the test, and the
-	# fixed one a path in this test's tree. Only where it kept it: the name
-	# of one it could not keep is a file that exists nowhere.
-	if [ "$DICT_KEPT" = 0 ]; then
-		# conventions: rl_mem_report without --as -- a dictionary not kept has no other name
-		rl_mem_report
-	elif [ -n "$3" ]; then
-		rl_mem_report --as "$3" "case-$1.dict"
-	else
-		rl_mem_report --as "$DICT" "${DICT##*/}"
-	fi
+	# fixed one a path in this test's tree. One it could not keep is shown
+	# by its path, the name of no file a student has.
+	rl_mem_report
 }
 DONE=0
 

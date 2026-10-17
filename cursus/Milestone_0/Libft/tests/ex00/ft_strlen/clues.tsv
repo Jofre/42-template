@@ -1,0 +1,7 @@
+# clues.tsv for ft_strlen -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (fires if ANY listed case fails)
+# The contract is man 3 strlen (Libft, p.8: "adhering strictly to their definitions in the man page").
+Which byte ends a C string, and does that byte count in the length (man 3 strlen, DESCRIPTION)? What should a string that holds nothing but that byte measure?	"" (empty)	"a"	"Hello"
+Spaces and tabs are bytes like any other. If a length comes out short, which byte did your count stop at, and was it the one that ends the string?	spaces and a tab: "a b<TAB>c"	"ab", a NUL, then "cd"
+Is a plain char signed on this machine? What value does a byte of 0xc3, 0xff or 0x80 take as a char, and does any test of yours treat that value as the end of the string?	"caf" then bytes 0xc3 0xa9 (UTF-8)	one byte 0xff	three bytes 0x80
+Is the length right for a short string and wrong for a long one? What type holds your count, and how far can that type count?	5000 bytes, every value 1..255 among them

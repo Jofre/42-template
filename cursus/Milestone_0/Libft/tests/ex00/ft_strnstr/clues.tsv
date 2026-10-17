@@ -1,0 +1,12 @@
+# clues.tsv for ft_strnstr -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (fires if ANY listed case fails)
+# The contract is the manual page Libft, p.8 sends you to: man 3bsd strnstr.
+# glibc has no strnstr, so the page ships in libbsd-dev (the dev container
+# carries it). With no page installed: https://man.openbsd.org/strnstr is
+# STRNSTR(9), the kernel's section 9 page, with the same contract.
+What does strnstr return when little occurs in big, and when it occurs nowhere (man 3bsd strnstr, RETURN VALUES; no page installed? man.openbsd.org/strnstr, section 9, same contract)?	"42" in "Hello, 42 world" (len 15)	"world" (len 15)	"xyz" (absent, len 15)	"aaab" in "aaaab" (len 5)
+The page says "not more than len characters are searched". Does an occurrence count when its last byte lies beyond the first len bytes of big? And when it ends exactly on the last of them?	"42" (len 9: it ends on the last byte searched)	"42" (len 8: len cuts it)	"world" (len 14: len cuts it)	"o" (len 4: the first 'o' is byte 4)	"Bar" in "Foo Bar Baz" (len 4, the man page's example)	"a#" ending at byte 4999 of 5000 (len 4999)	"o" (len 5)	"Bar" in "Foo Bar Baz" (len 7)	"a#" ending at byte 4999 of 5000 (len 5000)
+What does the page say is returned when little is an empty string, and does len change that?	"" (len 0)	"" (len 15)
+With len 0, how many bytes of big may be searched, and can a non-empty little be found in none?	"Hello" (len 0)
+The page says characters after a '\0' are not searched. When len is larger than big, where does the search end?	"c" in "abc" (len 10, past its NUL)	"abcd" in "abc" (len 10)	"Hello, 42 world!!" (longer than big, len 100)	"world" (len SIZE_MAX)
+Is a plain char signed on this machine? What value does a byte of 0xe9 take as a char, and does any test of yours read that value as the end of a string?	byte 0xe9 in 'a' 0xe9 (len 2)

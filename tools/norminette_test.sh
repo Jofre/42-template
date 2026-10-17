@@ -222,23 +222,21 @@ fi
 
 # The facts every verdict below rests on, printed with each of them: which
 # norminette, which -R took effect, and the command that asks the same
-# question by hand. `bazel run` changes directory before it runs anything,
-# hence "$PWD/..." rather than a relative path; it is left for the reader's
-# shell to expand, from the root of their own clone.
+# question by hand: `42 norm`, which types the `bazel run` for the student
+# (docs/reference.md maps the two) and passes what follows `--` to
+# norminette. 42 finds a relative file from where it is typed, so the files
+# are given as this test names them, from the root of the clone.
 run_info() {
 	echo ""
 	echo "  ran:  norminette ${VERSION:-(version unknown: its -v printed none)} (the copy Bazel fetched; tools/pins.tsv)"
 	echo "        with -R $RULE -- norminette keeps only the last"
 	echo "        -R it is given, so that is the rule that applied."
 	echo "  by hand, from the repository root:"
-	printf '        bazel run //tools:norminette -- -R %s' "$RULE"
+	printf '        42 norm'
 	for _f in $FILES; do
-		case "$_f" in
-			/*) printf ' %s' "$_f" ;;
-			*) printf ' "$PWD/%s"' "$_f" ;;
-		esac
+		printf ' %s' "$_f"
 	done
-	echo ""
+	printf ' -- -R %s\n' "$RULE"
 }
 
 # NOTICES. norminette prints "OK!" for a file whose only findings are Notices
@@ -343,5 +341,5 @@ notice_warning
 run_info
 echo ""
 echo "  A norminette you run yourself may be another version, with other rules."
-echo "  bazel run //tools:env_drift compares yours with the one above."
+echo "  42 doctor --drift compares yours with the one above."
 exit 1

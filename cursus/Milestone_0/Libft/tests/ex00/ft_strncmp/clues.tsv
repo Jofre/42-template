@@ -1,0 +1,9 @@
+# clues.tsv for ft_strncmp -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (fires if ANY listed case fails)
+# The contract is man 3 strncmp (Libft, p.8: "adhering strictly to their definitions in the man page").
+If n is 0, how many bytes may you look at, and what must two strings compare as when nothing is compared?	"abc" vs "xyz" (n=0)
+Only the SIGN of what you return is compared. Which sign means s1 is less than s2, which greater, which equal (man 3 strncmp, RETURN VALUE)? And what ends the comparison: n, a difference, or something else as well?	"abc" vs "abd" (n=10)	"xyz" vs "abc" (n=3)	"Hello" vs "Hella" (n=5)	"Hello" vs "Hello" (n=5)	"abc" vs "abc" (n=10)
+When one string reaches its terminator before n, how does that byte compare with the other string's byte at the same place? And when both reach it together, is there anything left to compare?	"Hello" vs "Helloo" (n=6, s1 ends first)	"abc" vs "ab" (n=10, s2 ends first)	"" vs "abc" (n=3)	"abc" vs "" (n=3)	"" vs "" (n=1)	"ab", NUL, "x" vs "ab", NUL, "y" (n=4)
+n bounds the comparison: does a difference at index n, or after it, count? Does one at index n-1?	"Hello" vs "Hella" (n=4, they differ after n)	"Hello" vs "Helloo" (n=5, equal prefix)	"abXee" vs "abYee" (n=3, they differ at n-1)	5000 bytes, differ at 4999 (n=4999)	5000 bytes, differ at 4999 (n=5000)
+n is a size_t. Does every value it can take, the largest one included, keep its meaning in each variable it passes through on its way to your loop?	"abc" vs "abd" (n=SIZE_MAX)	"abc" vs "abc" (n=SIZE_MAX)	"abd" vs "abc" (n=2147483648)	5000 bytes, differ at 4999 (n=SIZE_MAX)
+man 3 strncmp (DESCRIPTION) says "the comparison is done using unsigned characters". Is a plain char signed on this machine? What value does a byte of 0x80 take as each, and which of the two orders do you produce?	byte 0x80 vs byte 0x01 (n=1)	byte 0x01 vs byte 0x80 (n=1)	byte 0xff vs "a" (n=5)

@@ -1,0 +1,6 @@
+'X' x 10, n 5	buf=\x00\x00\x00\x00\x00XXXXX
+'X' x 10, n 0 (nothing to erase)	buf=XXXXXXXXXX
+'X' x 10, n 10 (the whole buffer)	buf=\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+'X' x 10, n 3, s at buf + 4	buf=XXXX\x00\x00\x00XXX
+0xe9 x 10, n 4	buf=\x00\x00\x00\x00\xe9\xe9\xe9\xe9\xe9\xe9
+n 5000, a block of 5001 (past 4096)	zeroed 5000 of 5000, byte 5000 kept

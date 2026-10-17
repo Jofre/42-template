@@ -17,6 +17,7 @@
 #                [--harness-src PATH] [--symbolizer PATH --symbolizer-lib PATH]
 #                [--gate-differ PATH] [--gate-bin PATH] [--gate-expected PATH]
 #                [--gate-stdin PATH] [--gate-sanitize] [--gate-labeled]
+#                [--gate-label NAME]
 #
 #   --oracle        the reference binary (//oracle:oracle)
 #   --oracle-fn     which arm of it to generate a corpus from, e.g. c07_strdup
@@ -33,6 +34,10 @@
 #   --gate-*        the exercise's own output fixture and how to run it. This
 #                   layer SKIPS unless that fixture passes, so a student whose
 #                   output is still red is not buried in differential noise.
+#   --gate-label    the output test that fixture is, named in the SKIP line
+#                   (c_levels()' audit holds it to that test,
+#                   _gate_label_problems). Without it the line says "this
+#                   exercise's own output fixture", which names no test.
 set -u
 
 # The external commands this runner takes from PATH. See diff_output.sh for why
@@ -75,6 +80,7 @@ GATE_DIFFER=""
 GATE_BIN=""
 GATE_EXPECTED=""
 GATE_PASS=""
+GATE_LABEL=""
 # How many bytes of one corpus line a report shows: rl_excerpt's width.
 SHOW_W=${RL_EXCERPT_WIDTH:-300}
 # `--flag` with nothing after it used to die as "2: parameter not set" from
@@ -100,12 +106,13 @@ while [ $# -gt 0 ]; do
 		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
+		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
 		*) echo "rust_diff: unknown arg $1" >&2; exit 2 ;;
 	esac
 done
 
 # A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
-rl_gate_whole rust_diff "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS"
+rl_gate_whole rust_diff "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_PASS$GATE_LABEL"
 
 if [ -z "$ORACLE" ] || [ -z "$FN" ] || [ -z "$STUDENT" ]; then
 	echo "rust_diff: need --oracle, --oracle-fn and --student-bin" >&2
@@ -139,8 +146,7 @@ if [ "${NO_SKIP:-0}" = "1" ]; then
 	GATE_DIFFER=""
 fi
 
-if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ] &&
-	[ -x "$GATE_BIN" ] && [ -f "$GATE_EXPECTED" ]; then
+if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
 	# WHY THE STATUS IS CAPTURED RATHER THAN TESTED WITH `if !`.
 	#
 	# `if ! <gate>` treats EVERY non-zero the same, and the differ has two
@@ -168,7 +174,11 @@ if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ] &&
 		echo "rust_diff: the output gate could not be evaluated (exit $_gate_rc),"
 		echo "           so this layer is running anyway rather than going quiet."
 	elif [ "$_gate_rc" -eq 1 ]; then
-		echo "rust_diff: SKIP — this exercise's own output fixture is not passing yet."
+		if [ -n "$GATE_LABEL" ]; then
+			echo "rust_diff: SKIP — $GATE_LABEL, this exercise's own output fixture, is not passing yet."
+		else
+			echo "rust_diff: SKIP — this exercise's own output fixture is not passing yet."
+		fi
 		echo ""
 		echo "  That fixture is the one worth reading: a labelled table, cases ordered"
 		echo "  from trivial to subtle, and hints attached. This layer replays $COUNT"
@@ -751,7 +761,9 @@ if [ "$_nd" -eq 0 ]; then
 	else
 		echo "  No line differs as text, yet the bytes do -- a byte that ends a line"
 		echo "  early for a line reader, such as a NUL. Where, in cmp's words:"
-		printf '    %s\n' "$(cmp "$T/exp" "$T/act" 2>&1 | sed "s|$T/||g")"
+		# C's words, which every machine has: GNU cmp says "byte" under a
+		# UTF-8 locale and "char" under C or a locale that is missing.
+		printf '    %s\n' "$(LC_ALL=C cmp "$T/exp" "$T/act" 2>&1 | sed "s|$T/||g")"
 	fi
 fi
 print_columns

@@ -1,0 +1,16 @@
+  big, little and len, then where the result points: an offset into big,
+  NULL, or OUTSIDE. 18446744073709551615 in the len column is SIZE_MAX.
+  Its page: man 3bsd strnstr (none installed? man.openbsd.org/strnstr, the
+  kernel manual's section 9, with the same contract).
+    * a match where NULL is expected   -> the page: "not more than len
+                                          characters are searched"; does a
+                                          match have to lie wholly inside them?
+    * NULL where a match is expected   -> where your search stops
+    * an empty little diverges         -> what the page says is returned for
+                                          it
+    * len larger than big diverges     -> what the page says of characters
+                                          after a '\0'
+    * only huge len                    -> whether len keeps its value in
+                                          every variable it passes through
+    * only inputs holding a byte of 0x80 or more -> whether a test in your
+                                          code sees that char as negative

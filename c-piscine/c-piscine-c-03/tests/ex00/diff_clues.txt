@@ -1,6 +1,6 @@
-  This layer compares the exact int you return; the output table compared
-  only its sign. One number per line, so group by the pair of strings that
-  produced it.
+  Each line is the two strings, as hex, then the SIGN of what you returned
+  for them: -1, 0 or 1. Group the lines by the pair of strings that produced
+  them.
     * only the SIGN is wrong             -> when the first string is the
                                             greater one, should the result be
                                             positive or negative? (man strcmp)
@@ -11,9 +11,3 @@
                                             reach the end together
     * prefixes diverge ("ab" vs "abc")   -> what is compared once one string has
                                             run out
-    * the magnitude differs but the sign is right -> the value itself,
-                                            which only this layer compares; put
-                                            your number next to the expected
-                                            one for the same pair: what in
-                                            those two strings could produce the
-                                            expected one? (man strcmp, NOTES)

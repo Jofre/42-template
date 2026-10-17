@@ -1,0 +1,7 @@
+# clues.tsv for ft_strjoin -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+How many bytes does the new string need, counting both strings and the terminator, and where in it does s2's first byte go?	"Hello, ", "42"	"abc", "def"
+When one string, or both, is empty, how many bytes are there to copy, and is there still a string to return?	"", ""	"", "b"	"a", ""
+Is a tab, a line break or a byte above 0x7f anything other than one more byte to copy? Where could a char's sign or value change what you copy?	"a<TAB>b", "c<LF>d"	0xe9, 0xff	0x80 0x7f, 0xff 0x01
+Nothing in the subject bounds s1 or s2. Does anything in your function stop working once they pass a few thousand bytes, and does it leave both of them as it found them?	4100-byte s1, 5000-byte s2

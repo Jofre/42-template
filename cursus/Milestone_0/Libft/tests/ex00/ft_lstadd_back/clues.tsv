@@ -1,0 +1,5 @@
+# clues.tsv for ft_lstadd_back -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+When the list is empty there is no last node to attach new to: which pointer has to change instead, and can your function reach the caller's copy of it?	empty list, then a	empty list, then a, b and c
+Which node's next has to change so that new ends the list, and how does your function find that node without losing the first one?	[a], then b	[a b c], then d	empty list, then a, b and c
+Does anything in your function depend on how long the list already is?	nodes 1 to 4999, then node 5000

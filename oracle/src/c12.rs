@@ -30,7 +30,7 @@ use std::io::{self, Write};
 // ------------------------------------------------------------- oracles
 /// FIXED foreach callback: each element's int value x becomes x*3-1.
 #[inline(never)] // keep this attributable under callgrind (see tools/)
-fn o_foreach(v: &[i32]) -> Vec<i32> {
+pub(crate) fn o_foreach(v: &[i32]) -> Vec<i32> {
     v.iter().map(|&x| (x as i64 * 3 - 1) as i32).collect()
 }
 
@@ -104,7 +104,7 @@ fn o_list_merge(a: &[i32], b: &[i32]) -> Vec<i32> {
 /// A signed 32-bit value biased toward small magnitudes and the i32 boundaries.
 /// Used by the value-only functions (data is never dereferenced, so the full
 /// range — including i32::MIN/MAX — is safe).
-fn full_val(rng: &mut Rng) -> i32 {
+pub(crate) fn full_val(rng: &mut Rng) -> i32 {
     match rng.below(8) {
         0 => 0,
         1 => i32::MIN,
@@ -118,7 +118,7 @@ fn full_val(rng: &mut Rng) -> i32 {
 /// A value in the inclusive range [lo, hi]. For the callback functions whose C
 /// comparator/transform does int arithmetic, this keeps every operation
 /// (`a-b`, `x*3-1`, `x+100`) well within i32 so there is no signed overflow.
-fn ranged_val(rng: &mut Rng, lo: i32, hi: i32) -> i32 {
+pub(crate) fn ranged_val(rng: &mut Rng, lo: i32, hi: i32) -> i32 {
     let span = (hi as i64 - lo as i64 + 1) as usize;
     lo + rng.below(span) as i32
 }

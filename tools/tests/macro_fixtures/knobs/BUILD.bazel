@@ -23,6 +23,7 @@ load(
     "turnin_file",
 )
 load("//tools:names_file.bzl", "names_file")
+load("//tools/tests:analysed.bzl", "analysed")
 
 # Its listing is data of //tools/tests:macro_fixtures_test.
 package(default_visibility = ["//tools/tests:__pkg__"])
@@ -47,11 +48,9 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 # under tools/tests/macro_fixtures), and none is ever RUN: the toys name an
 # //oracle arm that does not exist, and a verdict is not what this package is
 # about. That every target it emits analyses -- each label it names is there
-# -- was measured by hand on 2026-10-11 with
-#
-#     bazel build --nobuild $(bazel query 'attr(tags, manual, //tools/tests/macro_fixtures/knobs:*)')
-#
-# Re-run it after adding a toy or a knob.
+# -- is :toys_analysed's, at the end, which depends on every manual target
+# here and builds none of them, so `bazel test //...` and
+# macro_fixtures_test analyse each toy (V139).
 #
 # A knob that SOME call site passes is proven by that call site's tests and
 # is not listed; one only another fixture passes is proven there (c_function's
@@ -565,6 +564,17 @@ _PROBES = [
 ]
 
 _RULES = existing_rules()
+
+# EVERY TOY ANALYSED: each manual target above, its test_suite included, as
+# a dependency of a target that is not manual, so a toy naming a label no
+# package declares, or one a macro no longer accepts, fails the build
+# instead of waiting for someone to name it by hand. testonly, since most of
+# them are tests; it builds nothing of them (tools/tests/analysed.bzl).
+analysed(
+    name = "toys_analysed",
+    testonly = True,
+    deps = sorted([":" + r for r, a in _RULES.items() if "manual" in a.get("tags", [])]),
+)
 
 names_file(
     name = "knobs",

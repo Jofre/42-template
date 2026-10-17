@@ -13,9 +13,9 @@
 #   TEXT       one line of help; for an internal row, the reason
 #
 # COMMAND	USAGE	RUNS	AUDIENCE	TEXT
-test	[project] [exNN] [layer] [--level L] [--fresh] [--all]	bazel test	student	Run the tests of where you are, at your level.
-watch	[project] [exNN] [layer] [--level L] [--tmux]	bazel test	student	Run them again every time you save a file.
-clues	[project] [exNN] [N|all]	bazel test	student	Run what failed again, with more hints.
+test	[project] [exNN] [function] [layer] [--level L] [--fresh] [--all]	bazel test	student	Run the tests of where you are, at your level.
+watch	[project] [exNN] [function] [layer] [--level L] [--tmux]	bazel test	student	Run them again every time you save a file.
+clues	[project] [exNN] [function] [N|all]	bazel test	student	Run what failed again, with more hints.
 submit	[project...|--all] [URL] [--level L] [--written-only] [-n]	//tools:submit	student	Push the projects whose tests pass to Vogsphere.
 norm	[file...]	//tools:norminette	student	The pinned norminette; with no file, the norm tests of where you are.
 generate	[project]	//tools:generate //<project>:generate	student	Write a shell project's deliverables from its generators.
@@ -30,4 +30,5 @@ stubcheck	[where] [--file F]	//tools:stub_check	maintainer	Which turn-in files s
 -		//tools:42	internal	42 itself, for a checkout where setup.sh has not run: bazel run //tools:42 -- test
 -		//tools:prime	internal	Not offered: on a campus machine it froze the session (the owner, 2026-10-09).
 -		//tools:answer_scan	internal	It reads a tree that holds answers; a maintainer runs it by its label.
+-		//tools/tests:selftest_costs	internal	It reads the last selftest run's shard logs against selftest_costs.tsv; whoever keeps the selftest runs it by its label.
 -		//tools:env_audit	internal	Reached as `42 doctor --report`, which runs tools/env-audit.sh itself: it has to work before Bazel does.

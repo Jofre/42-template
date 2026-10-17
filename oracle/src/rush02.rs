@@ -910,7 +910,8 @@ pub fn run(args: &[std::ffi::OsString]) -> i32 {
     // The dictionary's path is opened as the bytes it is. The number reads
     // through its UTF-8 form: a byte that is not UTF-8 is no digit, and the
     // character that stands for it is none either, so `valid_number` refuses
-    // it exactly as it would the bytes.
+    // it exactly as it would the bytes (main.rs's check_args_bytes holds it
+    // to that).
     let (path, number) = match args {
         [n] => (OsStr::new("numbers.dict"), n.to_string_lossy()),
         [d, n] => (d.as_os_str(), n.to_string_lossy()),

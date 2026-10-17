@@ -40,10 +40,11 @@ else
 fi
 export FT_WS FT_CWD
 
-# 3.10 is the python3 of Ubuntu 22.04, the campus release tools/pins.tsv
-# records (no campus capture has confirmed the python3 yet). Without
-# a python3 that new, the one thing 42 cannot do is run, so it says what to
-# type instead: the Bazel command and the report 42 would have read.
+# 3.10 is the floor: the python3 of Ubuntu 22.04, the campus release
+# tools/pins.tsv records, and the dev container's. A campus box's python3 on
+# PATH can be newer (pyenv's 3.13.1 on one box). Without 3.10 or newer, the
+# one thing 42 cannot do is run, so it says what to type instead: the Bazel
+# command and the report 42 would have read.
 # conventions: optional python3 -- probed here; without it 42 runs nothing and prints the Bazel command to type instead
 if ! command -v python3 > /dev/null 2>&1 ||
 	! python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2> /dev/null; then
@@ -55,4 +56,6 @@ fi
 
 # -I: no PYTHONPATH, no user site-packages, no current folder on sys.path, so
 # a file named like a module in the folder you stand in is never imported.
-exec python3 -I "$FT_WS/tools/fortytwo/main.py" "$@"
+# -B: no __pycache__ written beside 42's modules, into the checkout; -I
+# ignores PYTHONDONTWRITEBYTECODE, so only the flag does it.
+exec python3 -I -B "$FT_WS/tools/fortytwo/main.py" "$@"

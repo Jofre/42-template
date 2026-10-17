@@ -1,0 +1,19 @@
+  Each line is s, then every byte your function wrote to the descriptor it
+  was handed, both as hex (two digits a byte: 0a is a line break, 09 a tab).
+  Which FAMILY of strings diverges?
+    * every one, nothing written -> which descriptor does your write(2)
+                                   receive: the one your function was given?
+    * every one, at the end     -> what does the description say follows the
+                                   string, how many of it, and to which
+                                   descriptor does it go?
+    * a string with a byte of 0x80 or more -> what value does a plain char
+                                   holding that byte have, and does your loop
+                                   test or change it?
+    * only the longest strings  -> is there room of a fixed size anywhere
+                                   between the string and write(2)?
+    * a 00 before the end       -> is the byte that ends the string written
+                                   too?
+    * a third column on your lines -> the bytes the call wrote to fd 1,
+                                   the standard output: which descriptor
+                                   does each of your write(2) calls
+                                   receive?

@@ -6,17 +6,20 @@ char	*ft_strjoin(int size, char **strs, char *sep);
 /* Prints "<label>\t[<value>]" so tools/diff_output.sh (run with --labeled)
  * shows each case in its own column. The whole joined string is one line.
  * A NULL result prints "(null)" so a missing allocation is visible. Cases are
- * ordered trivial -> hardest, so the first failing row is the most basic fix. */
+ * ordered trivial -> hardest, so the first failing row is the most basic fix.
+ * The result is freed before the row's newline, so a crash in free() leaves
+ * this row unfinished and diff_output.sh marks it, not the next one. */
 static void	test(char *label, int size, char **strs, char *sep)
 {
 	char	*res;
 
 	res = ft_strjoin(size, strs, sep);
 	if (res)
-		printf("%s\t[%s]\n", label, res);
+		printf("%s\t[%s]", label, res);
 	else
-		printf("%s\t(null)\n", label);
+		printf("%s\t(null)", label);
 	free(res);
+	printf("\n");
 }
 
 int	main(void)

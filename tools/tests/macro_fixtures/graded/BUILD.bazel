@@ -1,0 +1,160 @@
+load("//tools:defs.bzl", "c_function", "c_levels", "c_mem_check", "c_program", "corpus_memory", "exercise", "hand_test", "stderr_ignored", "subject")
+load("//tools:names_file.bzl", "names_file")
+
+# Its programs are the data of //tools/tests:macro_fixtures_test.
+package(default_visibility = ["//tools/tests:__pkg__"])
+
+# A TOY PROJECT WHOSE SUBJECT SAYS ITS GRADER JUDGES MEMORY: subject()'s
+# memory_graded, the one fact that moves a layer DOWN the ladder. Invented
+# exercises, like the rest of ../ (see its BUILD file), every file under
+# deliverable/ a stub. Its own package, because memory_graded is the
+# project's: a toy beside the others would lower their valgrind layer too,
+# and the packages that keep it at strict (../, ../levels) are the other
+# half of the proof.
+#
+# What //tools/tests:macro_fixtures_test checks here, on every run:
+#
+#   * the package loads: c_levels()' audit passed on every test below, the
+#     valgrind layer's at basic among them -- which the audit refuses in a
+#     package whose contract does not declare memory_graded (../BUILD.bazel's
+#     audit-valgrind-basic-ungraded);
+#   * every test of the valgrind layer, whichever macro emits it, sits at
+#     basic (" @basic" in layers.expected): c_function's ex00_valgrind (its
+#     contract names malloc) and ex01_memcheck (it does not), c_mem_check's
+#     ex00_probe_memcheck, c_program's ex02_run_valgrind, and
+#     corpus_memory()'s ex02_argv_valgrind; every other layer where it sits
+#     anywhere (ex00_symbols at strict);
+#   * a case raised to strict keeps its valgrind arm at strict
+#     (ex02_open_valgrind), the case's floor (tools/defs.bzl's _raise), and so
+#     both are in _RAISED, as a raise is;
+#   * each of them quotes the contract's sentence on an invalid access
+#     (" access:memory_graded_access": --access-rule, a file subject()
+#     writes), and each that checks leaks its sentence on a leak as well
+#     (" rule:memory_graded_leaks": --rule) -- never the two that run with
+#     --no-leak-check, ex01_memcheck and ex00_probe_memcheck, whose red can
+#     find no leak.
+#
+# Measured by hand on 2026-10-12 with
+#
+#     bazel test $(bazel query 'tests(//tools/tests/macro_fixtures/graded:*)')
+#
+# (tagged manual, as every fixture test is): 41 tests, 40 green -- every
+# valgrind one among them ran, none said SKIP -- and ex02_argv_diff red,
+# 174 of 200 cases: the stub program prints nothing, and a corpus waits for
+# no output. Re-measure after changing a macro or a runner.
+subject(
+    grader = "both",
+    group = False,
+    memory_graded = {
+        "access": "Toy, p.1: \"Touch only what you own.\"",
+        "leaks": "Toy, p.1: \"Free what you allocate.\"",
+    },
+    exercises = {
+        # A function whose subject lets it allocate, and one whose does not.
+        "00": exercise(page = 1, dir = "ex00/", files = ["toy_twice.c"], allowed = ["malloc", "free"]),
+        "01": exercise(page = 1, dir = "ex01/", files = ["toy_twice.c"], allowed = []),
+        # A program, which may allocate (no allowed line), with a corpus.
+        "02": exercise(page = 1, dir = "ex02/", files = ["toy.c"], allowed = None),
+    },
+)
+
+# Each c_function names its unit after its exercise (the unit is a target
+# of the package), and exports the toy's one function.
+c_function(
+    num = "00",
+    fn = "toy_twice_00",
+    test = "test_toy.c",
+    exports = ["toy_twice"],
+    malloc = True,
+)
+
+c_mem_check(
+    num = "00",
+    fn = "toy_twice",
+    probe = "mem_toy.c",
+)
+
+c_function(
+    num = "01",
+    fn = "toy_twice_01",
+    test = "test_toy.c",
+    exports = ["toy_twice"],
+)
+
+c_program(
+    num = "02",
+    name = "toy",
+    no_allocfail = "a toy that proves where a graded contract puts its arms; it allocates nothing",
+    cases = [
+        {
+            "name": "run",
+            "expected": "empty.txt",
+        },
+        {
+            "name": "open",
+            "args": ["open"],
+            "expected": "empty.txt",
+            "level": 2,
+        },
+    ],
+)
+
+# A generated corpus on the program, and its replays under the memory
+# checkers. A real //oracle arm stands in for the toy's corpus, as ../levels'
+# do.
+hand_test(
+    name = "ex02_argv_diff",
+    layer = "diff",
+    srcs = ["//tools:argv_check.sh"],
+    args = [
+        "--bin",
+        "$(location :ex02_bin)",
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "c06_print_params",
+    ] + stderr_ignored("the toy subject asks nothing of it"),
+    data = [
+        ":ex02_bin",
+        "//oracle:oracle",
+    ],
+)
+
+corpus_memory(
+    stem = "ex02_argv",
+    runner = "//tools:argv_check.sh",
+    args = [
+        "--oracle",
+        "$(location //oracle:oracle)",
+        "--fn",
+        "c06_print_params",
+    ],
+    data = ["//oracle:oracle"],
+)
+
+c_levels()
+
+# What the macros emitted, as data: one line per test, "name runner", its
+# level (the lowest lvl_ tag), " rule:" and the target whose sentence on a
+# leak it quotes (--rule), " access:" and the one whose sentence on an
+# invalid access it quotes (--access-rule), " raised:" and the level _RAISED
+# gives it, and " by:" and the RL_GRADER its environment holds
+# (../BUILD.bazel's :layers says why).
+names_file(
+    name = "layers",
+    names = sorted([
+        "%s %s @%s%s%s%s by:%s" % (
+            r["name"],
+            r["srcs"][0].split(":")[-1],
+            [t for t in ["lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"] if t in r["tags"]][0][4:],
+            "".join([" rule:" + r["args"][i + 1].split(":")[-1].rstrip(")") for i in range(len(r["args"]) - 1) if r["args"][i] == "--rule"]),
+            "".join([" access:" + r["args"][i + 1].split(":")[-1].rstrip(")") for i in range(len(r["args"]) - 1) if r["args"][i] == "--access-rule"]),
+            (" raised:" + (r["env"] or {})["RL_RAISED"]) if "RL_RAISED" in (r["env"] or {}) else "",
+            (r["env"] or {}).get("RL_GRADER", "none"),
+        )
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+    ]),
+)
+
+exports_files(["layers.expected"])

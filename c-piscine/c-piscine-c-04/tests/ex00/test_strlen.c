@@ -41,7 +41,7 @@ int	main(void)
 	test("embedded tabs \"x\\ty\\tz\"", "x\ty\tz");
 	test("long (40 chars)", "0123456789012345678901234567890123456789");
 	test_long();
-	test("UTF-8 word \"caf\\xC3\\xA9\" (bytes above 0x7f)", "caf\xC3\xA9");
-	test("lone byte \\xFF", "\xff");
+	test("UTF-8 word \"caf\" + bytes 0xc3 0xa9 (above 0x7f)", "caf\xC3\xA9");
+	test("lone byte 0xff", "\xff");
 	return (0);
 }

@@ -14,6 +14,26 @@
 #
 #     sh tools/stub_check.sh --approved
 #
+# And to ask about ONE function of a library, whose files hold many (a
+# project whose contract lists its functions, as a library's does):
+#
+#     sh tools/stub_check.sh --defines NAME FILE...
+#
+# which exits 0 when NAME is defined in FILE... and its body is a stub, 1 when
+# its body holds more than a stub may (the lines are printed), 3 when no FILE
+# defines NAME at all, and 2 when a FILE could not be read: no verdict. The
+# body is judged by the same whitelist as a whole .c file (judge_c, below),
+# and nothing outside that body is: tools/first_red.sh asks it, so a library
+# with one function written is not "written" for every other function in it.
+#
+# `--file PATH...` judges those files alone, and approves a header only at
+# its place in the workspace -- this script's own checkout, or
+# BUILD_WORKSPACE_DIRECTORY when set -- so a caller checking another tree (a
+# checkout nested in this one, say) names that tree there, as
+# tools/answer_scan.sh does, or runs that tree's own tools/stub_check.sh,
+# or `42 stubcheck`, from inside it: the checkout is found from this
+# script's place, never from the folder it is run in.
+#
 # Exit 0 = every deliverable is a stub. Exit 1 = at least one still has a body,
 # and each offending line is printed with its file and line number. Exit 2 =
 # a file it could not read, or an index git could not list: no verdict at all;
@@ -42,7 +62,7 @@
 # and "does nothing" is exactly the distinction being drawn, so there is no
 # shape a real implementation can take that this passes.
 #
-# WHY IT CHECKS FOUR KINDS AND NOT JUST .c
+# WHY IT CHECKS FIVE KINDS AND NOT JUST .c
 # ----------------------------------------
 # It used to check `*/deliverable/*.c` and nothing else, and that is a false
 # green of exactly the kind this repo treats as its worst defect class: it
@@ -63,6 +83,8 @@
 #   *.h        include guards and nothing else, unless allowlisted below
 #   Makefile   recipes may only echo; a real build command is an answer
 #   *.sh       no command at all beyond the no-op `:`
+#   *.md       blank lines and <!-- --> comments; a line of prose is the
+#              student's own (a README the subject has them turn in)
 #
 # HEADERS THAT ARE NOT ANSWERS
 # ----------------------------
@@ -83,6 +105,12 @@
 #       42 PROVIDES these in the subject. Stubbing one would delete a definition
 #       the student was GIVEN, not one they owe.
 #
+#   libft.h (cursus/Milestone_0/Libft)
+#       Its guards and the t_list typedef Libft prints on p.14 ("add the
+#       following structure declaration to your libft.h file"), and nothing
+#       else: no prototype, no include. The prototypes are the student's to
+#       write, so a copy holding any one of them fails its hash.
+#
 # NOT APPROVED ANY MORE: rush-00's rush.h. It shipped reduced to ft_putchar's
 # prototype and a note on static helpers, but the subject's turn-in is three
 # named files and no header, so the template ships none: the note lives in
@@ -97,7 +125,7 @@
 # guards-only ft.h made every call an implicit declaration, and under -Werror
 # //c-piscine/c-piscine-c-09:ex01_output was a BUILD ERROR that took `bazel test
 # //...` down on a fresh clone. c_libft then compiled that program at test time
-# inside tools/header_check.sh (--shape libft), so the same stub became one red
+# inside tools/header_check.sh (--shape sources), so the same stub became one red
 # test, and ft.h was held to the guards-only rule like every other header. It
 # is not a deliverable at all now: the subject's turn-in is the Makefile alone,
 # and the grader's ft.h -- guards only, like Piscine Reloaded ex24's -- lives
@@ -120,6 +148,7 @@
 APPROVED_HEADERS='
 0a8e57bbaf8ff567369c17f0c09bb93c c-piscine/c-piscine-c-12/deliverable/*/ft_list.h provided-by-42
 911f5c687454688a48b3b70ac42a9543 c-piscine/c-piscine-c-13/deliverable/*/ft_btree.h provided-by-42
+83e1989b53e106f1f281343ce863faa4 cursus/Milestone_0/Libft/deliverable/libft.h printed-by-subject-p14
 '
 
 set -u
@@ -241,6 +270,17 @@ case "$scope" in
 		printf '%s %s\n' "$_bh" "$(basename "$2")"
 		exit 0 ;;
 	--file) MODE="file"; shift ;;
+	# One function's body, in the files given (see the usage above): judged
+	# below, once judge_c is defined.
+	--defines)
+		case "${2:-}" in
+			"" | [0-9]* | *[!A-Za-z0-9_]*)
+				echo "stub_check: --defines needs a function name, then files" >&2
+				exit 2 ;;
+		esac
+		MODE=defines
+		DEF_NAME=$2
+		shift 2 ;;
 	# The path of every approved header, one per line. tools/answer_scan.sh
 	# asks, because an approved header is one the template ships whatever the
 	# copy in front of it holds, so its file name belongs to everyone.
@@ -275,13 +315,32 @@ report_refused() { refused=$((refused + 1)); echo "  $1"; echo "$2"; }
 #
 # Each judge_KIND PATH SRC prints one line per thing SRC (PATH's content) holds
 # that a stub may not, and nothing for a stub; it fails when SRC cannot be read.
+#
+# judge_c PATH SRC NAME judges the body of the function NAME and nothing else
+# (--defines), and exits 3 when SRC defines no function NAME. A definition is
+# a body opened at depth 0, and its name is the word just before the first
+# `(` of the text at depth 0 since the last `;`, `}` or preprocessor line: a
+# signature wrapped over several lines, or with its return type on a line of
+# its own, is still one name.
 judge_c() {
-	awk '
+	awk -v want="${3:-}" '
+		# The function a declaration at depth 0 names, or "".
+		function fname(d,   i, pre) {
+			while ((i = index(d, ";")) > 0) d = substr(d, i + 1)
+			i = index(d, "(")
+			if (!i) return ""
+			pre = substr(d, 1, i - 1)
+			sub(/[ \t]+$/, "", pre)
+			return match(pre, /[A-Za-z_][A-Za-z_0-9]*$/) ? substr(pre, RSTART, RLENGTH) : ""
+		}
+
 		# Is this run of text, at the depth reached so far, something other than
 		# an empty stub body? Depth and the reported line are passed in because
 		# a POSIX awk function sees globals anyway and naming them here says
 		# which ones it reads.
 		function judge(seg, lineno, raw,   t) {
+			if (depth < 1 && !pp) decl = decl " " seg
+			if (want != "" && curfn != want) return
 			t = seg
 			gsub(/^[ \t]+|[ \t]+$/, "", t)
 			if (depth < 1 || t == "")
@@ -305,10 +364,20 @@ judge_c() {
 			gsub(/'"'"'[^'"'"']*'"'"'/, "'"''"'", line)
 			sub(/\/\/.*$/, "", line)
 		}
-		incomment && line ~ /\*\// { sub(/^.*\*\//, "", line); incomment = 0 }
+		#
+		# A comment is matched as C reads one: anything up to the first `*/`,
+		# stars included. The strip once took only comments with no `*` in
+		# them, so "/* (n * size) */" or the lines of stars of the 42 header stayed
+		# in the line, and their words were read as the declaration of the
+		# function after them (--defines named it "size"). Whole comments go
+		# first; what then still opens one runs on to the next lines.
+		incomment && line ~ /\*\// { sub(/^([^*]|\*+[^*\/])*\*+\//, "", line); incomment = 0 }
 		incomment { next }
-		line ~ /\/\*/ && line !~ /\*\// { sub(/\/\*.*$/, "", line); incomment = 1 }
-		{ gsub(/\/\*[^*]*\*\//, "", line) }
+		{ gsub(/\/\*([^*]|\*+[^*\/])*\*+\//, "", line) }
+		line ~ /\/\*/ { sub(/\/\*.*$/, "", line); incomment = 1 }
+		# A preprocessor line at depth 0 names no function, and ends whatever
+		# text came before it.
+		{ pp = (depth == 0 && line ~ /^[ \t]*#/); if (pp) decl = "" }
 
 		# Judge each line AT THE DEPTH ITS OWN BRACES CREATE, by walking it
 		# brace by brace, rather than at the depth it had on arrival.
@@ -331,14 +400,59 @@ judge_c() {
 				p = match(rest, /[{}]/)
 				if (p == 0) { judge(rest, NR, $0); break }
 				judge(substr(rest, 1, p - 1), NR, $0)
-				if (substr(rest, p, 1) == "{")
+				if (substr(rest, p, 1) == "{") {
+					if (depth == 0) {
+						curfn = fname(decl)
+						if (want != "" && curfn == want) found = 1
+					}
 					depth++
-				else if (--depth < 0)
+				} else if (--depth <= 0) {
 					depth = 0
+					curfn = ""
+					decl = ""
+				}
 				rest = substr(rest, p + 1)
 			}
 		}
+		END { if (want != "" && !found) exit 3 }
 	' < "$2"
+}
+
+# repo_path PATH -- the path an approval's glob is matched against: the
+# file's place in the workspace, however the caller spelled it. Only a
+# leading ./ was ever taken off, so `.//`, `/./` and `//` in a path, an
+# absolute one and one relative to a module folder each made an approved
+# header "an implementation" -- and `42 stubcheck --file` (tools/fortytwo)
+# hands over an absolute path every time (V151, V232). So the folder the
+# file sits in is resolved (pwd -P, links and all), and so is the
+# workspace; a file under the workspace is named by the rest. A file
+# outside it -- a fixture tree, or answer_scan's copy of the index when its
+# scratch folder is not in the checkout -- has no place there, and keeps
+# the path as given, relative to the folder this runs in, with runs of /
+# squeezed, /./ dropped and a leading ./ taken off. No `..` is taken out
+# of that text: a path outside the workspace that still holds a `..`
+# segment names no place at all, and is given nothing (exit 1), because an
+# approval glob's `*` would match `..` segments too and approve the same
+# bytes somewhere else. No path is matched by its end either, so the same
+# bytes anywhere else stay unapproved.
+repo_path() {
+	_rd=$(CDPATH='' cd -P -- "$(dirname -- "$1")" 2> /dev/null && pwd -P) &&
+		_rw=$(CDPATH='' cd -P -- "$WS" 2> /dev/null && pwd -P) &&
+		case "$_rd/" in
+			"$_rw"/*)
+				_rr=${_rd#"$_rw"}
+				_rr=${_rr#/}
+				printf '%s%s\n' "${_rr:+$_rr/}" "$(basename -- "$1")"
+				return 0 ;;
+		esac
+	RP=$1 awk 'BEGIN {
+		p = ENVIRON["RP"]
+		gsub(/\/\/+/, "/", p)
+		while (sub(/\/\.\//, "/", p)) ;
+		while (sub(/^\.\//, "", p)) ;
+		if (p ~ /(^|\/)\.\.(\/|$)/) exit 1
+		print p
+	}'
 }
 
 # ---------------------------------------------------------------- C headers
@@ -349,17 +463,14 @@ judge_c() {
 # through here.
 judge_h() {
 	_h=$(body_hash "$2") || return 2
-	# The path the entry's glob is matched against, without the ./ a caller
-	# may put before it: tools/answer_scan.sh hands every file over as
-	# ./<path>, and an approved header spelled so was "an implementation".
-	_hp=$1
-	while :; do
-		case "$_hp" in ./*) _hp=${_hp#./} ;; *) break ;; esac
-	done
+	# The path is worked out only for a header whose hash an entry holds.
+	_hp=
+	case "$APPROVED_HEADERS" in *"$_h "*) _hp=$(repo_path "$1") ;; esac
 	_ok=0
 	# Both the hash and the path must match the SAME entry.
 	echo "$APPROVED_HEADERS" | while read -r _eh _ep _; do
 		[ -n "$_eh" ] || continue
+		[ -n "$_hp" ] || continue
 		[ "$_eh" = "$_h" ] || continue
 		# shellcheck disable=SC2254
 		case "$_hp" in $_ep) exit 9 ;; esac
@@ -407,6 +518,43 @@ judge_sh() {
 		line ~ /^:[ \t]*$/ { next }
 		line ~ /^true[ \t]*$/ { next }
 		{ printf "    %d: %s\n", NR, $0 }
+	' < "$2"
+}
+
+# ------------------------------------------------------------ Markdown
+#
+# A README a subject has the student turn in is theirs to write, and what it
+# says about their project is their answer in prose. Its stub is what the
+# template gives them to start from: comments saying what to write, which a
+# renderer never shows. So blank lines and <!-- --> blocks are all a stub
+# may hold, and every other line is reported -- a heading, a sentence, text
+# before a comment opens or after it closes. A comment never closed is
+# reported where it opens: the rest of the file is text no block holds.
+judge_md() {
+	awk '
+		{
+			line = $0
+			while (1) {
+				if (incomment) {
+					p = index(line, "-->")
+					if (!p) { line = ""; break }
+					line = substr(line, p + 3)
+					incomment = 0
+					continue
+				}
+				sub(/^[ \t\r]+/, "", line)
+				if (line == "") break
+				if (substr(line, 1, 4) == "<!--") {
+					line = substr(line, 5)
+					incomment = 1
+					opened = NR; openline = $0
+					continue
+				}
+				printf "    %d: %s\n", NR, $0
+				break
+			}
+		}
+		END { if (incomment) printf "    %d: %s (a comment never closed)\n", opened, openline }
 	' < "$2"
 }
 
@@ -489,20 +637,63 @@ score() {
 	fi
 }
 
+if [ "$MODE" = defines ]; then
+	# Every file vetted first, as --file does, so a bad one leaves no verdict
+	# on the others; then NAME's body, wherever it is defined. A function
+	# defined twice (a stub left beside the written copy) is written if
+	# either body is, and the lines that make it so are printed.
+	[ $# -gt 0 ] || { echo "stub_check: --defines $DEF_NAME needs at least one file" >&2; exit 2; }
+	for f in "$@"; do
+		[ -f "$f" ] || { echo "stub_check: no such file: $f" >&2; exit 2; }
+		[ -r "$f" ] || { echo "stub_check: cannot read: $f" >&2; exit 2; }
+		case "$f" in
+			*.c | *.h) ;;
+			*) echo "stub_check: --defines reads C sources and headers, not: $f" >&2; exit 2 ;;
+		esac
+	done
+	_found=0
+	_body=0
+	for f in "$@"; do
+		_out=$(judge_c "$f" "$f" "$DEF_NAME")
+		case $? in
+			0)
+				_found=1
+				[ -z "$_out" ] && continue
+				_body=1
+				echo "  $f"
+				echo "$_out" ;;
+			3) ;;
+			*) refuse "$f" "could not be read to the end" ;;
+		esac
+	done
+	if [ "$_body" -eq 1 ]; then
+		echo "stub_check: $DEF_NAME holds more than a stub (above)."
+		exit 1
+	fi
+	if [ "$_found" -eq 1 ]; then
+		echo "stub_check: $DEF_NAME is defined, and its body is a stub."
+		exit 0
+	fi
+	echo "stub_check: no file given defines $DEF_NAME."
+	exit 3
+fi
+
 if [ "$MODE" = file ]; then
-	# Check exactly the paths given, classified by name, with no git and no
-	# workspace. This exists so //tools/tests:selftest can drive the checker on
-	# known-bad fixtures in a temp dir: the repo mode below is built on
-	# `git ls-files`, and a self-test that needs a populated git repository is
-	# one that will not run hermetically. Same split, and the same reason, as
-	# every other runner the selftest reaches. Every path is vetted before any
-	# is scored, so a bad one in the list leaves no verdict on the others.
+	# Check exactly the paths given, classified by name, with no git. The
+	# workspace is read for one thing only, the place in it an approved
+	# header is matched at (repo_path, above). This exists so
+	# //tools/tests:selftest can drive the checker on known-bad fixtures in a
+	# temp dir: the repo mode below is built on `git ls-files`, and a
+	# self-test that needs a populated git repository is one that will not
+	# run hermetically. Same split, and the same reason, as every other
+	# runner the selftest reaches. Every path is vetted before any is scored,
+	# so a bad one in the list leaves no verdict on the others.
 	[ $# -gt 0 ] || { echo "stub_check: --file needs at least one path" >&2; exit 2; }
 	for f in "$@"; do
 		[ -f "$f" ] || { echo "stub_check: no such file: $f" >&2; exit 2; }
 		[ -r "$f" ] || { echo "stub_check: cannot read: $f" >&2; exit 2; }
 		case "$f" in
-			*.c | *.h | *Makefile | *.sh) ;;
+			*.c | *.h | *Makefile | *.sh | *.md) ;;
 			*) echo "stub_check: not a deliverable kind: $f" >&2; exit 2 ;;
 		esac
 	done
@@ -512,6 +703,7 @@ if [ "$MODE" = file ]; then
 			*.h)       score h "$f" ;;
 			*Makefile) score mk "$f" ;;
 			*.sh)      score sh "$f" ;;
+			*.md)      score md "$f" ;;
 		esac
 	done
 else
@@ -544,7 +736,7 @@ else
 
 	# The zone, AGENTS.md §0: everything under a deliverable/ and everything
 	# under a generators/, which for a shell module is the only place its
-	# answer lives (its deliverable/ is generated and gitignored). The four
+	# answer lives (its deliverable/ is generated and gitignored). The five
 	# kinds below are read; ANYTHING ELSE tracked there is a file this checker
 	# cannot vouch for, and the rule learned the hard way is that a file kind
 	# which is not checked is a file kind that SHIPS. The kinds were once
@@ -558,7 +750,9 @@ else
 	# deliverable/ from its staged identity grep, and --file mode exits 2 on
 	# such a file -- so nothing in the publish path looked at it at all. (The
 	# file is gone now, with the rest of that team's sources; the rule it
-	# taught stays.) So such a file is listed: whether it should be deleted,
+	# taught stays. A README.md under deliverable/ is read now, as the md
+	# kind: a subject can have one turned in, and its stub is comments.) So
+	# any other kind is listed: whether it should be deleted,
 	# approved or scrubbed is the maintainer's call; what must not happen is
 	# the checker passing in silence over a file it never opened. Under
 	# generators/, only generators/exNN.sh is read, and a helper script or a
@@ -579,6 +773,7 @@ else
 			*.h) score h "$f" ;;
 			*/Makefile) score mk "$f" ;;
 			*.sh) score sh "$f" ;;
+			*/deliverable/*.md) score md "$f" ;;
 			*) echo "$f" >> "$LISTS/other" ;;
 		esac
 	done < "$LISTS/zone"
@@ -639,7 +834,7 @@ if [ "$MODE" = repo ]; then
 	while IFS= read -r f; do
 		report_unread "$f" "$(printf '    %s\n    %s\n' \
 			"tracked under deliverable/ but matches no kind this checker knows" \
-			"(*.c, *.h, Makefile, *.sh), so nothing here has looked inside it")"
+			"(*.c, *.h, Makefile, *.sh, *.md), so nothing here has looked inside it")"
 	done < "$LISTS/other"
 	while IFS= read -r f; do
 		report_unread "$f" "$(printf '    %s\n    %s\n' \

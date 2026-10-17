@@ -1,0 +1,2 @@
+3 nodes	node 3
+NULL (the empty list)	NULL

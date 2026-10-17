@@ -89,16 +89,19 @@
 # Usage:
 #   allocfail_check.sh --cc PATH [--cc-lib FILE]... [--cc-under FILE]
 #                      --ld PATH --ld-lib FILE...
-#                      --src FILE [--src FILE]... [--inc DIR]... --harness FILE
+#                      --src FILE [--src FILE]... [--inc DIR]... [--inc-file FILE]
+#                      --harness FILE
 #                      --label TEXT [--max-inject N]
 #                      [--gate-differ F --gate-bin P --gate-expected F
 #                       [--gate-stdin F] [--gate-stream NAME]
-#                       [--gate-sanitize] [--gate-labeled]]
+#                       [--gate-sanitize] [--gate-labeled]
+#                       [--gate-label NAME]]
 #                      [--shim FILE] [--timeout SECS] [--leaks] [--rule FILE]
 #   allocfail_check.sh --bin PROG [--stdin FILE] [--argv-file FILE]
 #                      [--run-as NAME [--cwd-file DEST=PATH]...]
 #                      [--show-run PROG] [--label TEXT] [--leaks]
-#                      [--rule FILE] [gate options as above] -- [ARG...]
+#                      [--rule FILE] [gate options as above]
+#                      [--survive [--gate-arg WORD]...] -- [ARG...]
 #
 #   --cc, --cc-lib, --cc-under, --ld, --ld-lib
 #                 with --src, the pinned clang-12 and binutils 2.38 Bazel
@@ -114,6 +117,10 @@
 #                 to the file, and the compiler needs the directory. Same
 #                 behaviour as symbols_test.sh and ilp32_test.sh, which carry
 #                 the identical helper for the identical reason.
+#   --inc-file FILE  the -I directories a Makefile's recipes pass, one per line
+#                 (tools/student_build.sh --includes-out; runner_lib.sh's
+#                 rl_inc_file): a library's header in a subfolder is on the
+#                 grader's include path only through them.
 #   --label TEXT  what to call the thing under test in the report.
 #   --max-inject  cap on the number of injections (at least 1), so a deliverable
 #                 that allocates per element cannot make this layer unbounded.
@@ -138,6 +145,25 @@
 #                 same file, as valgrind_test.sh's --rule.
 #   --bin PROG    a PROGRAM, run on ARG... (and --stdin), instead of a
 #                 function's probe: see "A PROGRAM" below.
+#   --gate-label NAME
+#                 the output test the gate stands for, named in the SKIP
+#                 line (c_levels()' audit holds it to that test,
+#                 _gate_label_problems). Without it the line says "this
+#                 exercise's own output fixture", which names no test.
+#   --survive     with --bin, this sweep is a survive case's (c_program,
+#                 _survive_gate), which compares no output, so its gate is
+#                 ANOTHER case, as valgrind_test.sh's --survive: the
+#                 exercise's first case at basic, written out whole -- its
+#                 words in --gate-arg, one per word, in order, and its feed
+#                 and comparison in the other --gate-* options -- and handed
+#                 nothing of this run: not the words after --, not
+#                 --argv-file, --run-as or --cwd-file. A survive case asks
+#                 only that the program ends by itself, and a program nobody
+#                 has written does, allocating nothing: run ungated, its
+#                 sweep refused nothing and passed (V282). NO_SKIP=1 runs it
+#                 without asking the gate. --gate-arg without --survive is
+#                 refused (exit 2): every other gate here replays this run's
+#                 own words.
 #   --argv-file, --run-as, --cwd-file, --show-run
 #                 with --bin, the run the case describes, as diff_output.sh
 #                 takes them: more arguments from a file, and a folder of its
@@ -210,6 +236,16 @@ GATE_DIFFER=""
 GATE_BIN=""
 GATE_EXPECTED=""
 GATE_PASS=""
+# The run this case makes, which a gate that replays it is handed too:
+# --argv-file, --run-as and --cwd-file. Kept apart from GATE_PASS, the
+# gate's own options, because a survive case's gate is another case's run
+# (--survive) and takes none of it.
+GATE_RUN=""
+# A survive case's gate: its words (--gate-arg); and the output test any
+# gate stands for (--gate-label).
+GATE_ARGS=""
+GATE_LABEL=""
+SURVIVE=0
 # Set by an option that describes the gate; checked by rl_gate_whole.
 GATE_SAID=""
 LEAKS=0
@@ -242,6 +278,7 @@ while [ $# -gt 0 ]; do
 		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		--harness) need "$1" "$#"; HARNESS="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		--inc) need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
+		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
 		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
 		--max-inject) need "$1" "$#"; MAX_INJECT="$2"; shift 2 ;;
 		--shim) need "$1" "$#"; SHIM="$2"; shift 2 ;;
@@ -253,10 +290,10 @@ while [ $# -gt 0 ]; do
 			RULE="$2"; shift 2 ;;
 		--bin) need "$1" "$#"; PROG="$2"; shift 2 ;;
 		--stdin) need "$1" "$#"; PSTDIN="$2"; shift 2 ;;
-		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; rl_list_add GATE_PASS --argv-file "$2"; shift 2 ;;
-		--run-as) need "$1" "$#"; RUN_AS="$2"; rl_list_add GATE_PASS --run-as "$2"; shift 2 ;;
+		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; rl_list_add GATE_RUN --argv-file "$2"; shift 2 ;;
+		--run-as) need "$1" "$#"; RUN_AS="$2"; rl_list_add GATE_RUN --run-as "$2"; shift 2 ;;
 		--cwd-file) need "$1" "$#"; CWD_FILES="$CWD_FILES
-$2"; rl_list_add GATE_PASS --cwd-file "$2"; shift 2 ;;
+$2"; rl_list_add GATE_RUN --cwd-file "$2"; shift 2 ;;
 		--show-run) need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
 		--gate-expected-alt) need "$1" "$#"; rl_list_add GATE_PASS --expected-alt "$2"; GATE_SAID=1; shift 2 ;;
 		--) shift; break ;;
@@ -267,6 +304,9 @@ $2"; rl_list_add GATE_PASS --cwd-file "$2"; shift 2 ;;
 		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; GATE_SAID=1; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; GATE_SAID=1; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; GATE_SAID=1; shift ;;
+		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; GATE_SAID=1; shift 2 ;;
+		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; GATE_SAID=1; shift 2 ;;
+		--survive) SURVIVE=1; shift ;;
 		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
 		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
 		--cc-under) need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
@@ -278,6 +318,18 @@ done
 
 # A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
 rl_gate_whole allocfail_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_SAID"
+# So is a word for a gate that replays this run's own (see --survive), and a
+# survive case's sweep of a function's probe, which runs no case.
+if [ -n "$GATE_ARGS" ] && [ "$SURVIVE" = 0 ]; then
+	echo "allocfail_check.sh: --gate-arg is the words of a survive case's gate (--survive);" >&2
+	echo "  every other gate is handed this run's own words, after --" >&2
+	exit 2
+fi
+if [ "$SURVIVE" = 1 ] && [ -z "$PROG" ]; then
+	echo "allocfail_check.sh: --survive is a program case's (--bin); a function's probe" >&2
+	echo "  runs no case" >&2
+	exit 2
+fi
 
 # Wiring mistakes are exit 2, never a student verdict: a missing data dep or a
 # $(location) that resolved to nothing is not something a deliverable did.
@@ -566,8 +618,8 @@ ended_how() {
 not_asked() {
 	echo ""
 	echo "  What this layer does NOT ask: whether the blocks obtained before the"
-	echo "  refused one are released. That is not graded here; where the subject"
-	echo "  lets the function call free(), an exNN_allocfail_leaks target asks it"
+	echo "  refused one are released. That is not graded here; where the exercise"
+	echo "  may call free(), an exNN_allocfail_leaks target asks it"
 	echo "  at robust, as this repo's own rigour."
 	echo "  Leaks on the success path are graded by the valgrind layer."
 }
@@ -612,14 +664,15 @@ rows() {
 # finding green, which is worse than duplicating a red.
 #
 # A program's gate replays its case: gate "$@" hands the program's arguments
-# to the differ after --, as valgrind_test.sh's gate does.
+# to the differ after --, with its run (GATE_RUN), as valgrind_test.sh's gate
+# does -- but a survive case's (--survive), whose gate is the case --gate-arg
+# writes out.
 gate() {
 if [ "${NO_SKIP:-0}" = "1" ]; then
 	GATE_DIFFER=""
 fi
 
-if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ] &&
-	[ -x "$GATE_BIN" ] && [ -f "$GATE_EXPECTED" ]; then
+if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
 	# WHY THE STATUS IS CAPTURED RATHER THAN TESTED WITH `if !`.
 	#
 	# `if ! <gate>` treats EVERY non-zero the same, and the differ has two
@@ -638,18 +691,46 @@ if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ] &&
 	# So: skip on 1, and on 2-or-more say so and RUN ANYWAY. A gate that cannot
 	# answer must never be the reason a layer stayed quiet. GATE_PASS is a
 	# list (runner_lib.sh's LISTS OF WORDS).
+	#
+	# A survive case's gate is another case (--survive): its words are
+	# --gate-arg's, and nothing of this run reaches it.
 	rl_split_on
-	# shellcheck disable=SC2086
-	sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
-			$GATE_PASS -- "$@" >/dev/null 2>&1
+	if [ "$SURVIVE" = 1 ]; then
+		# shellcheck disable=SC2086 # lists, one word per line (rl_list_add)
+		sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
+				$GATE_PASS -- $GATE_ARGS >/dev/null 2>&1
+	else
+		# shellcheck disable=SC2086 # lists, one word per line (rl_list_add)
+		sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
+				$GATE_PASS $GATE_RUN -- "$@" >/dev/null 2>&1
+	fi
 	_gate_rc=$?
 	rl_split_off
 	if [ "$_gate_rc" -ge 2 ]; then
 		echo "allocfail_check: the output gate could not be evaluated (exit $_gate_rc),"
 		echo "                 so this layer is running anyway rather than going quiet."
+	elif [ "$_gate_rc" -eq 1 ] && [ "$SURVIVE" = 1 ]; then
+		if [ -n "$GATE_LABEL" ]; then
+			echo "allocfail_check: SKIP — $GATE_LABEL, this exercise's own case, is not passing yet."
+		else
+			echo "allocfail_check: SKIP — this exercise's own case is not passing yet."
+		fi
+		echo ""
+		echo "  This case asks only that the program ends by itself, and a program"
+		echo "  that does nothing yet allocates nothing: a sweep of it refuses no"
+		echo "  allocation, and green here would say nothing. Get that case green"
+		echo "  and this one starts checking."
+		echo ""
+		echo "  (NO_SKIP=1 runs a waiting layer anyway:"
+		echo "   $(rl_noskip_cmd))"
+		exit 0
 	elif [ "$_gate_rc" -eq 1 ]; then
-		echo "allocfail_check: SKIP — this exercise's own output fixture is not"
-		echo "                 passing yet."
+		if [ -n "$GATE_LABEL" ]; then
+			echo "allocfail_check: SKIP — $GATE_LABEL, this exercise's own output fixture, is not passing yet."
+		else
+			echo "allocfail_check: SKIP — this exercise's own output fixture is not"
+			echo "                 passing yet."
+		fi
 		echo ""
 		echo "  This layer asks what your ${WHAT} does when an allocation fails."
 		echo "  That question only means something once it does the right thing"

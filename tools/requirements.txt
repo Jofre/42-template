@@ -12,6 +12,14 @@
 # whichever direction the two releases differ. Match the box; the box is what
 # grades you.
 #
+# The interpreter is matched too. The 2026-10-13 campus audit found 3.3.58
+# running under pyenv's Python 3.13.1, and the norm layer's copy runs under
+# that exact release (MODULE.bazel's python.toolchain; pins.tsv's python
+# row). It ran under rules_python's default, 3.11.15, before that, and its
+# output over the harness's own 631 C and header files was byte-identical
+# under the two (checked 2026-10-14). The Dockerfile's copy runs under the
+# container's own python3, Ubuntu's 3.10.
+#
 # When the campus box moves, run `bazel run //tools:env_audit` there, read the
 # norminette line out of the report, and change the version here -- and the two
 # hashes under it with it: they are that version's two files on PyPI, the wheel

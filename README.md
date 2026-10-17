@@ -7,7 +7,7 @@ folder per project inside it, each named exactly as 42 names it:
 |---|---|---|
 | C Piscine | `c-piscine/` | `c-piscine-c-00` … `c-piscine-c-13`, the Shell Piscine (`c-piscine-shell-00`, `c-piscine-shell-01`), the three weekend **Rushes**, **BSQ** (the final project) and the study guide |
 | Piscine Reloaded | `c-piscine-reloaded/` | one project, `c-piscine-reloaded/`: 28 exercises mixing shell, C and Makefiles — see its README |
-| Common Core | `cursus/` | nothing yet; its layout is decided when Libft starts |
+| Common Core | `cursus/` | one folder per milestone, a project per folder inside it: `Milestone_0/Libft` so far — see its README |
 
 You write each exercise, and a test suite tells you, TDD-style, when it is
 correct. One command, `42`, runs it. The tools that decide a verdict — both
@@ -148,11 +148,11 @@ Each check it makes is a line starting with `ok`, `note` (for your
 information), `warn` (advice: the tests still run) or `BLOCK` (something no test
 can run without, and what to do about it), with any detail indented under it.
 When Bazel has already run in this checkout, as `sh tools/setup.sh` makes it
-do, a table follows: this machine's tools against the versions this
-repository pins, one tool per line, after a few lines of Bazel's own. A
-`DRIFT` or `MISSING` in it is for your information, never a blocker, and the
-text around the table says what it means. It all ends with
-`Ready to run the tests.` once nothing blocks.
+do, a table follows: this machine's tools against the versions this repository
+pins, one tool per line, after a few lines of Bazel's own. A `DRIFT`, `MISSING`
+or `DID NOT START` is for your information, never a blocker; an `UNRUNNABLE`
+(a tool Bazel downloaded that cannot start here) blocks. It all ends with
+`Ready to run the tests.` once nothing blocks (with no table, one line follows).
 
 **If it says `command not found`** (`zsh: command not found: 42` on campus,
 `bash: 42: command not found` elsewhere), the terminal you typed in was open
@@ -173,8 +173,11 @@ and VS Code with its *Dev Containers* extension, open this folder in VS Code
 and accept **Reopen in Container**. `42` is already installed there; open a
 terminal in VS Code and start at `42 doctor`. (If that says `42: command not
 found`, `sh tools/fortytwo/install.sh` installs it.) **On your own Linux
-without Docker,** install `perl`, a `cc` and the `en_US.UTF-8` locale first,
-then run `sh tools/setup.sh` as on campus.
+without Docker,** install `perl`, `build-essential` (the C library, `libgcc`
+and the libraries the fetched gcc loads), `libedit2`, `libffi8` and
+`libtinfo6` (libraries the fetched clang loads, which `build-essential` does
+not bring), the `en_US.UTF-8` locale and ld.so's debug symbols (`libc6-dbg`
+on Debian/Ubuntu), then run `sh tools/setup.sh`.
 
 → [**docs/environment.md**](docs/environment.md#which-path-are-you-on) is the
 full story: the three paths in one table and what each installs, what
@@ -234,6 +237,7 @@ first_red: 1 red target(s), 1 exercise(s), 1 module(s).
 
   THE LOG OF //c-piscine/c-piscine-c-00:ex01_output
 
+Each case below is named on its own line.
  CASE   | EXPECTED                   | GOT       | STATUS
  -------+----------------------------+-----------+-------
  line 1 | abcdefghijklmnopqrstuvwxyz | (no line) | FAIL <

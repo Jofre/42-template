@@ -1,0 +1,14 @@
+  A string and a set; the trimmed string is printed as hex: decode it to read
+  it as text.
+    * bytes of set left at one end -> which end does your function stop
+                                   looking at, and why there?
+    * bytes missing from the middle -> which bytes of s1 does "from the
+                                   beginning and the end" reach?
+    * every byte of s1 in set, or an empty set -> what is left, and is there
+                                   still a string to return?
+    * one byte short, or garbage at the end -> how many bytes the result
+                                   needs, and where its terminator goes
+    * only strings holding a byte of 0x80 or more -> whether a comparison in
+                                   your loop sees that char as negative
+    * only the long strings or sets -> does anything stop working past a few
+                                   thousand bytes?

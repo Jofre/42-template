@@ -1,0 +1,3 @@
+# clues_wide_c.tsv for ex00_ft_memset_wide_c_output (strict) -- this target's own hint, which states the reading it tests. The only other places that may are diff_clues_readings.txt (the strict ex00_ft_memset_readings target's own legend) and docs/reference.md.
+# Format: <hint><TAB><CASE label><TAB>...   (a hint with no label fires on any failure)
+This harness's reading, not the subject's: man memset says only "the constant byte c", and this target expects c converted to unsigned char, the byte the int's low eight bits make. What does converting 353, -1 or INT_MIN to unsigned char give -- and what does your function store instead?

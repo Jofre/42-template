@@ -1,4 +1,4 @@
-load("//tools:defs.bzl", "c_argv_table", "c_levels", "c_program", "corpus_memory", "exercise", "hand_test", "stderr_ignored", "subject")
+load("//tools:defs.bzl", "c_argv_table", "c_levels", "c_program", "corpus_memory", "exercise", "hand_test", "output_gate", "stderr_ignored", "subject")
 
 # THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
 subject(
@@ -129,6 +129,15 @@ C06_ARGV_CORPORA = [
     ("ex03_high_bytes_argv", "03", "c06_sort_params_high", "200", ["--expect-reordering"], 3),
 ]
 
+# THE GATE. Every replay of a corpus below -- the plain one, the exit replay
+# and the memory twins -- waits for its exercise's argument table,
+# exNN_output, the output test a stub fails: while the table is red each says
+# SKIP, since a corpus replayed over a program the table already fails says
+# that red again, 200 times (docs/reference.md, "Which layers wait for
+# which"). output_gate() reads the gate off the table, and the table's red
+# log lists who waits for it.
+C06_GATES = {num: output_gate("ex%s_output" % num) for num in ["01", "02", "03"]}
+
 [
     hand_test(
         name = stem + "_diff",
@@ -147,7 +156,7 @@ C06_ARGV_CORPORA = [
             fn,
             "--count",
             count,
-        ] + judging +
+        ] + judging + C06_GATES[num][0] +
         # A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the
         # Run contract's: ignored, unless the subject requires something of it.
         stderr_ignored("C 06's subjects ask nothing of standard error"),
@@ -157,7 +166,7 @@ C06_ARGV_CORPORA = [
             "//tools:argv_check.sh",
             "//tools:exit_status",
             "//tools:runner_lib.sh",
-        ],
+        ] + C06_GATES[num][1],
     )
     for stem, num, fn, count, judging, level in C06_ARGV_CORPORA
 ]
@@ -188,14 +197,14 @@ C06_ARGV_CORPORA = [
             "--count",
             count,
             "--exit-only",
-        ] + stderr_ignored("this replay judges only how each run ended"),
+        ] + C06_GATES[num][0] + stderr_ignored("this replay judges only how each run ended"),
         data = [
             ":ex%s_bin" % num,
             "//oracle:oracle",
             "//tools:argv_check.sh",
             "//tools:exit_status",
             "//tools:runner_lib.sh",
-        ],
+        ] + C06_GATES[num][1],
     )
     for stem, num, fn, count, _judging, _level in C06_ARGV_CORPORA
 ]
@@ -224,8 +233,8 @@ C06_ARGV_CORPORA = [
             fn,
             "--count",
             count,
-        ],
-        data = ["//oracle:oracle"],
+        ] + C06_GATES[num][0],
+        data = ["//oracle:oracle"] + C06_GATES[num][1],
         size = "medium",
     )
     for stem, num, fn, count, _judging, _level in C06_ARGV_CORPORA

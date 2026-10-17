@@ -1,0 +1,5 @@
+# clues.tsv for ft_memmove -- pedagogic hints only, each a question. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (a hint fires when ANY of its cases fails)
+How many bytes does your function write, where, and what does it return (man memmove, RETURN VALUE)? And what should a call with n 0, or with dest and src the same, change in the buffer?	"Hello" into another buffer, n 5	dest = buf + 2, src = buf, n 0	dest = src = buf + 1, n 5
+man memmove: "The memory areas may overlap". When dest starts after src inside the same buffer, which bytes of src has your function already overwritten by the time it reads them? What does the buffer hold after each byte you copy?	dest = buf + 2, src = buf, n 5	dest = buf + 1, src = buf, n 8	'a' 0x00 0xe9 0xff 0x00 'b', dest = buf + 2, src = buf, n 4	5000 bytes one place up, overlapping (past 4096)
+And when dest starts BEFORE src: does the order your function copies in still read each byte of src before it is overwritten?	dest = buf, src = buf + 2, n 5	dest = buf, src = buf + 1, n 8	'a' 0x00 0xe9 0xff 0x00 'b', dest = buf, src = buf + 2, n 4	5000 bytes one place down, overlapping (past 4096)

@@ -1,4 +1,4 @@
-load("//tools:defs.bzl", "c_diff", "c_function", "c_issued", "c_levels", "c_program", "corpus_memory", "exercise", "hand_test", "shell_exercise", "stderr_ignored", "subject")
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_function", "c_issued", "c_levels", "c_library", "c_mem_check", "c_program", "corpus_memory", "exercise", "hand_test", "shell_exercise", "stderr_ignored", "subject")
 load("//tools:names_file.bzl", "names_file")
 
 # Its programs are the data of //tools/tests:macro_fixtures_test.
@@ -43,9 +43,10 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 #     too, which a contract with no allowed line (malloc allowed) emits,
 #     and the allocfail sweeps of both run-shaping cases, whose gates the
 #     audit holds to those cases' output tests (tools/defs.bzl,
-#     _case_gate_problems); and a survive case fed standard input has no
-#     gate in its valgrind arm or its sweep, so neither is handed a gate's
-#     options (" gate-stdin"), which their runners refuse without a gate;
+#     _case_gate_problems); and a survive case fed standard input: its
+#     valgrind arm and its allocfail sweep wait on `exact`, as its output
+#     and asan arms do (" survive", " gated", " gate-label:"), each handed
+#     none of its own standard input for that gate (no " gate-stdin");
 #   * c_issued's test, for a file the contract names in `optional`;
 #   * reference = True's test, which runs every case with //oracle's
 #     reference program for the program's name;
@@ -66,6 +67,9 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 #     ex03_diff_asan at asan_count; the reading's legend (" clues") handed
 #     to ex03_readings alone, never to the twin, which judges memory above
 #     strict (the C 04 and C 07 twins printed a legend stating the reading);
+#     and a reading with a reader of its own ("harness"), toy_dup's below:
+#     ex12_toy_dup_readings runs ex12_toy_dup_readingsbin, built from that
+#     reader (" bin:", " built:", " reader:"), and has no twin (V299);
 #   * a generated corpus is replayed under the memory checkers: the audit
 #     passes ex04's, ex06's and ex08's plain replays because corpus_memory()
 #     gave each its ASan twin (" sanitized"), and gave ex06 -- whose contract
@@ -82,6 +86,23 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 #   * the method layer: c_function's `method` gives ex03 its ex03_method,
 #     and c_program's `fixed_array` ex00 its ex00_fixed_array, each at
 #     strict, its sentence written for the runner beside it;
+#   * a toy library, ex12: c_library()'s layers of the whole library, once,
+#     and two members -- toy_len with c_function, c_mem_check, c_diff (and
+#     the c_perf it hands `member` on to) and c_cycles, toy_dup with
+#     c_function, its own box allowing malloc, and a c_diff whose reading
+#     has a reader of its own -- each test named
+#     ex12_<member>_*, tagged with its function (" member=") and selected by
+#     the suite named after it; every gated layer of toy_len waits for
+#     ex12_toy_len_output (its waiting list, --lines), and each member's
+#     program runs its own main, from tests/ex12/<member>/ (is_program);
+#     and toy_cat, every per-function knob the others leave out: readings
+#     (c_function's and c_diff's), allocfail and allocfail_leaks, and a perf
+#     length series; macro_fixtures_test holds each member to exactly its
+#     own tests, and :member_strays to its own files, programs and gates;
+#   * a toy library whose Makefile is written, ex13 -- its members built
+#     from what `make -Bn` says it compiles, -I inc and all -- and the same
+#     with a source that does not compile, ex14, every member a stand-in in
+#     the compiler's words (is_program, is_standin);
 #   * the tests and suites emitted are the ones layers.expected lists.
 #
 # Measured by hand on 2026-10-02 (the "reading" case, the models, its grader
@@ -127,7 +148,54 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 # handed (layers.expected's " raised:"), never for a verdict. And on
 # 2026-10-11, the survive case fed standard input: ex00_survive_valgrind and
 # the new ex00_survive_program_allocfail green, each run ungated, its input
-# on the RAN line.
+# on the RAN line. And on 2026-10-12, the toy library ex12: 25 tests, 2
+# red -- ex12_build, its stub Makefile building no libtoy.a, and
+# ex12_toy_len_diff, the toy returning 0 where the borrowed arm's reference
+# does not; ex12_toy_len_perf SKIPping on that red, ex12_toy_len_cycles
+# measuring, and every other test green. Re-measured the same day with
+# toy_cat, ex13 and ex14 (each named, as above, by grep ':ex1[234]_'):
+# ex12's 36 tests, 4 red -- ex12_build as before, and ex12_toy_len_diff,
+# ex12_toy_cat_diff and ex12_toy_cat_readings, the toys returning 0 where
+# each borrowed arm's reference does not; ex12_toy_cat_perf SKIPping on that
+# red, both toy_cat allocfail tests SKIPping (the toy reports failure with
+# nothing injected), and every other test green. ex13's 18, 8 red: ex13_build
+# (its recipes only echo), and seven that are TODO.md's V198, expected until
+# it is fixed -- ex13_compile_clang, _gcc, _forbidden, _prototype, _symbols,
+# ex13_toy_up_ilp32 and ex13_toy_down_ilp32, each compiling the sources with
+# no -I inc and finding no toy13.h; ex13_toy_*_output and _memcheck green,
+# the members' programs built from the Makefile's plan. ex14's 18, 9 red,
+# every one on toy_right.c, which neither compiles nor parses: ex14_build,
+# _compile_clang, _gcc, _forbidden, _prototype, _symbols, _norm (norminette's
+# "Unexpected EOF") and both members' _output; the members' _ilp32 and
+# _memcheck SKIPping on their _output. Re-measured once more the same day,
+# with c_library's globals and function_lists: ex12's 39 tests, the same 4
+# red, ex12_globals, ex12_forbidden_functions and ex12_forbidden_through
+# green; ex13 and ex14 unchanged (each says "none:", and has neither).
+# Again with restrict_rule and declares_reading: ex12's 42 tests, 5 red,
+# the four above and ex12_declares_output, whose toy_lib.h declares nothing
+# yet, as a stub's may; ex12_prototype_restrict and _restrict_all green.
+# And on 2026-10-16 (V253), the survive case's valgrind arm gated on
+# `exact`: ex00_survive_valgrind green past that gate, run on its own
+# input, and every gated valgrind arm green with its --gate-label. And the
+# same day (V169, V282), the 27 allocfail, survive, diff, perf and readings
+# tests: ex00_survive_program_allocfail past its gate on `exact`, NOTHING TO
+# REFUSE on its own input; ex12_toy_cat_perf SKIPping on its differential;
+# and red only the eight diff, readings and corpus replays named above.
+# And the same day (V198), every layer of a library that compiles the
+# sources itself handed its Makefile's -I (:exNN_make_bin's list, "
+# make-includes" in layers.expected): the 78 tests of ex12, ex13 and ex14,
+# 15 red -- ex12's 5 above, ex13_build alone (the seven V198 reds green,
+# each finding inc/toy13.h through -I inc), and ex14's 9 above, its
+# compiles now red on toy_right.c alone. Then ex13's toy_up given a method
+# layer, which compiles the sources itself with the same -I: 79 tests, the
+# same 15 red, ex13_toy_up_method green (and red, on 'toy13.h' file not
+# found, with the member method layer's --inc-file taken out of defs.bzl).
+# And on 2026-10-17 (V299), toy_dup given a c_diff whose reading has a reader
+# of its own: 173 tests, 31 red -- the 29 the notes above name, as before
+# that change, and ex12_toy_dup_diff and ex12_toy_dup_readings, the toy
+# returning NULL where the borrowed arm's reference does not, each log under
+# its own reader's legend; ex12_toy_dup_diff_asan green over 30 cases, and
+# no ex12_toy_dup_readings_diff_asan emitted.
 # The module's :manual suite lists all of them (every fixture test
 # is manual), which `bazel query 'tests(//tools/tests/macro_fixtures/levels:manual)'`
 # shows. Re-measure after changing a macro or a runner.
@@ -159,6 +227,48 @@ subject(
         "09": exercise(page = 1, dir = "ex09/", files = ["toy_nine.h"], allowed = None),
         "10": exercise(page = 1, dir = "ex10/", files = ["toy_ten.h"], allowed = None),
         "11": exercise(page = 1, dir = "ex11/", files = [], optional = ["*.h"], allowed = None),
+        # A toy library: a Makefile building one archive, a function per
+        # box, each box with its own External Functions (`functions`).
+        "12": exercise(
+            page = 1,
+            dir = "ex12/",
+            files = [
+                "Makefile",
+                "toy_lib.h",
+            ],
+            optional = ["toy_*.c"],
+            allowed = ["malloc", "free"],
+            functions = {
+                "toy_cat": ["malloc", "free"],
+                "toy_dup": ["malloc"],
+                "toy_len": [],
+            },
+        ),
+        # The same, its Makefile written (ex13), and written with one of
+        # its sources broken (ex14): the header each source includes by
+        # name is in inc/, which only the Makefile's -I reaches.
+        "13": exercise(
+            page = 1,
+            dir = "ex13/",
+            files = ["Makefile"],
+            optional = ["toy_*.c", "inc/*.h"],
+            allowed = [],
+            functions = {
+                "toy_down": [],
+                "toy_up": [],
+            },
+        ),
+        "14": exercise(
+            page = 1,
+            dir = "ex14/",
+            files = ["Makefile"],
+            optional = ["toy_*.c", "inc/*.h"],
+            allowed = [],
+            functions = {
+                "toy_left": [],
+                "toy_right": [],
+            },
+        ),
     },
     # The part a toy subject calls mandatory, spread over lines with a note
     # among them, as buildifier spreads a long list: first_red --written
@@ -191,7 +301,8 @@ c_program(
     allocfail = [
         "staged",
         "argfile",
-        # And a survive case, fed standard input: no gate, so no gate options.
+        # And a survive case, fed standard input: its sweep waits on
+        # `exact`, whose gate is fed none (V282).
         "survive",
     ],
     allocfail_rule = "A toy rule, for the macro fixtures: errors are handled.",
@@ -207,10 +318,10 @@ c_program(
                 "empty.txt",
             ],
         },
-        # Fed standard input: its valgrind arm runs ungated, as every survive
-        # case's does, so it is handed no --gate-stdin either (" gate-stdin"):
-        # a gate's options with no gate are a wiring mistake the runner
-        # refuses.
+        # Fed standard input: its valgrind arm (V253) and its allocfail
+        # sweep (V282) wait on `exact` (_survive_gate), which is fed none,
+        # as its output and asan arms do, so neither gate is handed
+        # --gate-stdin (" gate-stdin").
         {
             "name": "survive",
             "survive": True,
@@ -353,7 +464,15 @@ hand_test(
 # A GENERATED CORPUS, on ex00's toy program, and its replays under the memory
 # checkers: without corpus_memory() below, the audit refuses this package. The
 # plain replays say what standard error is held to (_RUNNER_CHOICES); the twins
-# do not, a checker's mode being the answer.
+# do not, a checker's mode being the answer. One list both comprehensions
+# read, so every runner the plain replays name goes through corpus_memory()'s
+# check that it is one of _CORPUS_RUNNERS, as the mark below says (V153).
+_CORPUS_CASES = [
+    ("04", "argv", "//tools:argv_check.sh", "c06_print_params"),
+    ("06", "file", "//tools:file_check.sh", "c10_cat"),
+    ("08", "argv", "//tools:argv_check.sh", "c06_rev_params"),
+]
+
 [hand_test(
     name = "ex%s_%s_diff" % (num, what),
     layer = "diff",
@@ -370,11 +489,7 @@ hand_test(
         ":ex00_bin",
         "//oracle:oracle",
     ],
-) for num, what, runner, fn in [
-    ("04", "argv", "//tools:argv_check.sh", "c06_print_params"),
-    ("06", "file", "//tools:file_check.sh", "c10_cat"),
-    ("08", "argv", "//tools:argv_check.sh", "c06_rev_params"),
-]]
+) for num, what, runner, fn in _CORPUS_CASES]
 
 [corpus_memory(
     stem = "ex%s_%s" % (num, what),
@@ -388,10 +503,205 @@ hand_test(
     data = ["//oracle:oracle"],
     bin = ":ex00_bin",
     asan_bin = ":ex00_bin_asan",
-) for num, what, runner, fn in [
-    ("04", "argv", "//tools:argv_check.sh", "c06_print_params"),
-    ("06", "file", "//tools:file_check.sh", "c10_cat"),
-    ("08", "argv", "//tools:argv_check.sh", "c06_rev_params"),
+) for num, what, runner, fn in _CORPUS_CASES]
+
+# A TOY LIBRARY: c_library() declares what is the whole library's once --
+# its unit (:ex12_lib), c_make over its Makefile, the Norm, both compilers,
+# the prototypes, the union of the boxes for the forbidden layer, the
+# symbols -- and each function is a MEMBER: its macros, given `member`, name
+# every target ex12_<member>_*, read every file under tests/ex12/<member>/,
+# gate on ex12_<member>_output and link :ex12_lib through the Makefile, a
+# stub that builds nothing yet, so the library's sources stand in. Its
+# tests/ex12/prototype.h includes the library's header, so the names it
+# prints are a file of their own, prototype_names.h, which includes nothing.
+c_library(
+    num = "12",
+    artifact = "libtoy.a",
+    prototype_names = "prototype_names.h",
+    globals = "Toy, p.1: \"No variable lives outside a function.\"",
+    # One sentence per function: each red quotes its own function's.
+    function_lists = {
+        "toy_cat": "Toy, p.2, toy_cat's box: \"malloc, free\"",
+        "toy_dup": "Toy, p.2, toy_dup's box: \"malloc\"",
+        "toy_len": "Toy, p.2, toy_len's box: \"None\"",
+    },
+    restrict_rule = "Toy, p.1: \"No restrict in your own prototypes.\"",
+    declares_reading = "Toy, p.1, Files to turn in: \"Makefile, toy_lib.h, toy_*.c\"",
+    helpers_rule = "Toy, p.1: \"Each helper is static, in the file that uses it.\"",
+    make = {
+        "not_checked": {
+            "recipe": "the toy subject says nothing about how its library compiles",
+            "wildcards": "the toy subject does not bind the Norm",
+        },
+    },
+)
+
+# Every member macro on one function: c_function, c_mem_check, c_diff (and
+# the c_perf it hands `member` on to) and c_cycles.
+c_function(
+    num = "12",
+    fn = "toy_len",
+    member = "toy_len",
+    test = "test_toy_len.c",
+    clues = "clues.tsv",
+)
+
+c_mem_check(
+    num = "12",
+    fn = "toy_len",
+    member = "toy_len",
+    probe = "mem_toy_len.c",
+)
+
+c_diff(
+    num = "12",
+    fn = "toy_len",
+    member = "toy_len",
+    harness = "diff_toy_len.c",
+    oracle_fn = "c05_iter_factorial",
+    count = 40,
+    asan_count = 30,
+    perf_count = 40,
+)
+
+c_cycles(
+    num = "12",
+    fn = "toy_len",
+    member = "toy_len",
+    oracle_fn = "c05_iter_factorial",
+    harness = "diff_toy_len.c",
+    count = 40,
+)
+
+# A member whose own box allows malloc: malloc = True is required of it
+# (the box's list, not the union, see _function_malloc_problem), and keeps
+# its leak layer, ex12_toy_dup_valgrind. toy_len's box allows nothing, so
+# its call above passes no malloc although the library's union names it.
+c_function(
+    num = "12",
+    fn = "toy_dup",
+    member = "toy_dup",
+    test = "test_toy_dup.c",
+    clues = "clues.tsv",
+    malloc = True,
+)
+
+# A reading whose corpus is cases the plain one holds too, each result read
+# by a reader of its own ("harness", C 03 ex00's shape, V206): its target
+# runs ex12_toy_dup_readingsbin, built from diff_toy_dup_readings.c, which
+# :layers shows (" bin:", " built:", " reader:"); and it has no ASan twin, since
+# ex12_toy_dup_diff_asan replays those inputs already, and through the plain
+# reader a crash would be shown under the plain reader's legend (V299).
+c_diff(
+    num = "12",
+    fn = "toy_dup",
+    member = "toy_dup",
+    harness = "diff_toy_dup.c",
+    oracle_fn = "c05_iter_factorial",
+    count = 40,
+    asan_count = 30,
+    perf = False,
+    readings = {
+        "count": 50,
+        "harness": "diff_toy_dup_readings.c",
+        "oracle_fn": "c05_rec_factorial",
+    },
+)
+
+# A member with every per-function knob the others leave out: readings of
+# its own (c_function's, a case raised to strict; c_diff's, a corpus raised
+# to robust), the allocation-failure sweep and its leak twin (its box allows
+# free), and c_diff's perf with a length series (perf_length: a real //oracle
+# length arm of the line shape len_toy_cat.c reads stands in for a toy arm).
+# Every target is ex12_toy_cat_*, every file under tests/ex12/toy_cat/, and
+# every gate the member's own ex12_toy_cat_output.
+c_function(
+    num = "12",
+    fn = "toy_cat",
+    member = "toy_cat",
+    test = "test_toy_cat.c",
+    malloc = True,
+    allocfail = "af_toy_cat.c",
+    allocfail_rule = "the toy subject, p.1: \"Return NULL if the allocation fails.\"",
+    allocfail_leaks = True,
+    readings = [
+        {
+            "name": "open",
+            "main": "test_toy_cat_open.c",
+            "expected": "open.txt",
+            "level": 2,
+        },
+    ],
+)
+
+c_diff(
+    num = "12",
+    fn = "toy_cat",
+    member = "toy_cat",
+    harness = "diff_toy_cat.c",
+    oracle_fn = "c05_iter_factorial",
+    count = 40,
+    asan_count = 30,
+    perf_count = 40,
+    perf_length = {"oracle_fn": "c02_str_is_alpha_len", "harness": "len_toy_cat.c"},
+    readings = {
+        "count": 50,
+        "level": 3,
+        "oracle_fn": "c05_rec_factorial",
+    },
+)
+
+# A LIBRARY WHOSE MAKEFILE IS WRITTEN, and one with a source that does not
+# compile. Each member's program is built from what `make -Bn` says the
+# Makefile compiles, -I and all: ex13's members are real programs, which
+# only the Makefile's -I inc lets build (the library's sources standing in
+# would not find inc/toy13.h); ex14's are stand-ins in the compiler's words,
+# toy_left's too, since the archive both link holds toy_right.c -- nothing
+# stands in silently. macro_fixtures_test runs each (is_program,
+# is_standin). The library's own layers and each member's that compile the
+# sources themselves read the same -I (V198: " make-includes" in
+# layers.expected), so ex13's compile, forbidden, prototype, symbols and
+# ilp32 find inc/toy13.h as its programs do. Its recipes only echo, as a
+# stub's may: a fixture under deliverable/ is held to tools/stub_check.sh
+# like any turn-in.
+[c_library(
+    num = n,
+    artifact = "libtoy%s.a" % n,
+    prototype_names = "none: the toy subject prints no parameter names",
+    globals = "none: the toy subject says nothing of variables",
+    function_lists = "none: the toy subject gives no function a list of its own",
+    restrict_rule = "none: the toy subject says nothing of restrict",
+    declares_reading = "none: the toy subject's header is read by its members' tests alone",
+    helpers_rule = "none: the toy subject says nothing of helpers",
+    make = {
+        "not_checked": {
+            "recipe": "the toy subject says nothing about how its library compiles",
+            "wildcards": "the toy subject does not bind the Norm",
+        },
+    },
+) for n in ["13", "14"]]
+
+# ex13's toy_up carries a method layer, which compiles the sources itself
+# and so reads the Makefile's -I as well (" make-includes" on
+# ex13_toy_up_method): without it, inc/toy13.h is not found.
+c_function(
+    num = "13",
+    fn = "toy_up",
+    member = "toy_up",
+    test = "test_toy_up.c",
+    method = "iterative",
+    method_rule = "the toy subject, p.1: \"Create an iterative function.\"",
+)
+
+[c_function(
+    num = n,
+    fn = m,
+    member = m,
+    test = "test_%s.c" % m,
+) for n, m in [
+    ("13", "toy_down"),
+    ("14", "toy_left"),
+    ("14", "toy_right"),
 ]]
 
 # Called before the last test on purpose: its audit runs once the whole file
@@ -407,7 +717,10 @@ hand_test(
 # What c_levels() and the macros emitted, as data: one line per test --
 # "name runner", its level (the lowest lvl_ tag), " fn:" and " count:" (the
 # //oracle arm and the corpus size a generated corpus's replay is handed:
-# --oracle-fn, --count), " any-of", " survive",
+# --oracle-fn, --count), " bin:", " built:" and " reader:" (the program a
+# differential runs, --student-bin, where it is a reader of its own and no
+# exNN_diffbin; the harness that program's rule is built from; and the reader
+# source the runner is handed, --harness-src), " any-of", " survive",
 # " stray", " outside", " reading", " argv-file", " cwd", " ran", " case",
 # " clues" (a hint file it prints: --clues),
 # " stable", " sanitized" or " memcheck" (a corpus's sample: --sample),
@@ -416,20 +729,37 @@ hand_test(
 # " gate-stdin" (its gate is fed standard input: --gate-stdin) and
 # " gate-label:" and the output test its SKIP line names (--gate-label)
 # where its arguments say so, " raised:" and the level _RAISED gives it,
-# and " by:" and the RL_GRADER its
+# " member=" and the library function its tag says it is a test of (the
+# suite of that function selects it by that tag), and " by:" and the RL_GRADER its
 # environment holds (../BUILD.bazel's :layers says why) -- and one per suite,
 # "name suite" and its tags. The :manual suite is not here: a finalizer declares it after
 # this list is made.
 names_file(
     name = "layers",
     names = sorted([
-        "%s %s @%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s by:%s" % (
+        "%s %s @%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s by:%s" % (
             r["name"],
             r["srcs"][0].split(":")[-1],
             [t for t in ["lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"] if t in r["tags"]][0][4:],
             # The word after the flag (args is a tuple here: no .index).
             "".join([" fn:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--oracle-fn"]),
             "".join([" count:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--count"]),
+            # A reader of its own (c_diff's readings "harness"): the program
+            # it runs, the reader that program is built from (its rule's
+            # harness, " built:"), and the source the runner reads the
+            # cases' columns from (" reader:").
+            "".join([
+                " bin:" + r["args"][i + 1][len("$(location "):-1] + "".join([
+                    " built:" + h.split("/")[-1]
+                    for h in existing_rule(r["args"][i + 1][len("$(location :"):-1])["harness"]
+                ]) + "".join([
+                    " reader:" + r["args"][j + 1][:-1].split("/")[-1]
+                    for j in range(len(r["args"]) - 1)
+                    if r["args"][j] == "--harness-src"
+                ])
+                for i in range(len(r["args"]) - 1)
+                if r["args"][i] == "--student-bin" and not r["args"][i + 1].endswith(("_diffbin)", "_diffbin_asan)"))
+            ]),
             " any-of" if "--expected-alt" in r["args"] else "",
             " survive" if "--survive" in r["args"] else "",
             " stray" if "--stray" in r["args"] else "",
@@ -462,6 +792,11 @@ names_file(
             # The level _RAISED gives it, which _test() hands its runner to
             # say why it sits there (runner_lib.sh's rl__raised).
             (" raised:" + (r["env"] or {})["RL_RAISED"]) if "RL_RAISED" in (r["env"] or {}) else "",
+            # A layer handed a Makefile's -I list (--inc-file): a library's,
+            # every one that compiles the sources itself (V198), then a
+            # library function's test (tools/defs.bzl's _MEMBER_TAG).
+            (" make-includes" if "--inc-file" in r["args"] else "") +
+            "".join([" " + t for t in r["tags"] if t.startswith("member=")]),
             (r["env"] or {}).get("RL_GRADER", "none"),
         )
         for r in existing_rules().values()
@@ -470,6 +805,70 @@ names_file(
         "%s suite %s" % (r["name"], " ".join(r["tags"]))
         for r in existing_rules().values()
         if r["kind"] == "test_suite"
+    ]),
+)
+
+# WHOSE RULE EACH STATUS IS in the reference's run of every case
+# (ex00_reference_cases): "<case> <--exit-source>" for each --case-run that
+# judges a status, the source its output test gives it (tools/defs.bzl's
+# _exit_source). The case `reading` is a status a sentence is READ as
+# naming, and the reference's run called it the subject's (V145).
+names_file(
+    name = "reference_exit_sources",
+    names = [
+        "%s %s" % (a[i + 1], a[i + 3 + j + 1])
+        for a in [existing_rules()["ex00_reference_cases"]["args"]]
+        for i in range(len(a) - 2)
+        if a[i] == "--case-run"
+        for j in range(int(a[i + 2]))
+        if a[i + 3 + j] == "--exit-source"
+    ],
+)
+
+# WHAT A LIBRARY'S MEMBER POINTS AT, beyond its name and tag (which :layers
+# shows): every test tagged member=exNN/<m>, and every program named
+# exNN_<m>_*, reads its files under tests/exNN/<m>/ alone, names no program
+# but its own exNN_<m>_* (its gates included), and no output test but its
+# own (--gate-label). One line per word that does not -- "<target> <word>"
+# -- and macro_fixtures_test wants none. The library's own sources, under
+# deliverable/, the waiting lists and the -I list of its Makefile
+# (:exNN_make_bin_includes.txt, V198) are the whole library's.
+_MEMBERS = sorted({
+    t[len("member="):]: True
+    for r in existing_rules().values()
+    if r["kind"] == "sh_test"
+    for t in r["tags"]
+    if t.startswith("member=")
+}.keys())
+
+names_file(
+    name = "member_strays",
+    names = sorted([
+        "%s %s" % (r["name"], x)
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+        for m in [t[len("member="):] for t in r["tags"] if t.startswith("member=")]
+        for a in r["args"]
+        if a.startswith("$(location ")
+        for x in [a[len("$(location "):-1]]
+        if (x.startswith(":ex") and not x.startswith(":" + m.replace("/", "_") + "_") and
+            x != ":%s_make_bin_includes.txt" % m.split("/")[0]) or
+           (x.startswith("tests/" + m.split("/")[0] + "/") and not x.startswith("tests/" + m + "/"))
+    ] + [
+        "%s --gate-label %s" % (r["name"], r["args"][i + 1])
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+        for m in [t[len("member="):] for t in r["tags"] if t.startswith("member=")]
+        for i in range(len(r["args"]) - 1)
+        if r["args"][i] == "--gate-label" and not r["args"][i + 1].startswith(m.replace("/", "_") + "_")
+    ] + [
+        "%s %s" % (r["name"], h)
+        for r in existing_rules().values()
+        if r["kind"] == "student_binary"
+        for m in _MEMBERS
+        if r["name"].startswith(m.replace("/", "_") + "_")
+        for h in r["harness"]
+        if "tests/" + m.split("/")[0] + "/" in h and "tests/" + m + "/" not in h
     ]),
 )
 

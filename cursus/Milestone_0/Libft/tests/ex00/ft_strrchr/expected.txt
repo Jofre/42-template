@@ -1,0 +1,13 @@
+'H' in "Hello, 42!" (first byte)	s+0
+'l' in "Hello, 42!" (two of them)	s+3
+'!' in "Hello, 42!" (last byte)	s+9
+'z' in "Hello, 42!" (absent)	NULL
+NUL (c = 0) in "Hello, 42!"	s+10
+'a' in ""	NULL
+NUL (c = 0) in ""	s+0
+c = 233 in 'a' 0xe9 'b' 0xe9	s+3
+'z' in 0xe9 'z'	s+1
+c = 128 in 0x80 0x80	s+1
+'#' in 5000 bytes, '#' at 0 and 4999	s+4999
+'#' in 5000 bytes, '#' only at 0	s+0
+NUL (c = 0) in 5000 bytes	s+5000

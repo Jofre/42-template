@@ -1,0 +1,14 @@
+  Each line is two blocks (hex), n, and the SIGN of the result: -1, 0 or 1.
+  Only the sign is compared, never the value.
+    * 0 where a difference was expected, after a 00 byte -> what decides
+                                         when your function stops comparing:
+                                         n, or a byte it meets?
+    * a difference found just past n  -> how many pairs of bytes does your
+                                         function compare?
+    * the sign is the wrong way round -> which of the two blocks does a
+                                         positive result say is greater?
+    * only blocks holding a byte of 0x80 or more -> is 0x80 bigger or smaller
+                                         than 0x01 as an unsigned char, and as
+                                         a signed char?
+    * only blocks past 4096 bytes     -> does anything in your function depend
+                                         on n being small?

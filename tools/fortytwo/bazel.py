@@ -167,8 +167,13 @@ class Child:
         return time.monotonic() - self.started
 
 
-def run_foreground(child, tick=None, interval=0.5, cancel_when=None, stuck=None, stuck_after=10.0):
-    """Wait for child; tick(elapsed, stopping) is called as it runs.
+# How long run_foreground waits between two looks at its child, in seconds:
+# 42 watch's stop() is asked this often (main.Run). 42's tests set it shorter.
+POLL = 0.5
+
+
+def run_foreground(child, tick=None, interval=None, cancel_when=None, stuck=None, stuck_after=10.0):
+    """Wait for child; tick(elapsed, stopping) is called as it runs, every `interval` seconds (POLL when None).
 
     Ctrl-C, or cancel_when() turning True, cancels it: one SIGINT, ever.
     stuck() is called once if it has not stopped stuck_after seconds later;
@@ -199,7 +204,7 @@ def run_foreground(child, tick=None, interval=0.5, cancel_when=None, stuck=None,
                 stuck()
             if tick:
                 tick(child.elapsed(), state["stopping"])
-            time.sleep(interval)
+            time.sleep(POLL if interval is None else interval)
     finally:
         signal.signal(signal.SIGINT, old)
 

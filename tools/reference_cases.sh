@@ -227,9 +227,9 @@ if [ "$FAILS" -eq 0 ]; then
 fi
 echo "reference_cases: FAIL — the reference does not pass $FAILS of $N case(s)."
 if [ "$NONE" -gt 0 ]; then
-	echo "  $NONE of them run what the reference has no answer for: a run the"
-	echo "  subject leaves open, whose output no expected file can hold, not even"
-	echo "  an empty one. Such a case asks only that the program ends by itself"
+	echo "  $NONE of them run what the reference has no answer for: a run whose"
+	echo "  output no expected file can hold, not even an empty one. Such a case"
+	echo "  asks only that the program ends by itself"
 	echo "  (\"survive\")."
 fi
 echo "  These are the harness's own cases, never a student's: a case's arguments,"

@@ -1,0 +1,14 @@
+  A string; it is printed as hex after the call, then 1 when f was called
+  once for each index, in order, with that index's address, and never for
+  the terminator. The f here is the harness's own: it moves each byte by its
+  index, through the address it is handed, and never stores 0.
+    * the string unchanged      -> is f called at all, and with the address
+                                   of the byte, or of something else?
+    * the last byte unchanged, or the last column 0 -> how many calls, which
+                                   index first, and the terminator: a
+                                   character?
+    * every byte off by the same step -> which index does each call get?
+    * only strings holding a byte of 0x80 or more -> whether anything in your
+                                   loop stops at, or skips, such a byte
+    * only the long strings     -> does anything stop working past a few
+                                   thousand bytes?

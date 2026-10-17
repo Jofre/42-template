@@ -9,5 +9,5 @@
 embedded tabs "x\ty\tz"	5
 long (40 chars)	40
 long (5000 chars)	5000
-UTF-8 word "caf\xC3\xA9" (bytes above 0x7f)	5
-lone byte \xFF	1
+UTF-8 word "caf" + bytes 0xc3 0xa9 (above 0x7f)	5
+lone byte 0xff	1

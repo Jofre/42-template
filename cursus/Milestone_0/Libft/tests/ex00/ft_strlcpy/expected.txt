@@ -1,0 +1,10 @@
+"" size 5 (empty src)	ret=0 in size: \x00 | from size: XXX
+"Hi" size 50 (fits)	ret=2 in size: Hi\x00 | from size: XXX
+"Hello" size 6 (fits exactly)	ret=5 in size: Hello\x00 | from size: XXX
+"Hello" size 5 (one byte short)	ret=5 in size: Hell\x00 | from size: XXX
+"Hello" size 1 (room for the NUL alone)	ret=5 in size: \x00 | from size: XXX
+"Hello" size 0 (no room at all)	ret=5 in size: (none) | from size: XXX
+"Hello World" size 6 (cut short)	ret=11 in size: Hello\x00 | from size: XXX
+bytes 0xe9 't' 0xe9, size 10 (fits)	ret=3 in size: \xe9t\xe9\x00 | from size: XXX
+bytes 0xe9 't' 0xe9, size 3 (cut short)	ret=3 in size: \xe9t\x00 | from size: XXX
+5000-byte src, size 4097	ret=5000 in size: 4096 bytes of src then \x00 | from size: XXX

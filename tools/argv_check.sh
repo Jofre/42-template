@@ -8,7 +8,9 @@
 #   argv_check.sh --bin PATH --oracle PATH --fn NAME
 #                 [--seed N] [--count N] [--show N] [--expect-reordering]
 #                 [--exit-only | --sanitized [--guarded-argv] | --valgrind PATH
-#                  --valgrind-tools FILE [--sample N] [--rule FILE]]
+#                  --valgrind-tools FILE [--sample N] [--rule FILE] [--access-rule FILE]]
+#                 [--gate-differ PATH --gate-bin PATH --gate-expected PATH
+#                  [--gate-arg WORD]... [--gate-scenarios FILE] [--gate-label NAME]]
 #                 (--stderr-empty | --stderr-ignored REASON)
 #
 #   --show N      how many failing cases to print (default DIFF_MAX_ROWS, 40;
@@ -31,6 +33,17 @@
 #                 where the kernel put them, which the sanitizer does not
 #                 watch, and the verdict says so (finding 071: the corpus
 #                 twins ran the unguarded build and said nothing of it).
+#   --gate-differ PATH --gate-bin PATH --gate-expected PATH
+#                 the exercise's own output test, which this replay waits for
+#                 (see THE GATE below): GATE-BIN run through GATE-DIFFER against
+#                 GATE-EXPECTED, as that test runs it. --gate-arg WORD is one
+#                 word of its run, repeatable, for a diff_output.sh case;
+#                 --gate-scenarios FILE the table's rows, for an argv_table.sh
+#                 one (c_argv_table's exNN_output). --gate-label NAME is that
+#                 test's name, for the SKIP line. Any --gate-* without all of
+#                 --gate-differ, --gate-bin and --gate-expected is refused
+#                 (runner_lib.sh's rl_gate_whole). tools/defs.bzl's
+#                 output_gate() reads all of them off the output test.
 #   (--note is gone: it carried C 06 ex03's reason for sitting at robust, and
 #   that reason is now docs/reference.md's row, which runner_lib.sh's
 #   rl__raised prints under the red of every raised test -- one place.)
@@ -55,13 +68,15 @@
 #                    and says how many it did not try.
 #      DIFF_MAX_ROWS the default of --show (tools/runner_lib.sh, rl_rows)
 #
-# NO GATE, unlike bsq_check.sh. That one skips while the exercise's own example
-# is red, because replaying hundreds of generated maps then says the same thing
-# hundreds of times. c-06's first-red layer is its argv TABLE -- one labelled
-# row per hand-written scenario -- and it is a separate target that stays red on
-# its own. A wall here collapses to one line anyway: the report shows the first
-# --show cases and then tallies the rest by kind, so an unwritten exercise reads
-# as "200 of 200 differ, by kind: 200 no-output".
+# THE GATE, as every corpus runner has (tools/runner_lib.sh, rl_gate): while
+# the exercise's own output test is red -- c-06's argument TABLE, one labelled
+# row per hand-written scenario -- this says SKIP and exits 0, because a corpus
+# replayed over a program the table already fails reports that red again, and
+# docs/reference.md ("Which layers wait for which") says a diff layer never
+# does. It used to replay regardless, on the reasoning that its report tallies
+# a wall by kind; but every fresh stub then showed these replays red at strict
+# beside the table, which no list of a stub's reds named (V251). NO_SKIP=1
+# forces it open, and a gate that cannot answer lets the replay run.
 #
 # NOT argv[0]. A program that must print its own invocation name needs to be
 # COPIED to that name and run there, and tools/progname_test.sh already does
@@ -154,6 +169,7 @@ EXIT_ONLY=0
 GUARDED=0
 STDERR_EMPTY=0
 STDERR_WHY=""
+GATE_DIFFER=""; GATE_BIN=""; GATE_EXPECTED=""; GATE_ARGS=""
 
 # `--flag` with nothing after it used to die as "2: parameter not set" from
 # `set -u` -- the right exit code wrapped in raw shell. Same loop in every
@@ -173,11 +189,19 @@ while [ $# -gt 0 ]; do
 		--guarded-argv) GUARDED=1; shift ;;
 		--stderr-empty) STDERR_EMPTY=1; shift ;;
 		--stderr-ignored) need "$1" "$#"; STDERR_WHY="$2"; shift 2 ;;
-		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --symbolizer | --symbolizer-lib)
+		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; shift 2 ;;
+		--gate-scenarios) need "$1" "$#"; rl_list_add RL_GATE_PASS --scenarios "$2"; shift 2 ;;
+		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
+		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
 		*) echo "argv_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+# A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
+rl_gate_whole argv_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_ARGS$RL_GATE_PASS$RL_GATE_NAME"
 
 [ -n "$BIN" ] || { echo "argv_check.sh: --bin is required" >&2; exit 2; }
 [ -n "$ORACLE" ] || { echo "argv_check.sh: --oracle is required" >&2; exit 2; }
@@ -196,11 +220,20 @@ if [ "$EXIT_ONLY" = 1 ] && [ -n "$RL_MEM" ]; then
 	echo "  judges the same runs its own way." >&2
 	exit 2
 fi
+# THE GATE (see the header): the output test run as it runs, each --gate-arg
+# one word of its run, or its table's rows (--gate-scenarios). c_levels()'
+# audit holds the two to each other (tools/defs.bzl, _gate_problems).
+rl_split_on
+# shellcheck disable=SC2086 # a list, one word per line (rl_list_add)
+rl_gate argv_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" $GATE_ARGS
+rl_split_off
+
 # A PROGRAM THAT DID NOT BUILD is a stand-in script that says why (see
 # tools/standin.sh). Graded as a program, its "output" is empty and its exit
 # status arbitrary, and the report would be a table of wrong answers under
 # this exercise's hints, none of which is about a build. Say what the build
-# said instead, whole, and fail.
+# said instead, whole, and fail. Checked after the gate: a red gate has
+# already skipped this layer.
 case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
 for _sl in "$_sl_dir/standin.sh" \
 	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
@@ -416,6 +449,7 @@ show_argv() {
 	_sa_n=$(($(wc -c < "$WORK/replay") - 1))
 	if [ "$_sa_n" -le "$SHOW_W" ]; then
 		printf '    replay:   %s' "$(cat "$WORK/replay")"
+	# conventions: rl_save keeps no input -- the replay line; the program is given arguments, never a file
 	elif rl_save "$WORK/replay" "replay-case-$SEEN.sh"; then
 		printf '    replay:   sh %s (a command line of %d bytes, kept there;' "$RL_SAVED" "$_sa_n"
 		printf ' run it where ./a.out is)'
@@ -468,7 +502,6 @@ while IFS= read -r line; do
 		{
 			printf '\n  case %d  [%s]  %s\n' "$SEEN" "$tag" "$RL_MEM_KIND"
 			show_argv "$@"
-			# conventions: rl_mem_report without --as -- the program is given arguments, never a file; what rl_save keeps is the replay line
 			rl_mem_report
 		} > "$WORK/block"
 		rl_block "$WORK/block" >> "$WORK/report"

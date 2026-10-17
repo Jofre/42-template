@@ -41,7 +41,8 @@ static void	test(char *label, char *str, char *charset)
  * reading agrees on this case, and it is past every capacity an array of
  * words is usually given (16, 64, 256, 1024, 4096): a function that counts
  * into a fixed-size array of its own gets it wrong here, or dies
- * (finding 041). */
+ * (finding 041). The words are freed before the line's newline, as in test(),
+ * so a crash in free() marks this row. */
 static void	test_long(void)
 {
 	static char	str[64000];
@@ -77,19 +78,20 @@ static void	test_long(void)
 		i++;
 	}
 	if (!res)
-		printf("(null)\n");
+		printf("(null)");
 	else if (i == 5000 && !res[i])
-		printf("[w0][w1] ... [w4999]\n");
+		printf("[w0][w1] ... [w4999]");
 	else if (i == 5000)
-		printf("more than 5000 words\n");
+		printf("more than 5000 words");
 	else if (!res[i])
-		printf("only %d words\n", i);
+		printf("only %d words", i);
 	else
-		printf("word %d is [%s], not [w%d]\n", i, res[i], i);
+		printf("word %d is [%s], not [w%d]", i, res[i], i);
 	k = 0;
 	while (res && res[k])
 		free(res[k++]);
 	free(res);
+	printf("\n");
 }
 
 int	main(void)

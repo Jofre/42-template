@@ -1,0 +1,12 @@
+# clues.tsv for ft_strlcpy -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (fires if ANY listed case fails)
+# The contract is the manual page Libft, p.8 sends you to: man 3bsd strlcpy, one
+# page for strlcpy and strlcat. glibc has neither function, so the page ships in
+# libbsd-dev (the dev container carries it). With no page installed:
+# https://man.openbsd.org/strlcpy.3
+What does strlcpy return, and does that number depend on size at all (man 3bsd strlcpy, RETURN VALUES; no page installed? man.openbsd.org/strlcpy.3)?	"" size 5 (empty src)	"Hi" size 50 (fits)	"Hello" size 6 (fits exactly)	"Hello" size 5 (one byte short)	"Hello World" size 6 (cut short)
+size is the whole buffer, its terminator included. When src does not fit, how many of its characters fit, and where must the NUL go so that the result is still a string?	"Hello" size 5 (one byte short)	"Hello" size 1 (room for the NUL alone)	"Hello World" size 6 (cut short)	bytes 0xe9 't' 0xe9, size 3 (cut short)
+With size 0 there is no room even for a terminator. Which bytes of dst may the call touch then, and what does it still return?	"Hello" size 0 (no room at all)
+"from size" shows the bytes at index size and after, which started as 'X'. If one changed, which write of yours went one step too far?	"Hi" size 50 (fits)	"Hello" size 6 (fits exactly)	"Hello" size 1 (room for the NUL alone)
+Is a plain char signed on this machine? What value does a byte of 0xe9 take as a char, and does any test of yours read that value as the end of the string?	bytes 0xe9 't' 0xe9, size 10 (fits)	bytes 0xe9 't' 0xe9, size 3 (cut short)
+Right on short strings, wrong on a long one? Which types do your lengths and counts pass through, and can each of them hold every value the prototype's size and return can?	5000-byte src, size 4097

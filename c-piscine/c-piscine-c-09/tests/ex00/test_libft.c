@@ -24,9 +24,10 @@ static void	test_strlen(void)
 }
 
 /* The SIGN of a comparison result, as a word. The subject sends you to
- * `man strcmp`, whose RETURN VALUE promises a sign; whether the exact int is
- * graded as well is not settled, so this basic table compares the sign only
- * and the strict diff layer compares the int itself. */
+ * `man strcmp`, whose RETURN VALUE promises a sign, so this basic table and
+ * the diff corpus compare the sign only; the readings target, at strict,
+ * tests one reading of what the page leaves open, and its own hint says
+ * which. */
 static const char	*sign(int v)
 {
 	if (v < 0)

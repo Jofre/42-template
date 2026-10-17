@@ -1,0 +1,7 @@
+# clues.tsv for ft_strdup -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (fires if ANY listed case fails)
+# The contract is man 3 strdup (Libft, p.8: "adhering strictly to their definitions in the man page").
+strdup returns a new string, its memory obtained with malloc(3) (man 3 strdup). How many bytes does a copy of s need, counting the byte that ends it, and does that byte reach the copy?	"" (empty)	"a"	"42 Barcelona"	spaces and a tab kept
+Is the pointer you return a block of its own? After you write into the copy, what must still be true of s?	a separate copy, written into
+Is a plain char signed on this machine? What value does a byte of 0xc3 or 0xff take as a char, and does any test of yours read that value as the end of the string?	"caf" then bytes 0xc3 0xa9 0xff
+Right on short strings, wrong on a long one? Which types do your length and your position pass through, and can each of them count to 5000?	5000 bytes, every value 1..255 among them

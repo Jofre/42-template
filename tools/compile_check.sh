@@ -23,7 +23,9 @@
 #           which is also how gcc finds a target-prefixed `x86_64-linux-gnu-as`
 #           without anything being renamed. Verified: if the compiler still
 #           resolves `as` to a bare name afterwards it would take the machine's
-#           assembler, and this refuses to run.
+#           assembler, and this refuses to run. Needs a --cc-lib naming the
+#           assembler's libbfd: the fetched `as` loads libbfd and libopcodes
+#           by bare name, and this proves the loader took them from there.
 #   --cc-under  a file inside the fetched compiler's own bin directory (the
 #           driver itself will do). Asserts the compiler is really looking
 #           inside its own tree -- see the check below, which is the difference
@@ -68,7 +70,7 @@ require() {
 		exit 2
 	done
 }
-require basename dirname grep mktemp readlink rm
+require basename dirname env grep mktemp readlink rm
 
 # conventions: runs no student code -- it compiles the student's sources and runs none of what it builds
 # conventions: harness tool CC -- the compiler the macro names, one of the campus pair
@@ -151,16 +153,7 @@ while [ $# -gt 0 ]; do
 		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		--hdr) need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		--inc) need "$1" "$#"; rl_list_add INCS "-I$2"; shift 2 ;;
-		--inc-file)
-			need "$1" "$#"
-			[ -f "$2" ] || { echo "compile_check.sh: no include list at $2" >&2; exit 2; }
-			FROM_MAKE=1
-			while IFS= read -r _i; do
-				[ -n "$_i" ] || continue
-				rl_list_add INCS "-I$_i"
-				rl_list_add MAKE_INCS "$_i"
-			done < "$2"
-			shift 2 ;;
+		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2" MAKE_INCS; FROM_MAKE=1; shift 2 ;;
 		--staged-hdr) need "$1" "$#"; rl_list_add STAGED "$2"; shift 2 ;;
 		--grader-hdr) need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; rl_list_add GRADER_HDRS "$2"; shift 2 ;;
 		--readme) need "$1" "$#"; README="$2"; shift 2 ;;
@@ -170,6 +163,16 @@ done
 
 [ -n "$CC" ] || { echo "compile_check.sh: --cc is required" >&2; exit 2; }
 [ -n "$SRCS" ] || { echo "compile_check.sh: at least one --src is required" >&2; exit 2; }
+# The fetched assembler is a frontend over libbfd and libopcodes, named by
+# bare soname with no RUNPATH: with no directory of theirs on the loader's
+# path it runs on the box's copies where the box has binutils 2.38, and does
+# not start where it has another (TO VERIFY V228).
+[ -z "$CC_PROGS" ] || [ -n "$CC_LIBS" ] || {
+	echo "compile_check.sh: --cc-progs needs its --cc-lib: the pinned assembler loads" >&2
+	echo "  libbfd and libopcodes by bare name, and without their directory the" >&2
+	echo "  loader takes this machine's." >&2
+	exit 2
+}
 
 # The matched compiler is present on the 42 box and in a devcontainer rebuilt from
 # the current Dockerfile. If it is missing (an old image not yet rebuilt), skip
@@ -221,6 +224,10 @@ if ! command -v "$CC" >/dev/null 2>&1; then
 	echo "compile_check: '$CC_NAME' not found — SKIP (rebuild the devcontainer to match the 42 box)" >&2
 	exit 0
 fi
+# Found, and it must START: one the loader cannot start failed every proof
+# below as something else, or passed one by accident (runner_lib.sh's
+# rl_cc_starts, V241).
+rl_cc_starts "$CC"
 
 # The assembler, for the compilers that use an external one. -B puts a directory
 # at the FRONT of the subprogram search, and gcc accepts the target-prefixed
@@ -231,11 +238,14 @@ fi
 # bare word means it will take whatever the machine's PATH offers at assembly
 # time, the same silent substitution --cc-lib and --cc-under exist to prevent.
 # (clang assembles internally and answers "as" whatever it is passed, which is
-# why this is only asked of a caller that supplied --cc-progs.)
+# why this is only asked of a caller that supplied --cc-progs.) Its standard
+# output alone: an LD_DEBUG set from outside writes the loader's lines to
+# stderr, and they were read as part of the answer (V276; runner_lib.sh now
+# sends them to files of their own, V336, and the answer is read so still).
 BFLAG=""
 if [ -n "$CC_PROGS" ]; then
 	BFLAG="-B$CC_PROGS/"
-	_as=$("$CC" "$BFLAG" -print-prog-name=as 2>&1)
+	_as=$("$CC" "$BFLAG" -print-prog-name=as 2> /dev/null)
 	# UNDER the pinned directory, not merely absolute. "Absolute" is satisfied
 	# by /usr/bin/as, which is the machine's -- and clang answers with exactly
 	# that whether or not -B found anything, so the weaker test would have
@@ -257,11 +267,13 @@ fi
 
 # Is the fetched compiler actually using the fetched compiler?
 #
-# Starting is not the same as being pinned. gcc finds cc1 by walking up from its
-# own path, and if that tree is not staged it falls back to the box's -- same
-# driver, different compiler, no diagnostic. clang does the equivalent with its
-# resource directory. Both print where they will look, and both name their own
-# root when the fetch is complete, so one question answers it for either:
+# Starting is not the same as being pinned. gcc looks for cc1 in the tree it
+# resolves its own path to, and a GCC_EXEC_PREFIX from outside moves that tree
+# to the box's -- same driver, different compiler, no diagnostic (a cc1 missing
+# from its own tree is a loud "cannot execute 'cc1'" instead, V297). clang does
+# the equivalent with its resource directory. Both print where they will look,
+# and both name their own root when the fetch is complete, so one question
+# answers it for either:
 # does the compiler's own directory appear in its search path?
 #
 # Only asked when the caller says which directory that is. A compiler installed
@@ -269,7 +281,9 @@ fi
 # among its search dirs, and failing that would be a false alarm about a
 # perfectly ordinary setup.
 if [ -n "$CC_UNDER" ]; then
-	if ! "$CC" -print-search-dirs 2>&1 | grep -qF "$CC_UNDER"; then
+	# Its standard output alone, its status read (rl_cc_searches): an error
+	# that names the directory is no search path.
+	if ! rl_cc_searches "$CC" "$CC_UNDER"; then
 		echo "compile_check.sh: '$CC_NAME' is not searching its own tree." >&2
 		echo "" >&2
 		echo "  Expected to find: $CC_UNDER" >&2
@@ -284,6 +298,28 @@ fi
 
 WORK=$(mktemp -d)
 rl_traps 'rm -rf "$WORK"'
+
+# And is the pinned assembler running on the pinned libraries? Asked of the
+# assembler gcc itself runs, through the compile of a file whose one
+# function does nothing, with this compile's own environment: LD_DEBUG=libs makes the
+# loader of every process gcc starts say which files it loaded. Two
+# refusals, each exit 2, because each would otherwise be read as something
+# it is not: an assembler that cannot start fails every compile below as
+# "FAIL <the student's file>", and one that took the box's libbfd passes
+# with a tool nobody pinned.
+if [ -n "$CC_PROGS" ]; then
+	printf 'int\tmain(void)\n{\n\treturn (0);\n}\n' > "$WORK/nothing.c" || exit 2
+	if ! env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$CC" "$BFLAG" -c "$WORK/nothing.c" -o "$WORK/nothing.o" \
+			> /dev/null 2> "$WORK/nothing.debug"; then
+		grep -v '^[[:blank:]]*[0-9][0-9]*:' "$WORK/nothing.debug" > "$WORK/nothing.err"
+		echo "compile_check.sh: '$CC_NAME' and the pinned assembler cannot compile a file" >&2
+		echo "  whose one function does nothing, so a failure to compile here would" >&2
+		echo "  say nothing about the code under test. What they said:" >&2
+		rl_excerpt "$WORK/nothing.err" 10 assembler-probe.txt >&2
+		exit 2
+	fi
+	rl_libs_under "the pinned assembler" "$WORK/nothing.debug" "$CC_LIBS" libbfd libopcodes
+fi
 
 rc=0
 rl_split_on
@@ -310,7 +346,23 @@ fi
 # A failure with a header in a subfolder: most likely the one the compiler
 # did not find, so say what the grader's include path is and what would reach
 # it. Said once, after every file's errors, and only then: on a pass the
-# layout is fine as it is.
+# layout is fine as it is. A header whose folder the Makefile's -I passes is
+# reached, so it is not named: a library's toy_left.c compiled, and a syntax
+# error in toy_right.c was followed by "a plain #include does not reach
+# them" about the header both had just found (V198).
+if [ "$rc" -ne 0 ] && [ -n "$STAGED" ] && [ -n "$MAKE_INCS" ]; then
+	_unreached=""
+	rl_split_on
+	for _h in $STAGED; do
+		_hd=$(dirname "$_h")
+		case "$RL_NL$MAKE_INCS$RL_NL" in
+			*"$RL_NL$_hd$RL_NL"*) ;;
+			*) rl_list_add _unreached "$_h" ;;
+		esac
+	done
+	rl_split_off
+	STAGED=$_unreached
+fi
 if [ "$rc" -ne 0 ] && [ -n "$STAGED" ]; then
 	echo "" >&2
 	echo "compile_check: the include path here is the grader's -- the folder of" >&2

@@ -4,5 +4,5 @@
 "ab" + "cde"	ret="abcde" dest="abcde" ret==dest:1
 append past old '\0' (buffer was X-filled)	ret="Hiya" dest="Hiya" ret==dest:1
 "" + "" (both empty)	ret="" dest="" ret==dest:1
-"hi" + high-byte src \xC3\xA9\x80	ret="hi√©Ä" dest="hi√©Ä" ret==dest:1
+"hi" + high-byte src, bytes 0xc3 0xa9 0x80	ret="hi√©Ä" dest="hi√©Ä" ret==dest:1
 long src onto short dest	ret="ab0123456789012345678901234567890123456789" dest="ab0123456789012345678901234567890123456789" ret==dest:1

@@ -147,6 +147,9 @@ exports_files([
     # which words its report from the registry beside it (resources.tsv).
     "issued_test.sh",
     "resources.tsv",
+    # The README.md a subject asks for, read as Markdown: c_readme's runner,
+    # which reads the file and runs nothing.
+    "readme_check.sh",
     "header_check.sh",
     # The Norm's two header rules the pinned norminette skips -- protection
     # from double inclusions, a tag's prefix inside a typedef -- which
@@ -450,6 +453,15 @@ sh_binary(
         "norminette",
         "pins.tsv",
         "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ar",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-as",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-objdump",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ranlib",
+        # What the six frontends load (libbfd, libopcodes, libctf), and the
+        # one file of it the _LIBS entries below name.
+        "@binutils_x86_64_linux_gnu//:runtime",
+        "@binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so",
         "@buildifier_prebuilt//:buildifier",
         "@clang_12_ubuntu//:runtime",
         "@clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12",
@@ -459,12 +471,35 @@ sh_binary(
         "@diffutils_ubuntu//:usr/bin/diff",
         "@gcc_10_ubuntu//:runtime",
         "@make_ubuntu//:usr/bin/make",
+        # The interpreter every py_binary runs under, norminette's included,
+        # with the standard library it starts from.
+        "@python_3_13_1//:files",
+        "@python_3_13_1//:python3",
         "@shellcheck_linux_x86_64//:shellcheck",
         "@zig_linux_x86_64//:zig",
         "@gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10",
         "@valgrind_ubuntu//:usr/bin/valgrind.bin",
+        # Its tool directory, and the one file of it HERMETIC_VALGRIND_TOOLS
+        # names.
+        "@valgrind_ubuntu//:runtime",
+        "@valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux",
     ],
+    # Each probe gets what its layers give the tool, or it reports on
+    # something else: <VAR>_LIBS, files whose directories go first on the
+    # loader's path, <VAR>_TOOLS, a file in valgrind's tool directory, which
+    # becomes $VALGRIND_LIB, and <VAR>_COMPILE, the words a compiler is also
+    # run with (tools/env_drift.sh says why each). The binutils frontends
+    # name libbfd, libopcodes and libctf by bare soname with no RUNPATH, and
+    # one directory holds all three: the file is defs.bzl's _PINNED_LD_LIBS
+    # and _PINNED_NM_LIBS, repeated because a name with a leading underscore
+    # cannot be loaded. //tools:conventions holds each binary of a
+    # repository whose libraries or tool directory the macros hand over to
+    # its _LIBS or _TOOLS here.
     env = {
+        "HERMETIC_AR": "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ar)",
+        "HERMETIC_AR_LIBS": "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
+        "HERMETIC_AS": "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-as)",
+        "HERMETIC_AS_LIBS": "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
         "HERMETIC_BUILDIFIER": "$(rootpath @buildifier_prebuilt//:buildifier)",
         "HERMETIC_CLANG": "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12)",
         # <VAR>_LIBS is the convention for a fetched binary that carries its own
@@ -472,21 +507,34 @@ sh_binary(
         # and this would report on a compiler other than the pinned one -- the
         # comparison failing in exactly the way it exists to catch.
         "HERMETIC_CLANG_LIBS": "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/lib/libclang-cpp.so.12):$(rootpath @clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1)",
+        # An empty file, compiled for syntax only: clang runs its own -cc1,
+        # and gcc runs cc1, which loads libraries the driver does not.
+        "HERMETIC_CLANG_COMPILE": "-fsyntax-only -x c /dev/null",
         "HERMETIC_DIFF": "$(rootpath @diffutils_ubuntu//:usr/bin/diff)",
         "HERMETIC_GCC": "$(rootpath @gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10)",
+        "HERMETIC_GCC_COMPILE": "-fsyntax-only -x c /dev/null",
+        "HERMETIC_LD": "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd)",
+        "HERMETIC_LD_LIBS": "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
         "HERMETIC_MAKE": "$(rootpath @make_ubuntu//:usr/bin/make)",
         "HERMETIC_NM": "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm)",
+        "HERMETIC_NM_LIBS": "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
+        "HERMETIC_OBJDUMP": "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-objdump)",
+        "HERMETIC_OBJDUMP_LIBS": "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
         "HERMETIC_NORMINETTE": "$(rootpath :norminette)",
+        "HERMETIC_PYTHON": "$(rootpath @python_3_13_1//:python3)",
+        "HERMETIC_RANLIB": "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ranlib)",
+        "HERMETIC_RANLIB_LIBS": "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
         "HERMETIC_SHELLCHECK": "$(rootpath @shellcheck_linux_x86_64//:shellcheck)",
         # Loads libLLVM-12.so.1 by bare soname, as the driver above does.
         "HERMETIC_SYMBOLIZER": "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/bin/llvm-symbolizer)",
         "HERMETIC_SYMBOLIZER_LIBS": "$(rootpath @clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1)",
         # valgrind.bin, not the /usr/bin/valgrind wrapper -- the wrapper execs
         # "$0.bin" and that derived path does not resolve from a runfiles tree.
-        # No _LIBS entry: --version answers before valgrind needs its tool
-        # directory, so this reports the fetched binary's own version without
-        # $VALGRIND_LIB. The layers that actually RUN it do set it.
+        # Even --version starts the tool, from $VALGRIND_LIB or else the box's
+        # /usr/libexec/valgrind: without _TOOLS it reported the box's memcheck
+        # where there was one, and "failed to start tool" where there was none.
         "HERMETIC_VALGRIND": "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
+        "HERMETIC_VALGRIND_TOOLS": "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux)",
         "HERMETIC_ZIG": "$(rootpath @zig_linux_x86_64//:zig)",
     },
 )

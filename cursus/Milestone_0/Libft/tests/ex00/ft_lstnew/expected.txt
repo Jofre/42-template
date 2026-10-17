@@ -1,0 +1,8 @@
+ft_lstnew("forty-two"): content	the pointer passed
+ft_lstnew("forty-two"): next	NULL
+ft_lstnew(&x): content	the pointer passed
+ft_lstnew(&x): next	NULL
+ft_lstnew(NULL): content	the pointer passed
+ft_lstnew(NULL): next	NULL
+two calls, same content: nodes	two nodes
+5000 calls: content and next right	5000 of 5000

@@ -50,7 +50,7 @@
 # The actual file list is supplied by the caller (Bazel's glob sees the real
 # directory at analysis time; a test sandbox would only ever see files that were
 # already declared, which is exactly the blind spot this closes): as
-# --actual PATH, one per file, or as --actual-list FILE, one NAME per line --
+# --actual NAME, one per file, or as --actual-list FILE, one NAME per line --
 # how tools/defs.bzl's c_files hands it over, so that a name no label or
 # argument list can carry ("ft_putchar (1).c") still arrives whole. Every list
 # here is one name per line and is walked a line at a time: a name with a
@@ -100,7 +100,7 @@
 #   files_test.sh --label NAME [--required NAME]... [--optional NAME]...
 #                 [--expected NAME]...
 #                 [--provided NAME]... [--grader moulinette|defense|both]
-#                 [--actual PATH]... [--actual-list FILE] [--strict] [--root]
+#                 [--actual NAME]... [--actual-list FILE] [--strict] [--root]
 #                 [--stray EXERCISES | --outside EXERCISES] [--built FILE]
 #                 [--build-target NAME] [--program NAME]...
 #
@@ -121,7 +121,7 @@ require() {
 		exit 2
 	done
 }
-require basename grep sed sort
+require grep sed sort
 
 # conventions: runs no student code -- it compares the names of the turned-in files with the subject's list
 
@@ -160,7 +160,7 @@ while [ $# -gt 0 ]; do
 				*) echo "files_test.sh: --grader is moulinette, defense or both, not '$2'" >&2; exit 2 ;;
 			esac
 			shift 2 ;;
-		--actual) need "$1" "$#"; ACT=$(add "$ACT" "$(basename "$2")"); shift 2 ;;
+		--actual) need "$1" "$#"; ACT=$(add "$ACT" "$2"); shift 2 ;;
 		--actual-list)
 			need "$1" "$#"
 			[ -f "$2" ] || { echo "files_test.sh: no name list at $2" >&2; exit 2; }

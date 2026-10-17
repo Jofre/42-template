@@ -1,0 +1,13 @@
+  ex00_ft_strrchr_readings, at strict: every c here is OUTSIDE 0..255 -- a
+  byte value plus or minus a multiple of 256, out to INT_MIN and INT_MAX.
+  man 3 strrchr does not say what such a c finds. This harness's reading, at
+  strict, never the man page's, is that c is converted to unsigned char
+  first, so c finds what its low 8 bits find (256 + 'l' finds 'l', 256 finds
+  the terminator).
+    * every c of the corpus diverges   -> which conversion, if any, does your
+                                          function apply to c before comparing?
+    * only c below 0                   -> what a negative int becomes when it
+                                          is converted to unsigned char
+    * only inputs holding a byte of 0x80 or more -> whether the byte and the
+                                          converted c are the same value when
+                                          you compare them

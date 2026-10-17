@@ -6,12 +6,16 @@
 struct s_stock_str	*ft_strs_to_tab(int ac, char **av);
 
 /* One labeled line per element: the size, whether .str aliases av[i] (it should)
- * and whether .copy is a NEW allocation distinct from av[i] (it should). */
+ * and whether .copy is a NEW allocation distinct from av[i] (it should). The
+ * copy is freed before the line's newline, so a crash in free() leaves this
+ * row unfinished and diff_output.sh marks it, not the next one. */
 static void	show_elem(char *label, t_stock_str *tab, char **av, int i)
 {
-	printf("%s\tstr=%s size=%d copy=%s str_is_av=%d copy_is_new=%d\n",
+	printf("%s\tstr=%s size=%d copy=%s str_is_av=%d copy_is_new=%d",
 		label, tab[i].str, tab[i].size, tab[i].copy,
 		tab[i].str == av[i], tab[i].copy != av[i]);
+	free(tab[i].copy);
+	printf("\n");
 }
 
 /* 1000 strings, "s0" to "s999", and every element checked by construction,
@@ -19,7 +23,7 @@ static void	show_elem(char *label, t_stock_str *tab, char **av, int i)
  * The subject bounds no ac, so every reading agrees on this case, and it is
  * past every capacity an array is usually given (16, 64, 256): a function
  * that fills a fixed-size array first gets it wrong here, or dies
- * (finding 041). */
+ * (finding 041). Freed before the line's newline, as show_elem() does. */
 static void	test_long(void)
 {
 	static char	words[1000][8];
@@ -46,17 +50,18 @@ static void	test_long(void)
 		&& tab[i].copy && tab[i].copy != av[i] && strcmp(tab[i].copy, av[i]) == 0)
 		i++;
 	if (i < 1000)
-		printf("element %d is wrong: str=%s size=%d copy=%s\n", i,
+		printf("element %d is wrong: str=%s size=%d copy=%s", i,
 			tab[i].str == av[i] ? "av[i]" : "not av[i]", tab[i].size,
 			tab[i].copy ? tab[i].copy : "(null)");
 	else if (tab[1000].str != 0)
-		printf("no terminator after element 999\n");
+		printf("no terminator after element 999");
 	else
-		printf("all 1000 right, then the terminator\n");
+		printf("all 1000 right, then the terminator");
 	i = 0;
 	while (i < 1000)
 		free(tab[i++].copy);
 	free(tab);
+	printf("\n");
 }
 
 int	main(void)
@@ -64,7 +69,6 @@ int	main(void)
 	char		*av[4];
 	char		*empty[1];
 	t_stock_str	*tab;
-	int			i;
 
 	av[0] = "zero";
 	av[1] = "";
@@ -77,15 +81,14 @@ int	main(void)
 	show_elem("[1] \"\" (empty)", tab, av, 1);
 	show_elem("[2] \"a\"", tab, av, 2);
 	show_elem("[3] \"fortytwo!\"", tab, av, 3);
-	printf("%s\tterminator_null:%d\n", "terminator (str == NULL)", tab[4].str == 0);
-	i = 0;
-	while (i < 4)
-		free(tab[i++].copy);
+	printf("%s\tterminator_null:%d", "terminator (str == NULL)", tab[4].str == 0);
 	free(tab);
+	printf("\n");
 	empty[0] = 0;
 	tab = ft_strs_to_tab(0, empty);
-	printf("%s\tterminator_null:%d\n", "ac=0 (terminator only)", tab && tab[0].str == 0);
+	printf("%s\tterminator_null:%d", "ac=0 (terminator only)", tab && tab[0].str == 0);
 	free(tab);
+	printf("\n");
 	test_long();
 	return (0);
 }

@@ -80,7 +80,7 @@
 #                    [--gate-arg STR | --gate-arg-file F] [--gate-label NAME]]
 #                   (--stderr-empty | --stderr-ignored REASON
 #                    | --sanitized | --valgrind PATH --valgrind-tools FILE
-#                      [--sample N] [--rule FILE])
+#                      [--sample N] [--rule FILE] [--access-rule FILE])
 #   rush01_check.sh --bin PATH --probes-only --probe-shape|--probe-argc...
 #                   --gate-arg STR | --gate-arg-file F   [as above]
 #
@@ -155,7 +155,7 @@
 #                       (ex00_sweep_diff_asan); --symbolizer PATH
 #                       --symbolizer-lib FILE name each frame of a report's
 #                       stack (runner_lib.sh, rl_sanitizers)
-#   --valgrind PATH --valgrind-tools FILE [--sample N] [--rule FILE]
+#   --valgrind PATH --valgrind-tools FILE [--sample N] [--rule FILE] [--access-rule FILE]
 #                       a sample of the cases under memcheck, leaks included
 #                       (ex00_sweep_valgrind). Both in tools/runner_lib.sh, "A
 #                       CORPUS UNDER A MEMORY CHECKER"; the probes asked for
@@ -418,7 +418,7 @@ while [ $# -gt 0 ]; do
 		--show) need "$1" "$#"; SHOW="$2"; shift 2 ;;
 		--stderr-empty) STDERR_EMPTY=1; shift ;;
 		--stderr-ignored) need "$1" "$#"; STDERR_WHY="$2"; shift 2 ;;
-		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --symbolizer | --symbolizer-lib)
+		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
 		*)
 			echo "rush01_check: unknown option: $1" >&2
@@ -1389,6 +1389,7 @@ run_one() {
 		RUN_RC=0
 		return 0
 	fi
+	keep_args "$@"
 	rl_run "$BIN" "$@" > "$OUT" 2> "$ERRF" < /dev/null
 	RUN_RC=$?
 	# How it ended, from waitpid() (tools/exit_status): a return of any number
@@ -1444,9 +1445,10 @@ judge_one() {
 		# point spending the layer's whole budget rediscovering it once per case.
 		TIMEOUTS=$((TIMEOUTS + 1))
 		echo " --------------------------------------------------"
-		echo " $_word $_id  argv: \"$_clue\"${_argvdesc:+  -- $_argvdesc}"
+		argv_line
 		echo "   RUNAWAY OUTPUT: it kept printing past a ${RUNAWAY_CAP_MIB} MiB budget and was stopped."
 		echo "                   A correct answer here is one grid or the word Error."
+		replay_line
 		return 1
 	fi
 	# A bonus-size case that runs out of time is reporting SLOWNESS, not a wrong
@@ -1479,7 +1481,7 @@ judge_one() {
 		[ -z "$PROBE_KIND" ] || PDNF=$((PDNF + 1))
 		[ "$_side" -gt "$MANDATORY_N" ] && TIMEOUTS_LARGE=$((TIMEOUTS_LARGE + 1))
 		echo " --------------------------------------------------"
-		echo " $_word $_id  argv: \"$_clue\"${_argvdesc:+  -- $_argvdesc}"
+		argv_line
 		echo "   TIMEOUT: it did not finish within ${RL_TMO}s."
 		if [ "$_side" -gt "$MANDATORY_N" ]; then
 			echo "            It ran out of time on a large board (${_side}x${_side}). A correct"
@@ -1489,16 +1491,18 @@ judge_one() {
 			echo "            Every case in this layer is one small board; a search that"
 			echo "            terminates finishes it in milliseconds."
 		fi
+		replay_line
 		return 1
 	fi
 	if [ "$RL_CAUSE" = signal ] || [ "$RL_CAUSE" = stopped ]; then
 		FAILS=$((FAILS + 1))
 		echo "crash" >> "$CATS"
 		echo " --------------------------------------------------"
-		echo " $_word $_id  argv: \"$_clue\"${_argvdesc:+  -- $_argvdesc}"
+		argv_line
 		echo "   CRASH: it $RL_WHY."
 		echo "          Whatever it printed first does not matter: a crash is a failure."
 		[ -s "$ERRF" ] && rl_excerpt "$ERRF" 8 "case-$(printf '%s' "$_id" | tr '/' '-')-stderr.txt" "          "
+		replay_line
 		return 1
 	fi
 
@@ -1516,10 +1520,11 @@ judge_one() {
 		FAILS=$((FAILS + 1))
 		echo "wrote-to-stderr" >> "$CATS"
 		echo " --------------------------------------------------"
-		echo " $_word $_id  argv: \"$_clue\"${_argvdesc:+  -- $_argvdesc}"
+		argv_line
 		echo "   the right answer, and it wrote to standard error, where this check"
 		echo "   requires nothing:"
 		rl_excerpt "$ERRF" 6 "case-$(printf '%s' "$_id" | tr '/' '-')-stderr.txt" "          "
+		replay_line
 		return 1
 	fi
 	if [ "$_jrc" -eq 0 ]; then
@@ -1530,7 +1535,49 @@ judge_one() {
 		return 2
 	fi
 	FAILS=$((FAILS + 1))
+	replay_line
 	return 1
+}
+
+# argv_line -- a failing block's first line, as the judged path's verdict()
+# writes it: the argument through the one renderer (rl_vis; a shape probe
+# holds a tab, which reached the log raw on these paths, V175), or, for an
+# argument list that is not one clue string (the argc probes), what it is.
+# printf, never echo: dash's echo reads the rendering's \t as a tab again.
+argv_line() {
+	if [ -z "$_clue" ] && [ -n "$_argvdesc" ]; then
+		printf ' %s %s  argv: %s\n' "$_word" "$_id" "$_argvdesc"
+	else
+		printf ' %s %s  argv: "%s"%s\n' "$_word" "$_id" "$(printf '%s' "$_clue" | rl_vis arg)" \
+			"${_argvdesc:+  -- $_argvdesc}"
+	fi
+}
+
+# keep_args ARG... -- a run's arguments, each kept whole for its failing
+# block's replay line (replay_line): written by the shell itself, so a run
+# costs no process. run_one and mem_case call it before each run.
+keep_args() {
+	RUN_ARGN=$#
+	_ra=0
+	for _a in "$@"; do
+		_ra=$((_ra + 1))
+		printf '%s' "$_a" > "$T/argv.$_ra"
+	done
+}
+
+# replay_line -- the command that runs the case again, where the program is
+# built: the arguments the run was handed (RUN_ARGN of them, kept as
+# $T/argv.K), each as a shell word that gives back its exact bytes
+# (rl_shword). Never the argv: line above, whose rendering is for reading:
+# a replay built from it would run another input.
+replay_line() {
+	_rp="./rush01"
+	_ri=0
+	while [ "$_ri" -lt "$RUN_ARGN" ]; do
+		_ri=$((_ri + 1))
+		_rp="$_rp $(rl_shword < "$T/argv.$_ri")"
+	done
+	printf '   replay:   %s\n' "$_rp"
 }
 
 # ---------------------------------------------------------------------------
@@ -1632,6 +1679,7 @@ mem_case() {
 	_mw=$1; _mid=$2; _mdesc=$3
 	shift 3
 	RUN=$((RUN + 1))
+	keep_args "$@"
 	if [ "$_mw" = PROBE ]; then
 		rl_mem_run --what "probe $_mid" -- "$@"
 	else
@@ -1642,12 +1690,18 @@ mem_case() {
 	{
 		echo " --------------------------------------------------"
 		if [ "$#" -eq 1 ]; then
-			# Every byte visible (rl_vis): a shape probe holds a tab.
-			echo " $_mw $_mid  argv: \"$(printf '%s' "$1" | rl_vis arg)\"${_mdesc:+  -- $_mdesc}  [$RL_MEM_KIND]"
+			# Every byte visible (rl_vis): a shape probe holds a tab. printf,
+			# never echo, which in dash turned the rendering's \t back into a
+			# tab (V175).
+			printf ' %s %s  argv: "%s"%s  [%s]\n' "$_mw" "$_mid" "$(printf '%s' "$1" | rl_vis arg)" \
+				"${_mdesc:+  -- $_mdesc}" "$RL_MEM_KIND"
 		else
 			echo " $_mw $_mid  argv: $# argument(s)${_mdesc:+  -- $_mdesc}  [$RL_MEM_KIND]"
 		fi
 		rl_mem_report
+		# Like every failing block, the command that runs the case again
+		# (V175): the same arguments, to run under the same checker.
+		replay_line
 	} > "$BLOCK"
 	rl_block "$BLOCK"
 }

@@ -5,7 +5,9 @@ char	*ft_convert_base(char *nbr, char *base_from, char *base_to);
 
 /* Prints "<label>\t<value>" so tools/diff_output.sh (run with --labeled) can
  * show each case in its own column. The conversion result is malloc'd, so we
- * print it on a single line then free it; an invalid request prints (null).
+ * print it on a single line and free it before the line's newline (a crash
+ * in free() then leaves this row unfinished, and diff_output.sh marks it);
+ * an invalid request prints (null).
  * Cases are ordered trivial -> hardest, so the first failing row is the most
  * fundamental thing to fix. */
 static void	test(char *label, char *nbr, char *from, char *to)
@@ -13,8 +15,9 @@ static void	test(char *label, char *nbr, char *from, char *to)
 	char	*res;
 
 	res = ft_convert_base(nbr, from, to);
-	printf("%s\t%s\n", label, res ? res : "(null)");
+	printf("%s\t%s", label, res ? res : "(null)");
 	free(res);
+	printf("\n");
 }
 
 int	main(void)

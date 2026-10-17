@@ -16,7 +16,7 @@
 # trick tools/ilp32_test.sh uses to keep a toolchain problem out of the build
 # graph.
 #
-# c-09's libft bundle (c_libft, --shape libft) comes through here for the same
+# c-09's libft bundle (c_libft, --shape sources) comes through here for the same
 # reason. c-09 ex01 used to be one, and turned in a header beside its sources: a
 # harness main() that reached the five functions through it was a cc_binary
 # that stopped COMPILING the moment that header was reduced to its guards --
@@ -36,7 +36,7 @@
 #   header_check.sh --differ PATH --hdr FILE --main FILE [--src FILE]...
 #                   (--expected FILE [--expected-alt FILE]... | --survive)
 #                   [--clues FILE] [--labeled] [--stdin FILE]
-#                   [--shape header|libft] [--inc DIR]...
+#                   [--shape header|sources] [--inc DIR]...
 #                   [--harness-src FILE]...
 #                   [--exit CODE [--exit-source subject|reading|convention]
 #                    [--exit-quote TEXT]]
@@ -49,7 +49,7 @@
 #                 to tools/diff_output.sh, which runs the program, as --exit
 #                 is (see there for what each means).
 #   --shape S     header (default): the header is the whole deliverable and
-#                 --hdr is required. libft: the --src files and any --hdr are
+#                 --hdr is required. sources: the --src files and any --hdr are
 #                 what the student turned in; see the paragraph above.
 #   --inc DIR     one more include directory, for a deliverable whose sources
 #                 #include from somewhere other than beside a --hdr.
@@ -144,8 +144,8 @@ while [ $# -gt 0 ]; do
 		--shape)
 			need "$1" "$#"
 			case "$2" in
-				header | libft) SHAPE="$2" ;;
-				*) echo "header_check.sh: --shape must be header or libft, not '$2'" >&2
+				header | sources) SHAPE="$2" ;;
+				*) echo "header_check.sh: --shape must be header or sources, not '$2'" >&2
 				   exit 2 ;;
 			esac
 			shift 2 ;;
@@ -206,14 +206,14 @@ else
 fi
 rl_split_off
 # The header is the whole deliverable of the default shape, so leaving it out is
-# a wiring error there. A libft bundle may turn in no header at all (c-09 ex00),
-# and what it does turn in is its sources.
+# a wiring error there. A bundle of sources may turn in no header at all
+# (c-09 ex00), and what it does turn in is its sources.
 if [ "$SHAPE" = header ] && [ -z "$HDR" ]; then
 	echo "header_check.sh: need --differ, --hdr, --main and --expected" >&2
 	exit 2
 fi
-if [ "$SHAPE" = libft ] && [ -z "$SRCS" ]; then
-	echo "header_check.sh: --shape libft needs at least one --src: the sources" >&2
+if [ "$SHAPE" = sources ] && [ -z "$SRCS" ]; then
+	echo "header_check.sh: --shape sources needs at least one --src: the sources" >&2
 	echo "                 ARE the deliverable, so without them nothing is tested." >&2
 	exit 2
 fi
@@ -265,6 +265,10 @@ command -v "$CC" > /dev/null 2>&1 || {
 	echo "  fault and not a finding about this exercise." >&2
 	exit 2
 }
+# And it must START: one the loader cannot start failed the compile below,
+# and the student's file was reported as not compiling (runner_lib.sh's
+# rl_cc_starts, V241).
+rl_cc_starts "$CC"
 
 [ -z "$WAITING" ] || [ -f "$WAITING" ] || {
 	echo "header_check.sh: no --waiting file at $WAITING" >&2
@@ -285,7 +289,7 @@ rl_split_on
 _cc_rc=$?
 rl_split_off
 if [ "$_cc_rc" -ne 0 ]; then
-	if [ "$SHAPE" = libft ]; then
+	if [ "$SHAPE" = sources ]; then
 		echo "header_check: FAIL — the test program does not compile against what you turned in."
 		echo ""
 		echo "  The test program is the harness's file, not yours. It calls every"
@@ -306,6 +310,10 @@ if [ "$_cc_rc" -ne 0 ]; then
 		echo "  a different shape than it asked for."
 	fi
 	echo ""
+	# THE BUILD MARK (runner_lib.sh): the line tools/first_red.sh reads to
+	# file this test with what does not build, never as a wrong output.
+	rl_build_mark
+	echo ""
 	echo "  ---------------- what the compiler said ----------------"
 	rl_excerpt "$WORK/cc.err" 25 compiler-output.txt "  "
 	# The clue file is the same TSV the output layer uses, read by the one
@@ -320,7 +328,7 @@ fi
 # program prints nothing (c-08 ex00 and ex03) showed an empty table with
 # "PASS (0/0 passed)" -- a layer that looked as though it had checked nothing,
 # when the compile against the header was the whole check.
-if [ "$SHAPE" = libft ]; then
+if [ "$SHAPE" = sources ]; then
 	echo "header_check: OK — the test program compiled against what you turned in,"
 else
 	echo "header_check: OK — the test program compiled against your header,"

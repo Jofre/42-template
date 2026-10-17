@@ -179,6 +179,17 @@ abspath() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$PWD" "$1" ;
 print_clue() {
 	rl_clues "$CLUES"
 }
+# clue_if_red STATUS -- the hints after a check that exited STATUS, only when
+# that is 1, a verdict on the turn-in. 2 is the harness (ck_broken, a check
+# script that is wired wrong, a diff or a files test that could not run):
+# nothing was judged, and a hint about the student's own steps right under
+# "the fixture no longer shows every step" sent them the wrong way (V278). A
+# turn-in that is missing is a 1 (ck_require; in diff mode, a deliverable the
+# generator never wrote), and keeps its hints.
+clue_if_red() {
+	[ "$1" -eq 1 ] || return 0
+	print_clue
+}
 
 # `--flag` with nothing after it used to die as "2: parameter not set" from
 # `set -u` -- the right exit code wrapped in raw shell. Same loop in every
@@ -723,11 +734,11 @@ if [ "$MODE" = files ]; then
 	for _f in * .[!.]* ..?*; do
 		[ -e "$_f" ] || [ -L "$_f" ] || continue
 		is_fixture "$_f" && continue
-		set -- "$@" --actual "$PWD/$_f"
+		set -- "$@" --actual "$_f"
 	done
 	sh "$FILES_TEST" "$@"
 	frc=$?
-	[ "$frc" -ne 0 ] && print_clue
+	clue_if_red "$frc"
 	exit "$frc"
 fi
 
@@ -796,7 +807,7 @@ if [ "$MODE" = check ]; then
 		"timeout") rl_overrun "the checks on $DELIV"; crc=1 ;;
 		*) echo "shell_test.sh: the checks on $DELIV $RL_WHY" >&2; crc=1 ;;
 	esac
-	[ "$crc" -ne 0 ] && print_clue
+	clue_if_red "$crc"
 	exit "$crc"
 fi
 
@@ -917,5 +928,5 @@ rm -f "$ACTUAL"
 # line by line, so one can print every expected line and then die on a syntax
 # error further down. Its message is above, where the parse was checked.
 [ "$PARSED" = 1 ] || [ "$DRC" -ne 0 ] || DRC=1
-[ "$DRC" -ne 0 ] && print_clue
+clue_if_red "$DRC"
 exit $DRC

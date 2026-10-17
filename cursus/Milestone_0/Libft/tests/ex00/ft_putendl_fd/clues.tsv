@@ -1,0 +1,8 @@
+# clues.tsv for ft_putendl_fd -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+write(2) takes a file descriptor, an address and a count. Which descriptor does your function hand it: the one it was given, or another?	"Hello"	"" (the empty string)	a tab and a line break inside
+What does the description say comes after the string, and how many of it? Look at the end of each row: does your function write it, and to the same descriptor as the string?	"Hello"	"" (the empty string)	a line break alone
+Walking the string, what condition tells you to stop, and should the byte that marks the end of the string itself be written? Does a line break or a tab inside the string change anything for your loop?	"Hello"	"" (the empty string)	a tab and a line break inside	a line break alone
+Two rows hold bytes above 0x7f, as UTF-8 text does. Is every one of them written like any other byte, or does something in your code stop or change at one: what value does a plain char holding 0xff have on this machine?	UTF-8 text, then a lone 0xff	every byte from 0x01 to 0xff, in order
+Two rows are longer than 4096 bytes. Does every byte reach the file, whatever the string's length, or does some room in your function have a size of its own?	5000 bytes	70000 bytes

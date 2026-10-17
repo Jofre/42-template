@@ -248,7 +248,7 @@ fn gen_putstr<W: Write>(w: &mut W, seed: u64, count: usize) {
     }
 }
 
-fn gen_strlen<W: Write>(w: &mut W, seed: u64, count: usize) {
+pub(crate) fn gen_strlen<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let mut done = 0usize;
     // a few structured lengths first: empty, single, words, and bodies made of
@@ -495,13 +495,21 @@ pub fn check() -> usize {
 
 /// Replay a corpus and compute the reference answers; see common::bench_lines.
 pub fn bench(name: &str) -> bool {
+    // The name first: dispatch_bench asks the modules after this one about
+    // their own arms, and a line read here is a line they never see.
+    if !matches!(name, "c01_swap" | "c01_div_mod" | "c01_ultimate_div_mod" | "c01_strlen"
+        | "c01_putstr" | "c01_rev_int_tab" | "c01_sort_int_tab") { return false; }
     for l in bench_lines() {
         let f: Vec<&str> = l.split('\t').collect();
         match name {
-            "c01_swap" if f.len() >= 2 => {
+            // A line too short for the arm is no case, not a reason to say
+            // the arm does not exist.
+            "c01_swap" => {
+                if f.len() < 2 { continue; }
                 if let (Ok(a), Ok(b)) = (f[0].parse::<i32>(), f[1].parse::<i32>()) { sink(o_swap(a, b)); }
             }
-            "c01_div_mod" | "c01_ultimate_div_mod" if f.len() >= 2 => {
+            "c01_div_mod" | "c01_ultimate_div_mod" => {
+                if f.len() < 2 { continue; }
                 if let (Ok(a), Ok(b)) = (f[0].parse::<i32>(), f[1].parse::<i32>()) { sink(o_div_mod(a, b)); }
             }
             "c01_strlen" => sink(o_strlen(&unhex(f[0]))),
@@ -511,9 +519,8 @@ pub fn bench(name: &str) -> bool {
             "c01_putstr" => { let v = unhex(f[0]); let mut o = Vec::with_capacity(v.len()); o.extend_from_slice(&v); sink(o); }
             "c01_rev_int_tab" => sink(o_rev(&ints_csv(f[0]))),
             "c01_sort_int_tab" => sink(o_sort(&ints_csv(f[0]))),
-            _ => return false,
+            _ => {}
         }
     }
-    matches!(name, "c01_swap" | "c01_div_mod" | "c01_ultimate_div_mod" | "c01_strlen"
-        | "c01_putstr" | "c01_rev_int_tab" | "c01_sort_int_tab")
+    true
 }

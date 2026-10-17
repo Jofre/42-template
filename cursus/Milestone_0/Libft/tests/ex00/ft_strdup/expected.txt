@@ -1,0 +1,7 @@
+"" (empty)	\x00
+"a"	a\x00
+"42 Barcelona"	42 Barcelona\x00
+spaces and a tab kept	two  gaps\tand a tab\x00
+"caf" then bytes 0xc3 0xa9 0xff	caf\xc3\xa9\xff\x00
+a separate copy, written into	copy: Xodifiable, s: modifiable
+5000 bytes, every value 1..255 among them	5000 bytes of s then \x00

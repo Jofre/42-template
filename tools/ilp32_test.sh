@@ -41,7 +41,7 @@
 #
 # Usage:
 #   ilp32_test.sh --differ PATH --harness FILE --expected FILE
-#                 --src FILE [--src FILE]... [--inc DIR]...
+#                 --src FILE [--src FILE]... [--inc DIR]... [--inc-file FILE]
 #                 [--harness-src FILE]... [--gate-bin PATH]
 #                 [--zig PATH]
 #                 [--stdin FILE] [--labeled] [--escaped-values] [--clues FILE]
@@ -49,6 +49,11 @@
 #
 # --stdin, --labeled, --escaped-values, --clues and --sanitize are
 # diff_output.sh's, forwarded to both of its runs as they came.
+#
+# --inc-file FILE holds the -I directories a Makefile's recipes pass, one per
+# line (tools/student_build.sh --includes-out, runner_lib.sh's rl_inc_file):
+# a library member's sources are compiled here on their own, and a header in
+# a subfolder is on the grader's include path only through them.
 #
 # --harness-src FILE is a harness-side source compiled in with the harness
 # main in both builds, never a student's: tools/unbuffered_stdout.c, which
@@ -165,6 +170,7 @@ while [ $# -gt 0 ]; do
 		# crash: --harness-fixture, whose premise diff_output.sh checks in the binary.
 		--harness-src) need "$1" "$#"; rl_list_add HSRCS "$2"; FIXTURE="--harness-fixture"; shift 2 ;;
 		--inc) need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
+		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
 		--stdin) need "$1" "$#"; rl_list_add PASS --stdin "$2"; shift 2 ;;
 		--clues) need "$1" "$#"; rl_list_add PASS --clues "$2"; shift 2 ;;
 		--labeled) rl_list_add PASS --labeled; shift ;;
@@ -325,9 +331,16 @@ if [ -z "$CC32" ]; then
 		exit 1
 	}
 	echo "ilp32_test: SKIP — no 32-bit compiler available."
-	echo "            The hermetic one (zig, fetched by Bazel) failed to run, and no"
-	echo "            host compiler can target -m32 (needs gcc-multilib/libc6-dev-i386)."
-	rl_excerpt "$WORK/zig.err" 5 zig-output.txt "            "
+	# The zig line only when a zig was given: a hand run without --zig never
+	# tried one, and this said it "failed to run" all the same (V315).
+	if [ -n "$ZIG" ]; then
+		echo "            The hermetic one (zig, fetched by Bazel) failed to run, and no"
+		echo "            host compiler can target -m32 (needs gcc-multilib/libc6-dev-i386)."
+		rl_excerpt "$WORK/zig.err" 5 zig-output.txt "            "
+	else
+		echo "            No --zig was given (Bazel gives the hermetic one), and no"
+		echo "            host compiler can target -m32 (needs gcc-multilib/libc6-dev-i386)."
+	fi
 	exit 0
 fi
 
@@ -360,10 +373,32 @@ fi
 # the *_compile_* layers, and this compiler is a different (newer) clang whose
 # extra diagnostics would be noise rather than a finding. What is under test here
 # is the type model, not the warning set.
+#
+# ONE FILE PER COMPILE, then one link. Handed every source in one call, zig
+# compiles them in parallel onto one stderr: two files' errors, or their
+# warnings, came out byte-interleaved and unreadable, and zig itself sometimes
+# crashed after the failures, adding "Segmentation fault" to the log (V199).
+# zig has no option for one job at a time. Each file's messages are appended
+# in turn, every file is compiled even after one fails, so all of their
+# errors show, and the objects are numbered, so two sources of one name do
+# not clash. The link takes them in order and --lib32 last, as before, so a
+# student's own definition still wins over the grader's.
+mkdir "$WORK/obj"
+: > "$WORK/cc.err"
+OBJS=""
+_cc_rc=0
+_cc_n=0
 rl_split_on
-# shellcheck disable=SC2086
-$C32 -Wall -Wextra $INCS "$HARNESS" $HSRCS $SRCS $LIBS32 -o "$WORK/bin" 2> "$WORK/cc.err"
-_cc_rc=$?
+for _cc_f in "$HARNESS" $HSRCS $SRCS; do
+	_cc_n=$((_cc_n + 1))
+	# shellcheck disable=SC2086
+	$C32 -Wall -Wextra $INCS -c "$_cc_f" -o "$WORK/obj/$_cc_n.o" 2>> "$WORK/cc.err" || _cc_rc=1
+	rl_list_add OBJS "$WORK/obj/$_cc_n.o"
+done
+if [ "$_cc_rc" -eq 0 ]; then
+	# shellcheck disable=SC2086
+	$C32 $OBJS $LIBS32 -o "$WORK/bin" 2>> "$WORK/cc.err" || _cc_rc=1
+fi
 rl_split_off
 if [ "$_cc_rc" -ne 0 ]; then
 	case "$NATIVE" in
@@ -390,10 +425,52 @@ rl_split_off
 # the output layer was reporting in the same run, over timeouts, and over the
 # SIGILL above, in answers with no long in them at all.
 # How the run ended, as diff_output.sh read it from waitpid(): "exit N",
-# "signal N" (25 is its output budget) or "timeout".
+# "signal N" (25 is its output budget) or "timeout", or "notrun" when the
+# test's own time ran out before the run could start. A "timeout" that what
+# was left of the test's time cut, before any row was judged wrong, has a
+# second line, "clamped S" (CLAMPED).
 STATUS=""
-[ -f "$WORK/status" ] && read -r STATUS < "$WORK/status"
+CLAMPED=""
+if [ -f "$WORK/status" ]; then
+	read -r STATUS < "$WORK/status"
+	while read -r _k _v; do
+		[ "$_k" != clamped ] || CLAMPED=$_v
+	done < "$WORK/status"
+fi
 echo "----------------------------------------------------------------"
+# A RUN THAT NEVER HAPPENED, or one whose ending was not recorded, is no
+# finding about this target, and comes before anything that compares it with
+# the 64-bit build. Under load the test's time ran out after the gate passed
+# and before the 32-bit program could start, and this report went on to say
+# "this one does not" pass and that "the difference is the type model" --
+# over correct code, under a line saying the run never started (V179).
+#
+# A timeout that what was left of the test's own time cut (CLAMPED), not the
+# run's own limit, before any row was judged wrong, is no finding yet either:
+# a busy machine slows a correct program down too. diff_output.sh's report
+# already carries the mark first_red reads (RL_OVERRUN_MARK), so these words
+# do not repeat it. With a row judged wrong first diff_output writes no
+# "clamped", and the red is a verdict, explained below like any timeout.
+case "$STATUS" in
+	notrun)
+		echo "  The 32-bit program never ran (see the FAIL line above), so this red"
+		echo "  says nothing about this target: nothing here was compared with the"
+		echo "  64-bit build. Run the target again on its own."
+		exit 1 ;;
+	"")
+		echo "  The 32-bit program's run was judged a failure, but how it ended was"
+		echo "  not recorded, so nothing here says why, or how it compares with the"
+		echo "  64-bit build. Read the report above."
+		exit 1 ;;
+esac
+if [ -n "$CLAMPED" ]; then
+	echo "  The 32-bit program was stopped by what was left of the whole test's"
+	echo "  time (${CLAMPED}s, see TIMEOUT above), not by its own limit, before any"
+	echo "  case was judged wrong, so this says nothing yet about this target: a"
+	echo "  busy machine slows a correct program down too. Run the target again"
+	echo "  on its own."
+	exit 1
+fi
 case "$NATIVE" in
 	fail)
 		echo "  The ordinary 64-bit build fails these same cases (see *_output),"
@@ -427,6 +504,8 @@ case "$STATUS" in
 	# for the first and RUNAWAY OUTPUT (SIGXFSZ) for the second. The second
 	# used to fall through to the crash paragraph below, which pointed at a
 	# CRASH line that was never printed and blamed memory layout for a loop.
+	# A timeout that what was left of the test's time cut before any row was
+	# judged wrong (CLAMPED) never reaches here: it is no loop yet (above).
 	"timeout" | "signal 25")
 		if [ "$NATIVE" = pass ]; then
 			if [ "$STATUS" = "signal 25" ]; then

@@ -1,0 +1,7 @@
+# clues.tsv for ft_tolower -- pedagogic hints only: each line is a QUESTION, never the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (a line fires if ANY of its cases fails)
+In man ascii, how far apart are 'A' and 'a'? Is it the same distance for every letter, 'Z' included?	0x41..0x5a 'A'..'Z'
+What does man tolower return for a character that is not an uppercase letter? Is a row other than 'A'..'Z' changed by your function, or a character just outside it ('@' or '[')?	0x00..0x1f (control codes)	0x20..0x2f ' '..'/'	0x30..0x39 '0'..'9'	0x3a..0x40 ':'..'@'	0x5b..0x60 '['..'`'	0x61..0x7a 'a'..'z'	0x7b..0x7e '{'..'~'	0x7f (DEL)
+Your function is handed an int from 128 to 255 here. Does that value pass through a char anywhere on the way, and what does a code above 0x7f become in a signed char?	0x80..0xbf	0xc0..0xdf	0xe0..0xfe	0xff
+Which letters does the "C" locale know? man 3 tolower, NOTES, says what it does with umlauts: is a code above 0x7f an uppercase letter there, and does your function change one?	0x80..0xbf	0xc0..0xdf	0xe0..0xfe	0xff
+What does man tolower return when c is EOF? Is EOF an uppercase letter?	EOF

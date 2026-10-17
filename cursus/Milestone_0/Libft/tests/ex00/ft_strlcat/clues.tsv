@@ -1,0 +1,12 @@
+# clues.tsv for ft_strlcat -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (fires if ANY listed case fails)
+# The contract is the manual page Libft, p.8 sends you to: man 3bsd strlcat (one
+# page with strlcpy). glibc has neither function, so the page ships in
+# libbsd-dev (the dev container carries it). With no page installed:
+# https://man.openbsd.org/strlcpy.3
+strlcat returns the length of the string it TRIED to create. Which two lengths make it up, and does that sum depend on how much actually fit (man 3bsd strlcat, RETURN VALUES; no page installed? man.openbsd.org/strlcpy.3)?	empty src (size 50)	into empty dst (size 10)	fits fully (size 50)	both empty (size 50)	cut short (size 10)
+size is the whole buffer, dst's own bytes and the terminator included. When src does not fit, how many of its bytes can still go in, and where must the NUL go?	cut short (size 10)	size == dst length + 2 (8)	cut short into empty dst (size 4)	dst 4100 + src 5000 bytes (size 6000, cut short)
+What if size is at most dst's length? There is no room to append anything, yet the return is still defined: what does the page say the length of dst is "considered to be" then?	size 0	size 1	size < dst length (2)	size == dst length (6)	dst 5000 bytes, src "abc" (size 4097)
+With room for the terminator and nothing else, what is there left to write?	size == dst length + 1 (7)
+"from size" shows the bytes at index size and after, which the call may not write. If one changed, which write of yours went one step too far?	fits fully (size 50)	into empty dst (size 10)	dst 4100 + src 5000 bytes (size 9101, fits)
+Is a plain char signed on this machine? What value does a byte of 0xe9 take as a char, and does any test of yours read that value as the end of a string?	src bytes 0xe9 't' 0xe9 (size 50)	dst bytes 0xe9 0xe9, src "ab" (size 4)

@@ -1,0 +1,7 @@
+  One list per line, cleared: how many times del was called, and whether the
+  pointer to the list held NULL afterwards (1) or not (0).
+    * fewer calls than nodes  -> whose contents reach del: the first node's?
+                                 the last one's?
+    * more calls than nodes   -> is any content handed over twice?
+    * a 0 in the last column  -> what the box says the pointer to the list
+                                 holds once it is cleared

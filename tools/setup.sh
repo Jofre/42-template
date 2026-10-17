@@ -113,6 +113,15 @@ MARK_END="# <<< 42 c-piscine setup <<<"
 say()  { printf '  %s\n' "$*"; }
 die()  { printf 'setup.sh: %s\n' "$*" >&2; exit 1; }
 
+# Its two scratch files (_rl, _drift_out, below) are removed on every exit, a
+# Ctrl-C during the pins check's minutes included: dash runs no EXIT trap when
+# a signal ends it, so each signal trap exits.
+_rl=""
+_drift_out=""
+trap 'rm -f ${_rl:+"$_rl"} ${_drift_out:+"$_drift_out"}' EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
 WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$WS" || die "cannot enter '$WS'"
 [ -f .bazelversion ] || die "this does not look like the repo root ($WS): no .bazelversion"
@@ -253,7 +262,8 @@ esac
 # 2. bazelisk, and the `42` command, into ~/.local/bin.
 #
 # ~/.local/bin because it needs no root, is on PATH by default on most distros,
-# and lives in the one directory that follows you to another machine.
+# and lives in the one directory that may follow you to another machine (on
+# campus that is not confirmed yet).
 BINDIR="$HOME/.local/bin"
 BAZELISK="$BINDIR/bazelisk"
 mkdir -p "$BINDIR" || die "cannot create $BINDIR"
@@ -717,7 +727,8 @@ if [ "$_drift_rc" -ne 0 ]; then
 	printf '\n'
 	say "env_drift did not complete (exit $_drift_rc; its output is above). That is"
 	say "not fatal: it needs Bazel, and on a first run a slow or absent network is"
-	say "the usual cause. Re-run it later with: bazel run //tools:env_drift"
+	say "the usual cause. Re-run it later, in the new terminal below, with:"
+	say "  42 doctor --drift"
 fi
 
 next_steps

@@ -153,14 +153,7 @@ while [ $# -gt 0 ]; do
 		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		--grader-src) need "$1" "$#"; rl_list_add GSRCS "$2"; shift 2 ;;
 		--inc) need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--inc-file)
-			need "$1" "$#"
-			[ -f "$2" ] || { echo "method_check.sh: no include list at $2" >&2; exit 2; }
-			while IFS= read -r _i; do
-				[ -n "$_i" ] || continue
-				rl_list_add INCS "-I$_i"
-			done < "$2"
-			shift 2 ;;
+		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
 		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
 		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
 		--cc-under) need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;

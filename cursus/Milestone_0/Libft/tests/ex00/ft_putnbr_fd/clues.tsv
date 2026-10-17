@@ -1,0 +1,8 @@
+# clues.tsv for ft_putnbr_fd -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+write(2) takes a file descriptor, an address and a count. Which descriptor does every write of your function hand it: the one it was given, or another?	one digit
+0 is written with one digit, like 7. What in your code decides that the last digit has been written, and could it decide so before 0's only digit is written?	zero
+In which order are a number's digits written, and in which order does your code find them? How do you turn a single digit value into the character you write? Watch the cases whose final digits are zeros.	one digit	two digits	ends in zero	trailing zeros	big positive	INT_MAX - 1
+A negative number needs a leading sign, and the digits themselves are not negative. Where does your sign come out, and which digits follow it?	negative one digit	negative two digits	negative trailing zeros	big negative	INT_MIN + 1
+The most negative int has no positive counterpart of the same magnitude. Does anything your code computes from it need one? Compare the two extreme cases.	INT_MIN	INT_MAX

@@ -1,0 +1,6 @@
+"aaaa", *p + i	"abcd", calls 0@s+0=a 1@s+1=a 2@s+2=a 3@s+3=a
+"abc", *p + i	"ace", calls 0@s+0=a 1@s+1=b 2@s+2=c
+"", *p + i	"", no call
+"a<TAB>b<LF>", nothing	"a\tb\n", calls 0@s+0=a 1@s+1=\t 2@s+2=b 3@s+3=\n
+0xe9 0xf0 0x80, *p + i	"\xe9\xf1\x82", calls 0@s+0=\xe9 1@s+1=\xf0 2@s+2=\x80
+5000 letters, upper case	5000 upper-case letters, 5000 calls

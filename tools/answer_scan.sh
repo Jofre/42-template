@@ -33,6 +33,13 @@
 #          blanks and variable names ignored -- the leaks this was written for
 #          sat inside a longer line (want=$(...)), one re-quoted and one with
 #          its variable renamed. Comments and shebangs are not answers.
+#          A script turned in from deliverable/ (C 09 ex00's, a *.sh there)
+#          is the same answer in another place: its command lines are read
+#          the same way, and never run -- it is a turn-in, not a generator,
+#          and running one could compile, or delete, what it was written
+#          for. A turn-in script whose name is not *.sh is not read yet,
+#          and stops the run until a project that moves one under
+#          deliverable/ adds its pathspec here (UNREAD BY ANY CLASS, below).
 #   C      every run of FOUR consecutive lines inside a function body of a
 #          deliverable .c file, compared as a run, blanks ignored. Lines that say
 #          nothing about the answer are left out of the runs: braces, stub
@@ -83,14 +90,17 @@
 # by a single plain word: prose is made of those, and neither prose nor code
 # form tells a leaked one from the harness's own vocabulary (measured -- see the
 # names list below). A coined one-word helper named in shipped text passes
-# unseen.
+# unseen. Nor two kinds of zone file no class reads, each let by for its
+# reason (UNREAD BY ANY CLASS, below): a README.md at the root of a
+# deliverable/, and a file 42 issues with a subject.
 #
 # It prints WHERE (file:line, and which answer it matches -- for a name, the
 # name and what defines it), never the text, and exits 1 if anything matched, 0
 # if nothing did, 2 if it could not scan -- a tree with no answers in it (the
 # template after stubbing) has nothing to look for, and saying "clean" there
 # would be a scan that searched nothing; and a file of the zone it could not
-# read is an answer it never looked for, so that ends the run with 2 as well.
+# read is an answer it never looked for, so that ends the run with 2 as well,
+# and so does one of a kind no class reads.
 # A tracked file of the zone that is missing from the work tree -- deleted
 # and not yet staged, or a throwaway tree holding other answers -- is no such
 # file: its answer is in the index, and is read from there (and said so).
@@ -289,10 +299,41 @@ zone_list "$TMP/gens" '*/generators/ex*.sh'
 zone_list "$TMP/cs" '*/deliverable/*.c'
 zone_list "$TMP/hs" '*/deliverable/*.h'
 zone_list "$TMP/mks" '*/deliverable/*Makefile'
-[ -s "$TMP/gens" ] || [ -s "$TMP/cs" ] || [ -s "$TMP/hs" ] || [ -s "$TMP/mks" ] || {
+zone_list "$TMP/dsh" '*/deliverable/*.sh'
+[ -s "$TMP/gens" ] || [ -s "$TMP/cs" ] || [ -s "$TMP/hs" ] || [ -s "$TMP/mks" ] ||
+	[ -s "$TMP/dsh" ] || {
 	echo "answer_scan.sh: nothing tracked in the zone -- nothing to scan for" >&2
 	exit 2
 }
+# UNREAD BY ANY CLASS. The lists above read a zone file by its kind, and a
+# file of any other kind was never compared with anything: a script turned
+# in with no .sh in its name, or a generator not named exNN.sh, had a line
+# of it copied into a doc and the scan said OK (V309). The zone is set by
+# role, not by kind (AGENTS.md §0), so a tracked file of it that no list
+# reads ends the run, exit 2, until its kind is added to a class in the same
+# change: a C++ project's first .cpp is one. stub_check.sh refuses a
+# deliverable of a kind it does not know too, and adding a kind there makes
+# this scan read nothing more: hence this check. Two kinds are let by, each
+# for its reason, and nothing else:
+#   - a README.md at the root of a deliverable/: prose a Common Core subject
+#     asks for, and whether it is read, and how, is the owner's open
+#     question (TO VERIFY V207);
+#   - a file 42 issues with a subject, at the path tools/resources.tsv
+#     registers for it (in the index, like everything here), as stub_check.sh
+#     takes them: rush-02's numbers.dict is 42's data, not an answer.
+git show :tools/resources.tsv 2> /dev/null |
+	awk -F'\t' '!/^#/ && NF >= 3 { print $3 }' > "$TMP/issued"
+cat "$TMP/gens" "$TMP/cs" "$TMP/hs" "$TMP/mks" "$TMP/dsh" "$TMP/issued" |
+	awk 'NR == FNR { read[$0] = 1; next }
+		!($0 in read) && $0 !~ /\/deliverable\/README\.md$/' - "$TMP/tracked" > "$TMP/unclaimed"
+if [ -s "$TMP/unclaimed" ]; then
+	while IFS= read -r f; do
+		echo "answer_scan.sh: '$f' is tracked in the zone, and no class here reads it." >&2
+	done < "$TMP/unclaimed"
+	echo "             Refusing the whole run: an answer in it would never be looked" >&2
+	echo "             for. Add its kind to a class here, in the same change." >&2
+	exit 2
+fi
 
 # A C body line worth comparing, as awk: not a brace, not a stub line, not a
 # plain declaration, not a zero initialiser. Shared by both sides.
@@ -328,6 +369,14 @@ while IFS= read -r g; do
 			{ print l "\t" src }' < "$f" >> "$TMP/shell"
 	done
 done < "$TMP/gens"
+# A script turned in from deliverable/: its own lines, as a generator's are
+# read above, and nothing it would write -- it is never run (the header).
+while IFS= read -r g; do
+	zat "$g"
+	awk -v src="$g" "$NORM"'
+		l ~ /^#/ || length(l) < 12 { next }
+		{ print l "\t" src }' < "$_zat" >> "$TMP/shell" || unread "$g"
+done < "$TMP/dsh"
 
 while IFS= read -r c; do
 	zat "$c"
@@ -495,11 +544,14 @@ while IFS= read -r f; do
 			_sc=0
 			zat "$f"
 			# Handed over by its repository path, from the root it sits
-			# under (the index's copy has one too): stub_check approves a
-			# header at its path, and $TMP/index/<path> is no such path.
+			# under (the index's copy has one too), and that root named as
+			# the workspace: stub_check approves a header at its place in
+			# the workspace, and $TMP/index/<path> is no such place -- nor,
+			# with a scratch folder inside the checkout, is
+			# <scratch>/index/<path> under this one.
 			_zr=.
 			case "$_zat" in "$TMP/index/"*) _zr=$TMP/index ;; esac
-			( cd "$_zr" && sh "$STUB_CHECK" --file "./$f" ) > "$TMP/stub_check.out" 2>&1 || _sc=$?
+			( cd "$_zr" && BUILD_WORKSPACE_DIRECTORY=$(pwd) sh "$STUB_CHECK" --file "./$f" ) > "$TMP/stub_check.out" 2>&1 || _sc=$?
 			case "$_sc" in
 				0) continue ;;
 				1) echo "$f" >> "$TMP/csrc" ;;

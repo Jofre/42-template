@@ -39,13 +39,14 @@ enum Unit {
 }
 
 /// The arms, and what each one's `length` counts.
-const ARMS: [(&str, Unit); 8] = [
+const ARMS: [(&str, Unit); 9] = [
     ("c01_sort_int_tab_len", Unit::Csv),
     ("c12_list_sort_len", Unit::Csv),
     ("c11_sort_string_tab_len", Unit::Csv),
     ("c11_advanced_sort_string_tab_len", Unit::Csv),
     ("c07_split_len", Unit::Words),
     ("c09_split_len", Unit::Words),
+    ("libft_split_len", Unit::Words),
     ("c02_str_is_alpha_len", Unit::Chars),
     ("c03_strstr_len", Unit::Chars),
 ];
@@ -96,6 +97,17 @@ fn lines(name: &str, seed: u64, count: usize, len: usize) -> Option<Vec<String>>
                     l.push_str(&sep(&mut rng));
                 }
                 format!("{}\t{}", l, words.join(","))
+            }
+            // Libft's ft_split: `len` words of letters with exactly one '_'
+            // between each and none at either end, so every reading of the
+            // subject agrees on the answer (for a length of at least 1: the
+            // empty line of length 0 is a case the readings part on, and no
+            // series asks for it); then a tab and the words, comma-joined, as
+            // above. The harness passes '_' as the delimiter.
+            "libft_split_len" => {
+                let words: Vec<String> =
+                    (0..len).map(|_| word(&mut rng, b"abcdefghijklmnopqrstuvwxyz", 6)).collect();
+                format!("{}\t{}", words.join("_"), words.join(","))
             }
             // C 02 ex02: `len` letters of both cases, so the answer is 1 and
             // the whole string is read to find it.
@@ -190,6 +202,14 @@ pub fn check() -> usize {
                     let got: Vec<&str> = s.split(|c| c == '_' || c == '-').filter(|w| !w.is_empty()).collect();
                     if got.join(",") != want {
                         eprintln!("CHECK FAIL length {} len={}: the words after the tab are not the string's", name, len);
+                        fails += 1;
+                    }
+                }
+                if name == "libft_split_len" && len > 0 {
+                    // one delimiter between words, none at the ends, no '-'
+                    let s = l.split('\t').next().unwrap_or("");
+                    if s.starts_with('_') || s.ends_with('_') || s.contains("__") || s.contains('-') {
+                        eprintln!("CHECK FAIL length {} len={}: a field the readings part on", name, len);
                         fails += 1;
                     }
                 }

@@ -7,7 +7,8 @@ int	*ft_range(int min, int max);
  * show each case in its own column. A range is rendered on ONE line with each
  * element bracketed, e.g. [1][2][3]; a NULL result prints "NULL". Cases are
  * ordered trivial -> hardest, so the first failing row is the most fundamental
- * thing to fix. The array is freed after printing. */
+ * thing to fix. The array is freed before the row's newline, so a crash in
+ * free() leaves this row unfinished and diff_output.sh marks it. */
 static void	test(char *label, int min, int max)
 {
 	int	*tab;
@@ -28,8 +29,8 @@ static void	test(char *label, int min, int max)
 		printf("[%d]", tab[i]);
 		i++;
 	}
-	printf("\n");
 	free(tab);
+	printf("\n");
 }
 
 int	main(void)

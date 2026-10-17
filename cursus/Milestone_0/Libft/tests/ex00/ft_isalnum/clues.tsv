@@ -1,0 +1,8 @@
+# clues.tsv for ft_isalnum -- pedagogic hints only: each line is a QUESTION, never the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (a line fires if ANY of its cases fails)
+man isalnum says its class is made of two other classes: which ones, and which codes does man ascii give each? What does p.8 say a classification function returns for a character in its class?	0x30..0x39 '0'..'9'	0x41..0x5a 'A'..'Z'	0x61..0x7a 'a'..'z'
+Which characters sit just outside each range in man ascii: around '0' and '9', 'A' and 'Z', 'a' and 'z'? Is one of your bounds off by one?	0x20..0x2f ' '..'/'	0x3a..0x40 ':'..'@'	0x5b..0x60 '['..'`'	0x7b..0x7e '{'..'~'
+man ascii lists 128 characters, the last one 0x7f: is a code above it in any class of the "C" locale, the one a program runs in until it calls setlocale()? (man 3 toupper, NOTES, says what that locale knows of umlauts.) Does your class have an upper end, and does your function check it?	0x80..0xbf	0xc0..0xdf	0xe0..0xfe	0xff
+Which value does <stdio.h> give EOF, and is that value the code of any character?	EOF
+Which codes in man ascii are neither letters nor digits? Does one of them get into your class?	0x00..0x1f (control codes)	0x7f (DEL)
+Does ft_isalnum call other functions of your library? If it does, are their own suites green, and does what they return reach your caller as p.8 says it must?

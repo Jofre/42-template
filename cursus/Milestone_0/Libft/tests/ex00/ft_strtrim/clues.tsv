@@ -1,0 +1,8 @@
+# clues.tsv for ft_strtrim -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+How do you tell whether one byte of s1 belongs to set, and which bytes of s1 does "removed from the beginning and the end" (p.11) reach?	"  hello  ", " "	"xxhixx", "x"	"abcHELLOcba", "abc"	"--+hi+-", "+-+"
+What if only one end of s1 has bytes of set, or a byte of set sits between two that are not?	"xxhi", "x"	"hixx", "x"	"a b", " "	"x y x", "x"
+What is left when set is empty or matches nothing, and what is left when every byte of s1 is in set? Is there still a string to return?	"hello", ""	"hello", "xyz"	"", "abc"	"", ""	"aaaa", "a"
+Is a tab, a line break or a byte above 0x7f anything other than one more byte to compare? Where could a char's sign change a comparison?	"<TAB><LF> hi <LF><TAB>", "<TAB><LF> "	0xe9 0xe9 "hi" 0xe9, 0xe9	0xff "a" 0x80 "b" 0xff, 0xff
+Nothing in the subject bounds s1 or set. Does anything in your function stop working once either passes a few thousand bytes?	4100 blanks, 5000 letters, 4100 blanks; " "	"**hi**", 4999 '#' then '*'

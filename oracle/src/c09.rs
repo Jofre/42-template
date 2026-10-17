@@ -2,6 +2,8 @@
 //! references mirror the documented contracts already covered elsewhere:
 //!   c09_split   ft_split(char *str, char *charset) -> char**  (== c-07 split)
 //!   c09_strcmp  ft_strcmp(char *s1, char *s2) -> int          (== c-03 strcmp)
+//!   c09_strcmp_sign  the same corpus, the value's sign alone (-1, 0 or 1):
+//!               ex00's plain corpus; the int is its `readings` target's (V206)
 //!
 //! Line formats (input fields, then reference output):
 //!   split   <hexStr>\t<hexCharset>\t<nonnull=1>\t<count>[\t<hexTok>...]
@@ -112,10 +114,10 @@ fn gen_split(seed: u64, count: usize) {
     }
 }
 
-fn gen_strcmp(seed: u64, count: usize) {
+fn gen_strcmp<W: Write>(w: &mut W, seed: u64, count: usize, sign: bool) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
+    let shown = |v: i64| if sign { v.signum() } else { v };
 
     // Module-pinned corners (string_pairs adds shorter variants; these fix the
     // longer-string cases: differ only at a late byte, deep strict prefix, and
@@ -136,14 +138,14 @@ fn gen_strcmp(seed: u64, count: usize) {
         if done >= count {
             break;
         }
-        let _ = writeln!(w, "{}\t{}\t{}", to_hex(a), to_hex(b), o_strcmp(a, b));
+        let _ = writeln!(w, "{}\t{}\t{}", to_hex(a), to_hex(b), shown(o_strcmp(a, b)));
         done += 1;
     }
 
     if done < count {
         let pairs = string_pairs(&mut rng, count - done);
         for (a, b) in &pairs {
-            let _ = writeln!(w, "{}\t{}\t{}", to_hex(a), to_hex(b), o_strcmp(a, b));
+            let _ = writeln!(w, "{}\t{}\t{}", to_hex(a), to_hex(b), shown(o_strcmp(a, b)));
         }
     }
 }
@@ -152,7 +154,8 @@ fn gen_strcmp(seed: u64, count: usize) {
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
         "c09_split" => gen_split(seed, count),
-        "c09_strcmp" => gen_strcmp(seed, count),
+        "c09_strcmp" => gen_strcmp(&mut io::BufWriter::new(io::stdout()), seed, count, false),
+        "c09_strcmp_sign" => gen_strcmp(&mut io::BufWriter::new(io::stdout()), seed, count, true),
         _ => return false,
     }
     true
@@ -252,16 +255,26 @@ pub fn check() -> usize {
         }
     }
 
+    // ---- c09_strcmp_sign is c09_strcmp's corpus, the value's sign alone.
+    let (mut exact, mut sign) = (Vec::new(), Vec::new());
+    gen_strcmp(&mut exact, 1, 2000, false);
+    gen_strcmp(&mut sign, 1, 2000, true);
+    if !crate::c03::same_but_sign(&exact, &sign) {
+        eprintln!("CHECK FAIL c09 strcmp_sign is not strcmp's corpus with the sign alone");
+        fails += 1;
+    }
+
     fails
 }
 
 /// Replay a corpus and compute the reference answers; see common::bench_lines.
 pub fn bench(name: &str) -> bool {
-    if !matches!(name, "c09_split" | "c09_strcmp") { return false; }
+    if !matches!(name, "c09_split" | "c09_strcmp" | "c09_strcmp_sign") { return false; }
     for l in bench_lines() {
         let f: Vec<&str> = l.split('\t').collect();
         if f.len() < 2 { continue; }
         if name == "c09_split" { sink(o_split(&unhex(f[0]), &unhex(f[1]))); }
+        else if name == "c09_strcmp_sign" { sink(o_strcmp(&unhex(f[0]), &unhex(f[1])).signum()); }
         else { sink(o_strcmp(&unhex(f[0]), &unhex(f[1]))); }
     }
     true

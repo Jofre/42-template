@@ -11,6 +11,8 @@
 #   --next FILE   also write the one thing the report names next, as a line
 #                 "BUCKET<tab>MODULE<tab>EXERCISE<tab>LABEL" (a dash for a
 #                 column it cannot fill; an empty file when nothing is next).
+#                 EXERCISE is "exNN FUNCTION" for one function of a library
+#                 (A LIBRARY'S FUNCTIONS, below).
 #                 BUCKET is build, ko, work, wrong, slow or rigour. `42` reads it
 #                 to show that one test's log, in the report's own order.
 #   --triage FILE also write every red exercise's bucket, one line each,
@@ -19,7 +21,9 @@
 #                 is one of --next's, or norun (nothing of it ran); a test of
 #                 the whole module is its own EXERCISE (deliverable_files).
 #                 An empty file when nothing failed. submit.sh's
-#                 --written-only reads it.
+#                 --written-only reads it. A library's functions are filed
+#                 under their exercise here, one line per bucket: the push
+#                 is the whole library, never one of its functions.
 #   --written MODDIR  no report, and nothing read from stdin: one line per
 #                 exercise of MODDIR's subject() contract, in its order,
 #                 "STATE<tab>exNN<tab>PART". STATE is stub where the report
@@ -29,6 +33,10 @@
 #                 optional otherwise, every exercise of a contract that names
 #                 none. Exit 2 when no contract could be read. submit.sh reads
 #                 it for the floor --written-only will not push below.
+#   --members MODDIR  no report: one line per function of MODDIR's contract,
+#                 "exNN<tab>FUNCTION", in its order (the keys of each
+#                 exercise's `functions = {...}`); nothing for a project whose
+#                 contract has none. Exit 2 when no contract could be read.
 #
 # Exit 0 = the report is complete. Exit 1 = the run did not complete: something
 # did not build, or the run stopped early, so part of it could not say anything,
@@ -114,8 +122,12 @@
 #   output. That is the whole design of the level ladder.
 #
 # So a red in one of those five, at basic, USUALLY means you wrote something
-# that breaks a rule that scores zero wherever the project is graded. Usually, not always — and the exception
-# is why this script asks rather than assumes.
+# that breaks a rule that scores zero wherever the project is graded. Usually,
+# not always — and the exception
+# is why this script asks rather than assumes. The same is true of every
+# other layer at basic but output -- allocfail, and valgrind where the
+# contract grades memory -- which wait for the output and so never run on a
+# stub at all.
 #
 # c-08's deliverable IS a header. A stubbed header defines nothing, so the
 # subject's own main() cannot compile against it, and `compile` is red on an
@@ -139,6 +151,24 @@
 # expects". A FAILED whose runner stopped it at the test's time limit, and
 # said so, goes in the same bucket (pass 0 below).
 #
+# A LIBRARY'S FUNCTIONS. A project whose subject has one library turned in,
+# every function of it graded on its own, lists them in its contract
+# (exercise(functions = {"ft_strlen": [], ...}): each key a function, its
+# value what that function may call), and each function's tests are named
+# exNN_<function>_<layer> and run together as the suite //<project>:<function>.
+# Keyed by exercise alone, forty functions' reds were one line, "ex00 output
+# x40", and one written function made every other one "written, and wrong".
+# So a target's FUNCTION is the longest key F of its exercise such that its
+# name is exNN_F_<something>, and its reds are filed by module, exercise and
+# function: shown as "ex00 ft_strlen", run again by that function's suite,
+# and called written only when stub_check --defines finds a body in it. A
+# target of the whole library (exNN_norm, exNN_build) has no function, and
+# is filed by its exercise as before -- first, ahead of every function. Its
+# red output is judged by the one file it reads (lib_reads, below: the
+# Makefile, README.md), run again by its own label, never by the suite of
+# the whole library, and worded after that file; and --next names its label,
+# as for a function.
+#
 # A handful of buckets, one objective, and the rest counted rather than listed.
 set -u
 
@@ -152,7 +182,7 @@ require() {
 		exit 2
 	done
 }
-require awk dirname find mktemp mv rm sed sort tr
+require awk dirname find grep mktemp mv rm sed sort tr
 
 # THE TURN-IN FOLDER OF AN EXERCISE, read from its project's subject
 # contract -- the subject() call its BUILD.bazel opens with, which every
@@ -224,8 +254,37 @@ STUB_CHECK="$(dirname "$0")/stub_check.sh"
 # rule broken, so it counts as written; beside a red output it says nothing
 # about the code, so it does not. A shell exercise is its generator, never the
 # deliverable/ that the generator writes.
+#
+# EX can be "exNN FUNCTION", one function of a library (A LIBRARY'S
+# FUNCTIONS, above): then the question is that function's body, asked of
+# stub_check --defines over every .c and .h of the turn-in folder -- 1 it
+# has a body, 0 a stub, 3 no file defines it (not written either), 2 no
+# verdict. A file of the library holding another function's body says
+# nothing about this one.
 is_written() {  # is_written MOD EX UNKNOWN_COUNTS(0|1)
 	_m=$(printf '%s' "$1" | sed 's|^//||')
+	case "$2" in
+		*" "*)
+			_iw_fn=${2#* }
+			_d=$(turnin_of "$_m" "${2%% *}") || return 1
+			_d="$_m/$_d"
+			[ -d "$_d" ] || return 1
+			_iw_unk=$3
+			find "$_d" -type f \( -name '*.c' -o -name '*.h' \) | {
+				set --
+				while IFS= read -r _f; do
+					set -- "$@" "$_f"
+				done
+				[ $# -gt 0 ] || exit 1
+				sh "$STUB_CHECK" --defines "$_iw_fn" "$@" > /dev/null 2>&1
+				case $? in
+					1) exit 0 ;;
+					0 | 3) exit 1 ;;
+					*) [ "$_iw_unk" -eq 1 ] && exit 0; exit 1 ;;
+				esac
+			}
+			return ;;
+	esac
 	if [ -f "$_m/generators/$2.sh" ]; then
 		sh "$STUB_CHECK" --file "$_m/generators/$2.sh" > /dev/null 2>&1
 		[ $? -eq 1 ]
@@ -250,6 +309,54 @@ is_written() {  # is_written MOD EX UNKNOWN_COUNTS(0|1)
 	}
 }
 
+# THE FILE A TEST OF A WHOLE LIBRARY READS. A library's own tests -- a target
+# of its exercise with no function, such as exNN_build or exNN_readme (A
+# LIBRARY'S FUNCTIONS, above) -- each read one file of the turn-in folder, and
+# whether such a red is that file unwritten or that file wrong is the file's
+# question, never the whole folder's: asked of the folder, one function
+# written made a stub README "written, and it runs". Read from the tail of the
+# target's name after exNN_, its layer as _SUFFIX_LAYER spells it:
+#
+#   build...     the Makefile at the root of the turn-in folder
+#   readme...    README.md there
+#
+# Those are the tails a library's own red output has at basic. Any other
+# names no one file: lib_reads LABEL EX prints how the report names the file
+# ("the Makefile"), and is false for such a tail, so the caller asks the
+# whole folder, as is_written does. lib_read_written MOD EX LABEL says what
+# that file is: 0 it holds a body (stub_check 1), 1 a stub, 3 it is missing,
+# 4 it is empty (stub_check 2: for these two kinds, nothing in it but blanks),
+# 2 when no file is known for the label, and 5 when there is nothing to
+# inspect (no contract to read: a run piped in from outside the workspace).
+# Each of 1, 3 and 4 is not written, and the report says which: a README
+# deleted is not "still a stub"; 5 says nothing about the file.
+lib_reads() {  # lib_reads LABEL EX
+	_lr=${1##*:}
+	_lr=${_lr#"$2"_}
+	case "$_lr" in
+		build | build_*) echo "the Makefile" ;;
+		readme | readme_*) echo "README.md" ;;
+		*) return 1 ;;
+	esac
+}
+lib_read_written() {  # lib_read_written MOD EX LABEL
+	_lw=$(lib_reads "$3" "$2") || return 2
+	_m=$(printf '%s' "$1" | sed 's|^//||')
+	_d=$(turnin_of "$_m" "$2") || return 5
+	_d="$_m/$_d"
+	case "$_lw" in
+		"the Makefile") _f="$_d/Makefile" ;;
+		*) _f="$_d/README.md" ;;
+	esac
+	[ -f "$_f" ] || return 3
+	sh "$STUB_CHECK" --file "$_f" > /dev/null 2>&1
+	case $? in
+		1) return 0 ;;
+		0) return 1 ;;
+		*) return 4 ;;
+	esac
+}
+
 # THE CONTRACT'S EXERCISES AND ITS MANDATORY PART, read from the subject()
 # call the way turnin_of reads it, comments dropped first: every entry
 # `"NN": exercise(`, in the order written, and the list `mandatory = [...]`,
@@ -257,15 +364,39 @@ is_written() {  # is_written MOD EX UNKNOWN_COUNTS(0|1)
 # contract with no mandatory list; false with no BUILD.bazel or no subject().
 # //tools/tests:macro_fixtures_test holds both readings, through --written,
 # to the macros' own (each package's :turnin_dirs and :mandatory).
-contract_read() {  # contract_read MODDIR exercises|mandatory
+#
+# And `functions`: "exNN<TAB>FUNCTION" for every key of every exercise's
+# `functions = {...}`, in order -- the keys only, never the strings in their
+# values (what each function may call). tools/fortytwo/workspace.py's
+# contract_functions() reads the same keys for the words `42` takes.
+#
+# A comment starts at the first # that is in no string (dir = "a#b" holds
+# none), and a functions block ends at the first } in no string: the way
+# conventions.sh (contract_fns) and workspace.py read a line, which
+# //tools/tests:fortytwo_test holds the three to.
+contract_read() {  # contract_read MODDIR exercises|mandatory|functions
 	[ -f "$1/BUILD.bazel" ] || return 1
 	awk -v what="$2" '
+		# The first position of C in S that is in no string, or 0.
+		function bare(s, c,   i, L, ch, q) {
+			L = length(s); q = 0
+			for (i = 1; i <= L; i++) {
+				ch = substr(s, i, 1)
+				if (q && ch == "\\") { i++; continue }
+				if (ch == "\"") q = !q
+				else if (!q && ch == c) return i
+			}
+			return 0
+		}
 		/^subject\(/ { insub = 1; found = 1; next }
 		insub && /^\)/ { exit }
 		!insub { next }
 		{
-			line = $0; sub(/#.*/, "", line)
-			if (what == "exercises") {
+			line = $0
+			if ((c = bare(line, "#")) > 0) line = substr(line, 1, c - 1)
+			if (what == "functions")
+				text = text "\n" line
+			else if (what == "exercises") {
 				while (match(line, /"[0-9][0-9]": *exercise\(/)) {
 					print "ex" substr(line, RSTART + 1, 2)
 					line = substr(line, RSTART + RLENGTH)
@@ -275,6 +406,28 @@ contract_read() {  # contract_read MODDIR exercises|mandatory
 		}
 		END {
 			if (!found) exit 1
+			if (what == "functions") {
+				rest = text
+				while (match(rest, /"[0-9]+"[ \t]*:[ \t]*exercise\(|(^|[^A-Za-z0-9_])functions[ \t]*=[ \t]*\{/)) {
+					tok = substr(rest, RSTART, RLENGTH)
+					rest = substr(rest, RSTART + RLENGTH)
+					if (tok ~ /exercise\($/) {
+						ex = tok; sub(/^"/, "", ex); sub(/".*$/, "", ex); ex = "ex" ex
+						continue
+					}
+					e = bare(rest, "}")
+					body = e ? substr(rest, 1, e - 1) : rest
+					rest = e ? substr(rest, e + 1) : ""
+					if (ex == "") continue
+					while (match(body, /"[^"]+"[ \t\n]*:/)) {
+						k = substr(body, RSTART + 1, RLENGTH - 1)
+						sub(/"[ \t\n]*:$/, "", k)
+						body = substr(body, RSTART + RLENGTH)
+						if (!((ex, k) in seen)) { seen[ex, k] = 1; print ex "\t" k }
+					}
+				}
+				exit 0
+			}
 			if (what != "mandatory" || !match(text, /[(, ]mandatory *= *\[/)) exit 0
 			rest = substr(text, RSTART + RLENGTH)
 			rest = substr(rest, 1, index(rest, "]") - 1)
@@ -282,6 +435,31 @@ contract_read() {  # contract_read MODDIR exercises|mandatory
 				print "ex" substr(rest, RSTART + 1, 2)
 				rest = substr(rest, RSTART + RLENGTH)
 			}
+		}' "$1/BUILD.bazel"
+}
+
+# WHETHER THE CONTRACT SAYS ITS GRADER JUDGES MEMORY: its subject() call
+# declares memory_graded (tools/subject.bzl), read as contract_read reads the
+# rest, a comment dropped first. True for a module whose valgrind layer then
+# sits at basic (tools/defs.bzl's _layer_level), as its targets' tags say.
+# Declared is any value but None, however it is spelled -- a dict over
+# several lines, a string built in parentheses, a name bound above: what
+# that value holds is subject()'s to check, and a value it refuses fails the
+# load before any test runs. Only the argument's name is read, never its
+# shape: this read the line as `memory_graded = "` and filed a dict, or a
+# parenthesised one, as no declaration (//tools/tests:macro_fixtures_test
+# holds it to every contract the macros read).
+graded_of() {  # graded_of MODDIR
+	[ -f "$1/BUILD.bazel" ] || return 1
+	awk '
+		/^subject\(/ { insub = 1; next }
+		insub && /^\)/ { exit }
+		!insub { next }
+		{ line = $0; sub(/#.*/, "", line); text = text " " line }
+		END {
+			if (!match(text, /[(, \t]memory_graded[ \t]*=[ \t]*/)) exit 1
+			rest = substr(text, RSTART + RLENGTH)
+			exit (rest ~ /^None([^A-Za-z0-9_]|$)/)
 		}' "$1/BUILD.bazel"
 }
 
@@ -332,10 +510,26 @@ while [ $# -gt 0 ]; do
 			[ $# -ge 3 ] || { echo "first_red.sh: --turnin MODDIR EX" >&2; exit 2; }
 			turnin_of "$2" "$3"
 			exit ;;
+		# Whether the module's contract declares memory_graded, as the
+		# report reads it ("graded" or "not graded"): for the check that
+		# holds this reading to the macros' (graded_of).
+		--graded)
+			[ $# -ge 2 ] && [ -n "$2" ] || { echo "first_red.sh: --graded MODDIR" >&2; exit 2; }
+			if graded_of "$2"; then echo graded; else echo "not graded"; fi
+			exit ;;
 		--written)
 			[ $# -ge 2 ] && [ -n "$2" ] || { echo "first_red.sh: --written MODDIR" >&2; exit 2; }
 			written_of "$2"
 			exit ;;
+		# A library's functions, as the report reads them: for the checks
+		# that hold this reading to the contract's.
+		--members)
+			[ $# -ge 2 ] && [ -n "$2" ] || { echo "first_red.sh: --members MODDIR" >&2; exit 2; }
+			contract_read "$2" functions || {
+				echo "first_red.sh: no subject() contract in $2/BUILD.bazel" >&2
+				exit 2
+			}
+			exit 0 ;;
 		*) echo "first_red.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -355,19 +549,35 @@ _sl="$(dirname "$0")/standin.sh"
 # shellcheck source=tools/standin.sh
 . "$_sl"
 
-# GREEN ON A STUB: the layers a fresh stub passes, as _LAYER_LEVEL in
-# tools/defs.bzl names them -- the same claim docs/reference.md makes.
-# //tools:conventions fails if a name here stops being a layer.
-STUB_GREEN='norm compile files forbidden prototype'
+# THE ONE LAYER A CONTRACT LOWERS to basic, tools/defs.bzl's _GRADED_LAYER:
+# where a module's subject() declares memory_graded (graded_of), a red of
+# this layer is a KO there, filed as every other basic layer but output is.
+# Not every test of
+# it waits for an output: c_function's arms do, and c_program's -- a survive
+# case's on the case its output test waits for, where _survive_gate finds
+# one -- and SKIP on a stub. One kind runs ungated: c_mem_check's probe run.
+# (Every memcheck sample of a corpus waits behind a gate, as every corpus
+# replay does but a manual one or Rush 00's crash-only sanitizer twin:
+# c_levels()' audit, _ungated_diff_problems.) It passes on a stub by
+# construction (a stub that allocates nothing leaks nothing and touches no
+# block), which the stub-tree run of a real project proves, as it proves
+# every other stub-green layer. A second would be a survive case whose
+# exercise has no case _survive_gate can wait on (none at basic with one
+# expected file and plain arguments, run where the test runs): it runs
+# ungated and meets the stand-in of a stub that builds nothing. No module has
+# one today.
+GRADED_LAYER='valgrind'
 
 # WHICH LAYER A RED TARGET IS, AND AT WHICH LEVEL, read from the tables
 # c_levels()' audit holds every test to (tools/defs.bzl, found beside this
 # script): _SUFFIX_LAYER maps the end of a target's name to its layer and
 # level, _LAYER_LEVEL gives a layer's own level, and _RAISED lists the targets
 # raised above it. Only a red AT BASIC is a KO wherever the project is
-# graded, so only one at basic is filed as the student's to fix first (a
-# stub-green layer) or as the exercise's work (`output`); every other red is
-# rigour. This used to walk a list of its own, which knew `output` and none of
+# graded, so only one at basic is filed as the exercise's work (`output`) or
+# as the student's to fix first (every other layer there); every other red is
+# rigour. That second half used to be a list of the five layers a stub
+# passes, which left a basic allocfail red under ALSO RED (V197). And this
+# used to walk a list of its own, which knew `output` and none of
 # the other basic output targets -- Rush 00's _defense, _survive and _main, Rush
 # 01's _sweep -- and filed them under ALSO RED, "a rigour layer above what the
 # grader checks", over a case the subject says the defense runs.
@@ -392,16 +602,30 @@ is_module_test() {
 # library itself, so the two cannot drift. Found beside this script; without
 # it, such a test is filed as an ordinary FAILED.
 OVERRUN_MARK=$(sed -n 's/^RL_OVERRUN_MARK="\(.*\)"$/\1/p' "$(dirname "$0")/runner_lib.sh" 2> /dev/null)
+# And the line it puts above a table that names the failing case
+# (RL_TABLE_MARK there), read the same way. Without it no log is said to
+# hold a table, and the report words every wrong output "That log says why",
+# which is true of any log.
+TABLE_MARK=$(sed -n 's/^RL_TABLE_MARK="\(.*\)"$/\1/p' "$(dirname "$0")/runner_lib.sh" 2> /dev/null)
+# And the line it puts in the log of a test whose own test program did not
+# build (RL_BUILD_MARK there, tools/header_check.sh): nothing ran, so the test
+# is filed as an empty stand-in is, under DOES NOT BUILD when its exercise is
+# written. Without it, such a test reads as a wrong output.
+BUILD_MARK=$(sed -n 's/^RL_BUILD_MARK="\(.*\)"$/\1/p' "$(dirname "$0")/runner_lib.sh" 2> /dev/null)
 
 WORK=$(mktemp) || exit 2
-trap 'rm -f "$WORK" "$WORK.log" "$WORK.t" "$WORK.b" "$WORK.m" "$WORK.2" "$WORK.e" "$WORK.l"' EXIT
+trap 'rm -f "$WORK" "$WORK.log" "$WORK.t" "$WORK.b" "$WORK.m" "$WORK.2" "$WORK.e" "$WORK.l" "$WORK.u" "$WORK.x"' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
 
 # The tables, one entry per line as buildifier leaves them (the same reading
 # //tools:conventions holds docs/reference.md's copies to):
-#   S<TAB>suffix<TAB>layer<TAB>level     one per _SUFFIX_LAYER entry
+#   S<TAB>suffix<TAB>layer<TAB>level<TAB>layer|own
+#                                        one per _SUFFIX_LAYER entry, and
+#                                        whether its level is its layer's
 #   R<TAB>//package:target<TAB>level     one per _RAISED entry
+#   G<TAB>//package                      a red module whose contract lowers
+#                                        GRADED_LAYER (added below)
 awk '
 	/^_LAYER_LEVEL = \{/ { inl = 1; next }
 	inl && /^\}/ { inl = 0 }
@@ -428,7 +652,8 @@ awk '
 	}
 	END {
 		for (i = 1; i <= n; i++)
-			printf "S\t%s\t%s\t%s\n", sfx[i], sly[i], (slv[i] == "None") ? lv[sly[i]] : slv[i]
+			printf "S\t%s\t%s\t%s\t%s\n", sfx[i], sly[i], (slv[i] == "None") ? lv[sly[i]] : slv[i], \
+				(slv[i] == "None") ? "layer" : "own"
 	}' "$DEFS" > "$WORK.l"
 if ! awk -F'\t' '$1 == "S" && $2 == "_output" && $3 == "output" && $4 == 1 { f = 1 } END { exit !f }' "$WORK.l"; then
 	echo "first_red.sh: tools/defs.bzl's _SUFFIX_LAYER reads as empty or has no" >&2
@@ -467,6 +692,8 @@ tr '\r' '\n' | sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" > "$WORK.log"
 #            student's files: it does not build), or none (only a FAILED TO
 #            BUILD or unanalysed label: it did not run, and nothing says why)
 #   $WORK.m  the counts, one "name<TAB>value" per line
+#   $WORK.x  every red target whose log holds the table mark (TABLE_MARK,
+#            above): one label a line, read by pass 2
 #
 # An exercise is found three ways: from a FAILED TO BUILD target, from a target
 # Bazel could not analyse, and from a compiler or linker line. The last is the
@@ -476,7 +703,8 @@ tr '\r' '\n' | sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" > "$WORK.log"
 # that names only an object file, then one in the test program built against
 # the turn-in.
 awk -F'\t' -v out="$WORK" -v mark="$STANDIN_MARK" -v nomark="$NOTURNIN_MARK" \
-	-v broke="$STANDIN_BROKE" -v empty="$STANDIN_EMPTY" -v overmark="$OVERRUN_MARK" '
+	-v broke="$STANDIN_BROKE" -v empty="$STANDIN_EMPTY" -v overmark="$OVERRUN_MARK" \
+	-v tablemark="$TABLE_MARK" -v buildmark="$BUILD_MARK" '
 	# "//c-piscine/c-piscine-c-11" for a path or label under that project.
 	function modof(p) {
 		sub(/^\/proc\/self\/cwd\//, "", p)
@@ -538,7 +766,9 @@ awk -F'\t' -v out="$WORK" -v mark="$STANDIN_MARK" -v nomark="$NOTURNIN_MARK" \
 		got = 0
 		while ((getline l < path) > 0) {
 			if (overmark != "" && index(l, overmark)) overrun[lbl] = 1
+			if (tablemark != "" && index(l, tablemark) == 1) hastable[lbl] = 1
 			if (index(l, mark)) got = 1
+			if (buildmark != "" && index(l, buildmark) == 1) { got = 1; unbuilt[lbl] = 1 }
 			if (got && index(l, empty)) sempty[lbl] = 1
 			if (index(l, nomark) == 1) { got = 1; missing(lbl, l) }
 			if (got) standin_line(lbl, l)
@@ -593,7 +823,11 @@ awk -F'\t' -v out="$WORK" -v mark="$STANDIN_MARK" -v nomark="$NOTURNIN_MARK" \
 	intest && /^=+$/ { intest = 0; next }
 	intest {
 		if (overmark != "" && index($0, overmark)) overrun[tlabel] = 1
+		if (tablemark != "" && index($0, tablemark) == 1) hastable[tlabel] = 1
 		if (index($0, mark)) { standin[tlabel] = 1; tmark[tlabel] = 1 }
+		if (buildmark != "" && index($0, buildmark) == 1) {
+			standin[tlabel] = 1; tmark[tlabel] = 1; unbuilt[tlabel] = 1
+		}
 		if ((tlabel in tmark) && index($0, empty)) sempty[tlabel] = 1
 		if (index($0, nomark) == 1) { standin[tlabel] = 1; missing(tlabel, $0) }
 		if (tlabel in tmark) standin_line(tlabel, $0)
@@ -737,6 +971,13 @@ awk -F'\t' -v out="$WORK" -v mark="$STANDIN_MARK" -v nomark="$NOTURNIN_MARK" \
 				st = "empty"
 				note(modlabel(t), exoftgt(t), "empty", \
 					(t in sline) ? sline[t] : "there was nothing to build (" t ")")
+			} else if (st == "run" && (t in unbuilt)) {
+				# The build mark: its own test program did not build. Over
+				# a stub that is the exercise not written yet, as an empty
+				# stand-in is, so it is settled the same way, below.
+				st = "empty"
+				note(modlabel(t), exoftgt(t), "empty", \
+					(t in sline) ? sline[t] : "the test program did not build (" t ")")
 			} else if (st == "run" && (t in standin)) {
 				st = "standin"
 				note(modlabel(t), exoftgt(t), (t in swhat) ? (swhat[t] == "headline" ? "standin" : swhat[t]) : "standin", \
@@ -745,6 +986,7 @@ awk -F'\t' -v out="$WORK" -v mark="$STANDIN_MARK" -v nomark="$NOTURNIN_MARK" \
 				st = "timeout"
 			}
 			print t "\t" st > (out ".t")
+			if (t in hastable) print t > (out ".x")
 		}
 		for (i = 1; i <= nb; i++)
 			printf "%s\t%s\t%s\n", border[i], bwhat[border[i]], bline[border[i]] > (out ".b")
@@ -754,8 +996,18 @@ awk -F'\t' -v out="$WORK" -v mark="$STANDIN_MARK" -v nomark="$NOTURNIN_MARK" \
 		printf "ftb\t%d\nlisted_ftb\t%d\n", ftb, listed_ftb > (out ".m")
 		printf "unanalysed\t%d\nfirst\t%s\n", nana, (first == "" ? "-" : first) > (out ".m")
 	}' "$WORK.log"
-: >> "$WORK.t"; : >> "$WORK.b"
+: >> "$WORK.t"; : >> "$WORK.b"; : >> "$WORK.x"
 sort -u "$WORK.t" -o "$WORK.t"
+
+# The functions of every library a red target belongs to, from its module's
+# contract (A LIBRARY'S FUNCTIONS, above): "module<TAB>exNN<TAB>FUNCTION".
+# Where there is no contract to read -- a run piped in from outside the
+# workspace -- a module has none, and its reds are filed by exercise.
+: > "$WORK.u"
+sed 's/:.*$//' "$WORK.t" | sort -u | while IFS= read -r _um; do
+	contract_read "${_um#//}" functions 2> /dev/null |
+		sed "s|^|$_um$(printf '\t')|" >> "$WORK.u"
+done
 
 # EMPTY stand-ins, settled: over a stub, the exercise is not written yet --
 # its tests are ordinary reds ("run"), and it leaves the build list; over
@@ -770,11 +1022,26 @@ while IFS="$TAB" read -r _em _ee _ew _el; do
 	if is_written "$_em" "$_ee" 0; then _es=written; else _es=unwritten; fi
 	printf '%s\t%s\t%s\n' "$_em" "$_ee" "$_es" >> "$WORK.e"
 done < "$WORK.b"
+# A test whose own test program did not build (the build mark, pass 0) is
+# settled the same way, its exercise kept with the compiler's line; one in
+# the test program is said to be there, as a build line of that kind is.
 if [ -s "$WORK.e" ]; then
 	awk -F'\t' -v OFS='\t' '
 		FILENAME == ARGV[1] { st[$1 FS $2] = $3; next }
-		$3 == "empty" { if (st[$1 FS $2] != "written") next; $3 = "standin" }
+		$3 == "empty" {
+			if (st[$1 FS $2] != "written") next
+			$3 = ($4 ~ /[^ :]*\/tests\/ex[0-9]+\/[^ :]*:[0-9]+:/) ? "test" : "standin"
+		}
 		{ print }' "$WORK.e" "$WORK.b" > "$WORK.2" && mv "$WORK.2" "$WORK.b"
+fi
+# Each empty red, settled with its exercise. One whose exercise is not in
+# $WORK.e had a stronger build line beside it (a turn-in file missing, a
+# line of the student's quoted, a link or a test program that failed), so
+# its exercise is in the build list already, whatever stub_check says, and
+# the red is filed with it: its layer is one of those that do not build.
+# Left "empty", it was filed by its layer, and the DOES NOT BUILD line named
+# only the other layers (V302).
+if grep -q "$TAB"'empty$' "$WORK.t"; then
 	awk -F'\t' -v OFS='\t' '
 		function key(l,   m, t) {
 			m = l; sub(/:.*$/, "", m)
@@ -783,7 +1050,7 @@ if [ -s "$WORK.e" ]; then
 			return m FS t
 		}
 		FILENAME == ARGV[1] { st[$1 FS $2] = $3; next }
-		$2 == "empty" { $2 = (st[key($1)] == "written") ? "standin" : "run" }
+		$2 == "empty" { k = key($1); $2 = (!(k in st) || st[k] == "written") ? "standin" : "run" }
 		{ print }' "$WORK.e" "$WORK.t" > "$WORK.2" && mv "$WORK.2" "$WORK.t"
 fi
 
@@ -800,19 +1067,31 @@ if [ ! -s "$WORK.t" ] && [ "$BROKE" -eq 0 ]; then
 	exit 0
 fi
 
+# The red modules whose contract lowers GRADED_LAYER to basic, as the
+# targets there are tagged.
+for _gm in $(sed 's/:.*$//' "$WORK.t" | sort -u); do
+	graded_of "${_gm#//}" && printf 'G\t%s\n' "$_gm" >> "$WORK.l"
+done
+
 # Pass 1: classify every failing target and aggregate per exercise. The build
 # list comes first, so an exercise that does not build is filed as such
 # whatever else about it is red: its output cannot be wrong if it never ran.
 # One that only did not run is filed below every red that did run, because
 # those are established and its missing targets are not.
-awk -F'\t' -v stub_green="$STUB_GREEN" -v tables="$WORK.l" -v module_tests="$MODULE_TESTS" '
+awk -F'\t' -v glayer="$GRADED_LAYER" -v tables="$WORK.l" \
+	-v module_tests="$MODULE_TESTS" -v members="$WORK.u" '
 	BEGIN {
-		n = split(stub_green, g, " ")
-		for (i = 1; i <= n; i++) ko[g[i]] = 1
+		while ((getline ln < members) > 0) {
+			split(ln, q, "\t")
+			nfns[q[1], q[2]]++
+			fnof[q[1], q[2], nfns[q[1], q[2]]] = q[3]
+		}
+		close(members)
 		while ((getline ln < tables) > 0) {
 			split(ln, q, "\t")
-			if (q[1] == "S") { slay[q[2]] = q[3]; slvl[q[2]] = q[4] + 0 }
+			if (q[1] == "S") { slay[q[2]] = q[3]; slvl[q[2]] = q[4] + 0; sown[q[2]] = q[5] }
 			else if (q[1] == "R") raised[q[2]] = q[3] + 0
+			else if (q[1] == "G") graded[q[2]] = 1
 		}
 		close(tables)
 		n = split(module_tests, g, " ")
@@ -827,20 +1106,42 @@ awk -F'\t' -v stub_green="$STUB_GREEN" -v tables="$WORK.l" -v module_tests="$MOD
 		if (ex !~ /^ex[0-9]+$/) ex = (tgt in whole) ? tgt : "-"
 		layer = tgt; sub(/^ex[0-9]+_/, "", layer)
 
+		# The function of a library a target belongs to (see the functions
+		# of a library, above): the longest one whose exNN_<function>_ the name
+		# starts with. The rest of the name is read as for any other target.
+		unit = ex; fn = ""
+		if (ex != "-")
+			for (j = 1; j <= nfns[mod, ex]; j++) {
+				f = fnof[mod, ex, j]
+				pre = ex "_" f "_"
+				if (length(f) > length(fn) && length(tgt) > length(pre) && \
+				    substr(tgt, 1, length(pre)) == pre)
+					fn = f
+			}
+		if (fn != "") {
+			unit = ex " " fn
+			layer = substr(tgt, length(ex) + length(fn) + 3)
+		}
+		rank = 0
+		if (fn != "")
+			for (j = 1; j <= nfns[mod, ex]; j++)
+				if (fnof[mod, ex, j] == fn) rank = j
+
 		# c_program cases and rush variants put a case name between the
 		# exercise and the layer (ex00_blob_output, ex00_rush03_diff), so the
 		# layer is the TAIL: the longest _SUFFIX_LAYER key the name ends
 		# with, as the audit in c_levels() reads it. It is also the name a
 		# red is filed under, so a red C 11 ex05 reads "exit x17" (the robust
 		# exit twins of the Run contract, exNN_<case>_exit) rather than
-		# seventeen one-off names. Only a red at basic is a KO: a stub-green
-		# layer there is for the student to fix first, `output` there is the
-		# work of the exercise, and everything else -- above basic, or raised
+		# seventeen one-off names. Only a red at basic is a KO: `output` there
+		# is the work of the exercise, every other layer there is for the
+		# student to fix first, and everything else -- above basic, or raised
 		# above it by _RAISED -- is rigour. (No apostrophe in this program:
 		# it sits between single quotes.) A test of the whole module
 		# (deliverable_files) is its own "exercise", and its layer is the
 		# tail of its whole name.
 		rest = (tgt in whole) ? "_" tgt : substr(tgt, length(ex) + 1); best = ""
+		if (fn != "") rest = "_" layer
 		if (ex != "-")
 			for (sf in slay)
 				if (length(sf) > length(best) && length(sf) <= length(rest) && \
@@ -848,9 +1149,11 @@ awk -F'\t' -v stub_green="$STUB_GREEN" -v tables="$WORK.l" -v module_tests="$MOD
 					best = sf
 		if (best != "") {
 			probe = substr(best, 2)
-			lvl = (label in raised) ? raised[label] : slvl[best]
-			kind = (lvl == 1 && (slay[best] in ko)) ? "ko" \
-			     : ((lvl == 1 && slay[best] == "output") ? "work" : "rigour")
+			# The level its tags carry: a raise, the contract lowering
+			# its layer (memory_graded), or its name.
+			low = (mod in graded) && slay[best] == glayer && sown[best] == "layer"
+			lvl = (label in raised) ? raised[label] : (low ? 1 : slvl[best])
+			kind = (lvl != 1) ? "rigour" : ((slay[best] == "output") ? "work" : "ko")
 			# A target _RAISED lists is named as it is: its layer alone
 			# read "c-11 ex04 -- output" under ALSO RED, "these produce
 			# the right output", while the red one was ex04_reverse_output,
@@ -866,8 +1169,13 @@ awk -F'\t' -v stub_green="$STUB_GREEN" -v tables="$WORK.l" -v module_tests="$MOD
 		if (status == "build" || status == "standin") kind = "build"
 		if (status == "timeout") kind = "slow"
 
-		key = mod "\t" ex
-		if (!(key in seen)) { seen[key] = 1; order[++nk] = key }
+		key = mod "\t" unit
+		if (!(key in seen)) {
+			seen[key] = 1; order[++nk] = key; kex[key] = mod "\t" ex
+			krank[key] = rank
+			if (!(kex[key] in xseen)) { xseen[kex[key]] = 1; nx++ }
+			if (fn != "") nfn++
+		}
 		if (kind == "build" && !(key SUBSEP probe in bseen)) {
 			bseen[key, probe] = 1
 			bwhat[key] = bwhat[key] (bwhat[key] ? ", " : "") probe
@@ -887,19 +1195,56 @@ awk -F'\t' -v stub_green="$STUB_GREEN" -v tables="$WORK.l" -v module_tests="$MOD
 			}
 			if (!(key in sfirst)) sfirst[key] = label
 		}
+		# The first label of each kind, for one function of a library: the
+		# label --next names, since no prefix of target names tells a
+		# function from a longer one it begins (ft_one, ft_one_more). And for
+		# the library own tests (no function), whose exNN_ prefix every
+		# function test begins with too: given no label, `42` showed the
+		# first red of that prefix, a function test, under the library line.
+		if (nfns[mod, ex] > 0 && !((key, kind) in pfirst)) pfirst[key, kind] = label
 		if (kind == "work") {
 			work[key] = 1
 			if (!(key in wfirst)) wfirst[key] = label
+			# Every work label of the library own tests, in order: each
+			# reads a file of its own (lib_reads), and the report runs
+			# each by its label, never the suite of the whole library.
+			if (fn == "" && nfns[mod, ex] > 0)
+				wall[key] = wall[key] (wall[key] ? " " : "") label
 		}
+		# And every rule label of theirs: FIX FIRST runs each by its label
+		# too, since `:exNN` is the suite of the whole library.
+		if (kind == "ko" && fn == "" && nfns[mod, ex] > 0)
+			kall[key] = kall[key] (kall[key] ? " " : "") label
+		if (fn == "" && nfns[mod, ex] > 0) klib[key] = 1
 		if (!(key SUBSEP probe in lseen)) { lseen[key, probe] = 1; lorder[key] = lorder[key] " " probe }
 		lcount[key, probe]++
 		ntgt[key]++
 		total++
 	}
 	END {
+		# The functions of a library in the order of its contract, never of
+		# their labels: the next function is the first one the contract lists
+		# that is red, not ft_atoi for sorting first. Each exercise keeps its
+		# place, and its own tests (no function) come before its functions.
+		for (i = 1; i <= nk; i++) {
+			grp = kex[order[i]]
+			if (!(grp in gn)) gord[++ng] = grp
+			gn[grp]++
+			gk[grp, gn[grp]] = order[i]
+		}
+		nk = 0
+		for (gi = 1; gi <= ng; gi++) {
+			grp = gord[gi]
+			for (i = 2; i <= gn[grp]; i++) {
+				t = gk[grp, i]
+				for (j = i - 1; j >= 1 && krank[gk[grp, j]] > krank[t]; j--) gk[grp, j + 1] = gk[grp, j]
+				gk[grp, j + 1] = t
+			}
+			for (i = 1; i <= gn[grp]; i++) order[++nk] = gk[grp, i]
+		}
 		for (i = 1; i <= nk; i++) {
 			k = order[i]
-			kind = (k in nobuild) ? "build" \
+			kind = (kex[k] in nobuild) ? "build" \
 			     : (kowhat[k] ? "ko" : (work[k] ? "work" \
 			     : (slowwhat[k] ? "slow" : (rigwhat[k] ? "rigour" : "norun"))))
 			what = (kind == "build" || kind == "norun") ? bwhat[k] \
@@ -925,10 +1270,18 @@ awk -F'\t' -v stub_green="$STUB_GREEN" -v tables="$WORK.l" -v module_tests="$MOD
 			ftb = bwhat[k] ? bwhat[k] : "-"
 			slow = slowwhat[k] ? slowwhat[k] : "-"
 			sl = (k in sfirst) ? sfirst[k] : "-"
-			printf "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n", kind, k, what, ntgt[k], \
-				first, layers, ftb, slow, sl
+			pick = (kind == "ko" && ((k, "ko") in pfirst)) ? pfirst[k, "ko"] \
+			     : ((kind == "rigour" && ((k, "rigour") in pfirst)) ? pfirst[k, "rigour"] : "-")
+			# Whether the row is a library own tests (1) or not (0), and
+			# their work labels, for pass 2 to judge one file at a time,
+			# and their rule labels.
+			printf "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", kind, k, what, ntgt[k], \
+				first, layers, ftb, slow, sl, pick, (k in klib), ((k in wall) ? wall[k] : "-"), \
+				((k in kall) ? kall[k] : "-")
 		}
-		printf "TOTAL\t%d\t%d\t-\t0\t-\t-\t-\t-\t-\n", total, nk
+		# The exercises, and apart from them the functions of a library
+		# (in the column a row keeps for what is red).
+		printf "TOTAL\t%d\t%d\t%d\t0\t-\t-\t-\t-\t-\t-\t0\t-\t-\n", total, nx, nfn
 	}' "$WORK.b" "$WORK.t" > "$WORK"
 
 # Pass 2: nothing is called the student's fault until stub_check says the
@@ -940,21 +1293,85 @@ awk -F'\t' -v stub_green="$STUB_GREEN" -v tables="$WORK.l" -v module_tests="$MOD
 # is "wrong", which is a different sentence and a different next step. Where
 # there is nothing to inspect (run from outside the workspace), both stay as
 # the bucket put them.
+#
+# A library own tests (lib 1) are judged one file at a time, the file each
+# work label reads (lib_read_written), the whole folder only for a label that
+# names no one file: the row is wrong at its first label over a written file,
+# which it then names, and otherwise work. Its reads column says what the
+# report names: for work, "STATE|LABEL reads FILE, ..." (STATE stub, missing,
+# empty, unknown, or mixed, when each item then says its own), or a dash when
+# one of them names no file; for wrong, the file the named label reads. A
+# rule red over a stub library, demoted to work, is run by its rule labels
+# (the kall column). And a wrong row that is no library own tests says in
+# its last column whether its first label's log holds the table mark (pass
+# 0's $WORK.x): 1 when it does, 0 when it does not or no log was read.
 : > "$WORK.2"
-while IFS="$(printf '\t')" read -r kind mod ex what count first layers ftb slow sl; do
+while IFS="$(printf '\t')" read -r kind mod ex what count first layers ftb slow sl pick lib wall kall; do
+	reads="-"
+	table="-"
 	if [ "$kind" = "ko" ] && ! is_module_test "$ex"; then
 		is_written "$mod" "$ex" 1 || kind="work"
 	fi
-	if [ "$kind" = "work" ]; then
+	if [ "$kind" = "work" ] && [ "$lib" = 1 ]; then
+		# A rule's red over a stub library, demoted above: its own labels.
+		if [ "$wall" = "-" ] && [ "$kall" != "-" ]; then
+			wall=$kall
+			first=${kall%% *}
+		fi
+		_pw="" _pall=1 _prd="" _prda="" _pst=""
+		for _pl in $wall; do
+			[ "$_pl" = "-" ] && { _pall=0; continue; }
+			lib_read_written "$mod" "$ex" "$_pl"
+			case $? in
+				0) _pw=$_pl; break ;;
+				1) _ps=stub ;;
+				3) _ps=missing ;;
+				4) _ps=empty ;;
+				5) _ps=unknown ;;
+				*)
+					_pall=0
+					is_written "$mod" "$ex" 0 && { _pw=$_pl; break; }
+					continue ;;
+			esac
+			case "$_pst" in
+				"") _pst=$_ps ;;
+				"$_ps") ;;
+				*) _pst=mixed ;;
+			esac
+			case "$_ps" in
+				stub) _pan=" (a stub)" ;;
+				unknown) _pan="" ;;
+				*) _pan=" ($_ps)" ;;
+			esac
+			_prd="$_prd${_prd:+, }${_pl##*:} reads $(lib_reads "$_pl" "$ex")"
+			_prda="$_prda${_prda:+, }${_pl##*:} reads $(lib_reads "$_pl" "$ex")$_pan"
+		done
+		if [ -n "$_pw" ]; then
+			kind="wrong"
+			first=$_pw
+			reads=$(lib_reads "$_pw" "$ex") || reads="-"
+		elif [ "$_pall" = 1 ] && [ -n "$_prd" ]; then
+			# Each item says its file's state only when they differ.
+			[ "$_pst" = mixed ] && _prd=$_prda
+			reads="$_pst|$_prd"
+		fi
+	elif [ "$kind" = "work" ]; then
 		is_written "$mod" "$ex" 0 && kind="wrong"
 	fi
-	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$mod" "$ex" "$what" \
-		"$count" "$first" "$layers" "$ftb" "$slow" "$sl" >> "$WORK.2"
+	if [ "$kind" = "wrong" ] && [ "$lib" != 1 ]; then
+		if awk -v l="$first" '$0 == l { f = 1 } END { exit !f }' "$WORK.x"; then table=1; else table=0; fi
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$mod" "$ex" "$what" \
+		"$count" "$first" "$layers" "$ftb" "$slow" "$sl" "$pick" "$lib" "$wall" "$reads" "$kall" "$table" >> "$WORK.2"
 done < "$WORK"
 # Every exercise's verdict, settled, for --triage: the bucket, the module and
-# the exercise of each line but the TOTAL.
+# the exercise of each line but the TOTAL. A function of a library is filed
+# under its exercise, once per bucket.
 if [ -n "$TRIAGE" ]; then
-	awk -F'\t' -v OFS='\t' '$1 != "TOTAL" { print $1, $2, $3 }' "$WORK.2" > "$TRIAGE"
+	awk -F'\t' -v OFS='\t' '$1 != "TOTAL" {
+		e = $3; sub(/ .*$/, "", e)
+		if (!(($1, $2, e) in seen)) { seen[$1, $2, e] = 1; print $1, $2, e }
+	}' "$WORK.2" > "$TRIAGE"
 fi
 
 # Pass 3: render. What does not build, then one objective, then a module-sized
@@ -979,13 +1396,48 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 	# under --cmd 42 the 42 command for the same tests (42 test c-05 ex03).
 	# A test of the whole module (deliverable_files) is not an exercise
 	# word to 42, so it is named by its label, which 42 runs as it is.
-	function excmd(m, e) {
+	#
+	# One function of a library ("ex00 ft_strlen") is run again by its own
+	# suite, //<module>:<function>, which 42 takes as a word.
+	function excmd(m, e,   f) {
+		if (e ~ /^ex[0-9]+ /) {
+			f = e; sub(/^[^ ]* /, "", f)
+			return (cmd == "42") ? "42 test " shortname(m) " " f : "bazel test " m ":" f
+		}
 		if (cmd != "42") return "bazel test " m ":" e
 		if (e ~ /^ex[0-9]+$/) return "42 test " shortname(m) " " e
 		return "42 test " m ":" e
 	}
 	function labelcmd(l) {
 		return (cmd == "42" ? "42 test " : "bazel test ") l
+	}
+	# A paragraph of the report, wrapped as its fixed lines are: six spaces
+	# in, at most 68 characters of text a line.
+	function para(s,   n, w, i, line) {
+		n = split(s, w, " ")
+		line = ""
+		for (i = 1; i <= n; i++) {
+			if (line != "" && length(line) + 1 + length(w[i]) > 68) {
+				printf "      %s\n", line
+				line = ""
+			}
+			line = (line == "") ? w[i] : line " " w[i]
+		}
+		if (line != "") printf "      %s\n", line
+	}
+	# Merge the layers in W into what failed to build of K, each once. The
+	# prefix is its own statement: mawk creates ftbw[k] on the left of an
+	# assignment before it reads the right, so "(k in ftbw)" there is always
+	# true and every list began with ", ".
+	function addftb(k, w,   n, a, i, p) {
+		if (w == "-") return
+		n = split(w, a, ", ")
+		for (i = 1; i <= n; i++) {
+			if ((k, a[i]) in ftbseen) continue
+			ftbseen[k, a[i]] = 1
+			p = ((k in ftbw) && ftbw[k] != "-" && ftbw[k] != "") ? ftbw[k] ", " : ""
+			ftbw[k] = p a[i]
+		}
 	}
 	function writenext(b, m, e, l) {
 		if (nextf == "") return
@@ -997,6 +1449,7 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 	# not build, ex04 was red and ex01-ex03 were green (V56). addex M EX notes
 	# one; exlist M writes them in order, "ex00, ex04" or "ex00-ex02, ex04".
 	function addex(m, e,   v) {
+		sub(/ .*$/, "", e)
 		v = substr(e, 3) + 0
 		if ((m, v) in exred) return
 		exred[m, v] = 1
@@ -1038,7 +1491,7 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 		nbmod[$1] = 1
 		next
 	}
-	$1 == "TOTAL" { total = $2; nex = $3; next }
+	$1 == "TOTAL" { total = $2; nex = $3; nfn = $4 + 0; next }
 	{
 		mod[++r] = $2; ex[r] = $3
 		cnt[r] = $5; lay[r] = $7
@@ -1048,21 +1501,31 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 		mk[mod[r], $1] = 1
 		# The exercises a module row names; a test of the whole module
 		# (deliverable_files) has its own line and is not one.
-		if ($3 ~ /^ex[0-9]+$/) addex($2, $3)
-		ftbw[$2 "\t" $3] = $8
+		if ($3 ~ /^ex[0-9]+( |$)/) addex($2, $3)
+		# What failed to build, by exercise: the build list names an
+		# exercise, never one function of a library, so the rows of a
+		# library are merged under it.
+		x = $3; sub(/ .*$/, "", x)
+		addftb($2 "\t" x, $8)
+		# The width of the EVERY EXERCISE column of a module: its exercises and
+		# the functions of a library ("ex00 ft_strlen"), never a test of the
+		# whole module (deliverable_files), which overflows it as it always
+		# has; and per module, so one beside a library prints as alone.
+		if ($3 ~ /^ex[0-9]+( |$)/ && length($3) > exwidth[$2]) exwidth[$2] = length($3)
 		if ($10 != "-")     { tM[++nt] = $2; tE[nt] = $3; tW[nt] = $9; tL[nt] = $10 }
-		if ($1 == "ko")     { koM[++nko] = $2; koE[nko] = $3; koW[nko] = $4 }
+		if ($1 == "ko")     { koM[++nko] = $2; koE[nko] = $3; koW[nko] = $4; koL[nko] = $11; koA[nko] = $15 }
 		if ($1 == "work" || $1 == "wrong") {
 			wM[++nw] = $2; wE[nw] = $3; wK[nw] = $1; wT[nw] = $6; wL[nw] = $7
+			wLib[nw] = $12; wAll[nw] = $13; wRd[nw] = $14; wTab[nw] = $16
 		}
-		if ($1 == "rigour") { rM[++nr] = $2; rE[nr] = $3; rW[nr] = $4 }
+		if ($1 == "rigour") { rM[++nr] = $2; rE[nr] = $3; rW[nr] = $4; rL[nr] = $11 }
 	}
 	END {
 		if (broke && nb > 0)  writenext("build", nbM[1], nbE[1], "-")
-		else if (nko)         writenext("ko", koM[1], koE[1], "-")
+		else if (nko)         writenext("ko", koM[1], koE[1], koL[1])
 		else if (nw)          writenext(wK[1], wM[1], wE[1], wT[1])
 		else if (nt)          writenext("slow", tM[1], tE[1], tL[1])
-		else if (nr)          writenext("rigour", rM[1], rE[1], "-")
+		else if (nr)          writenext("rigour", rM[1], rE[1], rL[1])
 		if (broke) {
 			# Whether Bazel counts an INCOMPLETE among "skipped" it does not
 			# say, so the larger of the two counts, never their sum.
@@ -1184,7 +1647,9 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 			}
 		}
 
-		printf "\nfirst_red: %d red target(s), %d exercise(s), %d module(s)", total, nex, nm
+		printf "\nfirst_red: %d red target(s), %d exercise(s)", total, nex
+		if (nfn) printf " (%d function(s) of a library)", nfn
+		printf ", %d module(s)", nm
 		if (nxb) printf ", and %d more that do not build", nxb
 		if (nxr) printf ", and %d more that did not run", nxr
 		printf ".\n"
@@ -1194,25 +1659,84 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 			printf "  wherever the project is graded. A stub does not fail them.\n\n"
 			for (i = 1; i <= nko; i++) {
 				printf "      %s %s — %s\n", koM[i], koE[i], koW[i]
-				printf "      %s\n\n", excmd(koM[i], koE[i])
+				# A library own rules (no function): each by its label,
+				# since `:exNN` runs the suite of the whole library.
+				if (koA[i] != "-") {
+					n = split(koA[i], al, " ")
+					for (j = 1; j <= n; j++)
+						printf "      %s\n", (cmd == "42") ? labelcmd(al[j]) : "bazel test " al[j] " --test_output=errors"
+					printf "\n"
+				} else
+					printf "      %s\n\n", excmd(koM[i], koE[i])
 			}
 		}
 
 		if (nw) {
-			printf "\n  YOUR NEXT EXERCISE\n\n"
+			unit = (wE[1] ~ / /) ? "FUNCTION" : "EXERCISE"
+			printf "\n  YOUR NEXT %s\n\n", unit
 			printf "      %s %s\n", wM[1], wE[1]
-			if (wK[1] == "work") {
+			# A library own tests (pass 2): each red one run by its label,
+			# and worded after the file it reads, never as the whole
+			# library unwritten, nor sent to a table its runner may not
+			# print.
+			if (wLib[1] == 1 && wK[1] == "work" && wAll[1] != "-") {
+				n = split(wAll[1], al, " ")
+				for (i = 1; i <= n; i++)
+					printf "      %s\n", (cmd == "42") ? labelcmd(al[i]) : "bazel test " al[i] " --test_output=errors"
+				printf "\n"
+				s = (n > 1) ? "These are tests of the library as a whole, not of one of its functions, and " \
+				            : "This is a test of the library as a whole, not of one of its functions, and "
+				# wRd: "STATE|LABEL reads FILE, ..." (pass 2). A stub, a
+				# file missing and an empty one are each not written, and
+				# said as what they are; "mixed" leaves it to each item.
+				if (wRd[1] != "-") {
+					st = wRd[1]; sub(/\|.*$/, "", st)
+					rd = wRd[1]; sub(/^[^|]*\|/, "", rd)
+					if (st == "stub")         sv = "is still a stub"
+					else if (st == "missing") sv = "is missing"
+					else if (st == "empty")   sv = "is empty"
+					else                      sv = ""
+					if (sv != "")
+						s = s ((n > 1) ? "the file each one reads " : "the file it reads ") sv ": "
+					else if (st == "mixed")
+						s = s "none of the files they read is written yet: "
+					else
+						s = s ((n > 1) ? "each one reads one file of it: " : "it reads one file of it: ")
+					s = s rd ". " ((n > 1) ? "What must each of those files hold for its test to pass? The log of each test says what it found." \
+					    : "What must that file hold for the test to pass? Its log says what it found.")
+				} else
+					s = s "every file of it is still a stub. " \
+					    ((n > 1) ? "The log of each test says what it found." : "Its log says what it found.")
+				para(s)
+			} else if (wLib[1] == 1 && wK[1] == "wrong") {
+				printf "      %s\n\n", (cmd == "42") ? labelcmd(wT[1]) : "bazel test " wT[1] " --test_output=errors"
+				if (wRd[1] != "-")
+					s = toupper(substr(wRd[1], 1, 1)) substr(wRd[1], 2) \
+					    " is written, but the test that reads it disagrees. That log says why."
+				else
+					s = "Part of the library is written, but this test of it as a whole disagrees. That log says why."
+				para(s)
+			} else if (wK[1] == "work") {
 				printf "      %s\n\n", excmd(wM[1], wE[1])
-				printf "      Its output layer is red, which is what an unwritten exercise looks\n"
+				printf "      Its output layer is red, which is what an unwritten %s looks\n", tolower(unit)
 				printf "      like. Write it until that goes green, then run the module again.\n"
 			} else if (cmd == "42") {
+				# A table only where the log holds one (pass 2, from
+				# the table mark): a Makefile build red, a crash under a
+				# survive case or a byte-stream summary has none.
 				printf "      %s\n\n", excmd(wM[1], wE[1])
 				printf "      It is written, and it runs, but what it does is not what the test\n"
-				printf "      expects (%s). The table in its log names the case.\n", wL[1]
+				if (wTab[1] == 0)
+					printf "      expects (%s). Its log says why.\n", wL[1]
+				else
+					printf "      expects (%s). The table in its log names the case.\n", wL[1]
 			} else {
 				printf "      bazel test %s --test_output=errors\n\n", wT[1]
 				printf "      It is written, and it runs, but what it does is not what the test\n"
-				printf "      expects (%s). The table in that log names the case.\n", wL[1]
+				if (wTab[1] == 0)
+					printf "      expects (%s). That log says why.\n", wL[1]
+				else
+					printf "      expects (%s). The table in that log names the case.\n", wL[1]
 			}
 		}
 
@@ -1242,7 +1766,14 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 		# The scale, one line per module. This is the part that stops a wall of
 		# red reading as hopeless: seven lines say what three hundred did.
 		printf "\n\n  EVERYTHING STILL RED\n\n"
-		printf "      %-22s %5s  %-24s %s\n", "MODULE", "RED", "STATE", "RED EXERCISES"
+		# The module column is 22 wide, wider only for a longer name shown
+		# (a project deep under its course, cursus/Milestone_0/Libft), so the
+		# counts stay one column and every Piscine table prints as it did.
+		mw = 22
+		for (i = 1; i <= nm; i++) if (length(shortname(morder[i])) > mw) mw = length(shortname(morder[i]))
+		for (i = 1; i <= nx; i++) if (length(shortname(xorder[i])) > mw) mw = length(shortname(xorder[i]))
+		mfmt = "      %-" mw "s %5s  %-24s %s\n"
+		printf mfmt, "MODULE", "RED", "STATE", "RED EXERCISES"
 		for (i = 1; i <= nm; i++) {
 			m = morder[i]
 			span = exlist(m)
@@ -1254,7 +1785,7 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 			else if ((m, "rigour") in mk) state = "written; rigour only"
 			else                          state = "did not run"
 			short = shortname(m)
-			printf "      %-22s %5d  %-24s %s\n", short, mred[m], state, span
+			printf mfmt, short, mred[m] + 0, state, span
 		}
 		# No red target, because none of them ran: "-", not a count of zero.
 		for (i = 1; i <= nx; i++) {
@@ -1265,7 +1796,7 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 				if (nnM[j] == m && nnE[j] ~ /^ex[0-9]+$/) addex(m, nnE[j])
 			span = exlist(m)
 			state = (m in nbmod) ? "does not build" : "did not run"
-			printf "      %-22s %5s  %-24s %s\n", shortname(m), "-", state, span
+			printf mfmt, shortname(m), "-", state, span
 		}
 
 		if (mode == "all") {
@@ -1277,7 +1808,8 @@ awk -F'\t' -v mode="$MODE" -v broke="$BROKE" -v cmd="$CMD" -v nextf="$NEXT" '
 					printf "\n      %s\n", short
 					lastm = mod[i]
 				}
-				printf "        %-6s %2d  %s\n", ex[i], cnt[i], lay[i]
+				w = (mod[i] in exwidth && exwidth[mod[i]] > 6) ? exwidth[mod[i]] : 6
+				printf "        %-" w "s %2d  %s\n", ex[i], cnt[i], lay[i]
 			}
 		} else {
 			printf "\n      Add --all for one line per exercise.\n"

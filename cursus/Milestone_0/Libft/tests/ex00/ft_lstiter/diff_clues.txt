@@ -1,0 +1,5 @@
+  One list per line, and the ints its contents point to once f has run over
+  it: f turns each x into x*3-1, so an int f never reached is unchanged.
+    * the first or last int   -> which nodes does the walk reach?
+      unchanged
+    * an int changed twice    -> is any content handed to f more than once?

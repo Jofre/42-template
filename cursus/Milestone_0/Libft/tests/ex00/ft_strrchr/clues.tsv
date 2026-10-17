@@ -1,0 +1,7 @@
+# clues.tsv for ft_strrchr -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (fires if ANY listed case fails)
+# The contract is man 3 strrchr (Libft, p.8: "adhering strictly to their definitions in the man page").
+strrchr returns a pointer to the LAST occurrence of c. When c is there twice, which one is that, and what is returned when c is not there at all (man 3 strrchr, RETURN VALUE)?	'H' in "Hello, 42!" (first byte)	'l' in "Hello, 42!" (two of them)	'!' in "Hello, 42!" (last byte)	'z' in "Hello, 42!" (absent)	'a' in ""
+The man page says the terminating null byte is "considered part of the string". So when c is 0, is there an occurrence to find, and where is it?	NUL (c = 0) in "Hello, 42!"	NUL (c = 0) in ""	NUL (c = 0) in 5000 bytes
+c is an int and the string holds chars: is a plain char signed on this machine? When the byte is 0xe9 and c is 233, are the two values you compare equal? Which conversion makes them so?	c = 233 in 'a' 0xe9 'b' 0xe9	c = 128 in 0x80 0x80	'z' in 0xe9 'z'
+Is the occurrence you return the last one even when another sits at the very start, and when the only one does?	'#' in 5000 bytes, '#' at 0 and 4999	'#' in 5000 bytes, '#' only at 0

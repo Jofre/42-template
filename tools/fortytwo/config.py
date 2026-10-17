@@ -64,10 +64,12 @@ def rc_files(ws, environ):
     """The rc files a `bazel` command in this checkout reads, in the order it reads them.
 
     tools/drives.sh's drives_rc_scan order: the system rc, the checkout's
-    .bazelrc, the .bazelrc.local its last line imports, then the home rc.
+    .bazelrc, the .bazelrc.local its last line imports, then the home rc. The
+    system rc is C_PISCINE_SYSTEM_BAZELRC's file when that is set, as there.
     """
     home = environ.get("HOME")
-    files = [SYSTEM_RC, os.path.join(ws, ".bazelrc"), os.path.join(ws, LOCAL_RC)]
+    files = [environ.get("C_PISCINE_SYSTEM_BAZELRC") or SYSTEM_RC,
+             os.path.join(ws, ".bazelrc"), os.path.join(ws, LOCAL_RC)]
     if home:
         files.append(os.path.join(home, ".bazelrc"))
     return files
@@ -191,7 +193,7 @@ class Login(Setting):
     required = "`42 submit` and the file headers need it: `42 init` sets it."
 
     def get(self, cx):
-        v = workspace.read_identity(cx.ws).get(self.key)
+        v = workspace.read_identity(cx.ws, bazel.child_env(cx.env)).get(self.key)
         return Found(v, ".vscode/settings.json") if v else None
 
     def check(self, cx, raw):

@@ -82,12 +82,13 @@ static void	remember_routes(t_btree *root, int depth)
 	}
 }
 
+/* One line, without its newline: the caller ends it. */
 static void	show(const char *label, t_btree *node)
 {
 	if (node)
-		printf("%s set %d\n", label, *(int *)node->item);
+		printf("%s set %d", label, *(int *)node->item);
 	else
-		printf("%s NULL\n", label);
+		printf("%s NULL", label);
 }
 
 /* Print what the tree holds at PATH, under LABEL, and keep it for freeing. */
@@ -95,6 +96,7 @@ static void	probe(const char *label, t_btree *root, const char *path)
 {
 	show(label, at(root, path));
 	remember(at(root, path));
+	printf("\n");
 }
 
 /* Where the subject's rule (lower on the left, higher or equal on the right)
@@ -150,13 +152,18 @@ int	main(void)
 	probe("root", droot, "");
 	probe("left", droot, "L");
 	probe("right", droot, "R");
-	probe("right-right", droot, "RR");
+	show("right-right", at(droot, "RR"));
+	remember(at(droot, "RR"));
 	/* Both trees are freed through every route as deep as their inserts:
-	 * what a wrong insert put anywhere is freed too, printed or not. */
+	 * what a wrong insert put anywhere is freed too, printed or not. That
+	 * happens before the last line's newline, so a crash in free() stops the
+	 * output on a line diff_output.sh can mark (after the last one, it marks
+	 * none). */
 	remember_routes(root, 9);
 	remember_routes(droot, 3);
 	i = 0;
 	while (i < g_nfound)
 		free(g_found[i++]);
+	printf("\n");
 	return (0);
 }

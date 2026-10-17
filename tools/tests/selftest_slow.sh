@@ -7,9 +7,9 @@
 # sharded so that each run stays inside its timeout. The runners here cost more
 # per arm, and in what they pull in: valgrind runs the program at 20-50x native,
 # by design, zig's first compile into an empty cache takes seconds, and the
-# Shell 01 arms need //oracle's Rust build. Folding them in would put that cost
-# and those dependencies on every run of the check people run most, and a
-# self-test nobody runs protects nothing.
+# Shell 01 arms and C 02 ex10's fixture arm need //oracle's Rust build.
+# Folding them in would put that cost and those dependencies on every run of
+# the check people run most, and a self-test nobody runs protects nothing.
 #
 # WHY valgrind_test.sh IS THE ONE THAT MATTERED MOST.
 # It is the least redundant layer in the suite: the ONLY one that can see a
@@ -37,7 +37,7 @@ require() {
 		exit 2
 	done
 }
-require awk basename cat chmod cp dirname env fold grep ln mkdir mktemp rm sed
+require awk basename cat chmod cmp cp dirname env fold grep ln mkdir mktemp od readlink rm sed sleep
 
 # A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
 # in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
@@ -58,6 +58,8 @@ LD=""
 LD_LIB=""
 ORACLE=""
 REDIRECT_LIB=""
+STRLCPY_STANDINS=""
+STRLCAT_STANDINS=""
 
 # `--flag` with nothing after it used to die as "2: parameter not set" from
 # `set -u` -- the right exit code wrapped in raw shell. Same loop in every
@@ -100,6 +102,12 @@ while [ $# -gt 0 ]; do
 		# what puts those arms here rather than in the fast selftest.
 		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
 		--redirect-lib) need "$1" "$#"; REDIRECT_LIB="$2"; shift 2 ;;
+		# The archive of //oracle:c02_strlcpy_standins, for the arm that
+		# builds C 02 ex10's output fixture over each of its two functions.
+		--strlcpy-standins) need "$1" "$#"; STRLCPY_STANDINS="$2"; shift 2 ;;
+		# The archive of //oracle:c03_strlcat_standins, for the same arm over
+		# C 03 ex05's output fixture.
+		--strlcat-standins) need "$1" "$#"; STRLCAT_STANDINS="$2"; shift 2 ;;
 		*) echo "selftest_slow.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -122,9 +130,36 @@ FAIL=0
 # harness broke and NOTHING was checked, which must never be mistaken for a
 # detection -- that is the same false-green shape these files exist to hunt, one
 # level up.
+#
+# And as there, under every FAIL line, the first lines of what the command
+# said (TO VERIFY V172): an arm that dropped them left the log only its
+# status, and one that passed when it must not -- the perf gate's arm, twice
+# under load (TO VERIFY V235) -- left nothing to say how. _st_said shows them
+# through runner_lib.sh's rl_excerpt, as every layer shows bytes, from a
+# scratch file of the call's own; want_red and want_green write to a file,
+# not to `$(...)`, which would wait on a background child the command left.
+#
+# _st_said FILE -- the excerpt, under the FAIL line just printed.
+_st_said() {
+	if [ ! -s "$1" ]; then
+		printf '      (it said nothing)\n'
+		return 0
+	fi
+	# shellcheck disable=SC2016 # the script is for the inner shell to expand
+	RL_NAME=selftest_slow "${SH:-sh}" -c '. "$1"; rl_excerpt "$2" 5 "$3" "      | "' \
+		_ "$TOOLS/runner_lib.sh" "$1" "selftest-${1##*/}.txt"
+}
+# _st_said_text TEXT -- the same, for words an arm captured in a variable.
+_st_said_text() {
+	_st_sf=$(mktemp "$WORK/said.XXXXXX") || return 0
+	[ -z "$1" ] || printf '%s\n' "$1" > "$_st_sf"
+	_st_said "$_st_sf"
+	rm -f "$_st_sf"
+}
 want_red() {
 	_name="$1"; shift; [ "$1" = "--" ] && shift
-	"$@" > /dev/null 2>&1
+	_st_f=$(mktemp "$WORK/said.XXXXXX") || _st_f=/dev/null
+	"$@" > "$_st_f" 2>&1
 	_rc=$?
 	case "$_rc" in
 		1)
@@ -132,12 +167,15 @@ want_red() {
 			PASS=$((PASS + 1)) ;;
 		0)
 			printf '  %-52s %s\n' "$_name" "FAIL < (passed; it must not)"
-			FAIL=$((FAIL + 1)) ;;
+			FAIL=$((FAIL + 1))
+			_st_said "$_st_f" ;;
 		*)
 			printf '  %-52s %s\n' "$_name" \
 				"FAIL < (exit $_rc = harness error; nothing was checked)"
-			FAIL=$((FAIL + 1)) ;;
+			FAIL=$((FAIL + 1))
+			_st_said "$_st_f" ;;
 	esac
+	[ "$_st_f" = /dev/null ] || rm -f "$_st_f"
 }
 # Same as selftest.sh's: exit 2 AND a message that says which wiring is wrong.
 # Kept separate from want_red because 2 and 1 mean different things here -- 1 is
@@ -149,23 +187,37 @@ want_broken() {
 	if [ "$_rc" -ne 2 ]; then
 		printf '  %-52s %s\n' "$_name" "FAIL < (exit $_rc; it must refuse with 2)"
 		FAIL=$((FAIL + 1))
+		_st_said_text "$_out"
 	elif printf '%s' "$_out" | grep -qF -- "$_pat"; then
 		printf '  %-52s %s\n' "$_name" "ok (refused, and said why)"
 		PASS=$((PASS + 1))
 	else
 		printf '  %-52s %s\n' "$_name" "FAIL < (refused without saying '$_pat')"
 		FAIL=$((FAIL + 1))
+		_st_said_text "$_out"
 	fi
 }
+# A red (exit 1) is not a harness error (2 or more), here either.
 want_green() {
 	_name="$1"; shift; [ "$1" = "--" ] && shift
-	if "$@" > /dev/null 2>&1; then
-		printf '  %-52s %s\n' "$_name" "ok (green, as required)"
-		PASS=$((PASS + 1))
-	else
-		printf '  %-52s %s\n' "$_name" "FAIL < (red; it must not be)"
-		FAIL=$((FAIL + 1))
-	fi
+	_st_f=$(mktemp "$WORK/said.XXXXXX") || _st_f=/dev/null
+	"$@" > "$_st_f" 2>&1
+	_rc=$?
+	case "$_rc" in
+		0)
+			printf '  %-52s %s\n' "$_name" "ok (green, as required)"
+			PASS=$((PASS + 1)) ;;
+		1)
+			printf '  %-52s %s\n' "$_name" "FAIL < (red; it must not be)"
+			FAIL=$((FAIL + 1))
+			_st_said "$_st_f" ;;
+		*)
+			printf '  %-52s %s\n' "$_name" \
+				"FAIL < (exit $_rc = harness error; nothing was checked)"
+			FAIL=$((FAIL + 1))
+			_st_said "$_st_f" ;;
+	esac
+	[ "$_st_f" = /dev/null ] || rm -f "$_st_f"
 }
 # selftest.sh's want_out and want_broken_none, for a report whose WORDS are the
 # finding: the run must have run (exit 0 or 1, never 2), and its output must
@@ -179,12 +231,14 @@ want_out() {
 		printf '  %-52s %s\n' "$_name" \
 			"FAIL < (exit $_rc = harness error; nothing was checked)"
 		FAIL=$((FAIL + 1))
+		_st_said_text "$_out"
 	elif printf '%s' "$_out" | grep -qF -- "$_pat"; then
 		printf '  %-52s %s\n' "$_name" "ok (explained itself)"
 		PASS=$((PASS + 1))
 	else
 		printf '  %-52s %s\n' "$_name" "FAIL < (never said '$_pat')"
 		FAIL=$((FAIL + 1))
+		_st_said_text "$_out"
 	fi
 }
 want_none() {
@@ -195,9 +249,11 @@ want_none() {
 		printf '  %-52s %s\n' "$_name" \
 			"FAIL < (exit $_rc = harness error; nothing was checked)"
 		FAIL=$((FAIL + 1))
+		_st_said_text "$_out"
 	elif printf '%s' "$_out" | grep -qF -- "$_pat"; then
 		printf '  %-52s %s\n' "$_name" "FAIL < (said '$_pat'; it must not)"
 		FAIL=$((FAIL + 1))
+		_st_said_text "$_out"
 	else
 		printf '  %-52s %s\n' "$_name" "ok (stayed quiet, as required)"
 		PASS=$((PASS + 1))
@@ -231,6 +287,66 @@ if [ "$SH" != "sh" ] && ! command -v "$SH" > /dev/null 2>&1; then
 	echo "selftest: SKIP — SELFTEST_SH=$SH is not installed on this machine."
 	exit 0
 fi
+# A machine without the test locale: a shell that warns of it on every run
+# would put the warning in what the arms read, so the replay runs under C
+# there, said in one line (tools/tests/selftest_locale.sh).
+# shellcheck source=tools/tests/selftest_locale.sh
+. "$TOOLS/tests/selftest_locale.sh"
+st_locale "$SH"
+
+# WHAT A FAILED ARM SAID (TO VERIFY V172). Proven on a toy that refuses as a
+# runner does, each helper run in a subshell so its tally is not this
+# file's: each shows the toy's words under its FAIL line, want_green calls
+# the refusal a harness error and not a red, and want_red shows what a run
+# that passed when it must not said, too. Every helper is asked, and each
+# is judged on its own line, as in selftest.sh: a count over the whole log
+# let one that printed the words twice hide one that printed nothing.
+st_said_toy() { sh -c 'echo "selftest-toy: unknown option" >&2; exit 2'; }
+st_said_passes() { sh -c 'echo "selftest-toy: it passed"'; }
+# st_said_each LOG NAME... -- the NAMEs whose FAIL line in LOG is missing,
+# or is not followed at once by a line of the toy's words.
+st_said_each() {
+	_se_log=$1
+	shift
+	awk -v want="$*" '
+		BEGIN { n = split(want, w, " ") }
+		prev != "" { if (index($0, "| selftest-toy") > 0) ok[prev] = 1; prev = "" }
+		$1 ~ /^toy-/ && index($0, "FAIL <") > 0 { prev = $1 }
+		END { for (i = 1; i <= n; i++) if (!(w[i] in ok)) printf "%s ", w[i] }
+	' "$_se_log"
+}
+st_said_meta() {
+	_sm=$(mktemp "$WORK/said_meta.XXXXXX") || return 2
+	(
+		PASS=0
+		FAIL=0
+		want_red   "toy-red" -- st_said_toy
+		want_green "toy-green" -- st_said_toy
+		want_out   "toy-out" 'never printed' -- st_said_toy
+		want_broken "toy-broken" 'never printed' -- st_said_toy
+		want_none  "toy-none" 'never printed' -- st_said_toy
+		want_red   "toy-passes" -- st_said_passes
+	) > "$_sm" 2>&1
+	_sm_miss=$(st_said_each "$_sm" toy-red toy-green toy-out toy-broken toy-none \
+		toy-passes)
+	_sm_rc=0
+	if [ -n "$_sm_miss" ]; then
+		echo "no words under the FAIL line of: $_sm_miss"
+		_sm_rc=1
+	fi
+	if ! grep 'toy-green' "$_sm" | grep -qF 'harness error'; then
+		echo "want_green did not call exit 2 a harness error"
+		_sm_rc=1
+	fi
+	if ! grep -qF 'selftest-toy: it passed' "$_sm"; then
+		echo "want_red did not show what a run that passed said"
+		_sm_rc=1
+	fi
+	[ "$_sm_rc" = 0 ] || cat "$_sm"
+	rm -f "$_sm"
+	return "$_sm_rc"
+}
+want_green "selftest_slow: a failed arm shows what its command said" -- st_said_meta
 
 # THE COMPILER EVERY FIXTURE HERE IS BUILT WITH, as in selftest.sh: the
 # pinned clang-12 linking with the pinned ld.bfd, proved by the runners' own
@@ -265,6 +381,80 @@ CG_PASS="--valgrind $VALGRIND --valgrind-tools $VGCGTOOLS --callgrind-annotate $
 # tools/defs.bzl hands it over (_pinned_build_args): cycles_check.sh refuses
 # to build without it, where it used to take the box's `cc` (TO VERIFY V38).
 CG_PASS="$CG_PASS --cc $PCC$PCC_LIBS --cc-under $PCC --ld $LD --ld-lib $LD_LIB"
+
+# A TOY THAT DID NOT BUILD (TO VERIFY V287). Every toy below was built with
+# its compiler's words sent to /dev/null and its result never looked at, so
+# one that did not build turned its arms into tests of a missing file. A
+# runner that calls a --bin it cannot run a red (rush02_check.sh,
+# bsq_check.sh) passed every want_red arm over it, a want_none arm stayed
+# quiet on the refusal, and a missing cpu_spin skipped the busy-CPU block
+# under a reason that was not true. So each toy is built by toy_cc, which
+# says when one did not build, as a FAIL of its own with the compiler's
+# words under it, and prints nothing when it did, so the count of a good
+# run does not move. //tools:conventions refuses a toy built here with its
+# compiler's words thrown away.
+#
+# toy_cc OUT CC-ARGS... -- "$CC" CC-ARGS -o OUT; 0 when OUT was built, and
+# 1 and a FAIL line when it was not.
+toy_cc() {
+	_tc_out=$1
+	shift
+	_tc_err=$(mktemp "$WORK/toycc.XXXXXX") || _tc_err=/dev/null
+	rm -f "$_tc_out"
+	"$CC" "$@" -o "$_tc_out" > "$_tc_err" 2>&1
+	_tc_rc=$?
+	if [ "$_tc_rc" -eq 0 ] && [ -s "$_tc_out" ]; then
+		[ "$_tc_err" = /dev/null ] || rm -f "$_tc_err"
+		return 0
+	fi
+	printf '  %-52s %s\n' "toy ${_tc_out#"$WORK"/}" \
+		"FAIL < (the toy did not build: the compiler's exit $_tc_rc)"
+	FAIL=$((FAIL + 1))
+	_st_said "$_tc_err"
+	[ "$_tc_err" = /dev/null ] || rm -f "$_tc_err"
+	return 1
+}
+# Proven on two invented toys, in a subshell with a tally of its own: one
+# that is not C is one FAIL line with the compiler's error under it, and
+# one that builds prints nothing and counts nothing.
+toy_cc_meta() {
+	_tm=$(mktemp "$WORK/toycc_meta.XXXXXX") || return 2
+	mkdir -p "$WORK/toycc"
+	printf 'int main(void){ this is not C }\n' > "$WORK/toycc/bad.c"
+	printf 'int main(void){ return (0); }\n' > "$WORK/toycc/good.c"
+	(
+		PASS=0
+		FAIL=0
+		toy_cc "$WORK/toycc/bad" -w "$WORK/toycc/bad.c"
+		echo "after bad: status $? FAIL $FAIL PASS $PASS"
+		toy_cc "$WORK/toycc/good" -w "$WORK/toycc/good.c"
+		echo "after good: status $? FAIL $FAIL PASS $PASS"
+	) > "$_tm" 2>&1
+	_tm_rc=0
+	if [ "$(grep -c 'FAIL < (the toy did not build' "$_tm")" != 1 ] ||
+		! grep -q '^  toy toycc/bad  *FAIL < (the toy did not build' "$_tm"; then
+		echo "not one FAIL line naming toycc/bad"
+		_tm_rc=1
+	fi
+	if ! awk 'prev { if ($0 ~ /^      \| .*error/) ok = 1; prev = 0 }
+		/FAIL < \(the toy did not build/ { prev = 1 } END { exit !ok }' "$_tm"; then
+		echo "no line of the compiler's error under the FAIL line"
+		_tm_rc=1
+	fi
+	grep -qx 'after bad: status 1 FAIL 1 PASS 0' "$_tm" || {
+		echo "the toy that is not C was not status 1 and one FAIL"
+		_tm_rc=1
+	}
+	grep -qx 'after good: status 0 FAIL 1 PASS 0' "$_tm" || {
+		echo "the toy that builds was not status 0, or it counted"
+		_tm_rc=1
+	}
+	[ "$_tm_rc" = 0 ] || cat "$_tm"
+	rm -f "$_tm"
+	return "$_tm_rc"
+}
+want_green "selftest_slow: a toy that does not build is a FAIL, with the compiler's words" -- \
+	toy_cc_meta
 
 printf 'selftest_slow: does each expensive layer still detect what it exists to detect?\n\n'
 
@@ -319,10 +509,10 @@ printf '#include <fcntl.h>\n#include <unistd.h>\nint main(void){int f=open("/etc
 # is the only thing the write touches, whatever the compiler puts beside it).
 printf 'int main(void){volatile char a[8];volatile int k=8;volatile char pad[16];pad[0]=0;a[k]=1;return (pad[0]&0);}\n' \
 	> "$WORK/vg_stack.c"
-"$CC" -w -g -O0 -fno-stack-protector -o "$WORK/vg_stack" "$WORK/vg_stack.c" 2> /dev/null
+toy_cc "$WORK/vg_stack" -w -g -O0 -fno-stack-protector "$WORK/vg_stack.c"
 
 for _p in vg_clean vg_leak vg_oob vg_uninit vg_fdleak vg_fdok vg_fdleak_rc; do
-	"$CC" -w -g -O0 -o "$WORK/$_p" "$WORK/$_p.c" 2> /dev/null
+	toy_cc "$WORK/$_p" -w -g -O0 "$WORK/$_p.c"
 done
 
 # IS IT ACTUALLY THE PINNED ONE? The failure this guards against is the one
@@ -338,9 +528,9 @@ mkdir -p "$WORK/novg_path"
 # this arm is deliberately hiding. A runner that requires a tool the fixture
 # PATH withholds exits 2, and want_red reports that as "nothing was checked" --
 # an arm failing for a reason that has nothing to do with what it tests.
-# valgrind_test.sh sources tools/runner_lib.sh, which probes cat, chmod, cp,
-# date, grep, mkdir and od itself.
-for _t in sh "$SH" awk basename cat chmod cp date fold grep head mkdir mktemp od rm sed dirname readlink; do
+# valgrind_test.sh sources tools/runner_lib.sh, which probes the tools of
+# its own `for _rl_t in` line near its top, so this list holds them too.
+for _t in sh "$SH" awk basename cat chmod cp date env fold grep head mkdir mktemp od rm sed dirname readlink; do
 	ln -sf "$(command -v "$_t")" "$WORK/novg_path/$_t" 2> /dev/null
 done
 want_red "valgrind: the leak is found with NO valgrind on PATH" -- \
@@ -363,6 +553,55 @@ want_red "valgrind: a stand-in is red, not a memory report" -- \
 	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$STANDIN_BIN"
 want_out "valgrind: ...says the code did not build" 'your code did not build' -- \
 	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$STANDIN_BIN"
+
+# THE HOST'S VALGRIND SETTINGS (V227). valgrind reads ~/.valgrindrc,
+# $VALGRIND_OPTS and ./.valgrindrc before its command line, which overrides
+# only the options it names. Each of these hid the leak: another tool (OK),
+# a suppression file that matches every leak of a malloc, from VALGRIND_OPTS
+# or from ~/.valgrindrc (OK), and an option that conflicts with the runner's
+# own, which made valgrind refuse to start (no verdict, exit 2). The runner
+# clears them (tools/runner_lib.sh, rl_vg_env), so the leak stays red.
+printf '{\n   toy_every_leak\n   Memcheck:Leak\n   match-leak-kinds: all\n   fun:malloc\n   ...\n}\n' \
+	> "$WORK/vg_all.supp"
+mkdir -p "$WORK/vg_rchome"
+printf -- '--suppressions=%s\n' "$WORK/vg_all.supp" > "$WORK/vg_rchome/.valgrindrc"
+want_red "valgrind: a leak stays red under VALGRIND_OPTS=--tool=none" -- \
+	env VALGRIND_OPTS=--tool=none "$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_leak"
+want_red "valgrind: ...and under a suppression file in VALGRIND_OPTS" -- \
+	env VALGRIND_OPTS="--suppressions=$WORK/vg_all.supp" \
+		"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_leak"
+want_red "valgrind: ...and under one in ~/.valgrindrc" -- \
+	env HOME="$WORK/vg_rchome" "$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_leak"
+want_red "valgrind: ...and under an option valgrind would refuse" -- \
+	env VALGRIND_OPTS=--undef-value-errors=no \
+		"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_leak"
+# And DEBUGINFOD_URLS (V270): with it set, memcheck runs debuginfod-find
+# from PATH for each object it has no debug information for, so what it
+# loads, and whether it asks a server at all, would be the host's. A
+# stand-in debuginfod-find first on PATH writes down that it ran: it does
+# when memcheck is started by hand, and never through the runner. The
+# program is vg_clean built without -g, so its build id is a fresh one no
+# machine holds debug information for: memcheck asks about it wherever the
+# arms run, whatever debug files the host has for valgrind's own libraries.
+# Each arm prints the command's status too, so a runner that stopped before
+# memcheck ran cannot pass for one that kept the variable from it.
+toy_cc "$WORK/vg_nog" -w -O0 "$WORK/vg_clean.c"
+mkdir -p "$WORK/vg_dfind"
+printf '#!/bin/sh\necho "$*" >> "${0%%/*}/ran"\nexit 1\n' > "$WORK/vg_dfind/debuginfod-find"
+chmod +x "$WORK/vg_dfind/debuginfod-find"
+vg_dfind() {  # vg_dfind CMD...: CMD under a host's debuginfod settings
+	rm -f "$WORK/vg_dfind/ran"
+	env DEBUGINFOD_URLS=http://debuginfod.invalid PATH="$WORK/vg_dfind:$PATH" "$@" > /dev/null 2>&1
+	_vgd_rc=$?
+	if [ -e "$WORK/vg_dfind/ran" ]; then _vgd=run; else _vgd="not run"; fi
+	echo "rc=$_vgd_rc debuginfod-find: $_vgd"
+}
+want_out "valgrind: a DEBUGINFOD_URLS reaching memcheck runs debuginfod-find" \
+	'rc=0 debuginfod-find: run' -- \
+	vg_dfind env VALGRIND_LIB="$(dirname "$(readlink -f "$VGTOOLS")")" "$VALGRIND" -q "$WORK/vg_nog"
+want_out "valgrind: ...and the runner never lets it reach memcheck" \
+	'rc=0 debuginfod-find: not run' -- \
+	vg_dfind "$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_nog"
 
 want_green "valgrind: a program that frees what it allocates passes" -- \
 	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_clean"
@@ -406,6 +645,112 @@ want_none "valgrind: ...never a paragraph of the subject" 'paragraph on memory' 
 want_none "valgrind: ...nor the level, which is the target's" 'at strict' -- \
 	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_leak"
 
+# A SUBJECT THAT SAYS ONE THING OF A LEAK AND ANOTHER OF AN INVALID ACCESS
+# (--access-rule, a contract's memory_graded): each red quotes the sentence
+# its finding breaks, once -- the access one for an invalid read, a crash or
+# any finding that is no leak, --rule's for a leak, both for a run showing
+# both. It quoted the leak sentence over every finding, an invalid read and
+# a probe that checks no leak among them.
+printf 'Toy, p.4: "Touch only what you own."\n' > "$WORK/vg_access.txt"
+printf '#include <stdlib.h>\nint main(void){char*p=malloc(4);char c=p[4];malloc(8);free(p);return (c==0);}\n' \
+	> "$WORK/vg_both.c"
+printf '#include <stdlib.h>\nint main(void){volatile char*p=0;return (*p);}\n' > "$WORK/vg_crash.c"
+# A finding this layer names no class for (a "fishy" size) beside a leak, and
+# a crash with a block still held when it was killed: the first quotes both
+# sentences, the second the access one alone -- a block a killed process never
+# got to free is no leak it made.
+printf '#include <stdlib.h>\nint main(void){volatile size_t n=(size_t)-8;malloc(n);malloc(32);return (0);}\n' \
+	> "$WORK/vg_fishy.c"
+printf '#include <stdlib.h>\nchar*g;int main(void){volatile char*p=0;g=malloc(16);return (*p);}\n' \
+	> "$WORK/vg_crash_held.c"
+# The same finding made by a forked child, before its parent leaks: the log
+# holds the child's ERROR SUMMARY, then the parent's, and only the last one
+# was counted, so the child's finding quoted the leak sentence alone.
+printf '#include <stdlib.h>\n#include <unistd.h>\n#include <sys/wait.h>\nint main(void){volatile size_t n=(size_t)-8;pid_t p=fork();if(p==0){malloc(n);return (0);}waitpid(p,0,0);malloc(8);malloc(16);return (0);}\n' \
+	> "$WORK/vg_fork_fishy.c"
+for _p in vg_both vg_crash vg_fishy vg_crash_held vg_fork_fishy; do
+	toy_cc "$WORK/$_p" -w -g -O0 "$WORK/$_p.c"
+done
+vg_rules() {  # vg_rules BIN [FLAG]... -- one run, with both sentences
+	_vr_bin=$1; shift
+	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --rule "$WORK/vg_rule.txt" \
+		--access-rule "$WORK/vg_access.txt" "$@" --bin "$WORK/$_vr_bin"
+}
+# One run per program, each read by several arms (a memcheck run is seconds).
+for _p in vg_oob vg_leak vg_both vg_crash vg_fishy vg_crash_held vg_fork_fishy; do
+	vg_rules "$_p" > "$WORK/$_p.rules.out" 2>&1
+	echo "$?" > "$WORK/$_p.rules.rc"
+done
+# A leak beside a block valgrind was told to suppress: the ERROR SUMMARY ends
+# "(suppressed: 1 from 1)", and the count of contexts read the "from" in it
+# too, so a run that only leaks counted two contexts for one loss record and
+# quoted the access sentence beside the leak one. Which blocks are suppressed
+# is the host's (its default suppressions), so the arm suppresses one itself.
+printf '#include <stdlib.h>\nvoid*g;__attribute__((noinline)) void*toy_hidden_take(void){return (malloc(24));}\nint main(void){g=toy_hidden_take();g=0;malloc(8);return (0);}\n' \
+	> "$WORK/vg_supp.c"
+printf '{\n   toy_hidden\n   Memcheck:Leak\n   match-leak-kinds: all\n   fun:malloc\n   fun:toy_hidden_take\n}\n' \
+	> "$WORK/vg_supp.supp"
+toy_cc "$WORK/vg_supp" -w -g -O0 "$WORK/vg_supp.c"
+# The suppression goes in through valgrind's own tree, a copy of it whose
+# default.supp (read from $VALGRIND_LIB) adds the toy's entry. It went in
+# through VALGRIND_OPTS, which the runner now clears (V227). The tool is a
+# copy, not a link: the runner resolves --valgrind-tools to find the tree.
+_vg_tree=$(dirname "$(readlink -f "$VGTOOLS")")
+mkdir -p "$WORK/vg_supp_lib"
+for _f in memcheck-amd64-linux vgpreload_core-amd64-linux.so vgpreload_memcheck-amd64-linux.so; do
+	cp "$_vg_tree/$_f" "$WORK/vg_supp_lib/$_f"
+done
+cat "$_vg_tree/default.supp" "$WORK/vg_supp.supp" > "$WORK/vg_supp_lib/default.supp" 2> /dev/null
+"$SH" "$TOOLS/valgrind_test.sh" --valgrind "$VALGRIND" \
+	--valgrind-tools "$WORK/vg_supp_lib/memcheck-amd64-linux" \
+	--rule "$WORK/vg_rule.txt" --access-rule "$WORK/vg_access.txt" \
+	--bin "$WORK/vg_supp" > "$WORK/vg_supp.rules.out" 2>&1
+echo "$?" > "$WORK/vg_supp.rules.rc"
+vg_rules_seen() { cat "$WORK/$1.rules.out"; return "$(cat "$WORK/$1.rules.rc")"; }
+vg_rules_count() {  # vg_rules_count RUN TEXT -- how many lines of RUN's report hold TEXT
+	printf 'lines: %s\n' "$(grep -cF -- "$2" "$WORK/$1.rules.out")"
+}
+want_out  "valgrind --access-rule: an invalid read quotes the access sentence" \
+	'Touch only what you own' -- vg_rules_seen vg_oob
+want_none "valgrind --access-rule: ...never the leak sentence" 'Free what you take' -- \
+	vg_rules_seen vg_oob
+want_out  "valgrind --access-rule: a leak quotes the leak sentence" 'Free what you take' -- \
+	vg_rules_seen vg_leak
+want_none "valgrind --access-rule: ...never the access sentence" 'Touch only what you own' -- \
+	vg_rules_seen vg_leak
+want_out  "valgrind --access-rule: a run with both quotes the access one once" 'lines: 1' -- \
+	vg_rules_count vg_both 'Touch only what you own'
+want_out  "valgrind --access-rule: ...and the leak one once" 'lines: 1' -- \
+	vg_rules_count vg_both 'Free what you take'
+want_red  "valgrind --access-rule: a crash is red" -- vg_rules_seen vg_crash
+want_out  "valgrind --access-rule: ...quoting the access sentence" 'Touch only what you own' -- \
+	vg_rules_seen vg_crash
+want_out  "valgrind --access-rule: a finding of no named class beside a leak quotes the access one" \
+	'lines: 1' -- vg_rules_count vg_fishy 'Touch only what you own'
+want_out  "valgrind --access-rule: ...and the leak one" 'lines: 1' -- \
+	vg_rules_count vg_fishy 'Free what you take'
+want_out  "valgrind --access-rule: ...made by a forked child, the access one too" \
+	'lines: 1' -- vg_rules_count vg_fork_fishy 'Touch only what you own'
+want_out  "valgrind --access-rule: ...beside its parent's leak sentence" 'lines: 1' -- \
+	vg_rules_count vg_fork_fishy 'Free what you take'
+want_out  "valgrind --access-rule: (the toy's block was suppressed, so the arms below run)" \
+	'(suppressed: 1 from 1)' -- vg_rules_seen vg_supp
+want_out  "valgrind --access-rule: a leak beside a suppressed block quotes the leak sentence" \
+	'lines: 1' -- vg_rules_count vg_supp 'Free what you take'
+want_out  "valgrind --access-rule: ...and never the access one" 'lines: 0' -- \
+	vg_rules_count vg_supp 'Touch only what you own'
+want_red  "valgrind --access-rule: a crash holding a block is red" -- vg_rules_seen vg_crash_held
+want_out  "valgrind --access-rule: ...quoting the access sentence" 'Touch only what you own' -- \
+	vg_rules_seen vg_crash_held
+want_none "valgrind --access-rule: ...never the leak one, for a block it was killed holding" \
+	'Free what you take' -- vg_rules_seen vg_crash_held
+# Without --access-rule, as before it: a crash quotes nothing, and the leak
+# sentence is the one rule (the arms above).
+want_none "valgrind: without --access-rule a crash quotes no sentence" 'The sentence this applies' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --rule "$WORK/vg_rule.txt" --bin "$WORK/vg_crash"
+want_out  "valgrind: ...and an invalid read quotes --rule" 'Free what you take' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --rule "$WORK/vg_rule.txt" --bin "$WORK/vg_oob"
+
 # THE TIME BUDGET (finding 066). VALGRIND_TIMEOUT is 60s, which is the whole of
 # a small test's limit -- and the output gate runs before it -- so a program
 # that never ends was killed by Bazel, with nothing in the log. Each run now
@@ -413,7 +758,7 @@ want_none "valgrind: ...nor the level, which is the target's" 'at strict' -- \
 # alarm() ends the loop by itself after 20s, so a regression here costs a
 # bounded wait and not the whole target.
 printf '#include <unistd.h>\nint main(void){alarm(20);for(;;);}\n' > "$WORK/vg_spin.c"
-"$CC" -w -g -O0 -o "$WORK/vg_spin" "$WORK/vg_spin.c" 2> /dev/null
+toy_cc "$WORK/vg_spin" -w -g -O0 "$WORK/vg_spin.c"
 want_red   "valgrind: a program that never ends is stopped" -- \
 	env TEST_TIMEOUT=6 RL_MARGIN=1 "$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_spin"
 want_out   "valgrind: ...inside the test's own limit, and says so" \
@@ -497,7 +842,7 @@ want_out   "valgrind: a closed descriptor's OK says it checked them" \
 # valgrind prints is its own log's, and the report must not show it.
 printf '#include <stdlib.h>\n#include <fcntl.h>\n#include <unistd.h>\nint main(void){int f=open("/etc/hostname",O_RDONLY);close(f);return (malloc(8)==0);}\n' \
 	> "$WORK/vg_fdleak_mem.c"
-"$CC" -w -g -O0 -o "$WORK/vg_fdleak_mem" "$WORK/vg_fdleak_mem.c" 2> /dev/null
+toy_cc "$WORK/vg_fdleak_mem" -w -g -O0 "$WORK/vg_fdleak_mem.c"
 want_out   "valgrind: a leak with every descriptor closed is still a leak" \
 	'DEFINITELY LOST' -- \
 	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_fdleak_mem"
@@ -521,7 +866,7 @@ want_none  "valgrind: ...and its raw report drops the harness's own log" \
 # byte(s)".
 printf '#include <unistd.h>\nint main(void){char b[4];b[0]=97;b[1]=98;b[2]=99;if(write(1,b,4)<0)return(1);return (0);}\n' \
 	> "$WORK/vg_uninit_wr.c"
-"$CC" -w -g -O0 -o "$WORK/vg_uninit_wr" "$WORK/vg_uninit_wr.c" 2> /dev/null
+toy_cc "$WORK/vg_uninit_wr" -w -g -O0 "$WORK/vg_uninit_wr.c"
 
 want_red   "valgrind: --no-leak-check still sees an uninitialised write()" -- \
 	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --no-leak-check \
@@ -538,6 +883,16 @@ want_none  "valgrind: ...and no leak rule it did not apply" 'every block allocat
 # free what it allocated. vg_leak is red WITHOUT the flag three arms above.
 want_green "valgrind: ...and stops reporting the leak it is told to ignore" -- \
 	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --no-leak-check --bin "$WORK/vg_leak"
+# A probe run, which checks no leak, quoting the access sentence: its red can
+# be no leak, and a graded package hands it no --rule (tools/defs.bzl's
+# _graded_rule).
+want_out  "valgrind --no-leak-check --access-rule: quotes the access sentence" \
+	'Touch only what you own' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --no-leak-check --access-rule "$WORK/vg_access.txt" \
+		--bin "$WORK/vg_uninit_wr"
+want_none "valgrind --no-leak-check --access-rule: ...and no leak rule at all" 'every block allocated' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --no-leak-check --access-rule "$WORK/vg_access.txt" \
+		--bin "$WORK/vg_uninit_wr"
 # And the pass line must not claim what was never looked for. A green that says
 # "no leak" over a --leak-check=no run is the false statement of record this
 # repo keeps finding in its own comments, printed on every single pass.
@@ -579,8 +934,8 @@ printf '#include <stdio.h>\n#include <stdlib.h>\nint main(void){malloc(64);print
 	> "$WORK/vg_gate_ok.c"
 printf '#include <stdio.h>\n#include <stdlib.h>\nint main(void){malloc(64);printf("wrong\\n");return (0);}\n' \
 	> "$WORK/vg_gate_bad.c"
-"$CC" -w -g -O0 -o "$WORK/vg_gate_ok" "$WORK/vg_gate_ok.c" 2> /dev/null
-"$CC" -w -g -O0 -o "$WORK/vg_gate_bad" "$WORK/vg_gate_bad.c" 2> /dev/null
+toy_cc "$WORK/vg_gate_ok" -w -g -O0 "$WORK/vg_gate_ok.c"
+toy_cc "$WORK/vg_gate_bad" -w -g -O0 "$WORK/vg_gate_bad.c"
 
 # `env -u NO_SKIP`, for the reason the arm three lines below exists: this pair
 # CONTRASTS the gate closed against the gate forced open, so the first half has
@@ -636,6 +991,113 @@ want_red   "valgrind: an any_of gate is open on its second output" -- \
 	env -u NO_SKIP "$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_gate_ok" \
 		--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/vg_gate_ok" \
 		--gate-expected "$WORK/gate_other.txt" --gate-expected-alt "$WORK/gate_exp.txt"
+# A gate given --gate-label names the output test it stands for in its SKIP
+# line, as every macro-written gate now does, rather than "this exercise's
+# own output fixture", which names no test.
+want_out   "valgrind: a labelled gate's SKIP names its output test" \
+	"SKIP — toy_output, this exercise's own output fixture" -- \
+	env -u NO_SKIP "$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_gate_bad" \
+		--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/vg_gate_bad" \
+		--gate-expected "$WORK/gate_exp.txt" --gate-label toy_output
+# A gate whose program is not there is said, and the layer runs on (V292):
+# it was dropped with nothing said.
+want_out   "valgrind: a gate program that is not there is said" \
+	'could not be evaluated' -- \
+	env -u NO_SKIP "$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_clean" \
+		--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/no-such-gate" \
+		--gate-expected "$WORK/gate_exp.txt"
+
+# A SURVIVE CASE'S GATE IS ANOTHER CASE (--survive, c_program's
+# _survive_gate): its exercise's first case, written out whole in --gate-arg
+# words, and handed nothing of the survive case's own run. It ran ungated, so
+# over a stub whose Makefile builds nothing it met the stand-in and was red at
+# strict, four times over Rush 02's stub, while the asan arm of the same cases
+# said SKIP (V253). The stand-in here is the one a build with nothing to
+# compile writes ("NOTHING TO BUILD YET"), as a stub's is.
+"$SH" "$TOOLS/student_build.sh" --cc "$CC" --out "$WORK/standin/empty" --label selftest \
+	> /dev/null 2>&1 && [ -f "$WORK/standin/empty" ] || {
+	echo "selftest_slow: tools/student_build.sh wrote no stand-in for a build with nothing to compile" >&2
+	exit 2
+}
+# vg_survive skip|noskip ARG... -- NO_SKIP unset, or set to 1, in a subshell:
+# a function cannot be run through env.
+vg_survive() {
+	(
+		if [ "$1" = noskip ]; then NO_SKIP=1; export NO_SKIP; else unset NO_SKIP; fi
+		shift
+		"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --survive \
+			--gate-differ "$TOOLS/diff_output.sh" --gate-label toy_first_output "$@"
+	)
+}
+want_green "valgrind: a survive case SKIPs a stand-in while its gate is red" -- \
+	vg_survive skip --bin "$WORK/standin/empty" \
+		--gate-bin "$WORK/standin/empty" --gate-expected "$WORK/gate_exp.txt" \
+		--gate-arg one -- two three
+want_out   "valgrind: ...naming the case it waits on" \
+	'SKIP — toy_first_output, this exercise' -- \
+	vg_survive skip --bin "$WORK/standin/empty" \
+		--gate-bin "$WORK/standin/empty" --gate-expected "$WORK/gate_exp.txt" \
+		--gate-arg one -- two three
+want_red   "valgrind: ...and NO_SKIP=1 makes that stand-in red" -- \
+	vg_survive noskip --bin "$WORK/standin/empty" \
+		--gate-bin "$WORK/standin/empty" --gate-expected "$WORK/gate_exp.txt" \
+		--gate-arg one -- two three
+want_out   "valgrind: ...saying there was nothing to build" 'nothing to build' -- \
+	vg_survive noskip --bin "$WORK/standin/empty" \
+		--gate-bin "$WORK/standin/empty" --gate-expected "$WORK/gate_exp.txt" \
+		--gate-arg one -- two three
+want_red   "valgrind: past a green survive gate, a stand-in is red" -- \
+	vg_survive skip --bin "$WORK/standin/empty" \
+		--gate-bin "$WORK/vg_gate_ok" --gate-expected "$WORK/gate_exp.txt"
+# The gate runs its own words, never the survive case's: this toy prints the
+# fixture only when its one argument is "hi", and leaks. Handed the case's
+# own "zz", in place of "hi" or after it, the gate would be red and the leak
+# skipped. ONE argument: diff_output.sh puts an --argv-file's words after the
+# words after --, so a toy reading v[1] alone missed a gate handed the case's
+# argument file (review of V253).
+printf '#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\nint main(int c, char **v){malloc(64);printf(c == 2 && !strcmp(v[1], "hi") ? "hello\\n" : "wrong\\n");return (0);}\n' \
+	> "$WORK/vg_gate_word.c"
+toy_cc "$WORK/vg_gate_word" -w -g -O0 "$WORK/vg_gate_word.c"
+want_red   "valgrind: a survive gate runs its --gate-arg words, not the case's" -- \
+	vg_survive skip --bin "$WORK/vg_gate_word" \
+		--gate-bin "$WORK/vg_gate_word" --gate-expected "$WORK/gate_exp.txt" \
+		--gate-arg hi -- zz
+want_out   "valgrind: ...so the leak is reported" 'DEFINITELY LOST' -- \
+	vg_survive skip --bin "$WORK/vg_gate_word" \
+		--gate-bin "$WORK/vg_gate_word" --gate-expected "$WORK/gate_exp.txt" \
+		--gate-arg hi -- zz
+# ...nor its argument file: the case's own --argv-file holds "zz" too.
+printf 'zz\n' > "$WORK/vg_gate_word.argv"
+want_red   "valgrind: ...nor the case's argument file" -- \
+	vg_survive skip --bin "$WORK/vg_gate_word" \
+		--gate-bin "$WORK/vg_gate_word" --gate-expected "$WORK/gate_exp.txt" \
+		--gate-arg hi --argv-file "$WORK/vg_gate_word.argv"
+# A gate case with no argument is still that case, never this one: this toy
+# prints the fixture only when it is given no argument and is not run as
+# ./toy, and leaks. A runner that chose the gate's words by "a --gate-arg was
+# given" handed it the case's "two"; one that handed it the case's run flags
+# ran it as ./toy. Either way the gate was red, and the leak skipped. This is
+# why --survive is a flag of its own.
+printf '#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\nint main(int c, char **v){malloc(64);printf(c == 1 && strcmp(v[0], "./toy") ? "hello\\n" : "wrong\\n");return (0);}\n' \
+	> "$WORK/vg_gate_bare.c"
+toy_cc "$WORK/vg_gate_bare" -w -g -O0 "$WORK/vg_gate_bare.c"
+want_red   "valgrind: a survive gate with no word gets none of the case's" -- \
+	vg_survive skip --bin "$WORK/vg_gate_bare" \
+		--gate-bin "$WORK/vg_gate_bare" --gate-expected "$WORK/gate_exp.txt" \
+		-- two
+want_out   "valgrind: ...so the leak is reported" 'DEFINITELY LOST' -- \
+	vg_survive skip --bin "$WORK/vg_gate_bare" \
+		--gate-bin "$WORK/vg_gate_bare" --gate-expected "$WORK/gate_exp.txt" \
+		-- two
+want_red   "valgrind: ...nor the name the case runs as" -- \
+	vg_survive skip --bin "$WORK/vg_gate_bare" \
+		--gate-bin "$WORK/vg_gate_bare" --gate-expected "$WORK/gate_exp.txt" \
+		--run-as toy
+# A word for a gate that replays this run's own is a wiring mistake.
+want_broken "valgrind: --gate-arg without --survive is refused" '(--survive)' -- \
+	"$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_gate_word" \
+		--gate-differ "$TOOLS/diff_output.sh" --gate-bin "$WORK/vg_gate_word" \
+		--gate-expected "$WORK/gate_exp.txt" --gate-arg hi
 
 # A GATE THAT CANNOT ANSWER MUST NOT SILENCE THE LAYER.
 #
@@ -662,7 +1124,7 @@ printf '%s\n' '#include <stdio.h>' '#include <stdlib.h>' \
 	'int main(void) { char b[64]; FILE *f = fopen("toy.dict", "r"); malloc(64);' \
 	'	if (!f) return (printf("no toy.dict here\n"), 1);' \
 	'	if (fgets(b, sizeof b, f)) fputs(b, stdout); fclose(f); return (0); }' > "$WORK/vg_pc.c"
-"$CC" -w -g -O0 -o "$WORK/vg_pc" "$WORK/vg_pc.c" 2> /dev/null
+toy_cc "$WORK/vg_pc" -w -g -O0 "$WORK/vg_pc.c"
 printf 'staged\n' > "$WORK/vg_pc_staged.txt"
 vg_pc() {
 	env -u NO_SKIP "$SH" "$TOOLS/valgrind_test.sh" $VG_PASS --bin "$WORK/vg_pc" \
@@ -706,7 +1168,7 @@ printf '%s\n' '#include <stdio.h>' '#include <stdlib.h>' \
 	'int main(int ac, char **av) { if (ac == 2 && !av[1][0]) { malloc(64);' \
 	'	return (printf("one empty argument\n"), 0); } return (printf("%d arguments\n", ac - 1), 0); }' \
 	> "$WORK/vg_af.c"
-"$CC" -w -g -O0 -o "$WORK/vg_af" "$WORK/vg_af.c" 2> /dev/null
+toy_cc "$WORK/vg_af" -w -g -O0 "$WORK/vg_af.c"
 printf 'one empty argument\n' > "$WORK/vg_af_expected.txt"
 printf '\n' > "$WORK/vg_af.argv"
 vg_af() {
@@ -761,8 +1223,8 @@ int main(int ac, char **av)
 }
 MC_CONV
 sed 's/if (b\[1\] == .\\0.)//' "$WORK/mc/conv.c" > "$WORK/mc/conv_ok.c"
-"$CC" -w -g -O0 -o "$WORK/mc/conv" "$WORK/mc/conv.c" 2> /dev/null
-"$CC" -w -g -O0 -o "$WORK/mc/conv_ok" "$WORK/mc/conv_ok.c" 2> /dev/null
+toy_cc "$WORK/mc/conv" -w -g -O0 "$WORK/mc/conv.c"
+toy_cc "$WORK/mc/conv_ok" -w -g -O0 "$WORK/mc/conv_ok.c"
 # One run per program, each read by several arms: a memcheck run is seconds,
 # and on a loaded machine many of them are this target's whole time limit.
 # shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
@@ -808,7 +1270,7 @@ int main(int ac, char **av)
 	return (0);
 }
 MC_FD
-"$CC" -w -g -O0 -o "$WORK/mc/fdconv" "$WORK/mc/fdconv.c" 2> /dev/null
+toy_cc "$WORK/mc/fdconv" -w -g -O0 "$WORK/mc/fdconv.c"
 # shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
 "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/mc/fdconv" --dict "$WORK/mc/dict.txt" \
 	--oracle "$WORK/mc/oracle.sh" $VG_PASS --sample 4 > "$WORK/mc/fdconv.out" 2>&1
@@ -854,7 +1316,7 @@ int main(int ac, char **av)
 	return (0);
 }
 MC_FDNOTE
-"$CC" -w -g -O0 -o "$WORK/mc/fdnote" "$WORK/mc/fdnote.c" 2> /dev/null
+toy_cc "$WORK/mc/fdnote" -w -g -O0 "$WORK/mc/fdnote.c"
 # shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
 # Its call quotes the subject's sentence (--rule, c_program's memory_rule,
 # V82), which the verdict quotes once, in place of this harness's rule.
@@ -871,6 +1333,48 @@ want_out   "corpus --valgrind --rule: ...quoting the subject's sentence once" 'l
 	mc_count fdnote 'Toy, p.1: "Free what you allocate."'
 want_none  "corpus --valgrind --rule: ...never calling the rule the harness's" \
 	'It is not a sentence' -- mc_seen fdnote
+# With --access-rule, a corpus whose cases show an invalid read (the number
+# 7) and a leak (14) quotes each sentence once, after the cases, each for
+# its own kind; one whose cases only leak quotes the leak one alone.
+cat > "$WORK/mc/accleak.c" <<'MC_ACCLEAK'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(int ac, char **av)
+{
+	char	*p;
+
+	if (ac != 3)
+		return (1);
+	p = malloc(2);
+	p[0] = 'n';
+	p[1] = 0;
+	if (strcmp(av[2], "7") == 0 && p[2] == 'x')
+		p[0] = 'x';
+	if (strcmp(av[2], "14") != 0)
+		free(p);
+	printf("n%s\n", av[2]);
+	return (0);
+}
+MC_ACCLEAK
+toy_cc "$WORK/mc/accleak" -w -g -O0 "$WORK/mc/accleak.c"
+printf 'Toy, p.1: "Touch only what you own."\n' > "$WORK/mc/access.txt"
+# shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
+for _mc in accleak fdnote; do
+	env VALGRIND_FDS=lax "$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/mc/$_mc" --dict "$WORK/mc/dict.txt" \
+		--oracle "$WORK/mc/oracle.sh" $VG_PASS --sample 4 --rule "$WORK/mc/rule.txt" \
+		--access-rule "$WORK/mc/access.txt" > "$WORK/mc/${_mc}_acc.out" 2>&1
+	echo "$?" > "$WORK/mc/${_mc}_acc.rc"
+done
+want_red   "corpus --valgrind --access-rule: an invalid read and a leak are red" -- mc_seen accleak_acc
+want_out   "corpus --valgrind --access-rule: ...quoting the access sentence once" 'lines: 1' -- \
+	mc_count accleak_acc 'Toy, p.1: "Touch only what you own."'
+want_out   "corpus --valgrind --access-rule: ...and the leak sentence once" 'lines: 1' -- \
+	mc_count accleak_acc 'Toy, p.1: "Free what you allocate."'
+want_out   "corpus --valgrind --access-rule: a corpus that only leaks quotes the leak one" 'lines: 1' -- \
+	mc_count fdnote_acc 'Toy, p.1: "Free what you allocate."'
+want_out   "corpus --valgrind --access-rule: ...and never the access one" 'lines: 0' -- \
+	mc_count fdnote_acc 'Touch only what you own'
 # A DESCRIPTOR LEFT OPEN ON A SCRATCH FILE is named by the name the case keeps
 # it under. bsq_check.sh hands the program a scratch copy of each map, and
 # memcheck's stanza said "Open file descriptor 3: <TMPDIR>/tmp.XXXX/map", a
@@ -894,7 +1398,7 @@ int main(int ac, char **av)
 	return (0);
 }
 MC_MAPOPEN
-"$CC" -w -g -O0 -o "$WORK/mc/mapopen" "$WORK/mc/mapopen.c" 2> /dev/null
+toy_cc "$WORK/mc/mapopen" -w -g -O0 "$WORK/mc/mapopen.c"
 # The corpus holds what bsq_check.sh's floors ask of one: a map whose answer
 # differs from it, one with no square at all, and an invalid one.
 {
@@ -990,7 +1494,7 @@ int main(int ac, char **av)
 	return (0);
 }
 MC_SLOW
-"$CC" -w -g -O0 -o "$WORK/mc/slow" "$WORK/mc/slow.c" 2> /dev/null
+toy_cc "$WORK/mc/slow" -w -g -O0 "$WORK/mc/slow.c"
 # shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
 env -u RL_DEADLINE -u RL_BUDGET TEST_TIMEOUT=14 \
 	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/mc/slow" --dict "$WORK/mc/dict.txt" \
@@ -1005,10 +1509,21 @@ want_none  "corpus --valgrind: ...and never counted as a case judged wrong" \
 	'judged wrong before that' -- mc_seen slow
 # ...and a case that ran out of ITS OWN time, the test's to spare, is not
 # memcheck's finding either (V48, ruling R4): it was "[memcheck]", and "1 of
-# 4 case(s) under memcheck went wrong". RUSH02_TIMEOUT 3 and no test limit:
+# 4 case(s) under memcheck went wrong". RUSH02_TIMEOUT 6 and no test limit:
 # the case's own cap stops the poll.
+#
+# Six, not the three it was: the arm holds only while the other three cases
+# of the sample each finish inside the cap, under memcheck, on whatever load
+# the machine carries. Its verdict check failed once under four Bazel
+# servers and passed on every re-run (TO VERIFY V235), which one more case
+# past the cap would explain; nothing kept the log to say. One such case is
+# about 0.6 s of its own time on a calm box, and stayed under 2 s with 120
+# of them running at once on 24 CPUs; the cap is that time with the queue's
+# wait given back, and the wall ceiling is ten times it (rl_tmo). Six leaves
+# three times the worst measured, and costs three seconds: the poll waits
+# out the whole cap.
 # shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
-env -u RL_DEADLINE -u RL_BUDGET -u TEST_TIMEOUT RUSH02_TIMEOUT=3 \
+env -u RL_DEADLINE -u RL_BUDGET -u TEST_TIMEOUT RUSH02_TIMEOUT=6 \
 	"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/mc/slow" --dict "$WORK/mc/dict.txt" \
 	--oracle "$WORK/mc/oracle.sh" $VG_PASS --sample 4 > "$WORK/mc/slowcap.out" 2>&1
 echo "$?" > "$WORK/mc/slowcap.rc"
@@ -1091,8 +1606,12 @@ int main(void)
 	return (0);
 }
 PF_QUAD
-"$CC" -O1 -o "$WORK/pf/lin" "$WORK/pf/lin.c" 2>/dev/null
-"$CC" -O1 -o "$WORK/pf/quad" "$WORK/pf/quad.c" 2>/dev/null
+# A toy that did not build was measured anyway: perf_test.sh timed a run that
+# could not start as one too fast to measure (now a harness error, V286, held
+# below), and the gate's red arm would pass on a missing file -- one
+# candidate for that arm's two passes under load (V235). toy_cc says so.
+toy_cc "$WORK/pf/lin" -O1 "$WORK/pf/lin.c"
+toy_cc "$WORK/pf/quad" -O1 "$WORK/pf/quad.c"
 
 pf_run() {  # pf_run BIN [extra args...]
 	_bin="$1"; shift
@@ -1108,6 +1627,23 @@ want_broken "perf: --gate-stdin with no gate refuses" 'a gate needs' -- \
 	pf_run lin --gate-stdin "$WORK/pf/oracle.sh"
 want_broken "perf: ...as does a gate with no --gate-differ" 'a gate needs' -- \
 	pf_run lin --gate-bin "$WORK/pf/lin" --gate-expected "$WORK/pf/oracle.sh"
+want_broken "perf: ...and --gate-label with no gate" 'a gate needs' -- \
+	pf_run lin --gate-label ex00_output
+# Its SKIP line names the output test it waits for (--gate-label), as every
+# gated runner's does: it said "the exercise's own output fixture" on every
+# exercise (V169). lin prints a sum, never the oracle script it is compared
+# with here, so the gate is red.
+pf_gated() {  # pf_gated [FLAG...] -- lin, gated on a fixture it fails
+	env -u NO_SKIP "$SH" "$TOOLS/perf_test.sh" --runner "$PERF_RUN" \
+		--student-bin "$WORK/pf/lin" --oracle "$WORK/pf/oracle.sh" --oracle-fn f \
+		--count 16000 --label selftest-gated --gate-differ "$TOOLS/diff_output.sh" \
+		--gate-bin "$WORK/pf/lin" --gate-expected "$WORK/pf/oracle.sh" "$@"
+}
+want_out   "perf: its SKIP names the test it waits for" \
+	"perf_test: SKIP — ex00_output, the exercise's own output fixture, is not passing yet." -- \
+	pf_gated --gate-label ex00_output
+want_out   "perf: ...and without one, names none" \
+	"perf_test: SKIP — the exercise's own output fixture is not passing yet." -- pf_gated
 
 if [ -n "$PERF_RUN" ] && [ -x "$PERF_RUN" ]; then
 	want_green "perf: linear growth passes a n^1.5 gate" -- \
@@ -1127,6 +1663,109 @@ if [ -n "$PERF_RUN" ] && [ -x "$PERF_RUN" ]; then
 		pf_run built_nothing
 	want_out   "perf: ...says the code did not build" 'your code did not build' -- \
 		pf_run built_nothing
+	# A MEASURED RUN THAT ENDED IN AN ERROR IS NO SAMPLE (V286). Any status
+	# but a timeout, a signal or perf_run's own error became a 0 ms sample,
+	# "too fast to measure reliably (good sign)", and the layer passed
+	# having timed nothing, under NO_SKIP=1 too: a program that is not there
+	# (perf_run's 127) and one that exits 3. One that could not start is
+	# the harness's fault (exit 2), naming the status and the program; any
+	# other status is the program's (exit 1), naming the status and the
+	# size. The second toy echoes its input, and exits 3 only past the
+	# 100-case correctness sample, so that sample is green without NO_SKIP
+	# and the 200-case floor is the first run to see the status.
+	want_broken "perf: a measured program that is not there is a harness error" \
+		'ended with status 127' -- pf_run no_such_program
+	want_broken "perf: ...and names the program" "$WORK/pf/no_such_program" -- \
+		pf_run no_such_program
+	printf '#!/bin/sh\nexec cat\n' > "$WORK/pf/echo"
+	printf '#!/bin/sh\ncat\nexit 3\n' > "$WORK/pf/echo3"
+	printf '#!/bin/sh\nexec awk %s\n' "'{ print } END { if (NR > 100) exit 3 }'" \
+		> "$WORK/pf/echo3_floor"
+	printf '#!/bin/sh\nexec awk %s\n' "'{ print } END { if (NR == 100) exit 3 }'" \
+		> "$WORK/pf/echo3_sample"
+	chmod +x "$WORK/pf/echo" "$WORK/pf/echo3" "$WORK/pf/echo3_floor" "$WORK/pf/echo3_sample"
+	pf_echo() {  # pf_echo BIN [FLAG...] -- a toy that echoes its input, gates green
+		_bin=$1; shift
+		env -u NO_SKIP "$SH" "$TOOLS/perf_test.sh" --runner "$PERF_RUN" \
+			--student-bin "$WORK/pf/$_bin" --oracle "$WORK/pf/oracle.sh" \
+			--oracle-fn f --count 4000 --gate-count 100 --label "selftest-$_bin" "$@"
+	}
+	want_red   "perf: a measured run that exits 3 fails, past a green gate" -- \
+		pf_echo echo3_floor
+	want_out   "perf: ...naming the status and the size" \
+		'the run over 200 cases exited with status 3' -- pf_echo echo3_floor
+	want_none  "perf: ...and is never a sample" 'good sign' -- pf_echo echo3_floor
+	# A CORRECTNESS SAMPLE THAT RETURNS NON-ZERO IS NO GREEN GATE (V290).
+	# Stage 2 took any exit status but a timeout or a signal as green, so a
+	# toy that echoed its input and exited 3 read "all green" above a
+	# failed measurement, and one that exited 3 on the sample's size alone
+	# was measured and passed. rust_diff fails the same replay, so the gate
+	# SKIPs, naming the status -- ahead of the ASan gate, whose own SKIP
+	# blames a memory error for it.
+	want_green "perf: a correctness sample that returns 3 is no green gate" -- \
+		pf_echo echo3
+	want_out   "perf: ...its SKIP names the status" \
+		'correctness sample returned 3 rather than 0' -- pf_echo echo3
+	want_none  "perf: ...and never calls the gates green" 'are all green' -- \
+		pf_echo echo3
+	want_out   "perf: ...nor measures one that returns 3 on the sample alone" \
+		'correctness sample returned 3 rather than 0' -- pf_echo echo3_sample
+	want_out   "perf: ...and says so ahead of the ASan gate" \
+		'correctness sample returned 3 rather than 0' -- \
+		pf_echo echo3 --gate-asan-bin "$WORK/pf/echo3"
+	want_green "perf: ...while the same toy exiting 0 is measured" -- \
+		pf_echo echo
+	# ...at every size it measures, not only the first. This toy is clean
+	# over the 200-case floor and the 100-case sample and exits 3 past 500
+	# lines, so only the three sizes see it: a measure_sizes that took their
+	# status as a sample passed it, "good sign" (review of V286).
+	printf '#!/bin/sh\nexec awk %s\n' "'{ print } END { if (NR > 500) exit 3 }'" \
+		> "$WORK/pf/echo3_late"
+	chmod +x "$WORK/pf/echo3_late"
+	want_out   "perf: a size's run that exits 3 fails, past a clean floor" \
+		'the run over 1000 cases exited with status 3' -- pf_echo echo3_late
+	want_none  "perf: ...and is never a sample" 'good sign' -- pf_echo echo3_late
+	# ...and the second reading of a growth over the gate, which measures
+	# the three sizes again. This toy is quad, and exits 3 on a size it has
+	# been handed before: one run a size (PERF_REPEATS=1), and a correctness
+	# sample of a size no reading uses (--gate-count 100: the sample runs
+	# under NO_SKIP=1 too), so the first reading is clean and only the
+	# second sees it. Judged, it ends the test
+	# before the second reading is printed; taken as a sample, the run
+	# passed or failed on numbers about a program that stopped early.
+	cat > "$WORK/pf/quad_twice" <<PF_TWICE
+#!/bin/sh
+f=\$(mktemp "$WORK/pf/twice.d/in.XXXXXX") || exit 2
+cat > "\$f"
+n=\$(wc -l < "\$f" | tr -d ' ')
+"$WORK/pf/quad" < "\$f"
+rm -f "\$f"
+[ ! -e "$WORK/pf/twice.d/seen.\$n" ] || exit 3
+: > "$WORK/pf/twice.d/seen.\$n"
+PF_TWICE
+	chmod +x "$WORK/pf/quad_twice"
+	pf_twice() (  # quad_twice, its sizes forgotten, over a n^1.2 gate
+		rm -rf "$WORK/pf/twice.d" && mkdir "$WORK/pf/twice.d" || exit 2
+		PERF_REPEATS=1
+		export PERF_REPEATS
+		pf_run quad_twice --gate-exponent 1.2 --gate-count 100
+	)
+	want_out   "perf: the second reading is judged too" \
+		'Measuring again before' -- pf_twice
+	want_out   "perf: ...so a run of it that exits 3 fails" \
+		'cases exited with status 3' -- pf_twice
+	want_none  "perf: ...and is never a sample of that reading" \
+		'second reading:' -- pf_twice
+	# THE REFERENCE'S RUN is judged as the student's are, and its error
+	# names the reference: it named the run's CPU milliseconds, read from
+	# the positional parameters measure_best had replaced (review of V286).
+	printf '#!/bin/sh\ncat > /dev/null\nexit 3\n' > "$WORK/pf/ref3"
+	chmod +x "$WORK/pf/ref3"
+	want_broken "perf: a reference that exits 3 is no baseline" \
+		"ended with '3'" -- pf_echo echo --baseline-bin "$WORK/pf/ref3"
+	want_broken "perf: ...and names the reference" \
+		"no baseline to compare with: $WORK/pf/ref3" -- \
+		pf_echo echo --baseline-bin "$WORK/pf/ref3"
 	# THE GATE'S OWN RUNS are bounded too (finding 066). Stage two replays a
 	# sample of the corpus through the student's program, and ran it with no
 	# limit at all: a program that never ends hung the layer until Bazel killed
@@ -1152,7 +1791,7 @@ if [ -n "$PERF_RUN" ] && [ -x "$PERF_RUN" ]; then
 	for _pf in 1000 150; do
 		printf '#include <stdio.h>\n#include <unistd.h>\nint main(void)\n{\n\tchar b[256];\n\tlong n = 0;\n\n\twhile (fgets(b, sizeof b, stdin))\n\t{\n\t\tfputs(b, stdout);\n\t\tn++;\n\t}\n\tif (n > %s)\n\t\tsleep(30);\n\treturn (0);\n}\n' \
 			"$_pf" > "$WORK/pf/stall$_pf.c"
-		"$CC" -O1 -o "$WORK/pf/stall$_pf" "$WORK/pf/stall$_pf.c" 2>/dev/null
+		toy_cc "$WORK/pf/stall$_pf" -O1 "$WORK/pf/stall$_pf.c"
 	done
 	pf_stall() {  # pf_stall LINES -- a toy that stalls past LINES lines
 		env -u NO_SKIP PERF_TIMEOUT=1 "$SH" "$TOOLS/perf_test.sh" \
@@ -1217,7 +1856,7 @@ int main(int argc, char **argv)
 	return (0);
 }
 PF_LQ
-	"$CC" -O1 -o "$WORK/pf/lenquad" "$WORK/pf/lenquad.c" 2>/dev/null
+	toy_cc "$WORK/pf/lenquad" -O1 "$WORK/pf/lenquad.c"
 	printf '#!/bin/sh\nexec "%s" wrong\n' "$WORK/pf/lenquad" > "$WORK/pf/lenwrong"
 	chmod +x "$WORK/pf/lenwrong"
 	pf_len() {  # pf_len HARNESS
@@ -1283,6 +1922,148 @@ fi
 # program that sleeps waits on no queue and is stopped at its limit (the
 # fast suite's arm). Its time is in CPU seconds, so the arm does not depend
 # on how fast this machine is.
+#
+# WHICH CPU. Every copy of this file once pinned itself to CPU 0: this one
+# and its bash twin, which run side by side in every `bazel test //...`, and
+# every copy --runs_per_test starts. Twenty copies put sixty busy loops on
+# one CPU, a second of CPU then took more than the sixty-second ceiling, and
+# these arms went red on load alone (TO VERIFY V235). So a copy pins to a CPU
+# it chooses, from those it may run on (`taskset -cp`): one that sat idle
+# over a second of /proc/stat, as near as the idlest -- a CPU another copy's
+# loops keep busy is never idle -- and among several, one a random seed
+# picks, so two copies that look at the same moment seldom take the same
+# one. A lock would make the copies take turns instead, and twenty busy
+# blocks in turn do not fit the target's timeout.
+#
+# bm_allowed LIST -- taskset's CPU list (0-3,8, or 0-10:2) as the CPUs it
+# names, one comma between.
+bm_allowed() {
+	printf '%s\n' "$1" | awk -F, '{
+		o = ""
+		for (i = 1; i <= NF; i++) {
+			st = 1
+			r = $i
+			if (split(r, p, ":") == 2) { r = p[1]; st = p[2] + 0 }
+			if (r ~ /^[0-9]+-[0-9]+$/ && st > 0) {
+				split(r, q, "-")
+				for (c = q[1] + 0; c <= q[2] + 0; c += st) o = o (o == "" ? "" : ",") c
+			} else if (r ~ /^[0-9]+$/)
+				o = o (o == "" ? "" : ",") r
+		}
+		print o
+	}'
+}
+# bm_cpu STAT1 STAT2 ALLOWED SEED -- the CPU of ALLOWED to pin to, from two
+# readings of /proc/stat: those idle for a share of the time between them
+# within a quarter of the idlest's, the SEED picking among them. Nothing,
+# exit 1, where the readings name none of ALLOWED. A quarter, and not a
+# share of the idlest's own: on a machine busy everywhere every CPU is idle
+# a few hundredths of the time, the idlest by chance, and a rule that kept
+# only it sent twenty copies started at once to the same CPU again.
+bm_cpu() {
+	awk -v allowed="$3" -v seed="$4" '
+		FNR == 1 { f++ }
+		$1 ~ /^cpu[0-9]+$/ {
+			c = substr($1, 4) + 0
+			t = 0
+			for (i = 2; i <= NF; i++) t += $i
+			idle[f, c] = $5 + $6
+			all[f, c] = t
+		}
+		END {
+			n = split(allowed, al, ",")
+			best = -1
+			for (i = 1; i <= n; i++) {
+				c = al[i] + 0
+				if (!((1, c) in idle) || !((2, c) in idle)) continue
+				t = all[2, c] - all[1, c]
+				if (t <= 0) continue
+				d[c] = (idle[2, c] - idle[1, c]) / t
+				if (d[c] > best) best = d[c]
+			}
+			if (best < 0) exit 1
+			k = 0
+			for (i = 1; i <= n; i++) {
+				c = al[i] + 0
+				if ((c in d) && d[c] >= best - 0.25) cand[k++] = c
+			}
+			print cand[seed % k]
+		}' "$1" "$2"
+}
+# bm_from STAT1 STAT2 ALLOWED SEED -- bm_cpu's choice, or, where the
+# readings name none of ALLOWED (a container whose /proc/stat numbers its
+# CPUs from 0 while taskset names the host's), the SEED's pick of ALLOWED
+# with no load to go by: such a box still runs the block below.
+bm_from() {
+	bm_cpu "$@" || echo "$3" | awk -v seed="$4" '{ n = split($0, al, ","); print al[seed % n + 1] }'
+}
+# bm_choose -- sets BM_CPU, or leaves it empty where taskset cannot say. The
+# seed is read from /dev/urandom, not $$: a sandboxed test runs in a process
+# namespace of its own, where two copies' $$ can be the same number.
+bm_choose() {
+	BM_CPU=""
+	command -v taskset > /dev/null 2>&1 && [ -r /proc/stat ] || return 0
+	_bm_list=$(taskset -cp $$ 2> /dev/null) || return 0
+	_bm_allowed=$(bm_allowed "${_bm_list##*: }")
+	[ -n "$_bm_allowed" ] || return 0
+	_bm_seed=$(od -An -N2 -tu2 /dev/urandom 2> /dev/null | awk '{ print $1 + 0 }')
+	[ -n "$_bm_seed" ] || _bm_seed=$$
+	cat /proc/stat > "$WORK/bm_stat.1" 2> /dev/null || return 0
+	sleep 1
+	cat /proc/stat > "$WORK/bm_stat.2" 2> /dev/null || return 0
+	BM_CPU=$(bm_from "$WORK/bm_stat.1" "$WORK/bm_stat.2" "$_bm_allowed" "$_bm_seed")
+}
+# Proven on readings written here, so on any machine: CPU 0 busy with the
+# first copy's loops between the two readings, CPU 1 idle, and the other
+# way round; both idle; both busy with other work, idle 16% and 5% of the
+# time; and a CPU the run may not use.
+mkdir -p "$WORK/bmc"
+printf 'cpu  0 0 0 0 0\ncpu0 100 0 0 500 0\ncpu1 100 0 0 500 0\n' > "$WORK/bmc/t1"
+printf 'cpu  0 0 0 0 0\ncpu0 200 0 0 500 0\ncpu1 100 0 0 600 0\n' > "$WORK/bmc/busy0"
+printf 'cpu  0 0 0 0 0\ncpu0 100 0 0 600 0\ncpu1 200 0 0 500 0\n' > "$WORK/bmc/busy1"
+printf 'cpu  0 0 0 0 0\ncpu0 100 0 0 600 0\ncpu1 100 0 0 598 0\n' > "$WORK/bmc/idle"
+printf 'cpu  0 0 0 0 0\ncpu0 184 0 0 516 0\ncpu1 195 0 0 505 0\n' > "$WORK/bmc/loaded"
+bm_is() {  # bm_is READING ALLOWED SEED WANT
+	[ "$(bm_cpu "$WORK/bmc/t1" "$WORK/bmc/$1" "$2" "$3")" = "$4" ]
+}
+want_green "busy CPU: no copy takes a CPU another keeps busy" -- bm_is busy0 0,1 0 1
+want_green "busy CPU: ...whatever its seed" -- bm_is busy0 0,1 1 1
+want_green "busy CPU: ...and takes the other way round too" -- bm_is busy1 0,1 1 0
+want_green "busy CPU: two idle CPUs are shared out by the seed" -- bm_is idle 0,1 0 0
+want_green "busy CPU: ...the other seed taking the other" -- bm_is idle 0,1 1 1
+want_green "busy CPU: a box busy everywhere is shared out too" -- bm_is loaded 0,1 0 0
+want_green "busy CPU: ...not sent to the CPU idle by chance" -- bm_is loaded 0,1 1 1
+want_green "busy CPU: only a CPU the run may use is taken" -- bm_is busy1 1 0 1
+bm_from_is() {  # bm_from_is READING ALLOWED SEED WANT
+	[ "$(bm_from "$WORK/bmc/t1" "$WORK/bmc/$1" "$2" "$3")" = "$4" ]
+}
+want_green "busy CPU: readings that name none of the run's CPUs still choose one" -- \
+	bm_from_is busy0 4,5 0 4
+want_green "busy CPU: ...the seed sharing them out" -- bm_from_is busy0 4,5 1 5
+want_green "busy CPU: ...and readings that name them choose by load" -- \
+	bm_from_is busy0 0,1 0 1
+bm_list_is() { [ "$(bm_allowed "$1")" = "$2" ]; }
+want_green "busy CPU: taskset's list is read with its ranges" -- \
+	bm_list_is 0,2-4,7 0,2,3,4,7
+want_green "busy CPU: ...and with a range's step" -- bm_list_is 0-6:3 0,3,6
+# And on this machine, where taskset and /proc/stat can say, a CPU is
+# chosen, and one the run may use: a copy that chose none skips the whole
+# block below, a skip counts nothing, and a chooser broken by a later edit
+# (a list it cannot read, an awk slip) would drop every arm of it quietly.
+bm_choose
+if command -v taskset > /dev/null 2>&1 && [ -r /proc/stat ] &&
+	taskset -cp $$ > /dev/null 2>&1; then
+	bm_chose() {
+		_bc_list=$(taskset -cp $$ 2> /dev/null)
+		case ",$(bm_allowed "${_bc_list##*: }")," in
+			*",$BM_CPU,"*) [ -z "$BM_CPU" ] || return 0 ;;
+		esac
+		echo "taskset -cp says: $_bc_list"
+		echo "the CPU chosen: '$BM_CPU'"
+		return 1
+	}
+	want_green "busy CPU: a CPU is chosen where taskset can pin" -- bm_chose
+fi
 # conventions: optional taskset -- pins the run and the busy loops to one CPU; without it these arms do not run, and say so
 cat > "$WORK/cpu_spin.c" <<'CPU_SPIN'
 #include <stdlib.h>
@@ -1302,12 +2083,12 @@ int	main(int argc, char **argv)
 	return (0);
 }
 CPU_SPIN
-"$CC" -w -O0 -o "$WORK/cpu_spin" "$WORK/cpu_spin.c" 2> /dev/null
+toy_cc "$WORK/cpu_spin" -w -O0 "$WORK/cpu_spin.c"
 # And only where the kernel counts a task's wait for a CPU: without
 # /proc/PID/schedstat nothing is given back, by design (runqueue.h), and the
 # arms that need time given back would be red on that machine alone.
-if command -v taskset > /dev/null 2>&1 && [ -x "$WORK/cpu_spin" ] && taskset -c 0 true 2> /dev/null &&
-	[ -r /proc/self/schedstat ]; then
+if command -v taskset > /dev/null 2>&1 && [ -x "$WORK/cpu_spin" ] && [ -n "$BM_CPU" ] &&
+	taskset -c "$BM_CPU" true 2> /dev/null && [ -r /proc/self/schedstat ]; then
 	# Its toys are its own, beside perf's and the corpus's rather than in
 	# them: perf's toy oracle, and the corpus's oracle and dictionary,
 	# written again.
@@ -1329,13 +2110,13 @@ BM_PF_ORACLE
 	bm_seen() { cat "$WORK/bm/$1.out"; return "$(cat "$WORK/bm/$1.rc")"; }
 	_busy=""
 	for _b in 1 2 3; do
-		taskset -c 0 sh -c 'while :; do :; done' &
+		taskset -c "$BM_CPU" sh -c 'while :; do :; done' &
 		_busy="$_busy $!"
 	done
 	busy_run() {  # busy_run REPORT [EXIT_STATUS OPTION...] -- one second of CPU on the busy CPU
 		_r=$1
 		shift
-		taskset -c 0 "$TOOLS/exit_status" "$@" "$_r" "$WORK/cpu_spin" 1
+		taskset -c "$BM_CPU" "$TOOLS/exit_status" "$@" "$_r" "$WORK/cpu_spin" 1
 		cat "$_r"
 	}
 	want_out   "exit_status: on a busy CPU, a run given its queue time back ends" 'exit 0' -- \
@@ -1343,13 +2124,13 @@ BM_PF_ORACLE
 	want_out   "exit_status: ...where a wall clock stopped it" 'timeout 2' -- \
 		busy_run "$WORK/busy_wall.how" --timeout 2
 	want_out   "perf_run: on a busy CPU, a measurement given its queue time back ends" 'exit=0' -- \
-		taskset -c 0 "$PERF_RUN" --timeout 2 --ceiling 60 -- "$WORK/cpu_spin" 1
+		taskset -c "$BM_CPU" "$PERF_RUN" --timeout 2 --ceiling 60 -- "$WORK/cpu_spin" 1
 	# A run that SPINS forever is runnable: it queues as a correct one does,
 	# is given that time back too, and is stopped after its limit of its own
 	# time -- later in wall time, never on it (runqueue.h). The docs once
 	# said a spinner waits on no queue.
 	busy_spin() {  # busy_spin REPORT -- a run that never ends, on the busy CPU
-		taskset -c 0 "$TOOLS/exit_status" --timeout 2 --ceiling 60 "$1" "$WORK/cpu_spin" 1000
+		taskset -c "$BM_CPU" "$TOOLS/exit_status" --timeout 2 --ceiling 60 "$1" "$WORK/cpu_spin" 1000
 		cat "$1"
 	}
 	want_out   "exit_status: on a busy CPU, a run that spins is stopped at its own limit" \
@@ -1362,16 +2143,16 @@ BM_PF_ORACLE
 	# it never used. perf_run says "ceiling", and perf_test reports what was
 	# left of the test, as rl_classify does for exit_status's "ceiling Q".
 	want_out   "perf_run: on a busy CPU, a run the ceiling stopped is exit=ceiling" \
-		'exit=ceiling' -- taskset -c 0 "$PERF_RUN" --timeout 2 --ceiling 3 -- "$WORK/cpu_spin" 1000
+		'exit=ceiling' -- taskset -c "$BM_CPU" "$PERF_RUN" --timeout 2 --ceiling 3 -- "$WORK/cpu_spin" 1000
 	# A toy that echoes its input, so the correctness sample passes, and
 	# spins past 150 lines: the 200-case floor run never ends. PERF_TIMEOUT
 	# 8 is less than the test has left, so only the ceiling (what is left,
 	# about 15s of wall time) can stop it before its own 8s are spent.
 	printf '#include <stdio.h>\nint main(void)\n{\n\tchar b[256];\n\tlong n = 0;\n\tvolatile long x = 0;\n\n\twhile (fgets(b, sizeof b, stdin))\n\t{\n\t\tfputs(b, stdout);\n\t\tn++;\n\t}\n\twhile (n > 150)\n\t\tx++;\n\treturn (0);\n}\n' \
 		> "$WORK/bm/spin150.c"
-	"$CC" -O0 -o "$WORK/bm/spin150" "$WORK/bm/spin150.c" 2> /dev/null
+	toy_cc "$WORK/bm/spin150" -O0 "$WORK/bm/spin150.c"
 	pf_ceiling() {  # the floor run of a toy that spins, on the busy CPU, stopped by the ceiling
-		taskset -c 0 env -u NO_SKIP TEST_TIMEOUT=18 RL_MARGIN=1 PERF_TIMEOUT=8 \
+		taskset -c "$BM_CPU" env -u NO_SKIP TEST_TIMEOUT=18 RL_MARGIN=1 PERF_TIMEOUT=8 \
 			"$SH" "$TOOLS/perf_test.sh" --runner "$PERF_RUN" --student-bin "$WORK/bm/spin150" \
 			--oracle "$WORK/bm/pf_oracle.sh" --oracle-fn f --count 16000 \
 			--gate-count 100 --label selftest-spin150
@@ -1407,9 +2188,9 @@ int main(int ac, char **av)
 	return (0);
 }
 MC_SPIN
-	"$CC" -w -g -O0 -o "$WORK/bm/spin" "$WORK/bm/spin.c" 2> /dev/null
+	toy_cc "$WORK/bm/spin" -w -g -O0 "$WORK/bm/spin.c"
 	# shellcheck disable=SC2086 # VG_PASS is several flags, split on purpose
-	taskset -c 0 env -u RL_DEADLINE -u RL_BUDGET TEST_TIMEOUT=30 RL_MARGIN=1 \
+	taskset -c "$BM_CPU" env -u RL_DEADLINE -u RL_BUDGET TEST_TIMEOUT=30 RL_MARGIN=1 \
 		"$SH" "$TOOLS/rush02_check.sh" --bin "$WORK/bm/spin" --dict "$WORK/bm/dict.txt" \
 		--oracle "$WORK/bm/mc_oracle.sh" $VG_PASS --sample 4 > "$WORK/bm/mc_ceiling.out" 2>&1
 	echo "$?" > "$WORK/bm/mc_ceiling.rc"
@@ -1423,9 +2204,13 @@ MC_SPIN
 	# shellcheck disable=SC2086 # the busy loops' pids, one word each
 	kill $_busy 2> /dev/null
 	wait 2> /dev/null
+elif [ ! -x "$WORK/cpu_spin" ]; then
+	# toy_cc counted the FAIL, above: this only says why nothing ran.
+	printf '  %-52s %s\n' "exit_status: a busy CPU's queue time" \
+		"not run (its toy cpu_spin did not build: the FAIL above)"
 else
 	printf '  %-52s %s\n' "exit_status: a busy CPU's queue time" \
-		"not run here (no taskset, no CPU 0 to pin to, or no /proc/PID/schedstat)"
+		"not run here (no taskset, no CPU it could choose, or no /proc/PID/schedstat)"
 fi
 
 # ------------------------------------------------------------- cycles_check
@@ -1658,7 +2443,7 @@ int	probe_make(const char *s)
 }
 CYC_SRC
 sed 's/probe_blocks/probe_make/g' "$WORK/cyc/alloc_h.c" > "$WORK/cyc/given_h.c"
-"$CC" -O2 -w -c "$WORK/cyc/given.c" -o "$WORK/cyc/given.o" 2> /dev/null
+toy_cc "$WORK/cyc/given.o" -O2 -w -c "$WORK/cyc/given.c"
 "$SH" "$TOOLS/cycles_check.sh" $CG_PASS --harness "$WORK/cyc/given_h.c" \
 	--src "$WORK/cyc/given_fn.c" --lib "$WORK/cyc/given.o" \
 	--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_make \
@@ -1708,11 +2493,26 @@ want_red  "cycles_check: a harness that crashes under callgrind fails" -- \
 want_none "cycles_check: ...and is not blamed on callgrind" 'could not profile' -- \
 	"$SH" "$TOOLS/cycles_check.sh" $CG_PASS --harness "$WORK/cyc/crash.c" \
 		--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum --count 300
-want_out  "cycles_check: one that never ends is stopped, and said to be" \
-	'did not finish within' -- \
-	env TEST_TIMEOUT=8 RL_MARGIN=1 "$SH" "$TOOLS/cycles_check.sh" $CG_PASS \
+# Its budget is the test's own: what is left of TEST_TIMEOUT once the build
+# and the oracle are done stops the run. On a loaded machine those can use a
+# small budget up before callgrind starts (V305: at load 160, all of 8s), and
+# then the run said "could start", which proves nothing about a run being
+# stopped. So a run that never started callgrind is made once more with
+# twice the time, still under spin.c's alarm(20), and a second one that never
+# started stays red, showing what it said.
+cyc_spin() {  # cyc_spin TEST_TIMEOUT -- the never-ending run, into spin_tmo.out
+	env -u RL_DEADLINE -u RL_BUDGET TEST_TIMEOUT="$1" RL_MARGIN=1 \
+		"$SH" "$TOOLS/cycles_check.sh" $CG_PASS \
 		--harness "$WORK/cyc/spin.c" --oracle "$WORK/cyc/oracle.sh" --oracle-fn f \
-		--symbol probe_sum --count 300
+		--symbol probe_sum --count 300 > "$WORK/cyc/spin_tmo.out" 2>&1
+	echo "$?" > "$WORK/cyc/spin_tmo.rc"
+}
+cyc_spin 8
+! grep -qF 'could start' "$WORK/cyc/spin_tmo.out" || cyc_spin 16
+cyc_spin_seen() { cat "$WORK/cyc/spin_tmo.out"; return "$(cat "$WORK/cyc/spin_tmo.rc")"; }
+want_out  "cycles_check: one that never ends is stopped, and said to be" \
+	'did not finish within' -- cyc_spin_seen
+want_none "cycles_check: ...once callgrind had started" 'could start' -- cyc_spin_seen
 want_out  "cycles_check: a crash names its signal" 'SIGSEGV' -- \
 	"$SH" "$TOOLS/cycles_check.sh" $CG_PASS --harness "$WORK/cyc/crash.c" \
 		--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum --count 300
@@ -1732,6 +2532,31 @@ want_red  "cycles_check: ...which NO_SKIP=1 makes red" -- \
 	env NO_SKIP=1 CYCLES_TIMEOUT=3 "$SH" "$TOOLS/cycles_check.sh" $CG_PASS \
 		--harness "$WORK/cyc/spin.c" --oracle "$WORK/cyc/oracle.sh" --oracle-fn f \
 		--symbol probe_sum --count 300
+
+
+# A harness that RETURNED non-zero under callgrind (V291) is no measurement:
+# its count is never read, it is a SKIP, red under NO_SKIP=1 as every layer
+# that measured nothing is, and the SKIP says the harness returned it -- not
+# that callgrind could not profile it, which blamed the tool (finding 066's
+# class), and shows what the harness said, without valgrind's banner. A
+# runner that read such a run's profile would pass every arm above.
+sed 's/return (0);/fprintf(stderr, "toy: refused\\n"); return (3);/' "$WORK/cyc/h.c" \
+	> "$WORK/cyc/exit3.c"
+env -u NO_SKIP "$SH" "$TOOLS/cycles_check.sh" $CG_PASS --harness "$WORK/cyc/exit3.c" \
+	--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum --count 300 \
+	> "$WORK/cyc/exit3.out" 2>&1
+echo "$?" > "$WORK/cyc/exit3.rc"
+cyc_exit3() { cat "$WORK/cyc/exit3.out"; return "$(cat "$WORK/cyc/exit3.rc")"; }
+want_green "cycles_check: a harness that returns non-zero is a report" -- cyc_exit3
+want_none "cycles_check: ...that counts nothing" 'instructions  ' -- cyc_exit3
+want_out  "cycles_check: ...says the harness returned it" 'harness returned 3 under callgrind' -- \
+	cyc_exit3
+want_none "cycles_check: ...and does not blame callgrind" 'could not profile' -- cyc_exit3
+want_out  "cycles_check: ...showing what the harness said" 'toy: refused' -- cyc_exit3
+want_none "cycles_check: ...and not valgrind's banner" 'Copyright' -- cyc_exit3
+want_red  "cycles_check: ...which NO_SKIP=1 makes red" -- \
+	env NO_SKIP=1 "$SH" "$TOOLS/cycles_check.sh" $CG_PASS --harness "$WORK/cyc/exit3.c" \
+		--oracle "$WORK/cyc/oracle.sh" --oracle-fn f --symbol probe_sum --count 300
 
 # ----------------------------------------------------------------------- ilp32
 # The layer's VERDICT -- build the same fixture at -m32, run it, diff it -- was
@@ -2144,6 +2969,60 @@ if [ -n "$ZIG" ] && [ -x "$ZIG" ] && [ -n "$PCC" ] && [ -x "$PCC" ]; then
 	want_none  "ilp32: nor blames the type model" \
 		"type model" -- i32_x 1 warns warns_harness.c expected.txt warns.c
 
+	# ONE FILE PER COMPILE (V199). Handed every source in one call, zig
+	# compiled them in parallel onto one stderr, and two files' errors came
+	# out byte-interleaved, with zig's own "Segmentation fault" now and then.
+	# The red is the wrapper: a zig that refuses any call naming two .c
+	# files, over two toy sources that build. Beside it, what a reader sees:
+	# two files' errors, and their warnings, each line whole. The warnings
+	# run is made once, first, and read twice, because zig replays no
+	# warning for a file its cache already holds: the wrapper's run of the
+	# same files comes after it.
+	cat > "$WORK/i32/two_harness.c" <<'ILP32_TWO'
+#include <stdio.h>
+
+int	ft_probe_a(int n, int unused);
+int	ft_probe_b(int n, int unused);
+
+int	main(void)
+{
+	printf("%d %d\n", ft_probe_a(1, 0), ft_probe_b(2, 0));
+	return (0);
+}
+ILP32_TWO
+	printf 'int\tft_probe_a(int n, int unused)\n{\n\treturn (n + 1);\n}\n' > "$WORK/i32/two_a.c"
+	printf 'int\tft_probe_b(int n, int unused)\n{\n\treturn (n + 1);\n}\n' > "$WORK/i32/two_b.c"
+	printf '#include "nope_alpha.h"\n\nint\tft_probe_a(int n, int unused)\n{\n\treturn (n + unused);\n}\n' \
+		> "$WORK/i32/two_ea.c"
+	printf '#include "nope_beta.h"\n\nint\tft_probe_b(int n, int unused)\n{\n\treturn (n + unused);\n}\n' \
+		> "$WORK/i32/two_eb.c"
+	printf '2 3\n' > "$WORK/i32/two_expected.txt"
+	printf '#!/bin/sh\n_n=0\nfor _a; do case $_a in *.c) _n=$((_n + 1)) ;; esac; done\n[ "$_n" -lt 2 ] || { echo "toy zig: $_n sources in one call" >&2; exit 99; }\nexec "%s" "$@"\n' \
+		"$ZIG" > "$WORK/i32/onebyone_zig"
+	chmod +x "$WORK/i32/onebyone_zig"
+	i32_two() {  # i32_two ZIG SRC SRC -- the two-source toy, no 64-bit gate
+		"$SH" "$TOOLS/ilp32_test.sh" --zig "$1" --differ "$TOOLS/diff_output.sh" \
+			--harness "$WORK/i32/two_harness.c" --expected "$WORK/i32/two_expected.txt" \
+			--src "$WORK/i32/$2" --src "$WORK/i32/$3"
+	}
+	want_out   "ilp32: two files' errors, the first whole" \
+		"two_ea.c:1:10: fatal error: 'nope_alpha.h' file not found" -- \
+		i32_two "$ZIG" two_ea.c two_eb.c
+	want_out   "ilp32: ...and the second" \
+		"two_eb.c:1:10: fatal error: 'nope_beta.h' file not found" -- \
+		i32_two "$ZIG" two_ea.c two_eb.c
+	want_none  "ilp32: ...and no compiler crash" 'Segmentation fault' -- \
+		i32_two "$ZIG" two_ea.c two_eb.c
+	i32_two "$ZIG" two_a.c two_b.c > "$WORK/i32/two_warns.out" 2>&1
+	want_green "ilp32: each source is compiled in a call of its own" -- \
+		i32_two "$WORK/i32/onebyone_zig" two_a.c two_b.c
+	want_out   "ilp32: two files' warnings, the first whole" \
+		"two_a.c:1:27: warning: unused parameter 'unused' [-Wunused-parameter]" -- \
+		cat "$WORK/i32/two_warns.out"
+	want_out   "ilp32: ...and the second" \
+		"two_b.c:1:27: warning: unused parameter 'unused' [-Wunused-parameter]" -- \
+		cat "$WORK/i32/two_warns.out"
+
 	want_out   "ilp32: --harness-src keeps the rows before a crash" \
 		"1/1 passed before it" -- \
 		i32_x 1 crash_harness crash_harness.c crash_expected.txt ok.c --labeled \
@@ -2264,8 +3143,31 @@ if [ -n "$ORACLE" ] && [ -x "$ORACLE" ] && [ -n "$REDIRECT_LIB" ] && [ -f "$REDI
 	want_out "shell-01 ex07: ...and the machine's own file last" \
 		"[FAIL] on this machine's own /etc/passwd too" -- \
 		ex07 --check "$S01/ex07/check.sh"
-	want_red "shell-01 ex07 literal: the same names fail the window" -- \
-		ex07 --check "$S01/ex07/literal.sh"
+	# literal.sh judges the order as this machine's test locale collates
+	# it, and where that locale is missing (or collates as bytes do) it
+	# skips, rightly. So this arm runs where //oracle says the locale
+	# collates, and says it skipped elsewhere: it FAILED there, with the
+	# runner right (V280). The arms below with xx_XX.UTF-8 hold on any
+	# machine.
+	"$ORACLE" shell01_rdwssap collates 2> /dev/null
+	case $? in
+		0)
+			want_red "shell-01 ex07 literal: the same names fail the window" -- \
+				ex07 --check "$S01/ex07/literal.sh" ;;
+		1)
+			if [ "${NO_SKIP:-0}" = "1" ]; then
+				printf '  %-52s %s\n' "shell-01 ex07 literal: the same names fail the window" \
+					"FAIL < (NO_SKIP=1, and ${ST_TEST_LOCALE:-the test locale} collates as bytes here)"
+				FAIL=$((FAIL + 1))
+			else
+				printf '  %-52s %s\n' "shell-01 ex07 literal: the same names fail the window" \
+					"skipped (${ST_TEST_LOCALE:-the test locale} is not installed, or collates as bytes do: locale -a)"
+			fi ;;
+		*)
+			printf '  %-52s %s\n' "shell-01 ex07 literal: the same names fail the window" \
+				"FAIL < (//oracle could not say how this machine collates)"
+			FAIL=$((FAIL + 1)) ;;
+	esac
 	# The fixture shows every step only while it keeps its comment lines, its
 	# 15 names and its two orders: a copy with the comments taken out is the
 	# harness's fault, said as such (exit 2), never a verdict on a program.
@@ -2279,6 +3181,30 @@ if [ -n "$ORACLE" ] && [ -x "$ORACLE" ] && [ -n "$REDIRECT_LIB" ] && [ -f "$REDI
 	want_out "shell-01 ex07: no redirect: the fixture's steps are skipped" \
 		"[SKIP] comments are removed" -- \
 		s01 r_dwssap.sh --check "$S01/ex07/check.sh"
+	# A machine without the test locale (.bazelrc's LC_ALL) collates as bytes
+	# do, so the fixture's two orders look alike there through no fault of
+	# the fixture's. That is one property this machine cannot show, a skip
+	# saying which locale is missing, and every other line is still judged:
+	# it was BROKEN HARNESS (exit 2) on every program, a correct one too
+	# (V245). xx_XX.UTF-8 is a locale no machine has, so the arms hold on any.
+	ex07_noloc() { (LC_ALL=xx_XX.UTF-8; export LC_ALL; ex07 "$@"); }
+	want_green "shell-01 ex07: without the locale the fixture still shows its steps" -- \
+		env LC_ALL=xx_XX.UTF-8 "$ORACLE" shell01_rdwssap shows --passwd "$S01/ex07/passwd"
+	want_red "shell-01 ex07: ...the reference says this locale collates as bytes" -- \
+		env LC_ALL=xx_XX.UTF-8 "$ORACLE" shell01_rdwssap collates
+	want_red "shell-01 ex07: ...and names that are no login still fail" -- \
+		ex07_noloc --check "$S01/ex07/check.sh"
+	want_out "shell-01 ex07: ...without the locale, on the property they break" \
+		"[FAIL] each name is a login from the file, reversed" -- \
+		ex07_noloc --check "$S01/ex07/check.sh"
+	want_out "shell-01 ex07: ...the two orders a skip naming the locale" \
+		"xx_XX.UTF-8 is not installed, or collates as bytes do: locale -a" -- \
+		ex07_noloc --check "$S01/ex07/check.sh"
+	want_none "shell-01 ex07: ...never a broken harness" "BROKEN HARNESS" -- \
+		ex07_noloc --check "$S01/ex07/check.sh"
+	want_out "shell-01 ex07 literal: ...its reading a skip, naming it too" \
+		"xx_XX.UTF-8 is not installed, or collates as bytes do: locale -a" -- \
+		ex07_noloc --check "$S01/ex07/literal.sh"
 
 	# ex08: a program that prints the zero digit for every pair. Right for
 	# the zero sum, and for no other class the check names, which shows the
@@ -2338,6 +3264,210 @@ else
 		exit 2
 	}
 	printf '  %-52s %s\n' "shell-01 checks: (no oracle or preload library)" "skipped"
+fi
+
+# ------------------------------------------------- what a fixture leaves open
+# An output fixture shows only what the contract fixes (V205). C 02 ex10's
+# manual page says nothing of the bytes between the terminator and size, and
+# its fixture showed them as they were before the call, so an answer that
+# wrote them failed two rows at basic. Here the fixture is built over two
+# stand-ins compiled from Rust (//oracle:c02_strlcpy_standins), which differ
+# in those bytes alone -- one leaves them, one sets them to 0 -- and each
+# must pass every row. Neither is C: a C copy would be the exercise's answer
+# outside the zone. The fixture's call is renamed to each (-D), as
+# selftest.sh's C 13 ex05 arm renames its toy.
+C02_10=$ROOT/c-piscine/c-piscine-c-02/tests/ex10
+if [ -n "$STRLCPY_STANDINS" ] && [ -f "$STRLCPY_STANDINS" ]; then
+	STRLCPY_STANDINS=$(cd "$(dirname "$STRLCPY_STANDINS")" && pwd)/$(basename "$STRLCPY_STANDINS")
+	mkdir -p "$WORK/lcpy"
+	for _lk in kept zeroed; do
+		"$CC" -Dft_strlcpy="standin_strlcpy_tail_$_lk" -o "$WORK/lcpy/$_lk" \
+			"$C02_10/test_strlcpy.c" "$STRLCPY_STANDINS" > "$WORK/lcpy/$_lk.err" 2>&1 ||
+			cat "$WORK/lcpy/$_lk.err"
+	done
+	lcpy() {
+		"$SH" "$TOOLS/diff_output.sh" --bin "$WORK/lcpy/$1" \
+			--expected "$C02_10/expected.txt" --labeled --escaped-values
+	}
+	want_green "C 02 ex10 fixture: the tail left as it was passes" -- lcpy kept
+	want_green "C 02 ex10 fixture: ...and the tail set to 0 passes too" -- lcpy zeroed
+else
+	[ "${NO_SKIP:-0}" != "1" ] || {
+		echo "NO_SKIP set: no --strlcpy-standins was supplied, so C 02 ex10's" >&2
+		echo "             fixture was not built over its stand-ins." >&2
+		exit 2
+	}
+	printf '  %-52s %s\n' "C 02 ex10 fixture: (no stand-ins)" "skipped"
+fi
+
+# The same arm over C 03 ex05's fixture (V283), whose manual page (man 3bsd
+# strlcat) is silent on the same window: the bytes between the new
+# terminator and size. Its X-filled rows show a fixed number of bytes, and
+# nothing else held that number below the window. A third build widens those
+# rows to show the window, and there the stand-in that sets it to 0 must
+# fail, against an expected written by the one that leaves it: the arm has
+# teeth only if the two stand-ins really differ where a row could look.
+C03_05=$ROOT/c-piscine/c-piscine-c-03/tests/ex05
+if [ -n "$STRLCAT_STANDINS" ] && [ -f "$STRLCAT_STANDINS" ]; then
+	STRLCAT_STANDINS=$(cd "$(dirname "$STRLCAT_STANDINS")" && pwd)/$(basename "$STRLCAT_STANDINS")
+	mkdir -p "$WORK/lcat"
+	sed 's/^\([[:space:]]*test_x(.*, \)[0-9][0-9]*);$/\112);/' "$C03_05/test_strlcat.c" \
+		> "$WORK/lcat/wide.c"
+	if cmp -s "$C03_05/test_strlcat.c" "$WORK/lcat/wide.c"; then
+		echo "HARNESS ERROR: no test_x row of C 03 ex05's fixture was widened;" >&2
+		echo "               the arm's sed no longer matches the fixture." >&2
+		exit 2
+	fi
+	for _lk in kept zeroed; do
+		for _src in test_strlcat wide; do
+			case "$_src" in
+				wide) _c=$WORK/lcat/wide.c ;;
+				*) _c=$C03_05/test_strlcat.c ;;
+			esac
+			"$CC" -Dft_strlcat="standin_strlcat_tail_$_lk" \
+				-o "$WORK/lcat/$_src.$_lk" "$_c" "$STRLCAT_STANDINS" \
+				> "$WORK/lcat/$_src.$_lk.err" 2>&1 || cat "$WORK/lcat/$_src.$_lk.err"
+		done
+	done
+	"$WORK/lcat/wide.kept" > "$WORK/lcat/wide.expected" 2>/dev/null || :
+	lcat() {
+		"$SH" "$TOOLS/diff_output.sh" --bin "$WORK/lcat/$1" \
+			--expected "$2" --labeled --escaped-values
+	}
+	want_green "C 03 ex05 fixture: the tail left as it was passes" -- \
+		lcat test_strlcat.kept "$C03_05/expected.txt"
+	want_green "C 03 ex05 fixture: ...and the tail set to 0 passes too" -- \
+		lcat test_strlcat.zeroed "$C03_05/expected.txt"
+	want_red "C 03 ex05 fixture: a row showing the tail parts them" -- \
+		lcat wide.zeroed "$WORK/lcat/wide.expected"
+else
+	[ "${NO_SKIP:-0}" != "1" ] || {
+		echo "NO_SKIP set: no --strlcat-standins was supplied, so C 03 ex05's" >&2
+		echo "             fixture was not built over its stand-ins." >&2
+		exit 2
+	}
+	printf '  %-52s %s\n' "C 03 ex05 fixture: (no stand-ins)" "skipped"
+fi
+
+# ------------------------------------- what a plain corpus leaves to a reading
+# A c_diff's plain corpus holds only what every reading of the subject agrees
+# on (docs/new-project.md, item 44); a case one reading decides is its
+# `readings` target's, at strict, whose own hint says which reading (V206).
+# The comparison exercises' manual pages promise a sign, so a function that
+# returns only the sign passes every plain corpus here, and fails their
+# readings targets; libc's own function passes those (a premise about the C
+# library, as dirty_malloc's arm in selftest.sh has one). Each harness, oracle
+# arm and count is read from the c_diff call in the module's BUILD file, so
+# this asks what the suite runs. The toys call libc and are named apart, the
+# harness's call renamed to them (-D): nothing outside the zone defines an
+# exercise's function.
+# rd_call MODULE NUM: "harness|oracle_fn|count|its readings' harness|
+# oracle_fn|count", from MODULE's c_diff(num = NUM); an empty field is one
+# the call does not set.
+rd_call() {
+	awk -v n="$2" '
+		function val(s, k,   r) {
+			if (!match(s, k "[ \t]*[=:][ \t]*(\"[^\"]*\"|[0-9]+)")) return ""
+			r = substr(s, RSTART, RLENGTH)
+			sub(/^[^=:]*[=:][ \t]*/, "", r)
+			gsub(/"/, "", r)
+			return r
+		}
+		function done(t,   rd, p, i) {
+			if (val(t, "[(, ]num") != n) return
+			rd = ""; p = t
+			i = index(t, "readings = {")
+			if (i) {
+				rd = substr(t, i)
+				sub(/}.*/, "", rd)
+				p = substr(t, 1, i - 1) substr(t, i + length(rd))
+			}
+			printf "%s|%s|%s|%s|%s|%s\n", val(p, "[(, ]harness"), val(p, "[(, ]oracle_fn"),
+				val(p, "[(, ]count"), val(rd, "\"harness\""), val(rd, "\"oracle_fn\""),
+				val(rd, "\"count\"")
+		}
+		/^c_diff\(/ { inc = 1; t = "" }
+		inc {
+			t = t " " $0
+			if ($0 ~ /^\)/ || ($0 ~ /^c_diff\(/ && $0 ~ /\)[ \t]*$/)) { inc = 0; done(t) }
+		}' "$ROOT/$1/BUILD.bazel"
+}
+if [ -n "$ORACLE" ] && [ -x "$ORACLE" ]; then
+	ORACLE=$(cd "$(dirname "$ORACLE")" && pwd)/$(basename "$ORACLE")
+	mkdir -p "$WORK/rd"
+	printf '%s\n' '#include <string.h>' \
+		'int	toy_sign_cmp(char *a, char *b)' '{' '	int	r;' '' '	r = strcmp(a, b);' \
+		'	return ((r > 0) - (r < 0));' '}' '' \
+		'int	toy_sign_ncmp(char *a, char *b, unsigned int n)' '{' '	int	r;' '' \
+		'	r = strncmp(a, b, n);' '	return ((r > 0) - (r < 0));' '}' '' \
+		'int	toy_libc_cmp(char *a, char *b)' '{' '	return (strcmp(a, b));' '}' '' \
+		'int	toy_libc_ncmp(char *a, char *b, unsigned int n)' '{' \
+		'	return (strncmp(a, b, n));' '}' > "$WORK/rd/toys.c"
+	# rd_run BIN HARNESS FN COUNT -- the corpus through rust_diff.sh, as the
+	# target runs it (seed 1, c_diff's default), its words in the log; exit 2,
+	# nothing checked, when the arm has no program to run.
+	rd_run() {
+		[ -n "$1" ] && [ -x "$1" ] || { echo "no program was built for this arm" >&2; return 2; }
+		"$SH" "$TOOLS/rust_diff.sh" --oracle "$ORACLE" --oracle-fn "$3" --seed 1 \
+			--count "$4" --student-bin "$1" --harness-src "$2" < /dev/null
+	}
+	# rd_words FILE... -- red when a file the plain targets ship (the basic
+	# fixture, its clues, the plain reader and its legend) says the words the
+	# int's reading was stated in before it had a target of its own: the
+	# int's reading is the readings target's alone, in its own hint.
+	rd_words() {
+		_rwb=0
+		for _rwf in "$@"; do
+			[ -f "$_rwf" ] || { echo "$_rwf: not in this test's data" >&2; return 2; }
+			grep -n -i -E 'int itself|exact (int|value)|magnitude' "$_rwf" && _rwb=1
+		done
+		return "$_rwb"
+	}
+	while read -r _rm _rn _rf _rw _rx; do
+		_rk=$(printf '%s' "$_rm" | sed 's|.*/c-piscine-||; s|.*/||')
+		_rt="$ROOT/$_rm/tests/ex$_rn"
+		IFS='|' read -r _ph _po _pc _qh _qo _qc <<-EOF2
+			$(rd_call "$_rm" "$_rn")
+		EOF2
+		for _rs in sign libc; do
+			for _rh in "$_ph" "$_qh"; do
+				[ -n "$_rh" ] || continue
+				"$CC" -I "$TOOLS" -D"$_rf=toy_${_rs}_${_rw}" -o "$WORK/rd/$_rk$_rn.$_rs.${_rh%.c}" \
+					"$_rt/$_rh" "$WORK/rd/toys.c" < /dev/null > "$WORK/rd/$_rk$_rn.err" 2>&1 ||
+					cat "$WORK/rd/$_rk$_rn.err"
+			done
+		done
+		want_green "$_rk ex$_rn plain diff: a sign-only function passes" -- \
+			rd_run "$WORK/rd/$_rk$_rn.sign.${_ph%.c}" "$_rt/$_ph" "$_po" "${_pc:-400000}"
+		want_green "$_rk ex$_rn plain targets: none reads the int" -- \
+			rd_words "$_rt/$_rx" "$_rt/clues.tsv" "$_rt/diff_clues.txt" "$_rt/$_ph"
+		if [ -n "$_qh" ] && [ -n "$_qo" ]; then
+			want_red "$_rk ex$_rn readings: ...and fails the readings corpus" -- \
+				rd_run "$WORK/rd/$_rk$_rn.sign.${_qh%.c}" "$_rt/$_qh" "$_qo" "${_qc:-20000}"
+			want_green "$_rk ex$_rn readings: premise, libc's own passes it" -- \
+				rd_run "$WORK/rd/$_rk$_rn.libc.${_qh%.c}" "$_rt/$_qh" "$_qo" "${_qc:-20000}"
+		else
+			printf '  %-52s %s\n' "$_rk ex$_rn readings: the call has a readings harness" \
+				"FAIL < (its c_diff names no readings harness and arm)"
+			FAIL=$((FAIL + 1))
+		fi
+	done <<-EOF
+		c-piscine/c-piscine-c-03 00 ft_strcmp cmp test_strcmp.c
+		c-piscine/c-piscine-c-03 01 ft_strncmp ncmp test_strncmp.c
+		c-piscine/c-piscine-c-09 00 ft_strcmp cmp test_libft.c
+		c-piscine-reloaded/c-piscine-reloaded 17 ft_strcmp cmp test_strcmp.c
+	EOF
+	# A program that failed to build is nothing checked, never a red: the
+	# want_red arm above would otherwise pass over a reader that never ran.
+	want_broken "rd_run: an arm with no program checks nothing" \
+		'no program was built' -- rd_run "$WORK/rd/none" none.c c03_strcmp_sign 1
+else
+	[ "${NO_SKIP:-0}" != "1" ] || {
+		echo "NO_SKIP set: no --oracle was supplied, so the comparison" >&2
+		echo "             exercises' corpora were not run over their toys." >&2
+		exit 2
+	}
+	printf '  %-52s %s\n' "plain corpora and readings: (no oracle)" "skipped"
 fi
 
 printf '\n  %d checks passed, %d failed\n' "$PASS" "$FAIL"

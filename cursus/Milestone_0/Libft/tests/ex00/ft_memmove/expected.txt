@@ -1,0 +1,11 @@
+"Hello" into another buffer, n 5	ret=dest buf=HelloXXXXX
+dest = buf + 2, src = buf, n 5	ret=dest buf=121234589X
+dest = buf, src = buf + 2, n 5	ret=dest buf=345676789X
+dest = src = buf + 1, n 5	ret=dest buf=123456789X
+dest = buf + 2, src = buf, n 0	ret=dest buf=123456789X
+dest = buf + 1, src = buf, n 8	ret=dest buf=112345678X
+dest = buf, src = buf + 1, n 8	ret=dest buf=234567899X
+'a' 0x00 0xe9 0xff 0x00 'b', dest = buf + 2, src = buf, n 4	ret=dest buf=a\x00a\x00\xe9\xffXXXX
+'a' 0x00 0xe9 0xff 0x00 'b', dest = buf, src = buf + 2, n 4	ret=dest buf=\xe9\xff\x00b\x00bXXXX
+5000 bytes one place up, overlapping (past 4096)	ret=dest moved 5000 of 5000, the rest kept
+5000 bytes one place down, overlapping (past 4096)	ret=dest moved 5000 of 5000, the rest kept

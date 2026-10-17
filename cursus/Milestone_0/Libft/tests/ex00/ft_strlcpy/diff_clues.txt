@@ -1,0 +1,16 @@
+  Two things are printed: the destination, up to its first NUL, then the
+  return. The destination starts as ff bytes, so ff at the end of it is a
+  terminator that was never written.
+  Its page: man 3bsd strlcpy (none installed? man.openbsd.org/strlcpy.3).
+    * the return column alone          -> what the page says is
+                                          returned: is it a property of the
+                                          source or of what was copied?
+    * size 0 diverges                  -> whether anything may be written
+    * the destination is one short     -> where the terminator goes when the
+                                          source does not fit
+    * truncated results end in ff      -> the guarantee the page makes about
+                                          the terminator
+    * only long sources                -> how wide the types holding your
+                                          counts are
+    * only inputs holding a byte of 0x80 or more -> whether a test in your
+                                          code sees that char as negative

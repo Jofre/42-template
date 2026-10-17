@@ -1,0 +1,16 @@
+  Each line is the block (hex), c, n, and where the returned pointer points:
+  its offset from the start of the block, NULL, or OUTSIDE (anywhere else).
+    * NULL where a match was expected, after a 00 byte -> what decides when
+                                         your function stops looking: n, or a
+                                         byte it meets?
+    * a match found just past n       -> how many bytes does your function look
+                                         at, the n-th one included or not?
+    * the offset is one more than expected -> which pointer does your
+                                         function return once it has found c?
+    * only a c below 0 or above 255   -> man memchr: c is "interpreted as
+                                         unsigned char". What is this c as one?
+    * only blocks holding a byte of 0x80 or more -> what value does such a
+                                         byte have as a char, and as an
+                                         unsigned char?
+    * only blocks past 4096 bytes     -> does anything in your function depend
+                                         on n being small?

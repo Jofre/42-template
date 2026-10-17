@@ -13,7 +13,8 @@
 #   asan_check.sh --cc PATH [--cc-lib FILE]... [--cc-under FILE] \
 #                 --ld PATH --ld-lib FILE... \
 #                 --probe <probe.c> --src <student.c> [--src ...] \
-#                 [--hdr FILE]... [--inc DIR]... [--lib FILE]... [--note TEXT]
+#                 [--hdr FILE]... [--inc DIR]... [--inc-file FILE]
+#                 [--lib FILE]... [--note TEXT]
 #                 [--symbolizer PATH --symbolizer-lib PATH]
 #   --cc   the pinned clang-12 Bazel fetched, with each library it loads
 #          (--cc-lib) and a file of its own tree (--cc-under): proved by
@@ -25,6 +26,10 @@
 #          VERIFY V38).
 #   --hdr  a header the probe/source need (e.g. ft_stock_str.h); not compiled,
 #          its directory is added to -I (mirrors compile_check.sh).
+#   --inc-file  the -I directories a Makefile's recipes pass, one per line
+#          (tools/student_build.sh --includes-out; runner_lib.sh's
+#          rl_inc_file): a library's header in a subfolder is on the
+#          grader's include path only through them.
 #   --lib  an archive the GRADER links (tools/grader_lib.bzl: C 12's own
 #          ft_create_elem), linked after the sources; itself uninstrumented,
 #          and its malloc is the sanitizer's like every other.
@@ -50,7 +55,7 @@ require() {
 		exit 2
 	done
 }
-require dirname grep mktemp rm sed
+require awk dirname grep mktemp rm sed
 
 # The shared runner helpers -- time budget, exiting signal traps, how a run
 # ended, excerpts, hints -- written once in tools/runner_lib.sh.
@@ -89,6 +94,7 @@ while [ $# -gt 0 ]; do
 		--lib)   need "$1" "$#"; rl_list_add LIBS "$2"; shift 2 ;;
 		--hdr)   need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		--inc)   need "$1" "$#"; rl_list_add INCS "-I$2"; shift 2 ;;
+		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
 		--note)  need "$1" "$#"; NOTE="$2"; shift 2 ;;
 		--probe-src) need "$1" "$#"; PROBE_SRC="$2"; shift 2 ;;
 		--symbolizer) need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
@@ -238,9 +244,16 @@ elif [ -n "$PROBE_SRC" ] && [ -f "$PROBE_SRC" ]; then
 	#
 	# --note still wins where a caller wants something else, but no caller has
 	# ever needed to: the comment is already the accurate, non-leaking wording.
+	#
+	# The FIRST comment of lines 1-20 only, ended by the "*/" on its own
+	# opening line where it has one. A sed range (/^\/\*/,/\*\//) looked for
+	# its end from the next line on, so a header written on one line ran on to
+	# the next comment's close and printed the code between, and every later
+	# comment opening a line printed as well: a probe with a one-line comment
+	# above a helper printed the helper's code under its header.
 	# conventions: not-an-excerpt -- the probe's header comment, not output.
 	sed -n '1,20p' "$PROBE_SRC" |
-		sed -n '/^\/\*/,/\*\//p' |
+		awk '!o && /^\/\*/ { o = 1 } o { print } o && /\*\// { exit }' |
 		sed 's|^/\*[[:space:]]*||; s|^[[:space:]]*\*[[:space:]]\{0,1\}||; s|[[:space:]]*\*/[[:space:]]*$||' |
 		grep -v '^[[:space:]]*$' | sed 's/^/            /'
 else

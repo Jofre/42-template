@@ -79,7 +79,10 @@ class Env:
                 os.chmod(p, 0o755)
             self.environ = {"PATH": self.bin + os.pathsep + os.environ.get("PATH", ""),
                             "HOME": self.tmp, "XDG_STATE_HOME": os.path.join(self.tmp, "state"),
-                            "SUBMIT_GATE": "basic"}
+                            "SUBMIT_GATE": "basic",
+                            # tools/drives.sh's stand-in for /etc/bazel.bazelrc,
+                            # one that does not exist: no case reads this machine's.
+                            "C_PISCINE_SYSTEM_BAZELRC": os.path.join(self.tmp, "no-system-bazelrc")}
         except BaseException:
             self.close()  # no test owns it yet, so no cleanup would remove it
             raise
@@ -403,7 +406,10 @@ class DryRun(Case):
                 self.assertNotIn("42 test", err, (argv, cwd))
                 self.assertTrue(all(len(l) <= 80 for l in err.splitlines()), err)
         rc, _, err = self.run42(["test", "nonsense", "--dry-run"], EX03)
-        self.assertIn("is not a project, an exercise (ex03) or a layer", err)
+        # A function is offered, by a name a library has, only in a checkout
+        # with a library (test_workspace.Deep), and never as the word refused.
+        self.assertRegex(err, r"is not a project, an exercise \(ex03\)(, a function \(ft_\w+\))? or a layer")
+        self.assertNotIn("(nonsense)", err)
 
     def test_clues(self):
         self.assertEqual(self.dry(["clues", "2"]), [
@@ -536,6 +542,16 @@ class Clues(unittest.TestCase):
     def setUp(self):
         self.env = Env()
         self.addCleanup(self.env.close)
+        # The stand-in answers at once, so no case waits in real time: each
+        # run is looked at every 0.01 s, not POLL's 0.5, and while_busy's
+        # sleep only writes its length down, in self.slept. BUSY_WAIT keeps
+        # its value, so a Bazel that stays busy is still tried limit/BUSY_WAIT
+        # times, as it is outside the tests.
+        self.slept = []
+        for patch in (mock.patch.object(main.bazel, "POLL", 0.01),
+                      mock.patch.object(main, "time", mock.Mock(wraps=main.time, sleep=self.slept.append))):
+            patch.start()
+            self.addCleanup(patch.stop)
         with open(os.path.join(self.env.bin, "bazel"), "w") as f:
             f.write('#!/bin/sh\necho "$0 $*" >> "%s"\nn=$(wc -l < "%s")\n'
                     'for a in "$@"; do case $a in --build_event_json_file=*) cp "%s/bep$n" "${a#*=}" ;; esac; done\n'
@@ -699,6 +715,7 @@ class Clues(unittest.TestCase):
         self.assertIn("Bazel is busy with another command", out)
         self.assertIn("Nothing failed in c-05 ex03", out)
         self.assertEqual(len(self.env.called().splitlines()), 2)
+        self.assertEqual(self.slept, [main.BUSY_WAIT], "one wait before the second try")
 
     def test_the_second_run_waits_for_a_busy_bazel_too(self):
         log = self.red_log()
@@ -710,6 +727,7 @@ class Clues(unittest.TestCase):
         self.assertIn("Bazel is busy with another command", out)
         self.assertIn("   * What does a toy print?", out)
         self.assertEqual(len(self.env.called().splitlines()), 3)
+        self.assertEqual(self.slept, [main.BUSY_WAIT], "one wait before the second run's second try")
 
     def test_a_second_run_that_did_not_finish_shows_no_hint(self):
         log = self.red_log()
@@ -850,18 +868,48 @@ class HintBlock(unittest.TestCase):
 
 
 class Entry(unittest.TestCase):
-    """main.py as tools/42.sh starts it: python3 -I, its folder found by itself."""
+    """main.py as tools/42.sh starts it: with 42.sh's own flags, its folder found by itself."""
 
-    def test_python_dash_I(self):
+    def flags(self):
+        """The flags tools/42.sh hands python3 before main.py, read from its exec line."""
+        with open(os.path.join(WS, "tools", "42.sh"), encoding="utf-8") as f:
+            m = re.search(r'^exec python3((?: -[A-Za-z]+)*) "\$FT_WS/tools/fortytwo/main\.py" "\$@"$',
+                          f.read(), re.M)
+        self.assertIsNotNone(m, "tools/42.sh no longer hands over to main.py with exec python3")
+        return m.group(1).split()
+
+    def run_main(self, main_py):
         env = Env()
         self.addCleanup(env.close)
         e = dict(env.environ, FT_WS=WS, FT_CWD=EX03)
-        r = subprocess.run([sys.executable, "-I", os.path.join(WS, "tools", "fortytwo", "main.py")],
+        r = subprocess.run([sys.executable] + self.flags() + [main_py],
                            cwd=env.tmp, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            universal_newlines=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("c-05 ex03", r.stdout)
         self.assertEqual(env.called(), "")
+
+    def test_python_dash_I(self):
+        self.assertIn("-I", self.flags())
+        self.run_main(os.path.join(WS, "tools", "fortytwo", "main.py"))
+
+    def test_leaves_no_bytecode(self):
+        """42 writes nothing beside its modules: Python's bytecode cache went into the checkout.
+
+        -I ignores PYTHONDONTWRITEBYTECODE, so only -B keeps it out. Run from a
+        copy of 42's folder, which no earlier run can have left a cache in.
+        """
+        env = Env()
+        self.addCleanup(env.close)
+        here = os.path.join(WS, "tools", "fortytwo")
+        copy = os.path.join(env.tmp, "fortytwo")
+        os.makedirs(copy)
+        for name in os.listdir(here):
+            if name.endswith(".py") or name == "commands.tsv":
+                shutil.copy(os.path.join(here, name), copy)
+        self.run_main(os.path.join(copy, "main.py"))
+        self.assertFalse(os.path.exists(os.path.join(copy, "__pycache__")),
+                         "running main.py as tools/42.sh does left a __pycache__ beside it")
 
 
 if __name__ == "__main__":

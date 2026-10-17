@@ -1,0 +1,6 @@
+# clues.tsv for ft_memset -- pedagogic hints only, each a question. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (a hint fires when ANY of its cases fails)
+man memset: "fills the first n bytes of the memory area pointed to by s". Which byte is the first one your function writes, which is the last, and what does it do when n is 0?	'a', n 5	'a', n 0 (nothing to fill)	'a', n 12 (the whole buffer)	'*', n 3, s at buf + 4
+What does memset return (man memset, RETURN VALUE) -- and is that the pointer your function hands back on every path?	'a', n 5
+c arrives as an int, and memory holds bytes. For 0, 128, 233 or 255, which byte ends up in memory -- how wide is what your function writes through, and does any test in it depend on the value of c?	0, n 3 (the NUL byte)	128 (0x80), n 4	233 (0xe9), n 4	255 (0xff), n 12
+If the small rows pass and this one does not, does anything in your function depend on n being small -- the type of a counter, a buffer of a fixed size?	'z', n 5000, a block of 5001 (past 4096)

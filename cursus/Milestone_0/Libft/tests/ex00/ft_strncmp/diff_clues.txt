@@ -1,0 +1,15 @@
+  The two strings and n, then the sign of the result: -1, 0 or 1. Only the
+  sign is compared. 18446744073709551615 in the n column is SIZE_MAX.
+    * n == 0 diverges                    -> what two strings compare as when
+                                            nothing is compared
+    * only pairs that differ at or after n -> whether n is a limit
+    * strings shorter than n             -> what the terminator does to the
+                                            comparison
+    * only huge n                        -> whether n keeps its value in every
+                                            variable it passes through
+    * the sign is inverted               -> which string is the greater one
+                                            for a positive result (man 3
+                                            strncmp)
+    * only pairs differing in a byte of 0x80 or more -> man 3 strncmp: "the
+                                            comparison is done using unsigned
+                                            characters"; is yours?

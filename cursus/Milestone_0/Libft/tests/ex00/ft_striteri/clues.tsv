@@ -1,0 +1,7 @@
+# clues.tsv for ft_striteri -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+What two things does f receive for each character (p.12), and what does "passed by address" let f do that a copy of the character would not?	"aaaa", *p + i	"abc", *p + i
+How many calls does a string of n characters make, which index does the first one get, and does the terminator count as a character?	"aaaa", *p + i	"abc", *p + i	"", *p + i	"a<TAB>b<LF>", nothing
+Is a tab, a line break or a byte above 0x7f anything other than one more character whose address f gets?	"a<TAB>b<LF>", nothing	0xe9 0xf0 0x80, *p + i
+Nothing in the subject bounds s. Does anything in your function stop working once it passes a few thousand bytes?	5000 letters, upper case

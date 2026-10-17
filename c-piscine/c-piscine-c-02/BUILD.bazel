@@ -131,6 +131,20 @@ c_diff(
     readings = {"oracle_fn": "c02_strcapitalize_readings", "diff_clues": "diff_clues_readings.txt"},
 )
 
+# man 3bsd strlcpy: "The strlcpy() function copies up to size - 1 characters
+# from the NUL-terminated string src to dst, NUL-terminating the result", and
+# returns "the total length of the string they tried to create. For
+# strlcpy() that means the length of src." The page says nothing of the
+# bytes between the terminator and size, so the fixture does not show them;
+# the bytes from size on, which the call may not write, are shown.
+# //tools/tests's selftest_slow builds the fixture over two stand-ins that
+# differ only in those unshown bytes and requires both to pass every row, so
+# the two files are visible to it.
+exports_files(
+    ["tests/ex10/test_strlcpy.c", "tests/ex10/expected.txt"],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
 c_function(num = "10", fn = "ft_strlcpy", test = "test_strlcpy.c", labeled = True, escaped_values = True, clues = "clues.tsv")
 
 c_mem_check(num = "10", fn = "ft_strlcpy", probe = "mem_strlcpy.c")

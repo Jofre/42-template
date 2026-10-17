@@ -66,6 +66,7 @@ fi
 
 # A folder of its own for this run (a retried test reuses TEST_TMPDIR), and in
 # it one per program swapped, so two programs with one name never meet.
+# conventions: test scratch -- made in TEST_TMPDIR, which Bazel empties
 _dir=$(mktemp -d "${TEST_TMPDIR:-${TMPDIR:-/tmp}}/probe_under.XXXXXX") ||
 	{ echo "probe_under.sh: cannot create a scratch directory" >&2; exit 2; }
 

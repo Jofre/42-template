@@ -1,0 +1,2159 @@
+load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_cycles", "c_diff", "c_function", "c_levels", "c_library", "c_mem_check", "c_readme", "exercise", "subject")
+
+# cursus/Milestone_0/Libft -- the Common Core's first project: libft.a, a
+# library of 43 functions the student writes and keeps for later projects.
+#
+# HOW THE SUITE IS ORGANISED. The subject turns in ONE thing -- "Program Name
+# libft.a" (p.7) -- so the contract has one exercise, "00", turned in at the
+# root of the repository: there is no "Turn-in directory" line, and "All
+# files must be placed at the root of your repository." (p.7). Each of the 43
+# functions is a MEMBER of that library (docs/reference.md, "Suites"):
+#
+#   c_library(num = "00")   what is the whole library's, once: its Makefile
+#                           (ex00_build), the Norm, both compilers, the
+#                           prototypes and the t_list layout, the forbidden
+#                           layer over the union of the boxes and over each
+#                           function's own box (ex00_forbidden_functions), no
+#                           global variable (ex00_globals), the symbols
+#   c_readme(num = "00")    the README.md chapter V asks for (ex00_readme)
+#   c_function(member = "ft_<name>")   one function's own layers: targets
+#                           ex00_ft_<name>_*, suite //cursus/Milestone_0/Libft:ft_<name>,
+#                           material in tests/ex00/ft_<name>/ (its test_*.c,
+#                           expected.txt, clues.tsv), `malloc` held to its own
+#                           box's External Functions
+#
+# tests/ex00/prototype.h holds the 43 signatures (Part 1 from the man pages,
+# as p.8 says; Parts 2 and 3 as their boxes print them), and tests/layout/
+# the t_list p.14 prints, content first.
+#
+# The members are in six sections, one per group of functions (the "====
+# GROUP" markers), each opening with what its subject pages fix and what they
+# leave open.
+
+# THE SUBJECT CONTRACT (tools/subject.bzl), from the header box on p.7 and
+# the boxes of each part.
+#
+# Graded by both: peers at the evaluation, "During the evaluation..." (p.18),
+# and Deepthought, "If Deepthought is assigned to grade your work, it will
+# occur after your peer-evaluations." (p.3-4). Not a group project.
+#
+# FILES. "Files to Submit Makefile, libft.h, ft_*.c" (p.7), and "A README.md
+# file must be provided at the root of your Git repository." (p.17). ft_*.c
+# is a shape that names the files, so it is transcribed as it is, beside the
+# Makefile (exercise() refuses only a bare "*.c" there). Strict, the default:
+# "Submitting unused files is not allowed." (p.7). README.md's stub in
+# deliverable/ holds only an HTML comment (tools/stub_check.sh's md kind), so
+# ex00_files is green on a fresh tree and ex00_readme red: the student
+# writes it.
+#
+# FUNCTIONS. Each function's own box: Part 1 (p.8) "must not rely on any
+# external functions", except calloc and strdup, "In order to implement the
+# two following functions, you will use malloc()"; Parts 2 and 3 (pp.10-16)
+# print an "External Function" line per function, transcribed below.
+# `allowed` is their union (p.7's "External Function Detailed below").
+subject(
+    grader = "both",
+    group = False,
+    exercises = {
+        "00": exercise(
+            page = 7,
+            dir = None,
+            files = [
+                "Makefile",
+                "libft.h",
+                "README.md",
+            ],
+            optional = ["ft_*.c"],
+            allowed = [
+                "malloc",
+                "free",
+                "write",
+            ],
+            functions = {
+                # Part 1 (p.8): the character classes
+                "ft_isalpha": [],
+                "ft_isdigit": [],
+                "ft_isalnum": [],
+                "ft_isascii": [],
+                "ft_isprint": [],
+                "ft_toupper": [],
+                "ft_tolower": [],
+                # Part 1 (p.8): memory; calloc "you will use malloc()"
+                "ft_memset": [],
+                "ft_bzero": [],
+                "ft_memcpy": [],
+                "ft_memmove": [],
+                "ft_memchr": [],
+                "ft_memcmp": [],
+                "ft_calloc": ["malloc"],
+                # Part 1 (p.8): strings; strdup "you will use malloc()"
+                "ft_strlen": [],
+                "ft_strlcpy": [],
+                "ft_strlcat": [],
+                "ft_strchr": [],
+                "ft_strrchr": [],
+                "ft_strncmp": [],
+                "ft_strnstr": [],
+                "ft_atoi": [],
+                "ft_strdup": ["malloc"],
+                # Part 2 (pp.10-13): each box's "External Function" line
+                "ft_substr": ["malloc"],
+                "ft_strjoin": ["malloc"],
+                "ft_strtrim": ["malloc"],
+                "ft_split": ["malloc", "free"],
+                "ft_itoa": ["malloc"],
+                "ft_strmapi": ["malloc"],
+                "ft_striteri": [],
+                "ft_putchar_fd": ["write"],
+                "ft_putstr_fd": ["write"],
+                "ft_putendl_fd": ["write"],
+                "ft_putnbr_fd": ["write"],
+                # Part 3 (pp.14-16): each box's "External Function" line
+                "ft_lstnew": ["malloc"],
+                "ft_lstadd_front": [],
+                "ft_lstsize": [],
+                "ft_lstlast": [],
+                "ft_lstadd_back": [],
+                "ft_lstdelone": ["free"],
+                "ft_lstclear": ["free"],
+                "ft_lstiter": [],
+                "ft_lstmap": ["malloc", "free"],
+            },
+        ),
+    },
+    # Chapter IV is the whole mandatory part (v19.3's contents list no bonus
+    # chapter); Chapter V adds README.md to the same turn-in.
+    mandatory = ["00"],
+    mandatory_quote = "Libft, p.7: \"Chapter IV Mandatory part\"",
+    # The grader judges memory (p.3): a leak, and a crash, are each a KO, so
+    # the valgrind layer sits at basic here, every red quoting the sentence
+    # its finding breaks.
+    memory_graded = {
+        "leaks": "Libft, p.3: \"All heap-allocated memory must be properly freed when necessary. Memory leaks will not be tolerated.\"",
+        "access": "Libft, p.3: \"Your functions should not quit unexpectedly (segmentation fault, bus error, double free, etc.) except for undefined behavior. If this occurs, your project will be considered non-functional and will receive a 0 during the evaluation.\"",
+    },
+)
+
+# Part 1's functions but the two that "will use malloc()" (p.8).
+_PART1 = [
+    "ft_isalpha",
+    "ft_isdigit",
+    "ft_isalnum",
+    "ft_isascii",
+    "ft_isprint",
+    "ft_strlen",
+    "ft_memset",
+    "ft_bzero",
+    "ft_memcpy",
+    "ft_memmove",
+    "ft_strlcpy",
+    "ft_strlcat",
+    "ft_toupper",
+    "ft_tolower",
+    "ft_strchr",
+    "ft_strrchr",
+    "ft_strncmp",
+    "ft_memchr",
+    "ft_memcmp",
+    "ft_strnstr",
+    "ft_atoi",
+]
+
+# p.8, the sentence that forbids both restrict in a prototype and the flag.
+_RESTRICT = "Libft, p.8: \"Some of the function prototypes you need to reimplement use the ’restrict’ qualifier. This keyword is part of the C99 standard. Therefore, it is forbidden to include it in your own prototypes and to compile your code with the -std=c99 flag.\""
+
+_MALLOC_TWO = "Libft, p.8, of calloc and strdup: \"In order to implement the two following functions, you will use malloc():\""
+
+# THE WHOLE LIBRARY, once. The Makefile: "Program Name libft.a" and its rules
+# "NAME, all, clean, fclean, re" (p.7; p.3: "Your Makefile must contain at
+# least the rules $(NAME), all, clean, fclean and re."), the NAME rule being
+# `make libft.a`. What those rules DO the subject does not say, so that is
+# ex00_build_rules, at robust, against this repo's convention. The compile
+# commands are held to p.3 at basic (recipe "any": the flags, in any order),
+# and the relink rule is p.3's own. "You must use the ar command to create
+# your library. The use of libtool is strictly forbidden." (p.7) is read from
+# what a bare `make` plans and runs, at basic, in ex00_build: some ar command
+# makes libft.a, and no command runs libtool. So is p.8's -std=c99.
+c_library(
+    num = "00",
+    artifact = "libft.a",
+    prototype = True,
+    # The names Parts 2 and 3 print, and only those: Part 1's prototypes are
+    # the man pages' (p.8), whose names the subject does not print.
+    prototype_names = "prototype_names.h",
+    # ex00_globals: no variable outside every function, static or const
+    # included -- the Norm calls those global variables too.
+    globals = "Libft, p.7: \"Declaring global variables is strictly forbidden.\"",
+    # ex00_symbols: the sources export the 43 functions and nothing else, a
+    # helper one file defines and another calls included, and its red quotes
+    # this sentence. It stays at its layer's level, strict.
+    helpers_rule = "Libft, p.7: \"If you need helper functions to break down a more complex function, define them as static functions to restrict their scope to the appropriate file.\"",
+    # ex00_forbidden_functions (basic) holds each function to its OWN list,
+    # what its code and every helper it reaches reference; ex00_forbidden_through
+    # is a strict reading of its own (its hint and docs/reference.md say
+    # which). Each red quotes the sentence that gives that function its list:
+    # Part 1's own sentence, the two that "will use malloc()", and each Part 2
+    # and Part 3 box's External Function row.
+    function_lists = dict(
+        {f: "Libft, p.8: \"You must write your own functions that implement the following originals. They must not rely on any external functions.\"" for f in _PART1},
+        ft_calloc = _MALLOC_TWO,
+        ft_strdup = _MALLOC_TWO,
+        ft_substr = "Libft, p.10, ft_substr's External Function: \"malloc\"",
+        ft_strjoin = "Libft, p.10, ft_strjoin's External Function: \"malloc\"",
+        ft_strtrim = "Libft, p.11, ft_strtrim's External Function: \"malloc\"",
+        ft_split = "Libft, p.11, ft_split's External Function: \"malloc, free\"",
+        ft_itoa = "Libft, p.11, ft_itoa's External Function: \"malloc\"",
+        ft_strmapi = "Libft, p.12, ft_strmapi's External Function: \"malloc\"",
+        ft_striteri = "Libft, p.12, ft_striteri's External Function: \"None\"",
+        ft_putchar_fd = "Libft, p.12, ft_putchar_fd's External Function: \"write\"",
+        ft_putstr_fd = "Libft, p.13, ft_putstr_fd's External Function: \"write\"",
+        ft_putendl_fd = "Libft, p.13, ft_putendl_fd's External Function: \"write\"",
+        ft_putnbr_fd = "Libft, p.13, ft_putnbr_fd's External Function: \"write\"",
+        ft_lstnew = "Libft, p.14, ft_lstnew's External Function: \"malloc\"",
+        ft_lstadd_front = "Libft, p.14, ft_lstadd_front's External Function: \"None\"",
+        ft_lstsize = "Libft, p.15, ft_lstsize's External Function: \"None\"",
+        ft_lstlast = "Libft, p.15, ft_lstlast's External Function: \"None\"",
+        ft_lstadd_back = "Libft, p.15, ft_lstadd_back's External Function: \"None\"",
+        ft_lstdelone = "Libft, p.15, ft_lstdelone's External Function: \"free\"",
+        ft_lstclear = "Libft, p.16, ft_lstclear's External Function: \"free\"",
+        ft_lstiter = "Libft, p.16, ft_lstiter's External Function: \"None\"",
+        ft_lstmap = "Libft, p.16, ft_lstmap's External Function: \"malloc, free\"",
+    ),
+    # ex00_prototype_restrict (basic): no restrict in the prototype of a
+    # function prototype.h declares, in any turned-in file, written or
+    # through a typedef -- which a conflicting-types compile does not see.
+    # ex00_prototype_restrict_all is a strict reading of its own (its red and
+    # docs/reference.md say which). The flag is ex00_build's (forbidden_flags).
+    restrict_rule = _RESTRICT,
+    # ex00_declares_output is a strict reading of its own (its red and
+    # docs/reference.md say which), red on a stub, whose libft.h declares
+    # nothing yet.
+    declares_reading = "Libft, p.7, Files to Submit: \"Makefile, libft.h, ft_*.c\"",
+    make = {
+        "rules": [
+            "libft.a",
+            "all",
+            "clean",
+            "fclean",
+            "re",
+        ],
+        "relink": True,
+        "recipe": "any",
+        "wildcards": True,
+        "archiver": "ar",
+        "forbidden_commands": ["libtool"],
+        "forbidden_flags": ["-std=c99"],
+        "quotes": {
+            "cc": "Libft, p.3: \"If the subject requires it, you must submit a Makefile that compiles your source files to the required output with the flags -Wall, -Wextra, and -Werror, using cc.\"",
+            "relink": "Libft, p.3: \"Additionally, your Makefile must not perform unnecessary relinking.\"",
+            # p.3: "Your project must be written in accordance with the Norm."
+            "wildcards": NORM_NO_WILDCARDS,
+            "archiver": "Libft, p.7: \"You must use the ar command to create your library.\"",
+            "forbidden_command": "Libft, p.7: \"The use of libtool is strictly forbidden.\"",
+            "forbidden_flag": _RESTRICT,
+        },
+    },
+)
+
+# THE README, chapter V (p.17). ex00_readme (basic) reads what holds in any
+# language the README is written in -- "English is recommended;
+# alternatively, you may use the main language of your campus." (p.17).
+# ex00_readme_wording is a strict reading of its own, in the two languages
+# the subject is printed in (its hint and docs/reference.md say which). What
+# the README says, and how well, is a peer's to read.
+c_readme(
+    num = "00",
+    file = "README.md",
+    quotes = {
+        "ai": "Libft, p.17: \"A “Resources” section listing classic references related to the topic (documentation, articles, tutorials, etc.), as well as a description of how AI was used — specifying for which tasks and which parts of the project.\"",
+        "file": "Libft, p.17: \"A README.md file must be provided at the root of your Git repository.\"",
+        "first-line": "Libft, p.17: \"The very first line must be italicized and read: This project has been created as part of the 42 curriculum by <login1>[, <login2>[, <login3>[...]]].\"",
+        "language": "Libft, p.17: \"English is recommended; alternatively, you may use the main language of your campus.\"",
+        "sections": "Libft, p.17: \"The README.md must include at least:\" ... \"A “Description” section\" ... \"An “Instructions” section\" ... \"A “Resources” section\"",
+    },
+    sections = [
+        "Description|Descripción",
+        "Instructions|Instrucciones",
+        "Resources|Recursos",
+    ],
+    sentences = [
+        "This project has been created as part of the 42 curriculum by",
+        "Este proyecto ha sido creado como parte del currículo de 42 por",
+    ],
+    ai_section = "Resources|Recursos",
+    ai_words = [
+        "AI",
+        "IA",
+    ],
+)
+
+# ONE MEMBER PER FUNCTION. A member whose box names malloc or free passes
+# malloc = True (its leak layer, ex00_ft_<name>_valgrind, at basic:
+# memory_graded).
+
+# ==== GROUP chars: ft_isalpha ft_isdigit ft_isalnum ft_isascii ft_isprint ft_toupper ft_tolower ====
+
+# THE CHARACTER FUNCTIONS. Part 1 (p.8): "Your version will have the same
+# prototypes and behaviors as the originals, adhering strictly to their
+# definitions in the man page." man 3 isalpha says c "must have the value of
+# an unsigned char or EOF", and man 3 toupper "If c is neither an unsigned
+# char value nor EOF, the behavior of these functions is undefined.", so
+# nothing outside EOF..255 is tested, at any level. And for the five
+# classifiers p.8 fixes the return value, which the man page leaves at
+# "nonzero":
+#
+#   "For the character classification functions (isalpha, isdigit, isalnum,
+#    isascii, isprint), the return value must be:
+#      • 1 if the character matches the tested class
+#      • 0 if the character does not match"
+#
+# so a classifier that answers 1024 (as glibc's does) is red at basic: the
+# subject's own words, not a reading. The classes are the "C" locale's, the
+# one a program runs in until it calls setlocale().
+#
+# Each fixture is EXHAUSTIVE: all 257 values, EOF and 0..255, one row per
+# range of codes (cut where a class of man ascii starts or ends), each row
+# printing one result per code. The fixtures hold no string, so the
+# high-byte row and the row past 4096 bytes of the string fixtures have no
+# counterpart here; 0x80..0xff are four of the rows.
+#
+# no c_diff: SMALL-INPUT-SPACE (the fixture is the whole domain).
+# no c_mem_check: NO-SURFACE (an int in, an int out: no buffer to bound).
+# no c_cycles, no c_perf: BOUNDED-COST.
+# No `readings`: p.8 and the man page leave no case of EOF..255 open.
+
+c_function(
+    num = "00",
+    fn = "ft_isalpha",
+    member = "ft_isalpha",
+    test = "test_ft_isalpha.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_function(
+    num = "00",
+    fn = "ft_isdigit",
+    member = "ft_isdigit",
+    test = "test_ft_isdigit.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_function(
+    num = "00",
+    fn = "ft_isalnum",
+    member = "ft_isalnum",
+    test = "test_ft_isalnum.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_function(
+    num = "00",
+    fn = "ft_isascii",
+    member = "ft_isascii",
+    test = "test_ft_isascii.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_function(
+    num = "00",
+    fn = "ft_isprint",
+    member = "ft_isprint",
+    test = "test_ft_isprint.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# toupper and tolower: man 3 toupper, "If c is a lowercase letter, toupper()
+# returns its uppercase equivalent, if an uppercase representation exists in
+# the current locale. Otherwise, it returns c." (tolower likewise), so EOF
+# comes back as EOF and every byte but the 26 letters comes back as it is,
+# 0xe0..0xfe included (the "C" locale has no letter there). A result that is
+# a byte is printed as that byte, in diff_output.sh's notation.
+
+c_function(
+    num = "00",
+    fn = "ft_toupper",
+    member = "ft_toupper",
+    test = "test_ft_toupper.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+c_function(
+    num = "00",
+    fn = "ft_tolower",
+    member = "ft_tolower",
+    test = "test_ft_tolower.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# ==== GROUP mem: ft_memset ft_bzero ft_memcpy ft_memmove ft_memchr ft_memcmp ft_calloc ====
+
+# THE MEMORY FUNCTIONS OF PART 1. "Your version will have the same prototypes
+# and behaviors as the originals, adhering strictly to their definitions in
+# the man page." (p.8): each contract below is its man page's, quoted at the
+# call. Every write target in a fixture starts dirty, every fixture shows the
+# bytes around the n it was given, and each ends on a row past 4096 bytes.
+# Each member's c_mem_check hands the function heap blocks that end where
+# the bytes it may touch end, most of them starting where those bytes start
+# too (its probe's header says which fault each call is aimed at);
+# memory_graded puts its memcheck run at basic, so every probe survives a
+# stub. Its c_diff replays a seeded corpus of whole blocks, each decoded into
+# a heap block of exactly its length; its c_cycles counts instructions per
+# byte of n, over the cases of up to 1000 bytes (the longer ones test
+# capacity, which the diff layers judge), with no budget: none has been
+# measured on correct answers yet.
+
+# man memset: "fills the first n bytes of the memory area pointed to by s
+# with the constant byte c" and "returns a pointer to the memory area s".
+# That settles a c in 0..255 and no other: the fixture and the corpus hold
+# only those, and a c outside it is the wide_c reading's (strict, its own
+# fixture) and the corpus readings' (strict), whose own hints say what they
+# expect.
+c_function(
+    num = "00",
+    fn = "ft_memset",
+    member = "ft_memset",
+    test = "test_ft_memset.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+    readings = [{
+        "name": "wide_c",
+        "main": "test_ft_memset_wide_c.c",
+        "expected": "expected_wide_c.txt",
+        "labeled": True,
+        "clues": "clues_wide_c.tsv",
+        "level": 2,
+    }],
+)
+
+# A write past the n-th byte or before s, and any write when n is 0.
+c_mem_check(
+    num = "00",
+    fn = "ft_memset",
+    member = "ft_memset",
+    probe = "mem_ft_memset.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_memset",
+    member = "ft_memset",
+    harness = "diff_ft_memset.c",
+    oracle_fn = "libft_memset",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    readings = {
+        "oracle_fn": "libft_memset_readings",
+        "diff_clues": "diff_clues_readings.txt",
+    },
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_memset",
+    member = "ft_memset",
+    oracle_fn = "libft_memset",
+    harness = "diff_ft_memset.c",
+    # n, the bytes every answer must write (diff_ft_memset.c's "Line:").
+    unit_expr = "$3",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man bzero: it "erases the data in the n bytes of the memory starting at the
+# location pointed to by s, by writing zeros (bytes containing '\0') to that
+# area."
+c_function(
+    num = "00",
+    fn = "ft_bzero",
+    member = "ft_bzero",
+    test = "test_ft_bzero.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# A write past the n-th byte or before s, and any write when n is 0.
+c_mem_check(
+    num = "00",
+    fn = "ft_bzero",
+    member = "ft_bzero",
+    probe = "mem_ft_bzero.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_bzero",
+    member = "ft_bzero",
+    harness = "diff_ft_bzero.c",
+    oracle_fn = "libft_bzero",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_bzero",
+    member = "ft_bzero",
+    oracle_fn = "libft_bzero",
+    harness = "diff_ft_bzero.c",
+    # n, the bytes every answer must write (diff_ft_bzero.c's "Line:").
+    unit_expr = "$2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man memcpy: it "copies n bytes from memory area src to memory area dest.
+# The memory areas must not overlap." -- so no row and no corpus line hands
+# it areas that do: what it does then is not defined. Bytes, not a string:
+# rows copy past a NUL.
+c_function(
+    num = "00",
+    fn = "ft_memcpy",
+    member = "ft_memcpy",
+    test = "test_ft_memcpy.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# A read past src's n-th byte or a write past dest's, and any access when n
+# is 0.
+c_mem_check(
+    num = "00",
+    fn = "ft_memcpy",
+    member = "ft_memcpy",
+    probe = "mem_ft_memcpy.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_memcpy",
+    member = "ft_memcpy",
+    harness = "diff_ft_memcpy.c",
+    oracle_fn = "libft_memcpy",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_memcpy",
+    member = "ft_memcpy",
+    oracle_fn = "libft_memcpy",
+    harness = "diff_ft_memcpy.c",
+    # n, the bytes every answer must copy (diff_ft_memcpy.c's "Line:").
+    unit_expr = "$2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man memmove: "The memory areas may overlap: copying takes place as though
+# the bytes in src are first copied into a temporary array that does not
+# overlap src or dest". The rows overlap both ways, and dest == src.
+c_function(
+    num = "00",
+    fn = "ft_memmove",
+    member = "ft_memmove",
+    test = "test_ft_memmove.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# A step outside one exact block, at either end, while moving inside it
+# both ways; any access when n is 0.
+c_mem_check(
+    num = "00",
+    fn = "ft_memmove",
+    member = "ft_memmove",
+    probe = "mem_ft_memmove.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_memmove",
+    member = "ft_memmove",
+    harness = "diff_ft_memmove.c",
+    oracle_fn = "libft_memmove",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_memmove",
+    member = "ft_memmove",
+    oracle_fn = "libft_memmove",
+    harness = "diff_ft_memmove.c",
+    # n, the bytes every answer must move (diff_ft_memmove.c's "Line:").
+    unit_expr = "$4",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man memchr: "Both c and the bytes of the memory area pointed to by s are
+# interpreted as unsigned char." That settles a c outside 0..255 too, so the
+# fixture's rows with one are basic, and the corpus draws c from -512..767
+# with no reading target of its own.
+c_function(
+    num = "00",
+    fn = "ft_memchr",
+    member = "ft_memchr",
+    test = "test_ft_memchr.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# A read past the n-th byte of a block that holds no c, and any read when n
+# is 0.
+c_mem_check(
+    num = "00",
+    fn = "ft_memchr",
+    member = "ft_memchr",
+    probe = "mem_ft_memchr.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_memchr",
+    member = "ft_memchr",
+    harness = "diff_ft_memchr.c",
+    oracle_fn = "libft_memchr",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_memchr",
+    member = "ft_memchr",
+    oracle_fn = "libft_memchr",
+    harness = "diff_ft_memchr.c",
+    # The bytes every answer must read: up to the match and the match
+    # itself, or all n when there is none (diff_ft_memchr.c's "Line:").
+    unit_expr = "($4 == \"NULL\" ? $3 : $4 + 1)",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man memcmp: it "returns an integer less than, equal to, or greater than
+# zero", the sign "determined by the sign of the difference between the
+# first pair of bytes (interpreted as unsigned char) that differ", and "If n
+# is zero, the return value is zero." The SIGN is all it promises, so the
+# fixture prints only the sign and the corpus compares only the sign; the
+# value itself is tested nowhere.
+c_function(
+    num = "00",
+    fn = "ft_memcmp",
+    member = "ft_memcmp",
+    test = "test_ft_memcmp.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# A read past the n-th byte of either block, which hold the same bytes, and
+# any read when n is 0.
+c_mem_check(
+    num = "00",
+    fn = "ft_memcmp",
+    member = "ft_memcmp",
+    probe = "mem_ft_memcmp.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_memcmp",
+    member = "ft_memcmp",
+    harness = "diff_ft_memcmp.c",
+    oracle_fn = "libft_memcmp",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_memcmp",
+    member = "ft_memcmp",
+    oracle_fn = "libft_memcmp",
+    harness = "diff_ft_memcmp.c",
+    # n (diff_ft_memcmp.c's "Line:"): the most a comparison reads. Where
+    # the blocks differ early an answer stops sooner, so the figure per byte
+    # reads low there; the line carries the sign alone, never where the
+    # first difference is.
+    unit_expr = "$3",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man calloc: "The memory is set to zero." and "If the multiplication of
+# nmemb and size would result in integer overflow, then calloc() returns an
+# error.", with "On error, these functions return NULL." (RETURN VALUE).
+# Where the page leaves a choice -- "If nmemb or size is 0, then calloc()
+# returns either NULL, or a unique pointer value that can later be
+# successfully passed to free()" -- the subject makes it: "You must follow
+# this rule: If nmemb or size is 0, then calloc() returns a unique pointer
+# value that can be successfully passed to free()." (p.8). So the fixture's
+# zero rows ask for a pointer that is not NULL, three of them different, and
+# free each one, at basic. An unzeroed block is caught twice: natively, the
+# fixture hands back a block it filled first, and in ex00_ft_calloc_valgrind
+# (basic, memory_graded), where reading it is a use of uninitialised memory.
+# The allocation-failure sweep quotes the man page Part 1 sends to, as C
+# 07's strdup does.
+c_function(
+    num = "00",
+    fn = "ft_calloc",
+    member = "ft_calloc",
+    test = "test_ft_calloc.c",
+    labeled = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_calloc.c",
+    allocfail_rule = "man 3 calloc, where Libft, p.8 sends you (\"the same prototypes and behaviors as the originals, adhering strictly to their definitions in the man page\"): \"On error, these functions return NULL.\" (RETURN VALUE)",
+)
+
+# No probe of its own: the block is the function's, and the diff's ASan twin
+# reads every byte of it, so a block shorter than nmemb x size is a read past
+# its end there. The corpus holds blocks of at most 1 MiB, overflows and zero
+# sizes; 20000 cases, as each line can zero, read and refill a block that
+# large.
+c_diff(
+    num = "00",
+    fn = "ft_calloc",
+    member = "ft_calloc",
+    harness = "diff_ft_calloc.c",
+    oracle_fn = "libft_calloc",
+    count = 20000,
+    asan_count = 5000,
+    perf_count = 8000,
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_calloc",
+    member = "ft_calloc",
+    oracle_fn = "libft_calloc",
+    harness = "diff_ft_calloc.c",
+    # nmemb x size, the bytes every answer must zero (diff_ft_calloc.c's
+    # "Line:"). An overflowing line counts far past max_unit and is left
+    # out; a zero size counts none.
+    unit_expr = "$1 * $2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# ==== GROUP str: ft_strlen ft_strlcpy ft_strlcat ft_strchr ft_strrchr ft_strncmp ft_strnstr ft_atoi ft_strdup ====
+#
+# Part 1's string functions. p.8: "Your version will have the same prototypes
+# and behaviors as the originals, adhering strictly to their definitions in
+# the man page." So each one's contract is its man page: man 3 strlen,
+# strchr, strrchr, strncmp, atoi (which sends on to man 3 strtol) and strdup;
+# man 3bsd strlcpy, strlcat and strnstr, which glibc does not have (p.9:
+# "Some functions that you must reimplement, such as strlcpy, strlcat, and
+# bzero, are not included by default in the GNU C Library").
+#
+# Each member: its labeled table (c_function), an exact-size heap probe
+# (c_mem_check: under ASan, and under memcheck, which this package grades at
+# basic), the differential against //oracle over 400000 seeded cases and its
+# ASan twin (c_diff, which adds the perf layer), and the instruction count
+# per byte (c_cycles: no budget, until one is measured on correct answers;
+# each corpus's 4100- and 5000-byte capacity cases are left out of it with
+# max_unit, as C 03's and C 07's are). Every table holds a row whose bytes
+# are 0x80 or more, and a row past 4096 bytes, last.
+
+# man 3 strlen: "The strlen() function calculates the length of the string
+# pointed to by s, excluding the terminating null byte ('\0')."
+c_function(
+    num = "00",
+    fn = "ft_strlen",
+    member = "ft_strlen",
+    test = "test_ft_strlen.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# Strings in exact-size heap blocks: a read past the terminator.
+c_mem_check(
+    num = "00",
+    fn = "ft_strlen",
+    member = "ft_strlen",
+    probe = "mem_ft_strlen.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strlen",
+    member = "ft_strlen",
+    harness = "diff_ft_strlen.c",
+    oracle_fn = "c01_strlen",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strlen",
+    member = "ft_strlen",
+    oracle_fn = "c01_strlen",
+    harness = "diff_ft_strlen.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man 3bsd strlcpy: "The strlcpy() function copies up to size - 1 characters
+# from the NUL-terminated string src to dst, NUL-terminating the result", and
+# returns "the total length of the string they tried to create. For
+# strlcpy() that means the length of src." The page says nothing of the
+# bytes between the terminator and size, so no layer shows them; the bytes
+# from size on, which the call may not write, are shown.
+c_function(
+    num = "00",
+    fn = "ft_strlcpy",
+    member = "ft_strlcpy",
+    test = "test_ft_strlcpy.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# Destinations of exactly size bytes (4, 6, 1, 0) and sources with no slack:
+# a write at dst[size], a read past src's terminator.
+c_mem_check(
+    num = "00",
+    fn = "ft_strlcpy",
+    member = "ft_strlcpy",
+    probe = "mem_ft_strlcpy.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strlcpy",
+    member = "ft_strlcpy",
+    harness = "diff_ft_strlcpy.c",
+    oracle_fn = "c02_strlcpy",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strlcpy",
+    member = "ft_strlcpy",
+    oracle_fn = "c02_strlcpy",
+    harness = "diff_ft_strlcpy.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man 3bsd strlcat: "It will append at most size - strlen(dst) - 1 bytes,
+# NUL-terminating the result", and returns "the initial length of dst plus
+# the length of src"; "if strlcat() traverses size characters without
+# finding a NUL, the length of the string is considered to be size and the
+# destination string will not be NUL-terminated (since there was no space
+# for the NUL)".
+c_function(
+    num = "00",
+    fn = "ft_strlcat",
+    member = "ft_strlcat",
+    test = "test_ft_strlcat.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# A result that fills its block exactly, and a dst with no room for any of
+# src: every dst a C string in a block of exactly size bytes, since the page
+# says "for strlcat() both src and dst must be NUL-terminated".
+c_mem_check(
+    num = "00",
+    fn = "ft_strlcat",
+    member = "ft_strlcat",
+    probe = "mem_ft_strlcat.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strlcat",
+    member = "ft_strlcat",
+    harness = "diff_ft_strlcat.c",
+    oracle_fn = "libft_strlcat",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+# Every byte of dst and src it reads.
+c_cycles(
+    num = "00",
+    fn = "ft_strlcat",
+    member = "ft_strlcat",
+    oracle_fn = "libft_strlcat",
+    harness = "diff_ft_strlcat.c",
+    unit_expr = "(length($1)+length($3))/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man 3 strchr: "The strchr() function returns a pointer to the first
+# occurrence of the character c in the string s." ... "The terminating null
+# byte is considered part of the string, so that if c is specified as '\0',
+# these functions return a pointer to the terminator." The page does not say
+# what a c outside 0..255 finds: the table and the plain corpus hold c in
+# 0..255 only, and every other c is ex00_ft_strchr_readings, at strict,
+# whose own hints say how this harness takes it.
+c_function(
+    num = "00",
+    fn = "ft_strchr",
+    member = "ft_strchr",
+    test = "test_ft_strchr.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# Strings in exact-size heap blocks, c absent and c = '\0': a search that
+# runs past the terminator.
+c_mem_check(
+    num = "00",
+    fn = "ft_strchr",
+    member = "ft_strchr",
+    probe = "mem_ft_strchr.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strchr",
+    member = "ft_strchr",
+    harness = "diff_ft_strchr.c",
+    oracle_fn = "libft_strchr",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    readings = {
+        "oracle_fn": "libft_strchr_readings",
+        "diff_clues": "diff_clues_readings.txt",
+    },
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strchr",
+    member = "ft_strchr",
+    oracle_fn = "libft_strchr",
+    harness = "diff_ft_strchr.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man 3 strrchr: "The strrchr() function returns a pointer to the last
+# occurrence of the character c in the string s", the terminator "considered
+# part of the string". A c outside 0..255, as for ft_strchr above, is
+# ex00_ft_strrchr_readings, at strict.
+c_function(
+    num = "00",
+    fn = "ft_strrchr",
+    member = "ft_strrchr",
+    test = "test_ft_strrchr.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_mem_check(
+    num = "00",
+    fn = "ft_strrchr",
+    member = "ft_strrchr",
+    probe = "mem_ft_strrchr.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strrchr",
+    member = "ft_strrchr",
+    harness = "diff_ft_strrchr.c",
+    oracle_fn = "libft_strrchr",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    readings = {
+        "oracle_fn": "libft_strrchr_readings",
+        "diff_clues": "diff_clues_readings.txt",
+    },
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strrchr",
+    member = "ft_strrchr",
+    oracle_fn = "libft_strrchr",
+    harness = "diff_ft_strrchr.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man 3 strncmp: "The comparison is done using unsigned characters", "it
+# compares only the first (at most) n bytes of s1 and s2", and it returns
+# "an integer less than, equal to, or greater than zero". The sign is what
+# the page promises, so the table and the diff compare the sign alone.
+c_function(
+    num = "00",
+    fn = "ft_strncmp",
+    member = "ft_strncmp",
+    test = "test_ft_strncmp.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# Unterminated blocks of exactly n bytes, and n = SIZE_MAX on strings in
+# exact-size blocks: a read at index n, or past both terminators.
+c_mem_check(
+    num = "00",
+    fn = "ft_strncmp",
+    member = "ft_strncmp",
+    probe = "mem_ft_strncmp.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strncmp",
+    member = "ft_strncmp",
+    harness = "diff_ft_strncmp.c",
+    oracle_fn = "libft_strncmp",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strncmp",
+    member = "ft_strncmp",
+    oracle_fn = "libft_strncmp",
+    harness = "diff_ft_strncmp.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man 3bsd strnstr: "The strnstr() function locates the first occurrence of
+# the null-terminated string little in the string big, where not more than
+# len characters are searched. Characters that appear after a '\0'
+# character are not searched." "If little is an empty string, big is
+# returned; if little occurs nowhere in big, NULL is returned".
+c_function(
+    num = "00",
+    fn = "ft_strnstr",
+    member = "ft_strnstr",
+    test = "test_ft_strnstr.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# Strings in exact-size heap blocks, every len past big's end: a search
+# that goes on past big's terminator.
+c_mem_check(
+    num = "00",
+    fn = "ft_strnstr",
+    member = "ft_strnstr",
+    probe = "mem_ft_strnstr.c",
+)
+
+# perf_length: the length series grows one big, little "zzz" at its very end
+# and len its whole length, and reports what doubling it does to one search,
+# which the case-count exponent cannot see over short corpus strings.
+# Reported, never gated. A linear search is too fast to time over a few
+# thousand letters, so the series starts at 20000, as C 03 ex04's does.
+c_diff(
+    num = "00",
+    fn = "ft_strnstr",
+    member = "ft_strnstr",
+    harness = "diff_ft_strnstr.c",
+    oracle_fn = "libft_strnstr",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    perf_length = {
+        "oracle_fn": "c03_strstr_len",
+        "harness": "len_strnstr.c",
+        "base": 20000,
+    },
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strnstr",
+    member = "ft_strnstr",
+    oracle_fn = "libft_strnstr",
+    harness = "diff_ft_strnstr.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man 3 atoi: "The behavior is the same as strtol(nptr, NULL, 10); except
+# that atoi() does not detect errors." man 3 strtol: "The string may begin
+# with an arbitrary amount of white space (as determined by isspace(3))
+# followed by a single optional '+' or '-' sign." What a number outside the
+# int range gives is undefined behaviour, and no layer asks it.
+c_function(
+    num = "00",
+    fn = "ft_atoi",
+    member = "ft_atoi",
+    test = "test_ft_atoi.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+# Strings in exact-size heap blocks: a read past the terminator while
+# skipping white space, a sign or digits.
+c_mem_check(
+    num = "00",
+    fn = "ft_atoi",
+    member = "ft_atoi",
+    probe = "mem_ft_atoi.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_atoi",
+    member = "ft_atoi",
+    harness = "diff_ft_atoi.c",
+    oracle_fn = "libft_atoi",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_atoi",
+    member = "ft_atoi",
+    oracle_fn = "libft_atoi",
+    harness = "diff_ft_atoi.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# man 3 strdup: "The strdup() function returns a pointer to a new string
+# which is a duplicate of the string s. Memory for the new string is
+# obtained with malloc(3), and can be freed with free(3)." Its box allows
+# malloc (p.8: "In order to implement the two following functions, you will
+# use malloc()"), so its leak layer, ex00_ft_strdup_valgrind, sits at basic
+# (memory_graded), and so does the allocation-failure sweep, on the man
+# page's RETURN VALUE.
+c_function(
+    num = "00",
+    fn = "ft_strdup",
+    member = "ft_strdup",
+    test = "test_ft_strdup.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_strdup.c",
+    allocfail_rule = "man 3 strdup, where Libft, p.8 sends you (\"Your version will have the same prototypes and behaviors as the originals, adhering strictly to their definitions in the man page.\"): \"It returns NULL if insufficient memory was available\" (RETURN VALUE)",
+)
+
+# Sources in exact-size heap blocks: a read past the terminator, or a copy
+# block too small for what is written into it.
+c_mem_check(
+    num = "00",
+    fn = "ft_strdup",
+    member = "ft_strdup",
+    probe = "mem_ft_strdup.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strdup",
+    member = "ft_strdup",
+    harness = "diff_ft_strdup.c",
+    oracle_fn = "c07_strdup",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strdup",
+    member = "ft_strdup",
+    oracle_fn = "c07_strdup",
+    harness = "diff_ft_strdup.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# ==== GROUP part2: ft_substr ft_strjoin ft_strtrim ft_split ft_itoa ft_strmapi ft_striteri ====
+#
+# PART 2's first seven functions (pp.10-12; its four writers are the fd
+# group's), six of which allocate their result
+# ("Allocates memory (using malloc(3))"), each box naming what it returns
+# when that fails. So each of the six carries, at basic:
+#   * its output fixture, labelled, its strings in the table's notation;
+#   * its valgrind layer (malloc = True; memory_graded puts it at basic);
+#   * allocfail, its box's own "NULL if ... fails" sentence quoted.
+# And, above basic: the differential over its //oracle arm (strict) with its
+# ASan twin (robust), the 32-bit replay, perf and cycles (complete). A
+# c_mem_check probe hands each function that reads a string exact-size heap
+# blocks (_probe_memcheck at basic, _asan at robust). ft_itoa reads no
+# buffer and has none. Every cycles call but ft_itoa's (an int's text has
+# no capacity case) leaves out the corpus's capacity cases (max_unit),
+# which the diff layers judge, and each states no budget: none has been
+# measured on correct answers yet.
+
+# ft_substr. "The substring starts at index 'start' and has a maximum length
+# of 'len'." (p.10). A start past the end of s is a case the box does not
+# mention: the basic fixture and the plain corpus hold only starts up to
+# strlen(s), and one reading is its own target at strict, twice -- a
+# fixture, ex00_ft_substr_start_past_end_output, and a corpus,
+# ex00_ft_substr_readings -- whose own hints state the reading they test.
+c_function(
+    num = "00",
+    fn = "ft_substr",
+    member = "ft_substr",
+    test = "test_ft_substr.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_substr.c",
+    allocfail_rule = "Libft, p.10, ft_substr's Return Value: \"The substring. NULL if the allocation fails.\"",
+    readings = [
+        {
+            "name": "start_past_end",
+            "main": "test_ft_substr_start_past_end.c",
+            "expected": "start_past_end.txt",
+            "labeled": True,
+            "clues": "clues_start_past_end.tsv",
+            "level": 2,
+        },
+    ],
+)
+
+# Exact-size blocks for s: a start on the terminator, and len past the end
+# and SIZE_MAX, where a length taken from len rather than from what is left
+# of s reads past the block, or allocates more than it may (mem_ft_substr.c).
+c_mem_check(
+    num = "00",
+    fn = "ft_substr",
+    member = "ft_substr",
+    probe = "mem_ft_substr.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_substr",
+    member = "ft_substr",
+    harness = "diff_ft_substr.c",
+    oracle_fn = "libft_substr",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    readings = {
+        "oracle_fn": "libft_substr_readings",
+        "diff_clues": "diff_clues_readings.txt",
+    },
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_substr",
+    member = "ft_substr",
+    oracle_fn = "libft_substr",
+    harness = "diff_ft_substr.c",
+    # The bytes of the substring, which every answer must write: the corpus
+    # line's last field (diff_ft_substr.c's "Line:").
+    unit_expr = "length($NF)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# ft_strjoin. "returns a new string, which is the result of concatenating
+# 's1' and 's2'." (p.10).
+c_function(
+    num = "00",
+    fn = "ft_strjoin",
+    member = "ft_strjoin",
+    test = "test_ft_strjoin.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_strjoin.c",
+    allocfail_rule = "Libft, p.10, ft_strjoin's Return Value: \"The new string. NULL if the allocation fails.\"",
+)
+
+# Exact-size blocks for s1 and s2, the empty string among them: a read past
+# either terminator, or a result block too small for what is written into
+# it (mem_ft_strjoin.c).
+c_mem_check(
+    num = "00",
+    fn = "ft_strjoin",
+    member = "ft_strjoin",
+    probe = "mem_ft_strjoin.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strjoin",
+    member = "ft_strjoin",
+    harness = "diff_ft_strjoin.c",
+    oracle_fn = "libft_strjoin",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strjoin",
+    member = "ft_strjoin",
+    oracle_fn = "libft_strjoin",
+    harness = "diff_ft_strjoin.c",
+    # The bytes of the joined string, which every answer must write: the
+    # corpus line's last field.
+    unit_expr = "length($NF)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# ft_strtrim. "returns a copy of 's1' with characters from 'set' removed
+# from the beginning and the end." (p.11). Its perf length series grows one
+# string (len_ft_strtrim.c), where a rescan per byte shows.
+c_function(
+    num = "00",
+    fn = "ft_strtrim",
+    member = "ft_strtrim",
+    test = "test_ft_strtrim.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_strtrim.c",
+    allocfail_rule = "Libft, p.11, ft_strtrim's Return Value: \"The trimmed string. NULL if the allocation fails.\"",
+)
+
+# Exact-size blocks for s1 and set: s1 made of set bytes alone from the first
+# byte of its block, where a scan from the end that does not stop at the
+# start reads before the block (mem_ft_strtrim.c).
+c_mem_check(
+    num = "00",
+    fn = "ft_strtrim",
+    member = "ft_strtrim",
+    probe = "mem_ft_strtrim.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strtrim",
+    member = "ft_strtrim",
+    harness = "diff_ft_strtrim.c",
+    oracle_fn = "libft_strtrim",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    perf_length = {
+        "oracle_fn": "c02_str_is_alpha_len",
+        "harness": "len_ft_strtrim.c",
+    },
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strtrim",
+    member = "ft_strtrim",
+    oracle_fn = "libft_strtrim",
+    harness = "diff_ft_strtrim.c",
+    # Every byte of s1, which every answer must read at least once.
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# ft_split. "returns an array of strings obtained by splitting 's' using the
+# character 'c' as a delimiter." and "The returned array must be NULL
+# terminated." (p.11). What a field with no byte in it gives -- an empty s,
+# a delimiter at either end of s or beside another, c == '\0' -- the box
+# does not say: the basic fixture and the plain corpus hold only strings
+# where every field is a word, and one reading is its own target at strict,
+# twice -- a fixture, ex00_ft_split_empty_fields_output, and a corpus,
+# ex00_ft_split_readings -- whose own hints state the reading they test.
+# Its box allows free, so a refusal that lands after some strings were
+# obtained is also asked to leave none of them allocated, at robust
+# (allocfail_leaks: this repo's own rigour, never the subject's).
+c_function(
+    num = "00",
+    fn = "ft_split",
+    member = "ft_split",
+    test = "test_ft_split.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_split.c",
+    allocfail_rule = "Libft, p.11, ft_split's Return Value: \"The array of new strings resulting from the split. NULL if any allocation fails.\"",
+    allocfail_leaks = True,
+    readings = [
+        {
+            "name": "empty_fields",
+            "main": "test_ft_split_empty_fields.c",
+            "expected": "empty_fields.txt",
+            "labeled": True,
+            "clues": "clues_empty_fields.tsv",
+            "level": 2,
+        },
+    ],
+)
+
+# Exact-size blocks for s, a delimiter at the very end, delimiters alone and
+# the empty string among them: whatever a reading gives for those, none lets
+# a function read past s (mem_ft_split.c).
+c_mem_check(
+    num = "00",
+    fn = "ft_split",
+    member = "ft_split",
+    probe = "mem_ft_split.c",
+)
+
+# perf_length: one string grows word by word (len_ft_split.c), where a count
+# that rescans the string for every word shows. Reported, never gated.
+c_diff(
+    num = "00",
+    fn = "ft_split",
+    member = "ft_split",
+    harness = "diff_ft_split.c",
+    oracle_fn = "libft_split",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    perf_length = {
+        "oracle_fn": "libft_split_len",
+        "harness": "len_ft_split.c",
+    },
+    readings = {
+        "oracle_fn": "libft_split_readings",
+        "diff_clues": "diff_clues_readings.txt",
+    },
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_split",
+    member = "ft_split",
+    oracle_fn = "libft_split",
+    harness = "diff_ft_split.c",
+    # Every byte of s, which every answer must read at least once.
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# ft_itoa. "returns a string representing the integer received as an
+# argument. Negative numbers must be handled." (p.11). Its input is an int:
+# no buffer to probe, and its fixture prints digits and '-' alone.
+c_function(
+    num = "00",
+    fn = "ft_itoa",
+    member = "ft_itoa",
+    test = "test_ft_itoa.c",
+    labeled = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_itoa.c",
+    allocfail_rule = "Libft, p.11, ft_itoa's Return Value: \"The string representing the integer. NULL if the allocation fails.\"",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_itoa",
+    member = "ft_itoa",
+    harness = "diff_ft_itoa.c",
+    oracle_fn = "libft_itoa",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_itoa",
+    member = "ft_itoa",
+    oracle_fn = "libft_itoa",
+    harness = "diff_ft_itoa.c",
+    # The characters of the text, which every answer must write: the corpus
+    # line's second field, raw.
+    unit_expr = "length($2)",
+    unit_name = "character",
+    gate_labeled = True,
+)
+
+# ft_strmapi. "Applies the function f to each character of the string s,
+# passing its index as the first argument and the character itself as the
+# second." (p.12). Each f is the harness's own and logs its calls.
+c_function(
+    num = "00",
+    fn = "ft_strmapi",
+    member = "ft_strmapi",
+    test = "test_ft_strmapi.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_strmapi.c",
+    allocfail_rule = "Libft, p.12, ft_strmapi's Return Value: \"The string created from the successive applications of 'f'. Returns NULL if the allocation fails.\"",
+)
+
+# Exact-size blocks for s, the empty string among them: a read past the
+# terminator, or a result block too small (mem_ft_strmapi.c).
+c_mem_check(
+    num = "00",
+    fn = "ft_strmapi",
+    member = "ft_strmapi",
+    probe = "mem_ft_strmapi.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_strmapi",
+    member = "ft_strmapi",
+    harness = "diff_ft_strmapi.c",
+    oracle_fn = "libft_strmapi",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    perf_length = {
+        "oracle_fn": "c02_str_is_alpha_len",
+        "harness": "len_ft_strmapi.c",
+    },
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_strmapi",
+    member = "ft_strmapi",
+    oracle_fn = "libft_strmapi",
+    harness = "diff_ft_strmapi.c",
+    # Every byte of s, which every answer must read at least once.
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# ft_striteri. "Applies the function 'f' to each character of the string
+# passed as argument, passing its index as the first argument. Each
+# character is passed by address to 'f' so it can be modified if
+# necessary." (p.12). Its box names no External Function: no malloc, so no
+# valgrind or allocfail layer.
+c_function(
+    num = "00",
+    fn = "ft_striteri",
+    member = "ft_striteri",
+    test = "test_ft_striteri.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# Exact-size writable blocks for s, the empty string among them: a read past
+# the terminator (mem_ft_striteri.c).
+c_mem_check(
+    num = "00",
+    fn = "ft_striteri",
+    member = "ft_striteri",
+    probe = "mem_ft_striteri.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_striteri",
+    member = "ft_striteri",
+    harness = "diff_ft_striteri.c",
+    oracle_fn = "libft_striteri",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    perf_length = {
+        "oracle_fn": "c02_str_is_alpha_len",
+        "harness": "len_ft_striteri.c",
+    },
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_striteri",
+    member = "ft_striteri",
+    oracle_fn = "libft_striteri",
+    harness = "diff_ft_striteri.c",
+    # Every byte of s, which every answer must read at least once.
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# ==== GROUP fd: ft_putchar_fd ft_putstr_fd ft_putendl_fd ft_putnbr_fd ====
+
+# THE FOUR WRITERS (pp.12-13). Each box: "External Function write", and a
+# description no reading parts on -- "Outputs the character 'c' to the
+# specified file descriptor.", "Outputs the string 's' to the specified file
+# descriptor.", the same "followed by a newline." for ft_putendl_fd, and
+# "Outputs the integer 'n' to the specified file descriptor." So every case
+# is basic and none of them is a reading. None of the four may allocate, so
+# none passes malloc = True.
+#
+# WHERE THE BYTES GO, in every program below: a file under $TEST_TMPDIR, on
+# a descriptor of 3 or more, read back after each call. Not a pipe, which
+# the 70000-byte rows would fill and block on; not fd 1 or 2, where a
+# function writing to the standard output instead of its fd would look
+# right. The fixtures print what was written in diff_output's notation
+# (escaped_values), the differential readers as hex.
+
+# //tools/tests's selftest builds the three differential readers below over
+# a toy that writes to fd 1, the standard output, and requires each line to
+# stay aligned, what fd 1 got in a column of its own (V217): so the three
+# are visible to it.
+exports_files(
+    [
+        "tests/ex00/ft_putendl_fd/diff_ft_putendl_fd.c",
+        "tests/ex00/ft_putnbr_fd/diff_ft_putnbr_fd.c",
+        "tests/ex00/ft_putstr_fd/diff_ft_putstr_fd.c",
+    ],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
+# Its fixture writes the 256 values a char holds, one call each, in order:
+# every input the function has, so there is no differential and no cycles
+# layer (an //oracle arm would replay the same 256 calls), and no memory
+# probe (it is handed no memory).
+c_function(
+    num = "00",
+    fn = "ft_putchar_fd",
+    member = "ft_putchar_fd",
+    test = "test_ft_putchar_fd.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+c_function(
+    num = "00",
+    fn = "ft_putstr_fd",
+    member = "ft_putstr_fd",
+    test = "test_ft_putstr_fd.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# A read one byte past s's terminator writes the right bytes all the same:
+# each s is a heap block of exactly its length and the terminator.
+c_mem_check(
+    num = "00",
+    fn = "ft_putstr_fd",
+    member = "ft_putstr_fd",
+    probe = "mem_ft_putstr_fd.c",
+)
+
+# count 200000, not 400000, as C 04's writers: a function that hands write()
+# one byte at a time is a correct answer here, and its replay is
+# syscall-bound. The ASan twin replays as many (asan_count's default), so
+# each case it checks for memory is value-checked too.
+c_diff(
+    num = "00",
+    fn = "ft_putstr_fd",
+    member = "ft_putstr_fd",
+    harness = "diff_ft_putstr_fd.c",
+    oracle_fn = "libft_putstr_fd",
+    count = 200000,
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+# NO BUDGET, for instructions or for write() calls: how the output is handed
+# to write() is the student's choice, and both figures follow it (C 02
+# ex11's call site measures the spread). max_unit leaves out the capacity
+# cases, 5000 and 70000 bytes, which the diff layers judge.
+c_cycles(
+    num = "00",
+    fn = "ft_putstr_fd",
+    member = "ft_putstr_fd",
+    oracle_fn = "libft_putstr_fd",
+    harness = "diff_ft_putstr_fd.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+c_function(
+    num = "00",
+    fn = "ft_putendl_fd",
+    member = "ft_putendl_fd",
+    test = "test_ft_putendl_fd.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# As ft_putstr_fd's: each s a heap block of exactly its length and the
+# terminator.
+c_mem_check(
+    num = "00",
+    fn = "ft_putendl_fd",
+    member = "ft_putendl_fd",
+    probe = "mem_ft_putendl_fd.c",
+)
+
+# count 200000: ft_putstr_fd's reason.
+c_diff(
+    num = "00",
+    fn = "ft_putendl_fd",
+    member = "ft_putendl_fd",
+    harness = "diff_ft_putendl_fd.c",
+    oracle_fn = "libft_putendl_fd",
+    count = 200000,
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+# No budget: ft_putstr_fd's reason. The unit is s's bytes.
+c_cycles(
+    num = "00",
+    fn = "ft_putendl_fd",
+    member = "ft_putendl_fd",
+    oracle_fn = "libft_putendl_fd",
+    harness = "diff_ft_putendl_fd.c",
+    unit_expr = "length($1)/2",
+    unit_name = "byte",
+    max_unit = 1000,
+    gate_labeled = True,
+)
+
+# C 04 ex02's fourteen ints, trivial to subtle. No memory probe: it is
+# handed an int and no memory.
+c_function(
+    num = "00",
+    fn = "ft_putnbr_fd",
+    member = "ft_putnbr_fd",
+    test = "test_ft_putnbr_fd.c",
+    labeled = True,
+    escaped_values = True,
+    clues = "clues.tsv",
+)
+
+# count 200000: ft_putstr_fd's reason, as C 04 ex02's.
+c_diff(
+    num = "00",
+    fn = "ft_putnbr_fd",
+    member = "ft_putnbr_fd",
+    harness = "diff_ft_putnbr_fd.c",
+    oracle_fn = "libft_putnbr_fd",
+    count = 200000,
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+# The digits it wrote: the bytes of <hexWritten>, less the sign of a
+# negative n. No budget: ft_putstr_fd's reason.
+c_cycles(
+    num = "00",
+    fn = "ft_putnbr_fd",
+    member = "ft_putnbr_fd",
+    oracle_fn = "libft_putnbr_fd",
+    harness = "diff_ft_putnbr_fd.c",
+    unit_expr = "length($2)/2 - ($1 < 0)",
+    unit_name = "digit",
+    gate_labeled = True,
+)
+
+# ==== GROUP list: ft_lstnew ft_lstadd_front ft_lstsize ft_lstlast ft_lstadd_back ft_lstdelone ft_lstclear ft_lstiter ft_lstmap ====
+
+# PART 3, THE LIST FUNCTIONS (pp.14-16), on the t_list p.14 prints. Every
+# list a test hands over is the test's own, built by construction -- never
+# with ft_lstnew, so each member's red is about that member alone -- and a
+# NULL first node is the empty list. Each walk of a list stops after one node
+# more than the test made, so a list that loops back on itself prints instead
+# of hanging, and each node the test frees is freed once. Nodes and pointers
+# print as where they are ("node 3", NULL), never as addresses.
+#
+# THE DIFFERENTIAL LAYERS travel a list as comma-joined ints, each node's
+# content an int (or a pointer to one); each harness's "Line:" paragraph
+# (tests/ex00/ft_<name>/diff_ft_<name>.c) gives its columns. The corpora hold
+# lists of 600 and 5000 nodes besides the short ones.
+#
+# THE CYCLES LAYER counts instructions per NODE, read off the same
+# comma-joined field the harness parses (split() counts its items, 0 for the
+# empty list). The corpora's capacity lists, far longer than the rest, are
+# left out of each figure (max_unit), as C 12's are. No budget: none has been
+# measured on correct answers yet.
+NODES = "split($1,a,/,/)"
+
+LONG_LISTS = 500
+
+# ft_lstnew: its box allows malloc, so malloc = True and the valgrind layer
+# (basic, memory_graded) watches the node it returns, freed by the test.
+#
+# Its box says nothing of a failed allocation. The sweep below holds it to
+# what ft_lstmap's box says of its own, at robust: a convention of this
+# repo's, the sentence it reports saying so.
+c_function(
+    num = "00",
+    fn = "ft_lstnew",
+    member = "ft_lstnew",
+    test = "test_ft_lstnew.c",
+    labeled = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_lstnew.c",
+    allocfail_rule = "The ft_lstnew box (Libft, p.14) says nothing of a failed allocation. " +
+                     "This target holds it to what the ft_lstmap box (p.16) says of its own, " +
+                     "\"NULL if the allocation fails.\": a convention of this repo's, at robust.",
+    allocfail_level = 3,
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_lstnew",
+    member = "ft_lstnew",
+    harness = "diff_ft_lstnew.c",
+    oracle_fn = "c12_create_elem",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_lstnew",
+    member = "ft_lstnew",
+    oracle_fn = "c12_create_elem",
+    harness = "diff_ft_lstnew.c",
+    unit_expr = NODES,
+    unit_name = "node",
+    gate_labeled = True,
+)
+
+# ft_lstadd_front: before each call, new->next leads to a node of the test's
+# that is in no list, so a list that still reaches it afterwards shows.
+c_function(
+    num = "00",
+    fn = "ft_lstadd_front",
+    member = "ft_lstadd_front",
+    test = "test_ft_lstadd_front.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_lstadd_front",
+    member = "ft_lstadd_front",
+    harness = "diff_ft_lstadd_front.c",
+    oracle_fn = "libft_lstadd_front",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_lstadd_front",
+    member = "ft_lstadd_front",
+    oracle_fn = "libft_lstadd_front",
+    harness = "diff_ft_lstadd_front.c",
+    unit_expr = NODES,
+    unit_name = "node",
+    max_unit = LONG_LISTS,
+    gate_labeled = True,
+)
+
+# ft_lstsize returns an unsigned int (p.15), printed with %u; its table ends
+# on lists of 5000 and 70000 nodes.
+c_function(
+    num = "00",
+    fn = "ft_lstsize",
+    member = "ft_lstsize",
+    test = "test_ft_lstsize.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_lstsize",
+    member = "ft_lstsize",
+    harness = "diff_ft_lstsize.c",
+    oracle_fn = "libft_lstsize",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_lstsize",
+    member = "ft_lstsize",
+    oracle_fn = "libft_lstsize",
+    harness = "diff_ft_lstsize.c",
+    unit_expr = NODES,
+    unit_name = "node",
+    max_unit = LONG_LISTS,
+    gate_labeled = True,
+)
+
+# ft_lstlast: "Returns the last node of the list." (p.15). The empty list has
+# no last node and the box does not say what comes back for it, so it is in
+# neither the basic table nor the corpus: ex00_ft_lstlast_empty_output asks
+# it, at strict, its own hint saying how.
+c_function(
+    num = "00",
+    fn = "ft_lstlast",
+    member = "ft_lstlast",
+    test = "test_ft_lstlast.c",
+    labeled = True,
+    clues = "clues.tsv",
+    readings = [{
+        "name": "empty",
+        "main": "test_ft_lstlast_empty.c",
+        "expected": "expected_empty.txt",
+        "labeled": True,
+        "clues": "clues_empty.tsv",
+        "level": 2,
+    }],
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_lstlast",
+    member = "ft_lstlast",
+    harness = "diff_ft_lstlast.c",
+    oracle_fn = "libft_lstlast",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_lstlast",
+    member = "ft_lstlast",
+    oracle_fn = "libft_lstlast",
+    harness = "diff_ft_lstlast.c",
+    unit_expr = NODES,
+    unit_name = "node",
+    max_unit = LONG_LISTS,
+    gate_labeled = True,
+)
+
+# ft_lstadd_back: each new node comes with its next set to NULL, as
+# ft_lstnew makes one, ON PURPOSE -- unlike ft_lstadd_front's above, whose
+# box puts new first, where what follows it is the old list whatever it held.
+# What this function does with a new node that already leads somewhere is
+# not tested at any level.
+c_function(
+    num = "00",
+    fn = "ft_lstadd_back",
+    member = "ft_lstadd_back",
+    test = "test_ft_lstadd_back.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_lstadd_back",
+    member = "ft_lstadd_back",
+    harness = "diff_ft_lstadd_back.c",
+    oracle_fn = "libft_lstadd_back",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_lstadd_back",
+    member = "ft_lstadd_back",
+    oracle_fn = "libft_lstadd_back",
+    harness = "diff_ft_lstadd_back.c",
+    unit_expr = NODES,
+    unit_name = "node",
+    max_unit = LONG_LISTS,
+    gate_labeled = True,
+)
+
+# ft_lstdelone: "Takes a node as parameter and frees its content using the
+# function 'del'. Free the node itself but does NOT free the next node."
+# (p.15). Its box allows free, so malloc = True: the valgrind layer (basic,
+# memory_graded) is what sees whether the node itself was freed, since a node
+# left behind changes no output byte. No corpus: it takes one node.
+c_function(
+    num = "00",
+    fn = "ft_lstdelone",
+    member = "ft_lstdelone",
+    test = "test_ft_lstdelone.c",
+    labeled = True,
+    clues = "clues.tsv",
+    malloc = True,
+)
+
+# Aimed at a node read after it is freed, and at a node freed that was not
+# the one handed over (mem_ft_lstdelone.c's header).
+c_mem_check(
+    num = "00",
+    fn = "ft_lstdelone",
+    member = "ft_lstdelone",
+    probe = "mem_ft_lstdelone.c",
+)
+
+# ft_lstclear: del is called once per content, in an order its box does not
+# give, so the table lists the calls sorted; the nodes freed are the valgrind
+# layer's (basic, memory_graded). One case clears from the middle of a list,
+# through the next of a node the caller keeps.
+c_function(
+    num = "00",
+    fn = "ft_lstclear",
+    member = "ft_lstclear",
+    test = "test_ft_lstclear.c",
+    labeled = True,
+    clues = "clues.tsv",
+    malloc = True,
+)
+
+# Aimed at a node read after it is freed -- its next, most often -- and at a
+# block freed twice (mem_ft_lstclear.c's header).
+c_mem_check(
+    num = "00",
+    fn = "ft_lstclear",
+    member = "ft_lstclear",
+    probe = "mem_ft_lstclear.c",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_lstclear",
+    member = "ft_lstclear",
+    harness = "diff_ft_lstclear.c",
+    oracle_fn = "libft_lstclear",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_lstclear",
+    member = "ft_lstclear",
+    oracle_fn = "libft_lstclear",
+    harness = "diff_ft_lstclear.c",
+    unit_expr = NODES,
+    unit_name = "node",
+    max_unit = LONG_LISTS,
+    gate_labeled = True,
+)
+
+# ft_lstiter: the test's f notes each content it is handed and changes the
+# int behind it; the corpus's f is a fixed one too, the same for every case.
+# The table also checks that f's calls come in the list's order; whether
+# that order belongs at basic is not settled.
+c_function(
+    num = "00",
+    fn = "ft_lstiter",
+    member = "ft_lstiter",
+    test = "test_ft_lstiter.c",
+    labeled = True,
+    clues = "clues.tsv",
+)
+
+c_diff(
+    num = "00",
+    fn = "ft_lstiter",
+    member = "ft_lstiter",
+    harness = "diff_ft_lstiter.c",
+    oracle_fn = "libft_lstiter",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_lstiter",
+    member = "ft_lstiter",
+    oracle_fn = "libft_lstiter",
+    harness = "diff_ft_lstiter.c",
+    unit_expr = NODES,
+    unit_name = "node",
+    max_unit = LONG_LISTS,
+    gate_labeled = True,
+)
+
+# ft_lstmap: its box allows malloc and free, so malloc = True. The table
+# asks for NULL, with no call to f or del, for the empty list; f handed each
+# content once; a new list of new nodes holding f's results; the list handed
+# over unchanged; and del never called when every allocation succeeds. Its
+# rows also check that f's calls come in the list's order: whether that
+# order belongs at basic is not settled. What it does when f itself returns
+# NULL is not tested at any level.
+#
+# The allocation-failure sweep quotes its box; allocfail_leaks, at robust,
+# asks that a call which reported the failure leave none of its own nodes
+# behind (f's results come from the probe's own allocator, which the sweep
+# does not count).
+c_function(
+    num = "00",
+    fn = "ft_lstmap",
+    member = "ft_lstmap",
+    test = "test_ft_lstmap.c",
+    labeled = True,
+    clues = "clues.tsv",
+    malloc = True,
+    allocfail = "af_ft_lstmap.c",
+    allocfail_rule = "Libft, p.16, ft_lstmap's Return Value: \"The new list. NULL if the allocation fails.\"",
+    allocfail_leaks = True,
+)
+
+# perf_length: how one call grows with the list's length, which the
+# case-count exponent cannot see; its harness checks its own result.
+c_diff(
+    num = "00",
+    fn = "ft_lstmap",
+    member = "ft_lstmap",
+    harness = "diff_ft_lstmap.c",
+    oracle_fn = "libft_lstmap",
+    diff_clues = "diff_clues.txt",
+    gate_labeled = True,
+    perf_length = {"oracle_fn": "c12_list_sort_len", "harness": "len_ft_lstmap.c"},
+)
+
+c_cycles(
+    num = "00",
+    fn = "ft_lstmap",
+    member = "ft_lstmap",
+    oracle_fn = "libft_lstmap",
+    harness = "diff_ft_lstmap.c",
+    unit_expr = NODES,
+    unit_name = "node",
+    max_unit = LONG_LISTS,
+    gate_labeled = True,
+)
+
+# ==== END GROUPS ====
+
+c_levels()

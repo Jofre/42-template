@@ -29,7 +29,10 @@
 # locale is not known, so both readings pass here: bytes (the C locale), and
 # the collation of the locale this test runs in (LC_ALL=en_US.UTF-8, set in
 # .bazelrc). Each window is then held to the order the full list followed.
-# ex07_literal, at strict, requires the locale's (literal.sh says why).
+# ex07_literal, at strict, requires the locale's (literal.sh says why). Where
+# that locale is not installed, or collates as bytes do, the two are one
+# order on any file: the reference says so (`collates`), the fixture's two
+# orders are a skip naming the locale, and every other line is judged.
 #
 # THE TERMINATOR. The subject's example ends "...revressta_.$>": the prompt is
 # glued onto the final '.', so there is NO trailing newline, and the Moulinette
@@ -128,7 +131,16 @@ if ck_redirected; then
 	# subject's window, and names whose byte order and the locale's differ.
 	# One edited away and every program that skips that step would pass, so
 	# the reference is asked first, and a fixture that lost one is the
-	# harness's fault, never the program's.
+	# harness's fault, never the program's. The two orders are the one step
+	# the machine has a say in: where its test locale collates as bytes do,
+	# they look alike on every file, the reference leaves them out of what
+	# the fixture misses, and that property is a skip, said as one.
+	"$ORACLE" shell01_rdwssap collates 2> /dev/null
+	case $? in
+		0) ;;
+		1) ck_skipped "the fixture's two orders: the locale's and the bytes' are the same here (${LC_ALL:-the test locale} is not installed, or collates as bytes do: locale -a), so the names are judged in one order only" ;;
+		*) rm -f "$raw"; ck_broken "the reference could not say how this machine collates" ;;
+	esac
 	_misses=$("$ORACLE" shell01_rdwssap shows --passwd "$F")
 	case $? in
 		0) ;;

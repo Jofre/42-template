@@ -1,0 +1,19 @@
+  Each line is the block before the call (hex), where src starts in it,
+  where dest starts in it, n, the block after the call (hex), and 1 when the
+  call returned the dest it was handed. src and dest are in the same block.
+    * only the last column diverges   -> what does memmove return (man memmove,
+                                         RETURN VALUE)?
+    * only cases where dest starts after src and they overlap -> which bytes
+                                         of src has your function overwritten
+                                         by the time it reads them?
+    * only cases where dest starts before src and they overlap -> the same
+                                         question, the other way round
+    * bytes outside dest's n diverge  -> where does your function start and
+                                         stop writing?
+    * only blocks holding a byte of 0x80 or more -> does any test in your
+                                         function depend on the value of a byte
+                                         it moves, and how wide is what it
+                                         reads and writes through?
+    * only blocks past 4096 bytes     -> does anything in your function depend
+                                         on n being small, such as a buffer of
+                                         a fixed size?

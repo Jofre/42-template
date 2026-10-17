@@ -54,10 +54,24 @@ bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3", dev_dependency = Tr
 # in the layer) until it is rebuilt.
 bazel_dep(name = "rules_python", version = "2.2.0")
 
+# The interpreter it runs under is campus's too: the 2026-10-13 campus audit
+# (report 90da4ff6) found norminette 3.3.58 under pyenv's Python 3.13.1, so
+# that exact release, written out in full. "3.13" alone would follow
+# rules_python's MINOR_MAPPING to the newest 3.13 it knows (3.13.13 in
+# 2.2.0), and leaving the version out took rules_python's own default, 3.11.
+# tools/pins.tsv records it (the python row), and env_drift's fetched
+# norminette line prints it. Every py_binary and py_test here runs under it,
+# which makes it what //tools/tests:fortytwo_test exercises `42` with as well:
+# the version campus runs `42` under.
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.defaults(python_version = "3.13.1")
+python.toolchain(python_version = "3.13.1")
+use_repo(python, "python_3_13_1")
+
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
     hub_name = "pip_tools",
-    python_version = "3.11",
+    python_version = "3.13.1",
     requirements_lock = "//tools:requirements.txt",
 )
 use_repo(pip, "pip_tools")
@@ -187,16 +201,27 @@ deb_archive = use_repo_rule("//tools:deb.bzl", "deb_archive")
 #
 # libbinutils carries libbfd/libopcodes/libctf. Fetching it is only half the
 # fix -- a library in the repository is not a library on the loader's path --
-# so the three runners that take --nm also take --nm-lib and export
-# LD_LIBRARY_PATH, exactly as compile_check.sh already does for clang's
-# libclang-cpp, and they VERIFY the resolution transitively rather than
-# trusting that the flag arrived.
+# so the three runners that take --nm require --nm-lib (make_test.sh with
+# --symbols, the one mode in which it runs nm) and run nm with it on
+# LD_LIBRARY_PATH, as compile_check.sh does for clang's libclang-cpp, and
+# they VERIFY the resolution transitively rather than trusting that the flag
+# arrived.
 deb_archive(
     name = "binutils_x86_64_linux_gnu",
     build_file_content = """exports_files(
     [
         "usr/bin/x86_64-linux-gnu-nm",
+        # The relocations of each function's own section, which
+        # forbidden_symbols.sh --function reads to say which function calls
+        # what. objdump and not readelf: readelf loads libctf-nobfd.so.0,
+        # which this package does not carry, so a pinned readelf would read
+        # through the box's copy; every library objdump loads (libbfd,
+        # libopcodes, libctf) is in :runtime below.
+        "usr/bin/x86_64-linux-gnu-objdump",
         "usr/bin/x86_64-linux-gnu-ar",
+        # With ar, what a Makefile's recipe runs as `ranlib`: make_test.sh
+        # puts both first on PATH for the recipes it runs (TO VERIFY V60).
+        "usr/bin/x86_64-linux-gnu-ranlib",
         # The assembler gcc shells out to. gcc finds it under this exact
         # target-prefixed name when given -B pointing at the directory, so
         # nothing has to be renamed -- see compile_check.sh --cc-progs.
@@ -208,6 +233,10 @@ deb_archive(
         # clang package has no linker, so before this every such link ran
         # the box's /usr/bin/ld (TO VERIFY V38).
         "usr/bin/x86_64-linux-gnu-ld.bfd",
+        # The linker //tools/cc_toolchain links with by default, which it
+        # reaches through :bin. Named for //tools/tests:fetched_needed, which
+        # reads the libraries each fetched program loads.
+        "usr/bin/x86_64-linux-gnu-ld.gold",
         # Named individually as well as being in :runtime, because a runner
         # needs one PATH whose DIRECTORY it can take: $(location) on a
         # filegroup with many files refuses, and "<file>/.." walks through a
@@ -280,7 +309,11 @@ deb_archive(
     },
 )
 
-# diffutils 3.8, the campus's. Two call sites only -- progname_test.sh and
+# diffutils 3.8, the campus's exact package: 1:3.8-0ubuntu2.1, as the 2026-10-13
+# campus audit found it. A jammy-security update (CVE-2026-53910) whose only
+# source change is to diff3, which is not exported here; every binary in it was
+# rebuilt, so its diff differs from 1:3.8-0ubuntu2's byte for byte and is
+# campus's exactly. Two call sites only -- progname_test.sh and
 # shell_test.sh -- but both put `diff -u` output in front of a student, and the
 # unified-diff format is not identical between GNU and BSD diff. 170 KB.
 #
@@ -294,9 +327,9 @@ deb_archive(
     visibility = ["//visibility:public"],
 )""",
     debs = {
-        "521bdc309168c15662347d4a861ece04d85745dbf9237b1e166d4f90f35c1bb5": [
-            "http://archive.ubuntu.com/ubuntu/pool/main/d/diffutils/diffutils_3.8-0ubuntu2_amd64.deb",
-            "http://old-releases.ubuntu.com/ubuntu/pool/main/d/diffutils/diffutils_3.8-0ubuntu2_amd64.deb",
+        "6c001ebf928f061051741cf2910dd07c4ff679b730636e2c6541c449a4ea25da": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/d/diffutils/diffutils_3.8-0ubuntu2.1_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/d/diffutils/diffutils_3.8-0ubuntu2.1_amd64.deb",
         ],
     },
 )
@@ -307,12 +340,37 @@ deb_archive(
 # gcc finds cc1 by walking up from its own path.
 #
 # Its leaf libraries (libisl, libmpc, libmpfr, libgmp, libzstd, which cc1 links
-# against) come from the box, exactly as clang's libtinfo and libedit do -- see
-# the note in tools/deb.bzl on why a sysroot is the wrong trade here.
+# against) come from the box, as clang's libtinfo and libedit do: the list of
+# what the fetched tools borrow that way is docs/environment.md's ("What the
+# harness borrows from the box"), which //tools/tests:fetched_needed holds to
+# the programs, and tools/deb.bzl says how a library is chosen for a fetch.
+#
+# AND THE SANITIZERS' SHARED RUNTIMES, which `gcc -fsanitize=` links against.
+# libgcc-10-dev ships usr/lib/gcc/x86_64-linux-gnu/10/libasan.so as a relative
+# symlink to ../../../x86_64-linux-gnu/libasan.so.6, which is libasan6's, a
+# package of its own. Without it the symlink dangles, gcc falls back to the
+# static libasan.a, and the link stops at "undefined reference to `signgam'":
+# a Makefile that builds with `gcc -fsanitize=address` failed its build layer
+# here and links on campus (review of V60). The four below are the runtimes of
+# the sanitizers a 42 Makefile names (address, leak, undefined, thread), at the
+# versions libgcc-10-dev's own Depends name on 22.04: libasan6 and libtsan0
+# from gcc-11's source, liblsan0 and libubsan1 from gcc-12's. Laid into this
+# tree, the symlinks resolve inside it, so the LINK is pinned; the built
+# program loads the soname from the box at run time, as on campus, where
+# libgcc-11-dev brings the same four (docs/environment.md). The other dangling
+# ones (libgomp, libitm, libatomic, libquadmath, libcc1) are runtimes no 42
+# subject allows, and stay so.
 deb_archive(
     name = "gcc_10_ubuntu",
     build_file_content = """exports_files(
-    ["usr/bin/x86_64-linux-gnu-gcc-10"],
+    [
+        "usr/bin/x86_64-linux-gnu-gcc-10",
+        # What the driver runs to compile and to link, both in :runtime too.
+        # Named for //tools/tests:fetched_needed, which reads the libraries
+        # each fetched program loads.
+        "usr/lib/gcc/x86_64-linux-gnu/10/cc1",
+        "usr/lib/gcc/x86_64-linux-gnu/10/collect2",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -321,8 +379,13 @@ filegroup(
     srcs = glob(
         # cc1, collect2, the crt objects, gcc's own headers and libgcc.a --
         # everything the driver reaches for after parsing the command line, all
-        # of it under one prefix on this distribution.
-        ["usr/lib/gcc/**"],
+        # of it under one prefix on this distribution -- and the sanitizer
+        # runtimes its libasan.so, liblsan.so, libtsan.so and libubsan.so
+        # point at.
+        [
+            "usr/lib/gcc/**",
+            "usr/lib/x86_64-linux-gnu/lib*san.so*",
+        ],
         allow_empty = False,
     ),
     visibility = ["//visibility:public"],
@@ -348,6 +411,25 @@ filegroup(
             "http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-10/libgcc-10-dev_10.5.0-1ubuntu1~22.04.3_amd64.deb",
             "http://old-releases.ubuntu.com/ubuntu/pool/universe/g/gcc-10/libgcc-10-dev_10.5.0-1ubuntu1~22.04.3_amd64.deb",
         ],
+        # The sanitizers' shared runtimes (above). Each library in them is
+        # byte for byte the one the dev container's packages of the same
+        # versions install (cmp, 2026-10-16).
+        "eb98f62bf6c7234132beab59113c249db40acfbd1c9965308ee612de1a6e819e": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-11/libasan6_11.4.0-1ubuntu1~22.04.3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/g/gcc-11/libasan6_11.4.0-1ubuntu1~22.04.3_amd64.deb",
+        ],
+        "2fc0cb78e86d4635c8ed17f4a2816762050c48cb928df739bbe145dfb472957a": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-11/libtsan0_11.4.0-1ubuntu1~22.04.3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/g/gcc-11/libtsan0_11.4.0-1ubuntu1~22.04.3_amd64.deb",
+        ],
+        "c308b0e39678a00b3ad3a9653119af4a29156e2c385111bdbd4890c96d376fa4": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-12/liblsan0_12.3.0-1ubuntu1~22.04.3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/g/gcc-12/liblsan0_12.3.0-1ubuntu1~22.04.3_amd64.deb",
+        ],
+        "9e2669c014d5df3c486bf29cd18a6ec3cbed68355c366e32757fdc98d290f593": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/g/gcc-12/libubsan1_12.3.0-1ubuntu1~22.04.3_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/g/gcc-12/libubsan1_12.3.0-1ubuntu1~22.04.3_amd64.deb",
+        ],
     },
 )
 
@@ -361,6 +443,29 @@ filegroup(
 #
 # 37 MB together, against ~400 MB for the official tarball that would also have
 # been a patch release off.
+#
+# AND TWO LIBRARIES libLLVM LOADS THAT A RELEASE CAN LACK: libxml2.so.2, and
+# the ICU it loads in turn (libicuuc.so.70, libicudata.so.70). Every other
+# library the fetched tools load from the box is on docs/environment.md's
+# list ("What the harness borrows from the box"), the packages a no-Docker
+# install names. The 2026-10-13 audit found an Ubuntu 26.04 box with only
+# libxml2.so.16 and no package that installs .so.2: clang-12 and
+# llvm-symbolizer died in the loader there, exit 127, in 64 test logs (TO
+# VERIFY V238). libLLVM imports seventeen xml* functions from it, those of
+# its Windows manifest merger, which no layer asks for; the loader needs the
+# library on every run all the same. These are jammy's release builds: the
+# pool keeps a release's own build while the release lives and old-releases
+# keeps it after, where an update is deleted from the pool once a newer one
+# replaces it. They add 11.3 MB to the download and 37 MB to the unpacked
+# tree, most of it ICU's 29 MB data library. They unpack beside libLLVM, in
+# the folder every wrapper already puts first on the loader's path, and
+# :libllvm_deps stages them. A release build has none of the security fixes
+# published after it: jammy-security has libxml2 2.9.13+dfsg-1ubuntu0.14,
+# and no update of libicu70 at all (checked 2026-10-16). That costs
+# nothing here because no XML is parsed: run with LD_DEBUG=bindings, the
+# pinned clang-12 compiling and llvm-symbolizer symbolising an ASan report
+# called into libxml2 nowhere (the loader still runs its init and fini), and
+# libLLVM bound nothing of it but the xmlFree pointer it relocates at load.
 deb_archive(
     name = "clang_12_ubuntu",
     build_file_content = """exports_files(
@@ -388,9 +493,10 @@ deb_archive(
 # compile never touches, and staging 400 files per test instead of 283 is paid
 # once for every exercise in the repo.
 #
-# The three parts, none of them optional:
+# The four parts, none of them optional:
 #   libclang-cpp.so.12  the front end
 #   libLLVM-12.so*      the back end (the .so.1 the driver names is a symlink)
+#   :libllvm_deps       what libLLVM loads that a release can lack (below)
 #   clang/12.0.1/include  clang's OWN headers -- stddef.h, stdarg.h, the
 #                       intrinsics. Without them every compile fails on
 #                       <stddef.h>, which reads like a broken box rather than
@@ -404,6 +510,23 @@ filegroup(
             "usr/lib/llvm-12/lib/libclang-cpp.so.12",
             "usr/lib/x86_64-linux-gnu/libLLVM-12.so*",
             "usr/lib/llvm-12/lib/clang/*/include/**",
+        ],
+        allow_empty = False,
+    ) + [":libllvm_deps"],
+    visibility = ["//visibility:public"],
+)
+
+# libxml2.so.2 and the two ICU libraries it loads, which libLLVM loads by
+# bare soname from the folder it is in: in :runtime, and on their own for the
+# targets that stage libLLVM without it, every one that runs the symbolizer
+# (tools/defs.bzl, _SYMBOLIZER_DATA). Only these two of libicu70's six.
+filegroup(
+    name = "libllvm_deps",
+    srcs = glob(
+        [
+            "usr/lib/x86_64-linux-gnu/libxml2.so.2*",
+            "usr/lib/x86_64-linux-gnu/libicuuc.so.70*",
+            "usr/lib/x86_64-linux-gnu/libicudata.so.70*",
         ],
         allow_empty = False,
     ),
@@ -455,6 +578,18 @@ filegroup(
         "dd4da86546f619340ac6d902f38f234208702550932ecc29b532a563c5e91bc0": [
             "http://archive.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/llvm-12_12.0.1-19ubuntu3_amd64.deb",
             "http://old-releases.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-12/llvm-12_12.0.1-19ubuntu3_amd64.deb",
+        ],
+        # libxml2 2.9.13+dfsg-1build1, jammy's release build (above): the
+        # libxml2.so.2 libLLVM loads.
+        "4831826d0e320f6715722716d9737c7e57a052d20e55dd03ff7444c6e502a3ff": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/libx/libxml2/libxml2_2.9.13+dfsg-1build1_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/libx/libxml2/libxml2_2.9.13+dfsg-1build1_amd64.deb",
+        ],
+        # libicu70 70.1-2, jammy's release build: the libicuuc.so.70 that
+        # libxml2 loads, and the libicudata.so.70 that libicuuc loads.
+        "58a154f6307289813da2276f900498ef536ae7c0522d2cf31a3c3c5cf62dfd9a": [
+            "http://archive.ubuntu.com/ubuntu/pool/main/i/icu/libicu70_70.1-2_amd64.deb",
+            "http://old-releases.ubuntu.com/ubuntu/pool/main/i/icu/libicu70_70.1-2_amd64.deb",
         ],
     },
 )

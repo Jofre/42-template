@@ -1,0 +1,7 @@
+# clues.tsv for ft_memcmp -- pedagogic hints only, each a question. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (a hint fires when ANY of its cases fails)
+man memcmp: the result is "less than, equal to, or greater than zero" as the first n bytes of s1 are less than, match, or are greater than those of s2. Which pair of bytes decides it, and what does your function return when every pair matches?	"abc" vs "abc", n 3	"abc" vs "abd", n 3	"abd" vs "abc", n 3
+How many pairs of bytes does your function compare -- the n-th one included, or not -- and what is left to compare when n is 0 (man memcmp says what then)?	"abc" vs "abd", n 2	"a" vs "b", n 0
+memcmp compares memory, not strings: what decides when your function stops comparing -- n, or a byte it meets?	"a\0b" vs "a\0c", n 3
+man memcmp compares bytes "interpreted as unsigned char". Is 0x80 bigger or smaller than 0x01 that way -- and as a signed char?	byte 0x80 vs byte 0x01, n 1	byte 0x01 vs byte 0xff, n 1	byte 0xff vs a NUL byte, n 1	5000 bytes, the last 0xe9 vs 0x10, n 5000 (past 4096)
+If the small rows pass and this one does not, does anything in your function depend on n being small?	5000 equal bytes, n 5000 (past 4096)

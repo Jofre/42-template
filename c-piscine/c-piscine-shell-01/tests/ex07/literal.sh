@@ -14,8 +14,9 @@
 #
 # Run on the same fixture as check.sh (tests/ex07/passwd, handed to the
 # program as /etc/passwd), whose names sort differently under the two
-# readings; where the locale is not installed the two are the same order, and
-# this says it cannot tell them apart rather than passing.
+# readings; where the locale is not installed, or collates as bytes do, the
+# two are the same order, and this says it cannot tell them apart rather
+# than passing.
 # shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
@@ -33,12 +34,25 @@ if ! ck_redirected; then
 	ck_report
 fi
 F=$CK_REDIRECT_TO
-# Whether the two readings differ on the fixture here, asked before the
-# program runs: they do wherever the locale is installed.
-if ! "$ORACLE" shell01_rdwssap orders --passwd "$F" 2> /dev/null; then
-	ck_skipped "the locale's order and the bytes' are the same here (is ${LC_ALL:-its locale} installed? locale -a), so no output can tell the two readings apart"
-	ck_report
-fi
+# Whether the two readings can differ here, asked before the program runs:
+# of the machine first, whose test locale may collate as bytes do (not
+# installed, or C), which is a skip; then of the fixture, whose names show
+# them apart wherever the machine can, or it lost what it is for, which is
+# the harness's fault, as check.sh says it.
+"$ORACLE" shell01_rdwssap collates 2> /dev/null
+case $? in
+	0) ;;
+	1)
+		ck_skipped "the locale's order and the bytes' are the same here (${LC_ALL:-its locale} is not installed, or collates as bytes do: locale -a), so no output can tell the two readings apart"
+		ck_report ;;
+	*) ck_broken "the reference could not say how this machine collates" ;;
+esac
+"$ORACLE" shell01_rdwssap orders --passwd "$F" 2> /dev/null
+case $? in
+	0) ;;
+	1) ck_broken "the fixture $CK_REDIRECT_NAME no longer shows every step (orders)" ;;
+	*) ck_broken "the reference could not read the fixture $CK_REDIRECT_NAME" ;;
+esac
 
 raw=$(mktemp)
 judge() {

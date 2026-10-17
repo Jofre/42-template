@@ -1,0 +1,7 @@
+  One list per line, never the empty one, and the content of the node
+  returned.
+    * the one before the last -> what makes a node the last one: something
+                                 about it, or about the node after it?
+    * the first node's        -> does the walk move at all?
+    * NULL                    -> where does the walk stop, on the last node
+                                 or past it?

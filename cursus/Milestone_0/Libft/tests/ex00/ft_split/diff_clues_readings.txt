@@ -1,0 +1,14 @@
+  ex00_ft_split_readings: every case here is one ft_split's box (p.11) does
+  not settle -- an empty s, a NUL delimiter, a delimiter at either end of s or
+  beside another. This harness's reading, at strict and never the subject's:
+  a field with no byte in it gives no string, so "" and a string of
+  delimiters give an array holding only its NULL (count 0, last column 1),
+  and a NUL delimiter finds none in s. Strings are printed as hex.
+    * an empty string (no hex between two tabs) -> where could a field with
+                                   no byte become a string in your function?
+    * a count of 0 and a last column of 0 -> what does your function return
+                                   when s has no word at all?
+    * a NUL delimiter, s cut short or a word too many -> what does your
+                                   function compare c with, and the terminator?
+    * only strings holding a byte of 0x80 or more -> whether a comparison of a
+                                   byte with c sees that char as negative

@@ -1,0 +1,7 @@
+  One count per list, the list's contents comma-joined, empty for the empty
+  list.
+    * the empty list          -> how many nodes a NULL first node leads to
+    * off by one              -> what the count counts: the nodes, or the
+                                 links between them?
+    * it never ends           -> which pointer moves along the list, and which
+                                 one is tested

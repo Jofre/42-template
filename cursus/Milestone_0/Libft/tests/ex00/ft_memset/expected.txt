@@ -1,0 +1,9 @@
+'a', n 5	ret=s buf=aaaaaXXXXXXX
+'a', n 0 (nothing to fill)	ret=s buf=XXXXXXXXXXXX
+'a', n 12 (the whole buffer)	ret=s buf=aaaaaaaaaaaa
+'*', n 3, s at buf + 4	ret=s buf=XXXX***XXXXX
+0, n 3 (the NUL byte)	ret=s buf=\x00\x00\x00XXXXXXXXX
+128 (0x80), n 4	ret=s buf=\x80\x80\x80\x80XXXXXXXX
+233 (0xe9), n 4	ret=s buf=\xe9\xe9\xe9\xe9XXXXXXXX
+255 (0xff), n 12	ret=s buf=\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff
+'z', n 5000, a block of 5001 (past 4096)	ret=s set 5000 of 5000, byte 5000 kept

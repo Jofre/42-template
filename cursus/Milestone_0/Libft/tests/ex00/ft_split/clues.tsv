@@ -1,0 +1,7 @@
+# clues.tsv for ft_split -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+# Lines are shown most-fundamental first; the first line doubles as the "foothold".
+How many words does a string hold when one delimiter separates each two of them, and what must the array hold after its last word so the caller can tell where it ends (p.11)?	"hello", ' '	"a b", ' '	"a b c", ' '	"hello world 42", ' '	"a,b", ','
+What if c never appears in s, or appears only beside bytes that are not blanks? Which bytes make a word end?	"abc", 'x'	"x", 'y'	"one<TAB>two", '<TAB>'	"a b,c d", ','
+When the delimiter, or a byte of a word, is above 0x7f, does a comparison in your function still see the two bytes as equal or different, as they are?	"a" 0xe9 "b", 0xe9	0xe9 ' ' 0xff, ' '	"a" 0xff "b" 0xff "c", 0xff
+Nothing in the subject bounds the string or its number of words. Does anything in your function stop working when there are thousands of either?	5000 words, one space between two	one 5000-byte word, ' '

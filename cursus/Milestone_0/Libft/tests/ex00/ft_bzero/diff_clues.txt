@@ -1,0 +1,11 @@
+  Each line is the block before the call (hex), n, and the block after the
+  call (hex).
+    * bytes past the first n diverge  -> where does your function stop writing,
+                                         and where does it start?
+    * only cases with n 0 diverge     -> what should a call with nothing to
+                                         erase change?
+    * only blocks holding a byte of 0x80 or more -> does your function read
+                                         a byte before it writes it, and does
+                                         its value change anything?
+    * only blocks past 4096 bytes     -> does anything in your function depend
+                                         on n being small?

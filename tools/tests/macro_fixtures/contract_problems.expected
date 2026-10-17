@@ -3,10 +3,22 @@
 # its message must hold -- or OK, where nothing may be wrong. Read by
 # //tools/tests:macro_fixtures_test.
 audit-case-gate-folder	OK
+audit-case-gate-wrong-differ	ex00_program_allocfail: the gate hands its run to argv_table.sh, and the output test that runs the program that way (ex00_beside_output) is judged by diff_output.sh
 audit-case-gate-no-folder	ex00_program_allocfail: the gate runs $(location :ex00_bin) on "42", from the test's own folder, against $(location tests/ex00/a.txt), and no output test of this package runs the program that way
 audit-case-gate-stdin	ex00_beside_valgrind: the gate runs $(location :ex00_bin) on "42", from the test's own folder, against $(location tests/ex00/a.txt), and no output test of this package runs the program that way
+audit-case-gate-survive	OK
+audit-case-gate-survive-word	OK
+audit-case-gate-survive-words	ex00_odd_valgrind: the gate runs $(location :ex00_bin) on "$(location tests/ex00/other.map)", from the test's own folder, against $(location tests/ex00/example.txt), and no output test of this package runs the program that way
 audit-clues-keyed	OK
 audit-clues-keyed-no-case	ex00_sweep: it hands ex00's keyed clues.tsv to its runner without --case
+audit-member-ok	OK
+audit-member-untested	ex30/toy_b: a function of library ex30 (the subject() contract's `functions`) with no test
+audit-member-stray-test	ex30_toy_c_output: exercise ex30 is a library
+audit-member-stray-folder	tests/ex30/toy_c/: a folder under library ex30's tests that is no function's
+audit-member-layer-suffix-asan	ex30_asan: exercise ex30 is a library
+audit-member-layer-suffix-output	ex30_output: exercise ex30 is a library
+audit-clues-keyed-member	tests/ex30/toy_a/clues_run.tsv: ex30/toy_a keys its hints to its cases (--case, as ex30_toy_a_other_output does), so they live in one tests/ex30/toy_a/clues.tsv
+audit-clues-keyed-member-no-case	ex30_toy_a_sweep: it hands ex30/toy_a's keyed clues.tsv to its runner without --case
 audit-clues-per-case	tests/ex00/clues_args.tsv: ex00 keys its hints to its cases (--case, as ex00_a_output does)
 audit-clues-read	OK
 audit-clues-unread	tests/ex00/clues_other.tsv: no test of this package hands it to a runner
@@ -27,17 +39,35 @@ audit-corpus-no-valgrind	ex00_bsq_diff: its subject allows malloc, and no test r
 audit-corpus-ok	OK
 audit-corpus-two-transports	ex00_bsq_stdin: it replays a generated corpus (--fn maps --mode stdin) through //tools:rush01_check.sh on the plain build, and no test replays that corpus under ASan/UBSan
 audit-below-its-suffix	ex00_exit: it sits at basic, below its _exit layer's robust.
+audit-graded-valgrind-basic	OK
+audit-graded-valgrind-strict	ex00_memcheck: it sits at strict, above the basic its name gives it, and tools/defs.bzl's _RAISED does not say so.
+audit-graded-valgrind-unquoted	ex00_probe_memcheck: the subject() contract declares memory_graded, so it sits at basic, and it quotes no sentence on an invalid access (--access-rule)
+audit-graded-no-leak-check-ok	OK
+audit-graded-no-leak-check-leak-rule	ex00_probe_memcheck: it checks no leak (--no-leak-check) and quotes a sentence on leaks (--rule)
+audit-graded-leaks-unquoted	ex00_valgrind: the subject() contract declares memory_graded, so it sits at basic, and it checks leaks quoting no sentence on them (--rule)
+audit-graded-access-unquoted	ex00_valgrind: the subject() contract declares memory_graded, so it sits at basic, and it quotes no sentence on an invalid access (--access-rule)
+audit-graded-other-layer	ex00_symbols: it sits at basic, below its _symbols layer's strict.
+audit-valgrind-basic-ungraded	ex00_memcheck: it sits at basic, below its _memcheck layer's strict. Only a subject() contract that declares memory_graded puts the valgrind layer at basic, for the whole project.
 audit-empty-manual-tag	ex00_output: the no_manual_test_in_this_module tag is the empty :manual suite's, and no test may carry it.
 audit-exercise-without-test	ex01: the exercise has no test, so its //c-piscine/c-piscine-toy:ex01 runs nothing
 audit-fixture-prototype-declared	OK
 audit-fixture-prototype-missing	ex00_bin: a harness over a student's function names ex00_prototype as the test of its signature, and this package declares no such test
+audit-diff-ungated	ex00_diff, ex00_diff_asan, ex00_said_diff: each one is a diff or diff_asan test that waits for nothing (no --gate-bin, --gate-expected or --gate-label) and says no reason why
+audit-diff-no-gate-said	OK
+audit-diff-manual	OK
 audit-gate-case-run	OK
-audit-gate-label-missing	ex00_sweep: each one's runner takes --gate-label and none is passed, so the SKIP line each prints while its gate is red names no test. Pass --gate-label ex00_example_output beside --gate-differ (in the shared gate list, if they share one).
-audit-gate-label-missing-whole	ex00_fed_main: each one's runner takes --gate-label and none is passed, so the SKIP line each prints while its gate is red names no test. Pass --gate-label ex00_fed_output beside --gate-differ (in the shared gate list, if they share one).
+audit-gate-label-missing	ex00_sweep: each one's runner takes --gate-label and none is passed, so the SKIP line each prints while its gate is red names no test. Pass --gate-label ex00_example_output beside the gate's other options (--gate-differ, or diff_output.sh's --gate-expected; in the shared gate list, if they share one).
+audit-gate-label-missing-defense	ex00_fed_defense: each one's runner takes --gate-label and none is passed, so the SKIP line each prints while its gate is red names no test. Pass --gate-label ex00_fed_output beside the gate's other options (--gate-differ, or diff_output.sh's --gate-expected; in the shared gate list, if they share one).
+audit-gate-label-missing-whole	ex00_fed_main: each one's runner takes --gate-label and none is passed, so the SKIP line each prints while its gate is red names no test. Pass --gate-label ex00_fed_output beside the gate's other options (--gate-differ, or diff_output.sh's --gate-expected; in the shared gate list, if they share one).
 audit-gate-label-differ-only	1 message(s): ex00_sweep: its gate is --gate-differ alone, with no program (--gate-bin) and no expected file (--gate-expected) for it to run, which its runner refuses (exit 2) when the test runs. Pass the whole gate, and --gate-label with the output test it waits for.
 audit-gate-label-unresolved	2 message(s): ex00_fed_main: it waits for an output test (its gate is ex00_bin printing tests/ex00/a.txt), and no output test of this package that runs that hands its list on (--waiting, _waiting_args), so no red log says it shows PASSED while it waits. Hand that output test's runner _waiting_args(<its name>). | ex00_fed_main: the gate runs $(location :ex00_bin) with no argument, standard input from $(location tests/ex00/cases.tsv), from the test's own folder, against $(location tests/ex00/a.txt) (--labeled), and no output test of this package runs the program that way
 audit-gate-no-argument	ex00_sweep, ex00_sweep_diff_asan: the gate runs $(location :ex00_bin) with no argument against $(location tests/ex00/example.txt), and no output test of this package runs the program that way
+audit-gate-sanitized-case	ex00_sweep, ex00_sweep_diff_asan: the gate runs $(location :ex00_bin) with $(location tests/ex00/example.map) against $(location tests/ex00/example.txt), and no output test of this package runs the program that way
+audit-gate-wrong-differ	ex00_sweep: the gate hands its run to argv_table.sh, and the output test that runs the program that way (ex00_example_output) is judged by diff_output.sh
 audit-gate-stdin-case	ex00_sweep, ex00_sweep_diff_asan: the gate runs $(location :ex00_bin) with no argument
+audit-gate-table-ok	OK
+audit-gate-table-other-rows	ex00_argv_diff: the gate runs $(location :ex00_bin) with each row of $(location tests/ex00/other.tsv) against $(location tests/ex00/table.txt), and no output test of this package runs the program that way
+audit-gate-table-wrong-differ	ex00_argv_diff: the gate hands its run to diff_output.sh, and the output test that runs the program that way (ex00_output) is judged by argv_table.sh
 audit-output-gate-run	OK
 audit-output-gate-run-check-stdin	ex00_fed_main: the gate runs $(location :ex00_bin) with no argument, standard input from $(location tests/ex00/in.txt), from the test's own folder, against $(location tests/ex00/a.txt) (--labeled), and no output test of this package runs the program that way
 audit-output-gate-bin-stdin	ex00_fed_defense: the gate runs $(location :ex00_bin) with no argument, standard input from $(location tests/ex00/in.txt), from the test's own folder, against $(location tests/ex00/a.txt) (--labeled), and no output test of this package runs the program that way
@@ -118,6 +148,13 @@ exercise-linked-c-file	the library is a grader_library() target
 exercise-linked-ok	OK
 exercise-linked-turned-in	"b" is the grader's, and "b.c" is a file the student turns in
 exercise-ok	OK
+exercise-functions-ok	OK
+exercise-functions-not-a-dict	exercise(functions = ["toy_a"]): {function the subject's boxes name: the External Functions its box allows}
+exercise-functions-not-a-name	exercise(functions = ...): "toy-a" is not a C function name
+exercise-functions-not-a-list	exercise(functions = ...): "toy_a" -> "malloc": the External Functions its box names, as a list of names
+exercise-functions-not-allowed	exercise(functions = ...): toy_b's box allows calloc, which the exercise's `allowed` does not name
+exercise-functions-allowed-by-no-box	exercise(functions = ...): no box allows free, and `allowed` names it
+exercise-functions-allowed-none	exercise(functions = ...) with allowed = None: with `functions`, `allowed` is the union of the boxes' lists
 exercise-page-zero	exercise(page = 0): the page the header box is printed on
 exercise-path-outside	"../a.c" is not a path inside the turn-in directory
 exercise-provided-and-required	"a.c" is both required of the student and brought by the grader
@@ -142,16 +179,59 @@ linked-reader-links	OK
 linked-reader-none-linked	OK
 linked-reader-refused	c_program(num = "15"): the grader links toy_base into this exercise (its contract's `linked`), and c_program does not link a grader library into the programs it builds
 no-entry	c_program(num = "99"): exercise 99 is not in this package's subject() contract
+readme-ok	OK
+readme-optional	c_readme(num = "03"): file = "toy.h" is not in exercise 03's `files`
+readme-unlisted	c_readme(num = "07"): file = "TOY.md" is not in exercise 07's `files`
 refused-argv-table-unheld	c_argv_table(ex24): the table was emitted from a reference program, and nothing holds it to one
+refused-member-no-functions	c_function(num = "25", member = "toy_dup"): exercise 25's subject() contract lists no `functions`
+refused-member-unknown	c_mem_check(num = "30", member = "toy_c"): toy_c is not one of the functions exercise 30's subject() contract lists (toy_a, toy_b)
+refused-member-fn-differs	c_diff(num = "30", member = "toy_a"): fn = "toy_b", and the member is toy_a
+refused-member-library-wide	c_cycles(num = "30", member = "toy_a"): srcs is the whole library's
+refused-member-before-library	c_perf(num = "30", member = "toy_a"): no :ex30_lib above it
+refused-member-missing	c_mem_check(num = "30", member = None): exercise 30's subject() contract lists `functions` (toy_a, toy_b), so it is a library
+refused-member-prototype-c-function	c_function(num = "30", member = "toy_a"): prototype is the whole library's
+refused-member-prototype-c-mem-check	c_mem_check(num = "30", member = "toy_a"): prototype is the whole library's
+refused-member-prototype-c-diff	c_diff(num = "30", member = "toy_a"): prototype is the whole library's
+refused-member-prototype-c-perf	c_perf(num = "30", member = "toy_a"): prototype is the whole library's
+refused-library-no-functions	c_library(num = "25"): exercise 25's subject() contract lists no `functions`, so it is no library
+refused-library-no-makefile	c_library(num = "31"): exercise 31's subject() contract turns in no Makefile
+refused-library-collision	c_library(num = "32"): the function toy_probe makes ex32_toy_probe_memcheck, which ends in _probe_memcheck, not _memcheck
+refused-library-names-unchosen	c_library(num = "30"): prototype_names = None. Name the file under tests/ex30/
+refused-library-names-true	c_library(num = "30"): prototype_names = True.
+refused-library-names-path	c_library(num = "30"): prototype_names = "sub/prototype_names.h".
+refused-library-names-prototype	c_library(num = "30"): prototype_names = "prototype.h".
+refused-library-names-blank-reason	c_library(num = "30"): prototype_names = "none:  ". Name the file
+refused-library-names-no-prototype	c_library(num = "30"): prototype = False says the subject fixes no prototype, so it prints no parameter names
+refused-library-hdrs	c_library(num = "30"): hdrs is refused until a project needs it.
+refused-library-includes	c_library(num = "30"): includes is refused until a project needs it.
+refused-library-make-symbols	c_library(make = {"symbols": ...}): the symbols the archive must hold are the contract's `functions`
+refused-library-globals-unchosen	c_library(num = "30"): globals = None. Quote the subject's sentence forbidding a variable outside every function
+refused-library-globals-blank-reason	c_library(num = "30"): globals = "none:  ". Quote
+refused-library-lists-unchosen	c_library(num = "30"): function_lists = None. Quote the sentence that gives each function its list
+refused-library-lists-one-sentence-for-all	c_library(num = "30"): function_lists = "Toy, p.1: \"Each function uses what its box allows.\"". Quote the sentence that gives each function its list, as {function: sentence}
+refused-library-lists-missing	c_library(num = "30"): function_lists names toy_a; it takes exactly the contract's `functions`, toy_a, toy_b
+refused-library-lists-extra	c_library(num = "30"): function_lists names toy_a, toy_b, toy_c; it takes exactly the contract's `functions`, toy_a, toy_b
+refused-library-lists-reason-inside	c_library(num = "30"): function_lists["toy_b"] = "none: the box is empty". Quote the sentence that gives toy_b its list
+refused-library-restrict-unchosen	c_library(num = "30"): restrict_rule = None. Quote the subject's sentence forbidding restrict in your own prototypes
+refused-library-restrict-blank-reason	c_library(num = "30"): restrict_rule = "none:  ". Quote
+refused-library-restrict-no-prototype	c_library(num = "30"): prototype = False says the subject fixes no prototype, so there is no tests/ex30/prototype.h whose functions restrict_rule = "Toy, p.1: \"No restrict in your own prototypes.\"" would judge
+refused-library-declares-unchosen	c_library(num = "30"): declares_reading = None. Quote the sentence whose reading has the turned-in header declare each function
+refused-library-declares-no-prototype	c_library(num = "30"): prototype = False says the subject fixes no prototype, so there is no tests/ex30/prototype.h whose functions declares_reading = "Toy, p.1, Files to turn in: \"Makefile, toy.h, toy_*.c\"" would judge
+refused-library-helpers-unchosen	c_library(num = "30"): helpers_rule = None. Quote the subject's sentence keeping every helper static in its own file
+refused-library-helpers-blank-reason	c_library(num = "30"): helpers_rule = "none:  ". Quote
 refused-program-makefile-unused	c_program(ex06): makefile = False, and the subject() contract has ex06 turn in a Makefile
 refused-program-content-only	c_program(ex18): the contract allows open, and no case names a file that will not open
 refused-program-model-nothing-to-answer	c_program(ex18): model, and no case has one expected file for it to answer
 refused-program-reference-exit	c_program(ex18): reference = True, and case "missing" has its output test compare the status 1
 refused-program-malloc-argument	c_program(ex18): malloc = True. Whether the program may allocate is its subject
+refused-program-allocfail-unchosen	c_program(ex13): the subject() contract lets this program allocate, and it has cases
+refused-program-allocfail-both	c_program(ex13): allocfail and no_allocfail together
+refused-reading-escaped-unlabeled	c_function(num = "15"), reading "unlabeled" sets "escaped_values" but not "labeled": True
 refused-program-make-optional	c_program(num = "22"): the contract lists Makefile in `optional`, and with makefile = True, every output test, at basic, runs the program it builds
 refused-program-make-unnamed	c_program(num = "12"): c_program builds from Makefile, and the subject() contract does not ask for it
 refused-program-stale-sentence	c_program(ex18): no_missing_file_case says no case names a file that will not open, and missing does
 refused-test-no-stderr-choice	ex18_toy_file_diff runs //tools:file_check.sh, which asks every call to say what standard error is held to
+refused-test-no-cross-unquoted	ex18_toy_symbols runs //tools:symbols_test.sh, which asks every call to say the subject's sentences its messages quote
 refused-test-split-stderr-reason	ex18_toy_argv_diff passes --stderr-ignored "the toy subject says nothing of it", which Bazel's tokenising of `args` does not hand over as one argument
 standin-runner-bare	ex09_output hands ex09_bin_asan, built from a student's files, to //tools:toy_runner.sh
 standin-runner-bare-file	OK
@@ -162,6 +242,13 @@ standin-runner-not-ours	OK
 standin-runner-ok	OK
 subject-grader-unknown	subject(grader = "peers"): one of moulinette, defense, both
 subject-ok	OK
+subject-memory-graded-ok	OK
+subject-memory-graded-not-a-dict	subject(memory_graded = "Toy, p.1: \"Free what you allocate.\""): a dict of the subject's own sentences
+subject-memory-graded-no-access	subject(memory_graded = ...) has no "access": both "leaks" and "access"
+subject-memory-graded-unknown-key	subject(memory_graded = {"crash": ...}): not a key it takes
+subject-memory-graded-blank	subject(memory_graded = {"access": " "}): one line, the subject's own words with its project and page
+subject-memory-graded-two-lines	subject(memory_graded = {"leaks": "Toy, p.1: \"Free what\nyou allocate.\""}): one line
+subject-memory-graded-not-a-sentence	subject(memory_graded = {"leaks": True}): one line
 subject-root-and-others	00 turn(s) in at the root of deliverable/ (dir = None), and the project has other exercises
 subject-mandatory-ok	OK
 subject-mandatory-not-an-exercise	subject(mandatory = ...): "01" is not an exercise of this contract
@@ -195,6 +282,15 @@ make-recipe-undecided	recipe is not decided
 make-recipe-unquoted	recipe checks what a subject's sentence requires, and quotes has no "cc"
 make-relink-norm	OK
 make-relink-unquoted	relink checks what a subject's sentence requires, and quotes has no "relink"
+make-archiver-ok	OK
+make-archiver-unquoted	archiver checks what a subject's sentence requires, and quotes has no "archiver"
+make-forbidden-command-unquoted	forbidden_commands checks what a subject's sentence requires, and quotes has no "forbidden_command"
+make-forbidden-flag-unquoted	forbidden_flags checks what a subject's sentence requires, and quotes has no "forbidden_flag"
+make-archiver-path	archiver holds "/usr/bin/ar": a command's name, with no path
+make-forbidden-flag-shape	forbidden_flags holds "std=c99": a flag, starting with -
+make-forbidden-commands-not-list	forbidden_commands is a list of strings, not "libtool"
+make-archiver-forbidden	ar is both the archiver and a forbidden command
+make-script-archiver	a creator script has none
 make-script-decides-recipe	OK
 make-script-wildcards	a creator script has no rules and no objects to judge
 make-strict-without-recipe	recipe_strict says where the recipe check goes, and there is no recipe
@@ -210,6 +306,13 @@ function-malloc-off	c_function(num = "25"): the contract's allowed functions nam
 function-malloc-free-off	c_function(num = "26"): the contract's allowed functions name free
 function-malloc-no-line	OK
 function-malloc-helper	OK
+library-suites-ok	OK
+library-suites-taken	c_levels: ex01's function toy_b names its suite (//tools/tests/macro_fixtures:toy_b), and a target above this call has that name already.
+library-suites-twice	c_levels: ex01 and ex02 both list the function toy_a, and its suite (//tools/tests/macro_fixtures:toy_a) could run one exercise's tests and not the other's.
+rush-graded-refused	rush_variant: the subject() contract declares memory_graded, and no rush subject says its grader judges memory
+rush-ungraded-ok	OK
+function-malloc-member-own-box	OK
+function-malloc-member-off	c_function(num = "30", member = "toy_b"): the function's own allowed functions name malloc
 allocfail-ok	OK
 allocfail-unquoted	sets allocfail: allocfail_rule is required
 allocfail-no-malloc	sets allocfail but not malloc = True
@@ -224,10 +327,14 @@ audit-makefile-with-build	OK
 audit-waiting-gate-input	OK
 audit-waiting-gate-no-input	ex00_diff: it waits for ex00_output, whose run hands the program input ($(location tests/ex00/toy.map)), and its gate hands it none
 audit-waiting-list-misnamed	ex00_output: it hands its runner the list waiting_ex01_output, and its own is waiting_ex00_output
+audit-waiting-library-on-member	ex30_diff: it waits for ex30_toy_a_output, the output test of the function ex30/toy_a, and it is the whole library's
+audit-waiting-member-own	OK
 audit-waiting-named	OK
 audit-waiting-other-exercise	ex01_diff: it waits for ex00_output, the output test of another exercise
 audit-waiting-other-exercise-said	ex01_diff: it waits for ex00_output, the output test of another exercise
 audit-waiting-other-exercise-survive	ex01_none_output: it waits for ex00_output, the output test of another exercise
+audit-waiting-other-member	ex30_toy_b_diff: it waits for ex30_toy_a_output, the output test of the function ex30/toy_a, and it is a test of the function ex30/toy_b
+audit-waiting-other-member-said	ex30_toy_b_diff: it waits for ex30_toy_a_output, the output test of the function ex30/toy_a, and it is a test of the function ex30/toy_b
 audit-waiting-said	OK
 audit-waiting-said-wrong	ex00_diff: it says it waits for ex00_other_output, and its gate is ex00_bin printing tests/ex00/expected.txt, which ex00_other_output does not run
 audit-waiting-survive-named	OK
@@ -239,4 +346,18 @@ exercise-nested-beside-makefile	OK
 libft-make-ok	OK
 libft-make-own	c_libft(make = {"script": ...}): script is c_libft's own argument
 libft-make-unknown	c_libft(make = {"recipes": ...}): no argument of c_make it may carry
+library-make-ok	OK
+library-make-own	c_library(make = {"artifact": ...}): artifact is c_library's own argument
+library-make-symbols	c_library(make = {"symbols": ...}): the symbols the archive must hold are the contract's `functions`
+library-make-script	c_library(make = {"script": ...}): no argument of c_make it may carry
+library-make-archiver	OK
+libft-make-archiver	OK
 waiting-lists	ex00_a_output: ex00_a_valgrind (strict), ex00_none_output (basic) | ex00_b_output: ex00_b_valgrind (strict)
+refused-hand-test-waits-tag	hand_test(name = "ex18_toy_waits_diff"): tags = ["waits=ex18_show_output"]. Say which output test it waits for with waits =
+refused-hand-test-covers-tag	hand_test(name = "ex18_toy_covers_diff"): tags = ["corpus_covers=ex18_sweep"]. That tag is corpus_memory()'s
+refused-hand-test-no-valgrind-tag	hand_test(name = "ex18_toy_no_valgrind_diff"): tags = ["corpus_no_valgrind"]. That tag is corpus_memory()'s
+refused-hand-test-no-gate-tag	hand_test(name = "ex18_toy_no_gate_diff"): tags = ["no_gate"]. That tag excuses a diff layer from waiting
+refused-gate-undeclared	output_gate("ex06_nothing_output"): no test of that name is declared above this call in //tools/tests/macro_fixtures.
+refused-gate-unwaited	output_gate("ex06_norm"): it hands its runner no list of who waits for it
+refused-gate-unreplayable	output_gate("ex06_output"): that case is run in a way a gate does not replay
+refused-function-escaped-unlabeled	c_function(num = "15") sets escaped_values but not labeled = True

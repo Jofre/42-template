@@ -41,7 +41,9 @@ static inline int	dio_hv(int c)
  * the one that terminates it as a C string. *len = decoded byte count.
  * dio_unhex is the same for a whole string. For an input the function under
  * test reads: a DESTINATION it writes into comes from dio_garbage or dio_dest
- * below, never from the zeroed tail of this one (finding 057). */
+ * below, never from the zeroed tail of this one (finding 057). A block the
+ * function must not read past comes from dio_unhex_exact below: the
+ * terminator here would hide that read from ASan. */
 static inline unsigned char	*dio_unhexn(const char *h, size_t hlen, size_t *len, size_t pad)
 {
 	size_t			n;
@@ -116,6 +118,27 @@ static inline unsigned char	*dio_dest(const unsigned char *s, size_t len,
 	b = dio_garbage(cap);
 	memcpy(b, s, len);
 	b[len] = '\0';
+	return (b);
+}
+
+/* The hex string h decoded into a block of exactly its length, *len bytes:
+ * no terminator and no pad, so a read one byte past the block lands in an
+ * ASan redzone, where dio_unhex's terminator would have hidden it. Every
+ * byte comes from the hex; for an empty field dio_garbage still gives a
+ * pointer the function may be handed. Never NULL. */
+static inline unsigned char	*dio_unhex_exact(const char *h, size_t *len)
+{
+	unsigned char	*b;
+	size_t			i;
+
+	*len = strlen(h) / 2;
+	b = dio_garbage(*len);
+	i = 0;
+	while (i < *len)
+	{
+		b[i] = (unsigned char)((dio_hv(h[2 * i]) << 4) | dio_hv(h[2 * i + 1]));
+		i++;
+	}
 	return (b);
 }
 

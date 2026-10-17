@@ -32,6 +32,16 @@ subject(
 #
 # It earns its place because ignoring malloc's answer is not a style question:
 # whatever comes next uses the pointer.
+#
+# The fixture frees each copy before its row's newline, so a crash in free()
+# is marked on the case that crashed. //tools/tests's selftest builds it over
+# a toy that hands back a static block and requires the first row marked, so
+# the two files are visible to it.
+exports_files(
+    ["tests/ex00/test_strdup.c", "tests/ex00/expected.txt"],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
 c_function(
     num = "00",
     fn = "ft_strdup",

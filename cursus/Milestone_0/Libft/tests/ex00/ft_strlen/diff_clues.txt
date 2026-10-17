@@ -1,0 +1,9 @@
+  One number per line, the length, so the family of failing strings is the
+  whole story.
+    * the empty string only            -> a count that cannot be zero
+    * every string, one too many       -> whether the terminator is counted
+    * every string, one too few        -> where the count stops
+    * only long strings                -> how far the type that holds the
+                                          count can go
+    * only inputs holding a byte of 0x80 or more -> whether a test in your
+                                          code sees that char as negative

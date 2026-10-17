@@ -772,7 +772,8 @@ fn gen_solve(seed: u64, count: usize) {
 pub fn run(args: &[std::ffi::OsString]) -> i32 {
     // The clues read through their UTF-8 form: a byte that is not UTF-8 is no
     // clue digit, and the character that stands for it is none either, so the
-    // line is refused exactly as its bytes would be.
+    // line is refused exactly as its bytes would be (main.rs's
+    // check_args_bytes holds it to that).
     let grid = match args {
         [one] => parse_clues(&one.to_string_lossy()).and_then(|c| search(&c, 1).into_iter().next()),
         _ => None,

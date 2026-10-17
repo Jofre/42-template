@@ -1,8 +1,13 @@
 #!/bin/sh
 # postcreate.sh — devcontainer postCreateCommand, runs once after the container
 # is created. It puts `42` on PATH, gives the container's Bazel a disk cache
-# (a ~/.bazelrc of the container's own, below), and installs the editor
-# extensions under Antigravity.
+# (a ~/.bazelrc of the container's own, below) and, when the checkout's
+# .bazelrc.local names a root this container cannot create, a root of its
+# own there too, and installs the editor extensions under Antigravity.
+#
+# An editor may not run it: Antigravity 2.5.5 did not, on two rebuilds
+# (docs/environment.md, Dev container). Run by hand, once, it does all of
+# it, and a second run adds nothing.
 #
 # The extensions: Antigravity (a VS Code fork) does not auto-install the
 # extensions declared in customizations.vscode.extensions, and it pulls from the
@@ -46,7 +51,8 @@ sh "$WS/tools/fortytwo/install.sh" ||
 # the same checkout. So the lines go into the container's own ~/.bazelrc,
 # which goes when the container does: the cache where setup.sh would put it
 # (tools/drives.sh chooses, for both) and the same 4G cap. No startup option:
-# the output root stays the one tools/bazel chooses.
+# the output root stays the one tools/bazel chooses, unless the next step
+# finds one this container cannot create.
 #
 # A ~/.bazelrc you already have is kept. A line is added only when no line
 # there sets its flag, so a disk cache you chose stays yours and a second run
@@ -63,6 +69,10 @@ in_workspace() {
 refuse_in_workspace() {
 	echo "postcreate: the drive list chose $1, inside the workspace,"
 	echo "            which the host shares; Bazel gets no disk cache here"
+}
+# rc_folder FILE -- says so when FILE is a folder, which no line goes into.
+rc_folder() {
+	[ ! -d "$1" ] || echo "            ($1 is a folder: it has to be a file)"
 }
 disk_cache_rc() {
 	_rc="$HOME/.bazelrc"
@@ -96,8 +106,10 @@ disk_cache_rc() {
 	# prediction never looked at. That probe has made its folder by now, so
 	# what it made goes again, from the bottom up to DRIVES_MADE: a folder
 	# that was there before is above it, and rmdir takes only an empty one.
-	# A trailing or doubled slash puts one folder in the walk twice (b/,
-	# then b): one already gone counts as removed, not as one that stays.
+	# A trailing or doubled slash would put one folder in the walk twice
+	# (b/, then b): one already gone counts as removed, not as one that
+	# stays. drives_choose tidies its joins now (V168), so no candidate
+	# brings one here; that test is only a defence.
 	if in_workspace "$DRIVES_SCRATCH"; then
 		refuse_in_workspace "$DRIVES_SCRATCH"
 		_made=$DRIVES_SCRATCH
@@ -123,19 +135,80 @@ disk_cache_rc() {
 	# A newline first when the file has content: a blank line before the
 	# block, or the end of a last line written without one. The note fits
 	# both lines and the cap alone, which is all a ~/.bazelrc that already
-	# names a disk cache gets.
+	# names a disk cache gets. The shell's own error for a redirection that
+	# fails ("postcreate.sh: <line>: cannot create ...") goes, 2> before >>: the
+	# else branch names the file, and says when it is a folder (V330).
 	if {
 		[ ! -s "$_rc" ] || echo
 		echo "# added by .devcontainer/postcreate.sh, for Bazel's disk cache"
 		printf '%s\n' "$_add"
-	} >> "$_rc"; then
+	} 2> /dev/null >> "$_rc"; then
 		echo "postcreate: added to $_rc, for Bazel's disk cache:"
 		printf '%s\n' "$_add" | sed 's/^/    /'
 	else
 		echo "postcreate: could not write $_rc; Bazel gets no disk cache here"
+		rc_folder "$_rc"
 	fi
 }
 disk_cache_rc
+
+# ---------------------------------------------------------------------------
+# An output root this container can create.
+#
+# tools/setup.sh, run on the host, records the root it chose in the
+# checkout's .bazelrc.local: a folder under the host's home, which the
+# container's user cannot create (/home here is root's). Every Bazel run in
+# the container then stopped with a bare mkdir FATAL (V239). That file is the
+# host's as much as this container's, and a line taken out of it moves the
+# host's root, in the very cases tools/setup.sh records one to keep it where
+# it is. So it is left alone, and the container's own ~/.bazelrc, which
+# Bazel reads after it, gets a startup line naming tools/bazel's default
+# here. Only when the root an rc file names cannot be created here: a root
+# that can be stays theirs, and a ~/.bazelrc that names one is never given a
+# second. tools/bazel and `42 doctor` send whoever meets such a root here.
+# ---------------------------------------------------------------------------
+output_root_rc() {
+	_rc="$HOME/.bazelrc"
+	# disk_cache_rc above said so already.
+	in_workspace "$_rc" && return 0
+	[ -r "$WS/tools/drives.sh" ] || return 0
+	# shellcheck source=tools/drives.sh
+	. "$WS/tools/drives.sh"
+	drives_rc_scan "$WS"
+	[ -n "$_rr_root" ] && [ "$_rr_file" != "$_rc" ] || return 0
+	_or_root=$_rr_root
+	_or_file=$_rr_file
+	DRIVES_DRY=1
+	if drives_probe "$_or_root"; then
+		unset DRIVES_DRY
+		return 0
+	fi
+	echo "postcreate: $_or_file sets the output root $_or_root,"
+	echo "            which this container cannot create."
+	if ! drives_default_root "$WS" || in_workspace "$DRIVES_ROOT" ||
+		! drives_probe "$DRIVES_ROOT"; then
+		unset DRIVES_DRY
+		echo "            No root of the container's own qualifies either: set"
+		echo "            C_PISCINE_SCRATCH to a folder you can write, and run this again."
+		return 0
+	fi
+	unset DRIVES_DRY
+	if {
+		[ ! -s "$_rc" ] || echo
+		echo "# added by .devcontainer/postcreate.sh: $_or_file names a root"
+		echo "# this container cannot create, and is the host's to keep"
+		echo "startup --output_user_root=$DRIVES_ROOT"
+	} 2> /dev/null >> "$_rc"; then
+		echo "postcreate: added to $_rc, which Bazel reads after that file (left as"
+		echo "            it is: the host reads it too):"
+		echo "    startup --output_user_root=$DRIVES_ROOT"
+	else
+		echo "postcreate: could not write $_rc; Bazel cannot start in this container"
+		echo "            until a root it can create is named there."
+		rc_folder "$_rc"
+	fi
+}
+output_root_rc
 
 cli=""
 for candidate in "$HOME"/.antigravity-ide-server/bin/*/bin/antigravity-ide-server; do

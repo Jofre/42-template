@@ -16,10 +16,12 @@ ENV LC_ALL=en_US.UTF-8
 # and the image disagreed: pins.tsv recorded clang 12.0.1-19ubuntu3 and the
 # image installed whatever jammy served on the day it was built.
 #
-# So every package whose version pins.tsv records is pinned here, with the
-# version pins.tsv records. The rest are not, on purpose -- an editor's
-# language server, a pager and a manual-page reader decide no verdict, and a
-# pin costs a re-pin every time Ubuntu moves it.
+# So every package pins.tsv names this file as the pin site of is pinned here,
+# with the version pins.tsv records. pins.tsv also records rows it marks NOT
+# PINNED, observed only: glibc, perl, and the shell piscine's tools (the note
+# below says why those stay unversioned for now). The rest are not pinned, on
+# purpose -- an editor's language server, a pager and a manual-page reader
+# decide no verdict, and a pin costs a re-pin every time Ubuntu moves it.
 #
 # WHEN A PIN STOPS RESOLVING. Ubuntu supersedes a package and drops the old
 # version from archive.ubuntu.com, and this image stops building with
@@ -29,13 +31,17 @@ ENV LC_ALL=en_US.UTF-8
 # taking the version it reports, and editing this file and tools/pins.tsv
 # together -- which is the same procedure pins.tsv's own header describes.
 #
-# NOT PINNED, AND WHY IT IS NOT AN OVERSIGHT: bc, file, net-tools and iproute2
-# feed shell-piscine outputs, so a version could in principle move a verdict.
-# There is no CAMPUS observation of any of them -- the audit that produced
-# pins.tsv did not capture them -- and pinning them to whatever this container
-# happens to carry would record a number nobody measured on the box that
-# matters. Left for the next campus audit instead: tools/env-audit.sh captures
-# each of them (`bc`, `file`, `netstat` for net-tools, `ip` for iproute2).
+# NOT PINNED, AND WHY IT IS NOT AN OVERSIGHT: the shell piscine's tools --
+# bash, openssh-client, file, bc, net-tools, iproute2, findutils, tar, patch
+# and git -- feed shell-piscine outputs, and several of the checks run them,
+# so a version could in principle move a verdict. The second campus audit
+# (report 90da4ff6, 2026-10-13) observed each one's version line, the line
+# this image prints too, and tools/pins.tsv holds those lines as campus rows
+# (observed, not pinned), so env_drift reports a campus move. What it did not
+# record is each package's revision, which an apt pin here needs, and pinning
+# to whatever this container happens to carry would record a revision nobody
+# measured on the box that matters. tools/env-audit.sh records the revisions
+# ("tool packages") from the next audit on; pin them from that report.
 #
 # Re-enable manual pages installation and install development tools
 RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes \
@@ -49,10 +55,10 @@ RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes \
     g++-10=10.5.0-1ubuntu1~22.04.3 \
     clang-12=1:12.0.1-19ubuntu3 \
     clang \
-    # binutils, named explicitly rather than left to build-essential: pins.tsv
-    # pins `ar` here, and a version this file never mentions is not a pin.
-    # (pins.tsv's `nm` is the Bazel-fetched one the forbidden-symbol layer runs;
-    # this copy is the one a student gets by typing `nm`.)
+    # binutils, named explicitly rather than left to build-essential: this is
+    # the copy a student gets by typing `nm` or `ar`, at campus's version. No
+    # test runs it: pins.tsv's `nm`, `ar` and `ranlib` are the Bazel-fetched
+    # ones, which the forbidden-symbol layer and a Makefile's recipes run.
     binutils=2.38-4ubuntu2.12 \
     # clangd: language server for the vscode-clangd / Open VSX extension, so the
     # editor never has to prompt to download it (matches the clang 14 toolchain).
@@ -75,8 +81,9 @@ RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes \
     # Version control + Vogsphere submission over SSH
     git \
     openssh-client \
-    # Manual pages (man 2/3 are genuinely useful while learning C). The two
-    # pages glibc lacks, strlcpy(3bsd) and strlcat(3bsd), come in below.
+    # Manual pages (man 2/3 are genuinely useful while learning C). The
+    # pages glibc lacks, strlcpy(3bsd), strlcat(3bsd) and strnstr(3bsd), come
+    # in below.
     man-db \
     manpages \
     manpages-dev \
@@ -101,20 +108,24 @@ RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes \
     && (dpkg-divert --quiet --remove --rename /usr/bin/man || true) \
     && rm -rf /var/lib/apt/lists/*
 
-# THE strlcpy(3bsd) AND strlcat(3bsd) MANUAL PAGES, AND NOTHING ELSE OF libbsd.
+# THE strlcpy(3bsd), strlcat(3bsd) AND strnstr(3bsd) MANUAL PAGES, AND NOTHING
+# ELSE OF libbsd.
 #
-# C 02 ex10 and C 03 ex05 ask for ft_strlcpy and ft_strlcat, and the manual
-# page is where their contract is written down. glibc 2.35 has neither
-# function, so on Ubuntu 22.04 the page ships only in libbsd-dev, in section
-# 3bsd -- and `man strlcpy` here said "No manual entry" (finding 054).
+# C 02 ex10 and C 03 ex05 ask for ft_strlcpy and ft_strlcat, and Libft for
+# both and for ft_strnstr; the manual page is where their contract is written
+# down. glibc 2.35 has none of the three functions, so on Ubuntu 22.04 their
+# pages ship only in libbsd-dev, in section 3bsd -- and `man strlcpy` here
+# said "No manual entry" (finding 054).
 #
 # Installing libbsd-dev would also install <bsd/string.h> and a libbsd to link
 # against, and code that includes or links them would build here and not on a
-# campus box without them. So the two pages are taken out of the package and
-# nothing else is: strlcpy's, which documents both functions, and strlcat's,
-# which is a link to it. `man 3bsd strlcpy` then opens, while the header and
-# -lbsd do not exist here. Never add libbsd-dev or libbsd0 to the apt list
-# above; //tools:conventions refuses it.
+# campus box without them. So the pages are taken out of the package and
+# nothing else is: strlcpy's, which documents both strlcpy and strlcat;
+# strlcat's, which is a link to it; and strnstr's. `man 3bsd strlcpy` and `man
+# 3bsd strnstr` then open, while the header and -lbsd do not exist here.
+# Never add libbsd-dev or libbsd0 to the apt list above; //tools:conventions
+# refuses it, and asks for the page of every such function a contract turns
+# in.
 #
 # One .deb for every architecture: a manual page is text, the same in the
 # amd64 package as in the arm64 one. The version is tools/pins.tsv's
@@ -129,6 +140,7 @@ RUN DEB="libbsd-dev_${LIBBSD_DEV_VERSION}_amd64.deb" \
     && echo "$LIBBSD_DEV_SHA256  /tmp/libbsd-dev.deb" | sha256sum -c - \
     && dpkg-deb --fsys-tarfile /tmp/libbsd-dev.deb \
        | tar -x -C / ./usr/share/man/man3/strlcpy.3bsd.gz ./usr/share/man/man3/strlcat.3bsd.gz \
+         ./usr/share/man/man3/strnstr.3bsd.gz \
     && rm -f /tmp/libbsd-dev.deb
 
 # Install Norminette (the 42 coding style checker)

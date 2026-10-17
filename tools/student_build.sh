@@ -878,8 +878,9 @@ if [ -n "$FAILED" ]; then
 	  It failed in:
 	$_failed
 	$HARNESS_NOTE  Every layer that runs a program built from these files fails with
-	  this message until they compile. The compile layers (exNN_compile_*)
-	  say the same about each of your files on its own.
+	  this message until they compile. The compile layers
+	  (exNN_compile_gcc, exNN_compile_clang) say the same about each of your
+	  files on its own.
 	EOF
 fi
 

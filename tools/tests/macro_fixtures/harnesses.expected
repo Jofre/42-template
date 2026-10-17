@@ -20,6 +20,7 @@ ex13_bin own program
 ex13_bin_allocfail prototype_test=none
 ex13_bin_asan own program
 ex15_bin prototype_test=ex15_prototype
+ex15_escaped_bin prototype_test=ex15_prototype
 ex15_reading_bin prototype_test=ex15_prototype
 ex16_bin prototype_test=ex16_prototype
 ex17_bin prototype_test=ex17_prototype

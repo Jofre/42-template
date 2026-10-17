@@ -1,0 +1,6 @@
+  Each new node is printed as its content, read back as an int, and whether
+  its next is NULL (1) or not (0).
+    * the content differs     -> which pointer does the node keep: the one it
+                                 was handed, or something made from it?
+    * the last column is 0    -> what does a field hold that nothing wrote?
+    * NULL instead of a node  -> the allocation, and the size it asks for

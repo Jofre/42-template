@@ -15,14 +15,19 @@ static int	triple(int x)
 
 int	main(void)
 {
-	char	line[8192];
+	char	*line;
+	size_t	linecap;
 	char	*f[2];
 	int		*tab;
 	int		size;
 	int		i;
 	int		*res;
 
-	while (dio_line(line, sizeof(line)))
+	/* A line of any length (tools/diffio.h, dio_getline): the corpus holds
+	 * arrays of 5000 ints (finding 041), past what a line buffer holds. */
+	line = NULL;
+	linecap = 0;
+	while (dio_getline(&line, &linecap))
 	{
 		if (dio_split(line, f, 2) < 1)
 			continue ;
@@ -57,5 +62,6 @@ int	main(void)
 		free(res);
 		free(tab);
 	}
+	free(line);
 	return (0);
 }

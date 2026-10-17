@@ -1,0 +1,117 @@
+# What each section of tools/tests/selftest.sh costs: its name as its
+# "# ---- name" line spells it, a tab, and the seconds its arms took. The
+# shards are dealt by these (selftest.sh, "SHARD WEIGHTS"), so what counts
+# is how the sections compare, not the seconds themselves, which are a
+# machine's and its load's.
+#
+# Measured: each section's share of all the arms' seconds, averaged over
+# five runs of both targets, one on an idle machine at 6e639729 and four
+# at load 16-200 on 2026-10-16, then scaled to the idle run's seconds; a
+# section whose arms changed is averaged over the runs made since. A run's
+# seconds for a section are the mean of its "[section NAME: Ns, its arms]"
+# lines in :selftest's and :selftest_bash's eight shard logs (a name that
+# heads several sections sums them all): the two shells rank the sections
+# alike, so one table deals both.
+#
+# To measure again, after `bazel test //tools/tests:selftest
+# //tools/tests:selftest_bash --nocache_test_results` on a quiet machine,
+# `bazel run //tools/tests:selftest_costs` says which rows have drifted, and
+# `bazel run //tools/tests:selftest_costs -- --write` rewrites them from the
+# logs, on this table's scale (selftest_costs.sh says how). The deal reads
+# only these rows, so it cannot see a listed section that grew: nothing but
+# a run read back against them can (TO VERIFY V285).
+#
+# A section in a block the template build strips has its row in such a
+# block here too; selftest.sh refuses the table otherwise, and a row that
+# names a section the file does not have.
+diff_output	38.9
+progname	3.1
+rust_diff	30.0
+forbidden_symbols	14.2
+symbols	10.1
+forbidden_functions	21.3
+forbidden_globals	9.7
+asan_run	4.3
+asan_check	28.5
+files_test	3.0
+argv_table	9.6
+first_red	26.9
+header_check	6.9
+prototype_check	7.9
+prototype_check no-restrict	36.2
+header_norm	8.5
+method_check	18.7
+LISTS OF WORDS	0.7
+make_test	37.7
+make_test sentences	81.2
+make_test archiver	31.8
+generate	0.9
+cycles_check	1.8
+ref_compare	2.3
+oracle_check	0.1
+model_check	1.3
+env_drift	2.7
+env-audit	23.8
+compile_check	2.3
+env-audit-commit	50.0
+student_build	10.4
+shell_check	24.7
+shell_test	14.2
+out-parameter presets	0.2
+callback arguments	0.2
+the hint that fits	0.9
+harness memory placement	0.7
+run_check	4.7
+norminette	22.3
+gen_header, reset_headers, init	2.0
+ilp32	7.8
+require	0.3
+a flag with no value	0.2
+conventions	200.1
+conventions: dump harnesses, fixtures, module tests	152.2
+conventions: corpus runners, module programs, crash statuses	194.3
+conventions: how a run ended, Python flags	228.0
+conventions: the registry of issued files	229.1
+conventions: registry consumers, CR bytes	276.3
+conventions: a built program, kept out of commits	1.5
+conventions: bazel run, first-red hints	49.9
+conventions: clue labels, program cases	271.2
+conventions: wider types, named methods	29.2
+conventions: legends, zeroed buffers, harness arrays	262.8
+conventions: check scripts	241.1
+conventions: every pinned binary, compared	2.5
+conventions: the image's own tools, by hand	11.1
+conventions: a project's own page, docs	3.7
+conventions: a reading named in a hint	2.8
+conventions: 42's command registry	13.4
+conventions: a test's scratch files	3.3
+conventions: a library's function folders	4.9
+conventions: an awk element tested by itself	1.8
+42's entry and installer	0.2
+postcreate	0.5
+editor tasks	0.1
+allocfail	28.6
+stub_check	2.4
+placeholder_pdf	0.2
+exam_guide	0.3
+answer_scan	4.8
+setup	3.5
+tools/bazel	0.3
+prime	14.3
+rush00	1.5
+rush01	15.3
+rush02	123.8
+submit	36.9
+bsq	44.4
+oracle_fixtures	0.5
+reference_cases	1.2
+issued_test	0.1
+readme_check	5.1
+argv_check	93.8
+file_check	17.4
+probe_under	0.1
+the compiler pin	0.1
+the borrowed libraries	1.5
+the nm pin	0.0
+the shard deal	1.1
+the test locale	0.1

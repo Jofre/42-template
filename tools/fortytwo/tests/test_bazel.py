@@ -274,20 +274,20 @@ class DropOutputs(unittest.TestCase):
         self.assertEqual(len(self.left()), 6)
 
     def test_a_held_lock_deletes_nothing(self):
-        holder = subprocess.Popen([sys.executable, "-c", textwrap.dedent("""\
-            import fcntl, os, sys, time
-            fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
-            fcntl.lockf(fd, fcntl.LOCK_EX, 1, 0)
-            print("held", flush=True)
-            time.sleep(30)
-            """), os.path.join(self.base, "lock")], stdout=subprocess.PIPE, universal_newlines=True)
-        try:
-            self.assertEqual(holder.stdout.readline().strip(), "held")
-            self.assertEqual(bazel.drop_outputs(self.fake, self.tmp.name, ["course/proj"], {}), bazel.LOCK_HELD)
-            self.assertEqual(len(self.left()), 6)
-        finally:
-            holder.kill()
-            holder.wait()
+        # The `with` closes the holder's pipe; the finally stops it first.
+        with subprocess.Popen([sys.executable, "-c", textwrap.dedent("""\
+                import fcntl, os, sys, time
+                fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
+                fcntl.lockf(fd, fcntl.LOCK_EX, 1, 0)
+                print("held", flush=True)
+                time.sleep(30)
+                """), os.path.join(self.base, "lock")], stdout=subprocess.PIPE, universal_newlines=True) as holder:
+            try:
+                self.assertEqual(holder.stdout.readline().strip(), "held")
+                self.assertEqual(bazel.drop_outputs(self.fake, self.tmp.name, ["course/proj"], {}), bazel.LOCK_HELD)
+                self.assertEqual(len(self.left()), 6)
+            finally:
+                holder.kill()
 
     def test_a_path_that_is_not_a_package_is_refused(self):
         for bad in ("", "/abs", "a/../b", "a//b", ".", "a/./b"):

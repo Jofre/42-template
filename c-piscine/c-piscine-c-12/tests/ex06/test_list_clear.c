@@ -3,10 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Each call is a line, ended once its free() is done: a crash in free() (a
+ * pointer handed over twice, or one no node holds) then stops the output on
+ * that call's own line, which diff_output.sh marks, and not on the next. */
 static void	del(void *data)
 {
-	printf("free %s\n", (char *)data);
+	printf("free %s", (char *)data);
 	free(data);
+	printf("\n");
 }
 
 /* The list ft_list_clear is handed, built by construction: n nodes, each its

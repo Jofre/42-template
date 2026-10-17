@@ -1,0 +1,14 @@
+  Each line is the block before the call (hex), c, n, the block after the
+  call (hex), and 1 when the call returned the s it was handed.
+    * only the last column diverges   -> what does memset return (man memset,
+                                         RETURN VALUE)?
+    * bytes past the first n diverge  -> where does your function stop writing,
+                                         and where does it start?
+    * only cases with n 0 diverge     -> what should a call with nothing to fill
+                                         change?
+    * only cases whose c is 0x80 or more (128..255) -> which byte ends up in
+                                         memory: how wide is what your function
+                                         writes through, and does any test in
+                                         it depend on the value of c?
+    * only blocks past 4096 bytes     -> does anything in your function depend
+                                         on n being small?

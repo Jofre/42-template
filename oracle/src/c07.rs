@@ -179,7 +179,7 @@ fn body(rng: &mut Rng, len: usize, high: bool) -> Vec<u8> {
     rand_body(rng, len, high)
 }
 
-fn gen_strdup<W: Write>(w: &mut W, seed: u64, count: usize) {
+pub(crate) fn gen_strdup<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let mut done = 0usize;
     // structured: empty, single, ascii text, full-range bytes.

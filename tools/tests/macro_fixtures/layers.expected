@@ -120,6 +120,7 @@ ex13_valgrind valgrind_test.sh by:moulinette
 ex14_files files_test.sh provided by:moulinette
 ex15_compile_clang compile_check.sh by:moulinette
 ex15_compile_gcc compile_check.sh by:moulinette
+ex15_escaped_output diff_output.sh escaped strict by:moulinette
 ex15_files files_test.sh by:moulinette
 ex15_forbidden forbidden_symbols.sh provided by:moulinette
 ex15_ilp32 ilp32_test.sh grader-lib by:moulinette

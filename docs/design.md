@@ -50,7 +50,12 @@ a layer:
   the two must never be confused. It runs in shards, each running the arms of
   some sections and the plain code of all of them, so an arm may rely on any
   fixture made in plain code above it, and never on what another section's
-  arm left behind (`selftest.sh`, "SHARDS").
+  arm left behind (`selftest.sh`, "SHARDS"). The shards are dealt by each
+  section's measured seconds, in `tools/tests/selftest_costs.tsv`: a new
+  section is weighed by its count until its row is measured ("SHARD
+  WEIGHTS"), and a listed one that grows keeps its old row, which the deal
+  cannot see. `bazel run //tools/tests:selftest_costs` reads a run's shard
+  logs back against the table, and `-- --write` measures it again.
 - **`NO_SKIP=1`** forces every conditional gate open. A layer that skips
   everywhere is indistinguishable from one that passes everywhere, and this is
   the only thing that tells them apart. A skip that ignores `NO_SKIP` is worse

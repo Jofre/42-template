@@ -312,7 +312,8 @@ $ bazel run //tools:init
 
 Most of it is not Bazel, on purpose. It first checks what Bazel needs before
 starting it — python, `42` and `bazel` on your PATH, where Bazel keeps its
-state and the room left there, memory, your identity, tmux — so that it can
+state and the room left there, memory, the locale the tests run under, your
+identity, tmux — so that it can
 still say what is wrong when Bazel cannot start. Then, once Bazel has run on
 this machine (or with `--drift`), it runs one program, which compares this
 machine with the versions `tools/pins.tsv` records. Its own checks print first;

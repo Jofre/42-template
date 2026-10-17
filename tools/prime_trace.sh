@@ -16,18 +16,20 @@
 #
 # WHERE. ${XDG_STATE_HOME:-$HOME/.local/state}/42-piscine/prime-traces/<host>:
 # under $HOME, not in scratch, because $HOME survives a reset and /goinfre may
-# not; and in a folder named after the machine, because on campus $HOME
-# follows a student from machine to machine, and every trace with it. A trace
-# says what one machine did. Read on another, a prime still running where it
-# was written would look like one that stopped with this machine, and keep
-# this machine's login prime from starting (the review of 2026-10-09). Each
-# machine's five newest are kept, numbered on their own; a machine never used
-# again keeps its folder, five files at most, until it is deleted.
+# not; and in a folder named after the machine, because on campus $HOME may
+# follow a student from machine to machine (not confirmed yet), and every
+# trace with it. A trace says what one machine did. Read on another, a prime
+# still running where it was written would look like one that stopped with
+# this machine, and keep this machine's login prime from starting (the review
+# of 2026-10-09). Each machine's five newest are kept, numbered on their own;
+# a machine never used again keeps its folder, five files at most, until it is
+# deleted.
 #
 # A trace is a header -- the format line, then one `key value` line each for
 # the mode, the machine, the boot it ran in and what the caller adds
 # (prime.sh: the CPUs, the budget, the output base) -- then one `S` line per
-# sample, and `END rc=N` when the prime finishes:
+# sample, a `P` line as each step of the prime starts, and `END rc=N` when
+# the prime finishes:
 #
 #   S up=SECONDS memavail=KB swapfree=KB dirty=KB writeback=KB pswpin=N
 #     pswpout=N pgmajfault=N load1=X [psi_memory=some:X/full:Y ...]
@@ -37,6 +39,15 @@
 # The pressure averages (avg10) appear where the kernel has them, and the RSS
 # is every Bazel server's, the background prime's and the checkout's alike.
 # A sample every C_PISCINE_TRACE_EVERY seconds, 5 unless set.
+#
+#   P phase=NAME up=SECONDS [key=value ...]
+#
+# A step lasts from its P line to the next one, or to END: the background
+# prime's fetch, build, shutdown and delete, the foreground's fetch, oracle
+# and build. `delete-done` follows the delete with the rm's status and whether
+# the output base is still there (rc=N left=yes|no), since the rm's own
+# errors go nowhere a login shell would show. A reader skips a line it does
+# not know, so the P lines came without a new format number.
 #
 # A TRACE THAT STOPPED WITH THE MACHINE is one of this machine's with no END
 # line, naming a boot other than this one. One with no END from THIS boot is
@@ -152,6 +163,24 @@ trace_sample() {
 	printf 'S up=%s memavail=%s swapfree=%s dirty=%s writeback=%s pswpin=%s pswpout=%s pgmajfault=%s load1=%s%s bazel_rss=%s\n' \
 		"$_su" "$_sm" "$_ss" "$_sd" "$_sw" "$_si" "$_so" "$_sf" "$_sl" "$_sp" "${_sb%,}" \
 		>> "$TRACE" 2> /dev/null || return 0
+	if command -v sync > /dev/null 2>&1; then
+		sync "$TRACE" 2> /dev/null || :
+	fi
+	return 0
+}
+
+# trace_phase NAME [KEY=VALUE...]: a P line (see the header), the moment step
+# NAME starts or, with fields, what it ended with.
+trace_phase() {
+	[ -n "$TRACE" ] || return 0
+	_tpu=""
+	[ -r /proc/uptime ] && read -r _tpu _tpx < /proc/uptime
+	_tpl="P phase=$1 up=$_tpu"
+	shift
+	for _tpf; do
+		_tpl="$_tpl $_tpf"
+	done
+	printf '%s\n' "$_tpl" >> "$TRACE" 2> /dev/null || return 0
 	if command -v sync > /dev/null 2>&1; then
 		sync "$TRACE" 2> /dev/null || :
 	fi

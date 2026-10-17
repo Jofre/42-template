@@ -1,0 +1,12 @@
+"  hello  world  ", ' '	2: [hello] [world]
+",a,,b,", ','	2: [a] [b]
+"a,,b", ','	2: [a] [b]
+",a", ','	1: [a]
+"a,", ','	1: [a]
+"", ' '	0:
+"   ", ' '	0:
+",", ','	0:
+"abc", NUL	1: [abc]
+"", NUL	0:
+0xe9 0xe9 "a" 0xe9, 0xe9	1: [a]
+5000 words, two commas around each	5000: [w0] ... [w4999]

@@ -78,10 +78,13 @@ cd "$WS" || { echo "prime.sh: cannot enter '$WS'" >&2; exit 1; }
 # said so. //tools/tests:selftest also needs it, being unable to write outside
 # its sandbox. An absolute one only, as there: a relative path is a different
 # directory for every shell that starts in a different folder. setup.sh refuses
-# one; this script, which must never refuse, passes over it.
+# one; this script, which must never refuse, passes over it. The lookup is
+# tools/drives.sh's drives_scratch, which says the rest, and which env-audit.sh
+# reports this script's log and caches from.
 #
 # Without tools/drives.sh -- an incomplete checkout -- this still runs, in
-# /tmp/$USER: a script wired into a login shell must never refuse.
+# an absolute C_PISCINE_SCRATCH or /tmp/$USER: a script wired into a login
+# shell must never refuse.
 HAVE_DRIVES=0
 if [ -r "$WS/tools/drives.sh" ]; then
 	# shellcheck source=tools/drives.sh
@@ -89,26 +92,15 @@ if [ -r "$WS/tools/drives.sh" ]; then
 	HAVE_DRIVES=1
 fi
 RC_ROOT=""
-[ "$HAVE_DRIVES" = 0 ] || RC_ROOT=$(drives_rc_root "$WS")
-case "${C_PISCINE_SCRATCH:-}" in
-	/*) SCRATCH="$C_PISCINE_SCRATCH" ;;
-	*)
-		SCRATCH=${RC_ROOT%/bazel}
-		# Nothing recorded: this checkout never ran setup.sh. The choice
-		# setup.sh WOULD make, from the same list -- which is also the root
-		# tools/bazel gives such a checkout, so the two cannot disagree.
-		# A relative C_PISCINE_SCRATCH is passed over here too, not only
-		# above: drives_choose would refuse it, and this would land in
-		# /tmp/$USER when the list has a better place.
-		if [ -z "$SCRATCH" ] && [ "$HAVE_DRIVES" = 1 ]; then
-			SCRATCH=$(
-				C_PISCINE_SCRATCH=""
-				drives_choose && printf '%s' "$DRIVES_SCRATCH"
-			)
-		fi
-		[ -n "$SCRATCH" ] || SCRATCH="/tmp/${USER:-$(id -un)}"
-		;;
-esac
+if [ "$HAVE_DRIVES" = 1 ]; then
+	RC_ROOT=$(drives_rc_root "$WS")
+	SCRATCH=$(drives_scratch "$WS")
+else
+	case "${C_PISCINE_SCRATCH:-}" in
+		/*) SCRATCH="$C_PISCINE_SCRATCH" ;;
+		*) SCRATCH="/tmp/${USER:-$(id -un)}" ;;
+	esac
+fi
 
 # AND THE ROOT, passed explicitly on every command below rather than left to
 # tools/bazel. A `bazel` typed at a prompt goes through that wrapper, which
@@ -140,6 +132,12 @@ if [ -r "$WS/tools/prime_trace.sh" ]; then
 	. "$WS/tools/prime_trace.sh"
 	HAVE_TRACE=1
 fi
+# phase NAME [KEY=VALUE...]: the trace's mark that a step starts (a P line,
+# tools/prime_trace.sh), so that a reader can tell a slow fetch from a slow
+# build. Nothing without the trace, and never a failure.
+phase() {
+	[ "$HAVE_TRACE" = 0 ] || trace_phase "$@"
+}
 
 # ---------------------------------------------------------------------------
 # THE BUDGET, shared by the background and the foreground paths.
@@ -218,7 +216,8 @@ if [ "${1:-}" = "--background" ]; then
 	# this one -- is the evidence the freeze left, so this says where it is
 	# and how to go on. A prime run by hand writes a newer trace, which lifts
 	# this; so does deleting the file. Another machine's traces, which $HOME
-	# brings along on campus, are in folders of their own and stop nothing.
+	# may bring along on campus (not confirmed yet), are in folders of their
+	# own and stop nothing.
 	if [ "$HAVE_TRACE" = 1 ]; then
 		_last=$(trace_newest)
 		if [ -n "$_last" ] && trace_froze "$_last"; then
@@ -264,8 +263,12 @@ if [ "${1:-}" = "--background" ]; then
 	#    on equal terms with the interactive session, and the part a person
 	#    actually feels is I/O, not CPU. `nice` alone does not fix that: a
 	#    process can be at nice 19 and still saturate the disk queue. `ionice -c3`
-	#    (idle class) is what makes the difference on a spinning or network-backed
-	#    filer, which is what a campus $HOME usually is.
+	#    (idle class) asks for the disk only when nothing else wants it, which
+	#    matters most on a spinning or network-backed disk; how much it gives on
+	#    a campus box is not measured yet. The one campus report so far
+	#    (2026-10-13) shows the disks this writes to as rotational: /goinfre,
+	#    which holds the output base, and $HOME, a filesystem of its own on a
+	#    block device that may be a local disk or one attached over the network.
 	#
 	#    Both are PROBED, not required. nice is POSIX and effectively always
 	#    there; ionice is util-linux and is not on every box. Missing either one
@@ -317,13 +320,16 @@ if [ "${1:-}" = "--background" ]; then
 				trap 'trace_end 143; exit 143' TERM
 			fi
 			_prc=0
+			phase fetch
 			prime_bazel fetch > "$log" 2>&1 &&
+			phase build &&
 			prime_bazel build >> "$log" 2>&1 &&
 			: > "$SCRATCH/.prime.done" || _prc=$?
 			# UNCONDITIONAL, and outside the && chain on purpose: a prime that
 			# FAILED still started a server, and leaving that one behind is the
 			# case that actually happened. `|| true` because a server that never
 			# started is not an error to report from a login shell.
+			phase shutdown
 			# shellcheck disable=SC2086
 			$NICE "$BZ" $ROOT_OPT --output_base="$SCRATCH/bazel-prime" shutdown >> "$log" 2>&1 || true
 			# AND THROW THE TREE AWAY. An output base for this repo is most of
@@ -342,9 +348,13 @@ if [ "${1:-}" = "--background" ]; then
 			# wrong in the first version: unconditional, it deleted the tree
 			# after a FAILED prime too, so the next attempt rebuilt it all from
 			# nothing instead of resuming incrementally -- strictly worse than
-			# leaving it. And un-niced it unlinks two million directory entries
-			# (measured: 2,042,009) at normal I/O priority, which is precisely
-			# the burst this script exists to keep off the interactive session.
+			# leaving it. And un-niced it unlinks every entry of the base at
+			# normal I/O priority -- 86,160 inodes in an output base after a
+			# full `bazel test //...`, measured once .bazelrc stopped writing
+			# runfiles trees (tools/conventions.sh, the section ".bazelrc keeps
+			# runfiles trees OUT of the output tree") -- which is precisely
+			# the burst this script exists to keep off the interactive
+			# session.
 			#
 			# Two branches only so that `rm` sits in COMMAND POSITION.
 			# //tools:conventions scans for that to keep the require list above
@@ -352,16 +362,26 @@ if [ "${1:-}" = "--background" ]; then
 			# prefix -- and $NICE is legitimately empty on a box without nice.
 			# Dropping `rm` from require to satisfy the scanner would be the
 			# wrong repair: the call is real, so the declaration is right.
+			#
+			# ITS STATUS GOES INTO THE TRACE, with whether the base is still
+			# there: its errors go to /dev/null, so the trace is the one place
+			# a delete that left gigabytes behind can show. `|| _rmrc=$?`, not
+			# `; _rmrc=$?`: under set -e a failing rm on its own line would end
+			# this subshell before trace_end and the lock's rmdir below.
 			if [ -e "$SCRATCH/.prime.done" ]; then
+				phase delete
+				_rmrc=0
 				if [ -n "$NICE" ]; then
 					# shellcheck disable=SC2086
-					$NICE rm -rf "$SCRATCH/bazel-prime" 2>/dev/null || true
+					$NICE rm -rf "$SCRATCH/bazel-prime" 2>/dev/null || _rmrc=$?
 				else
-					rm -rf "$SCRATCH/bazel-prime" 2>/dev/null || true
+					rm -rf "$SCRATCH/bazel-prime" 2>/dev/null || _rmrc=$?
 				fi
+				if [ -e "$SCRATCH/bazel-prime" ]; then _rml=yes; else _rml=no; fi
+				phase delete-done "rc=$_rmrc" "left=$_rml"
 			fi
-			# After the delete, which is two million unlinks: heavy I/O
-			# belongs inside what the trace watches.
+			# After the delete, every unlink of it: heavy I/O belongs inside
+			# what the trace watches.
 			[ "$HAVE_TRACE" = 0 ] || trace_end "$_prc"
 		fi
 		rmdir "$SCRATCH/.prime.lock" 2>/dev/null || true
@@ -403,6 +423,7 @@ prime: downloading and building everything this repo needs, once.
 INTRO
 
 step "1/3  external repositories (compilers, zig, shellcheck, norminette, Rust)"
+phase fetch
 # `fetch` resolves and downloads every external repo the build references,
 # without compiling anything. This is the 2.1 GB.
 # shellcheck disable=SC2086
@@ -412,12 +433,14 @@ $NICE "$BAZEL" $ROOT_OPT fetch //... $BUDGET || {
 }
 
 step "2/3  the Rust oracle (the reference the diff layers compare against)"
+phase oracle
 # Singled out because it is the longest single build here and the one whose
 # absence is least obvious: without it every `diff` layer stalls on first use.
 # shellcheck disable=SC2086
 $NICE "$BAZEL" $ROOT_OPT build //oracle:oracle $BUDGET
 
 step "3/3  every test binary"
+phase build
 # Builds without running. After this, a test is a comparison rather than a
 # compile.
 # shellcheck disable=SC2086

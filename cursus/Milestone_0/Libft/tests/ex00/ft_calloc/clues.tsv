@@ -1,0 +1,5 @@
+# clues.tsv for ft_calloc -- pedagogic hints only, each a question. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (a hint fires when ANY of its cases fails)
+man calloc: "The memory is set to zero." malloc makes no such promise: what does a block malloc hands over hold -- and which bytes of it does your function set?	3 x 4	1 x 7	1 x 5000 (past 4096)	5000 x 1 (past 4096)	4097 x 3 (past 4096)
+The subject settles nmemb or size 0 (p.8): "calloc() returns a unique pointer value that can be successfully passed to free()". What does your function hand back then -- and would two such calls hand back the same value?	0 x 5 (nmemb 0)	5 x 0 (size 0)	0 x 0	0 x 5, 5 x 0 and 0 x 0: three different pointers	0 x 5, 5 x 0 and 0 x 0: each passed to free()
+What does man calloc say calloc() gives when "the multiplication of nmemb and size would result in integer overflow"? And what does nmemb * size give in a size_t when the true product is more than SIZE_MAX -- how can a program tell that it happened?	(SIZE_MAX / 2 + 2) x 2 (more than SIZE_MAX)	SIZE_MAX x SIZE_MAX	h x h, h = 2^(half the bits of size_t), so h x h = SIZE_MAX + 1

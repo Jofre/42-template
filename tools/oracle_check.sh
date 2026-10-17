@@ -2,12 +2,13 @@
 # Run the Rust reference's own self-check (//oracle:oracle check).
 #
 # WHAT IT CHECKS. `oracle check` sums the failure count of every module's
-# check() (c00-c13, rush00-rush02, rush01_bonus, rush01_validate, bsq, shell00,
-# shell01, length). The
-# checks come in three kinds,
+# check() (c00-c13, libft_mem, libft_str, libft_part2, libft_fd, libft_list,
+# rush00-rush02, rush01_bonus, rush01_validate, bsq, shell00, shell01, length:
+# twenty-eight). The checks come in three kinds,
 # all of them INTERNAL to the crate. Kinds 1 and 2 are in every module but
-# length, which has kind 2 only; kind 3 is in only eighteen, so do not read it as
-# blanket coverage:
+# length, whose check has no reference to hold to a table or a sweep: it holds
+# its series generators to what they promise, kind 3 alone. Kind 3 is only in
+# the modules item 3 names, so do not read it as blanket coverage:
 #
 #   1. hand-written tables — literal input/output pairs typed into the Rust
 #      source and verified once by a human. c09's strcmp table pins the exact
@@ -33,9 +34,10 @@
 #      construction in the same crate.
 #   3. generator self-checks — that the CORPUS still contains what it claims,
 #      which nothing else would notice. ONLY c00, c01, c02, c03, c04, c06, c07,
-#      c08, c10, c11, c12, c13, shell01, rush00, rush01, rush01_bonus, bsq and
-#      rush02 do this (oracle/README.md says what each asserts). c01, c02, c03, c04, c06, c07
-#      and c11 assert that the corpora they name for an unbounded
+#      c08, c10, c11, c12, c13, libft_mem, libft_str, libft_part2, libft_fd,
+#      libft_list, shell01, rush00, rush01, rush01_bonus, bsq, rush02 and
+#      length do this (oracle/README.md says what each asserts). c01, c02, c03,
+#      c04, c06, c07 and c11 assert that the corpora they name for an unbounded
 #      input still hold a case past every round capacity (16..4096): a string
 #      past 4096 bytes, a list past 4096 ints, an argument list past 1024; c12
 #      and c13, that their lists and trees still hold two of 600 and 2000
@@ -46,16 +48,55 @@
 #      than letting them drift into the random tail; rush00 asserts its size
 #      table stays inside the contract, has no duplicates, and still covers both
 #      the subject's sizes and the ceiling dimensions; bsq, that each count
-#      error isolates its rule and that no settled record holds a reading its
-#      strict arm owns; rush02, that its generated dictionaries answer what the
-#      corpus expects of them when parsed back.
+#      error isolates its rule, as each non-printable record does (its first
+#      line keeps its count and three characters), and that no settled record
+#      holds a reading its strict arm owns; rush02, that its generated
+#      dictionaries answer what the corpus expects of them when parsed back.
+#      libft_mem recomputes every line of its eight corpora by a second
+#      construction; each holds an n past 4096 and a block past 4096 bytes in
+#      its first 200 lines (calloc: a zeroed product past 4096); memset's
+#      plain corpus holds every c in 0..255 and no other, its _readings only c
+#      outside it and never n 0; memmove both overlap directions, each past
+#      4096 bytes; memchr every c in -512..767; calloc's labels follow a u128
+#      product, no product that does not overflow passes 1 MiB, and every
+#      overflow wraps to at most 1 MiB or past PTRDIFF_MAX.
+#      libft_str holds every line of its corpora to a second implementation;
+#      plain strchr/strrchr hold only c in 0..255 and their _readings only c
+#      outside it; each strlcat line's buffer is size bytes, or strlen(dst) + 1
+#      when dst's NUL is at or past size, and its size is under 2^32;
+#      strncmp's n and strnstr's len are under 2^32 or exactly
+#      18446744073709551615; no atoi line overflows an int; and the reused
+#      c01_strlen, c02_strlcpy and c07_strdup corpora are held line by line to
+#      the man pages.
+#      libft_part2 and libft_fd hold every line to the reference's own answer,
+#      and apart from it the plain substr result to the slice of s at start,
+#      strmapi/striteri to f's inverse at every index, and putstr/putendl to s
+#      (plus one newline) -- strjoin, strtrim, split, itoa and putnbr_fd lines
+#      to the reference alone; a plain substr or split corpus holds only cases
+#      every reading agrees on, its _readings twin only the rest; every input
+#      string passes 4096 bytes, as do substr's plain result and a split word,
+#      split passes 4096 words and putstr/putendl 65536 bytes.
+#      libft_list, that its seven corpora still hold a list past 4096 nodes,
+#      the same long lists at seeds 1 and 9, the empty list in all but
+#      lstlast's (none there, and no NULL answer), callback values within
+#      +/-1 000 000, and the reference's answer on every line.
+#      length, that each series arm writes `count` lines of exactly `len`
+#      elements, the same lines from the same seed, strstr's needle found
+#      first at the end of its line, and c12's list values inside the
+#      comparator's range.
 #
 # Beside the modules' checks, `oracle check` runs the binary itself with an
 # argument that is not UTF-8 -- to each reference program `oracle run` knows,
 # to c-06's and c-10's, and once to the commands that take words -- and holds
 # each run to a status of that command's own: the reference's answer, its "no
 # answer", or a refusal, never Rust's panic (exit 101), which a runner would
-# read as the reference crashing.
+# read as the reference crashing. Rush 01's and Rush 02's runs are held to
+# their bytes too: the output on an argument holding 0xff is the output with
+# an ASCII 'x' in its place.
+# And it runs `oracle bench` on a regular file: an unknown arm and
+# c05_ten_queens, which read no corpus, must leave it unread, since a module
+# that read stdin before it knew the arm was its own would eat the corpus's
+# first line for every arm asked after it.
 #
 # WHAT IT DOES NOT CHECK, despite what this comment used to say. It never
 # compares against libc, and it never reads the curated expected.txt fixtures.
@@ -67,8 +108,11 @@
 # files it opens are the ones a command is handed (shell00_diff_apply's two,
 # shell01_rdwssap's passwd file, the maps `oracle run bsq` gets, the paths
 # c-10's programs run on, the rush-02 dictionary) and /sys/class/net for
-# shell01_hwaddr, whose self-check accepts this machine's own addresses.
-# Nothing else touches the host but those runs of the binary itself. Where a
+# shell01_hwaddr, whose self-check accepts this machine's own addresses. The
+# one place it writes is a scratch folder under TMPDIR that the check process
+# itself creates, fills (the numbers.dict the byte twins hand rush-02, the
+# corpus file bench runs on), reads back and removes. Nothing else touches
+# the host but those runs of the binary itself. Where a
 # hand-written case happens to match a fixture it was transcribed by hand, so
 # editing that fixture does NOT make this guard notice; the two can drift
 # apart silently. A green run means the

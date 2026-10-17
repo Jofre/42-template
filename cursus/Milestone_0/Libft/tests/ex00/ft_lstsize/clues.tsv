@@ -1,0 +1,5 @@
+# clues.tsv for ft_lstsize -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+Which nodes does a count include: is the last node one of them, and is the NULL its next holds one?	1 node	2 nodes	3 nodes	5 nodes
+How many nodes does a list hold when the pointer to its first node is NULL, and does your function look inside a node before it knows there is one?	NULL (the empty list)
+Does anything in your function stop working, or wrap around, on a list far longer than the ones you tried?	5000 nodes	70000 nodes

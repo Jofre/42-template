@@ -70,7 +70,7 @@
 #                [--mode argv|stdin|multi] [--group K] [--show N]
 #                [--timeout SECS] [--readings] [--clues FILE [--case NAME]]
 #                [--sanitized | --valgrind PATH --valgrind-tools FILE
-#                 [--sample N] [--rule FILE]]
+#                 [--sample N] [--rule FILE] [--access-rule FILE]]
 #                [--gate-differ PATH --gate-bin PATH --gate-expected PATH
 #                 [--gate-arg WORD]... [--gate-label NAME]]
 #                (--stderr-empty | --stderr-ignored REASON) [--quotes FILE]
@@ -124,7 +124,7 @@
 #                  how each run ended, never the output (ex00_bsq_diff_asan);
 #                  --symbolizer PATH --symbolizer-lib FILE name each frame of
 #                  a report's stack (runner_lib.sh, rl_sanitizers)
-#   --valgrind PATH --valgrind-tools FILE [--sample N] [--rule FILE]
+#   --valgrind PATH --valgrind-tools FILE [--sample N] [--rule FILE] [--access-rule FILE]
 #                  a sample of the runs under memcheck, leaks included
 #                  (ex00_bsq_valgrind). In every mode: in multi mode a run
 #                  is a group, as in the plain replay, and a report names the
@@ -203,7 +203,7 @@ while [ $# -gt 0 ]; do
 		--readings) READINGS=1; shift ;;
 		--clues) need "$1" "$#"; CLUES="$2"; shift 2 ;;
 		--case) need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
-		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --symbolizer | --symbolizer-lib)
+		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
 		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
 		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
@@ -416,26 +416,23 @@ say() { printf '%s\n' "$*"; }
 
 # keep_input ID MAP... -- the map(s) a failing case ran on, kept in test.outputs
 # as ID.map (ID-1.map, ID-2.map ... for a multi-mode run)
-# with the command that replays them (tools/runner_lib.sh's rl_save). The
-# corpus is generated and the scratch files go with the run, so the report
-# used to name a case nobody could run again (finding 174). KEPT_MAPS says
-# how many of them, from the first, were kept: none, run by hand outside
-# bazel test, where there is nowhere to keep one.
-KEPT_MAPS=0
+# with the command that replays them (tools/runner_lib.sh's rl_keep_input,
+# which a memory report then names each kept map by). The corpus is
+# generated and the scratch files go with the run, so the report used to
+# name a case nobody could run again (finding 174). Run by hand outside
+# bazel test, there is nowhere to keep one.
 keep_input() {
 	_kc=$1
 	shift
 	_kk=0
 	_knames=""
-	KEPT_MAPS=0
 	for _km in "$@"; do
 		_kk=$((_kk + 1))
 		_kf=$(kept_name "$_kc" "$_kk" "$#")
-		if ! rl_save "$_km" "$_kf"; then
+		if ! rl_keep_input "$_km" "$_kf"; then
 			say "   input: generated for this case (a run under bazel test keeps it)"
 			return 0
 		fi
-		KEPT_MAPS=$_kk
 		_knames="$_knames $_kf"
 	done
 	[ -n "$_knames" ] || return 0
@@ -450,25 +447,6 @@ keep_input() {
 # kept_name ID K N -- what keep_input calls the Kth of a case's N maps.
 kept_name() {
 	if [ "$3" -eq 1 ]; then echo "$1.map"; else echo "$1-$2.map"; fi
-}
-
-# mem_report ID MAP... -- rl_mem_report for case ID, which ran on MAP...: a
-# report that names a map by the scratch path it was given (memcheck's open
-# descriptors) shows it by the name keep_input keeps it under, which the
-# replay line above uses. Only a map keep_input kept (KEPT_MAPS): the name
-# of one it could not keep is a file that exists nowhere.
-mem_report() {
-	_mrc=$1
-	shift
-	_mrn=$#
-	_mrk=0
-	for _mrm in "$@"; do
-		_mrk=$((_mrk + 1))
-		[ "$_mrk" -gt "$KEPT_MAPS" ] ||
-			set -- "$@" --as "$_mrm" "$(kept_name "$_mrc" "$_mrk" "$_mrn")"
-	done
-	shift "$_mrn"
-	rl_mem_report "$@"
 }
 
 # diagnose TAG SIDE TOP LEFT WANT GOT MAP -- what KIND of wrong one map's
@@ -927,7 +905,7 @@ mem_group() {
 		say " --------------------------------------------------"
 		say " RUN $_mg  [$RL_MEM_KIND]  maps $((TOTAL - _mn + 1))-$TOTAL of the corpus: $_mtags"
 		keep_input "run-$_mg" "$@"
-		mem_report "run-$_mg" "$@"
+		rl_mem_report
 	} > "$BLOCK"
 	rl_block "$BLOCK"
 }
@@ -966,7 +944,7 @@ while read -r tag side top left; do
 				say " --------------------------------------------------"
 				say " CASE $TOTAL  [$RL_MEM_KIND]  a map tagged $tag"
 				keep_input "case-$TOTAL" "$WORK/map"
-				mem_report "case-$TOTAL" "$WORK/map"
+				rl_mem_report
 			} > "$BLOCK"
 			rl_block "$BLOCK"
 		fi

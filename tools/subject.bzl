@@ -48,6 +48,10 @@ function they may call or a file the grader brings. The macros take from it:
                             (RL_GRADER, which tools/defs.bzl's _test() hands
                             every test; tools/runner_lib.sh's rl_at), and the
                             files layer's advice about an extra file
+    memory_graded           the level of the valgrind layer in the package
+                            (_test()'s tags, and the audit's), and the two
+                            sentences its reds quote: one for a leak, one
+                            for an invalid access or a crash
 
 What each field holds, and which layer reads it, is one table in
 docs/reference.md ("The subject contract"); the exercise() arguments below say
@@ -75,7 +79,7 @@ _GRADERS = ("moulinette", "defense", "both")
 
 # The keys an exercise() entry holds, so a typo in a hand-edited entry is a
 # fail() rather than a field no macro reads.
-_KEYS = ("page", "dir", "files", "optional", "provided", "linked", "allowed", "variables", "strict")
+_KEYS = ("page", "dir", "files", "optional", "provided", "linked", "allowed", "variables", "strict", "functions")
 
 def _is_list_of_strings(v):
     if type(v) != "list":
@@ -94,7 +98,7 @@ def _relative(p):
             return False
     return True
 
-def exercise(page, dir, files, allowed, optional = None, provided = None, linked = None, variables = None, strict = None):
+def exercise(page, dir, files, allowed, optional = None, provided = None, linked = None, variables = None, strict = None, functions = None):
     """One exercise's header box, as the subject prints it.
 
     Args:
@@ -154,11 +158,20 @@ def exercise(page, dir, files, allowed, optional = None, provided = None, linked
             forbidden layer. Default [].
         strict: whether a file the subject did not ask for FAILS the files
             layer rather than warning. Default: the project's.
+        functions: where one exercise turns in a library of functions, each
+            with a box of its own naming its External Functions (a Common
+            Core library's Part 2 and Part 3), {function: the list its box
+            allows}: {"ft_split": ["malloc", "free"], "ft_strlen": []}, []
+            for a box that says "None" or whose part allows none. Every
+            function the boxes name is a key, and `allowed` is the union of
+            the lists, which is what the forbidden layer reads for the whole
+            library; each function is then judged against its own box.
+            Default {}: an exercise with one box, `allowed`.
 
     Returns:
         The entry, as subject() stores it.
     """
-    problem = exercise_problem(page, dir, files, allowed, optional, provided, variables, strict, linked)
+    problem = exercise_problem(page, dir, files, allowed, optional, provided, variables, strict, linked, functions)
     if problem:
         fail(problem)
     return {
@@ -171,9 +184,15 @@ def exercise(page, dir, files, allowed, optional = None, provided = None, linked
         "allowed": allowed,
         "variables": variables or [],
         "strict": strict,
+        "functions": functions or {},
     }
 
-def exercise_problem(page, dir, files, allowed, optional = None, provided = None, variables = None, strict = None, linked = None):
+def _is_c_name(s):
+    """Whether `s` is a C identifier: a letter or _, then letters, digits or _."""
+    return type(s) == "string" and s != "" and (s[0].isalpha() or s[0] == "_") and \
+           s.replace("_", "a").isalnum()
+
+def exercise_problem(page, dir, files, allowed, optional = None, provided = None, variables = None, strict = None, linked = None, functions = None):
     """What is wrong with an exercise() entry, as the message exercise() fails with; None if nothing.
 
     A value rather than a fail(), so that each check can be PROVEN: a package
@@ -191,6 +210,7 @@ def exercise_problem(page, dir, files, allowed, optional = None, provided = None
         variables: as exercise() takes it.
         strict: as exercise() takes it.
         linked: as exercise() takes it.
+        functions: as exercise() takes it.
 
     Returns:
         The first problem found, as the message exercise() fails with, or None.
@@ -236,8 +256,7 @@ def exercise_problem(page, dir, files, allowed, optional = None, provided = None
     if type(linked) != "dict":
         return "exercise(linked = %r): {function the grader links: its library's label}" % (linked,)
     for fn, lib in linked.items():
-        if type(fn) != "string" or not fn or not (fn[0].isalpha() or fn[0] == "_") or \
-           not fn.replace("_", "a").isalnum():
+        if not _is_c_name(fn):
             return "exercise(linked = ...): %r is not a C function name" % (fn,)
         if type(lib) != "string" or not (lib.startswith("//") or lib.startswith("@")) or ":" not in lib:
             return (("exercise(linked = ...): %r -> %r: the library is a grader_library() " +
@@ -270,6 +289,41 @@ def exercise_problem(page, dir, files, allowed, optional = None, provided = None
                          "never compiles.") % (optional, f, f))
     if strict != None and type(strict) != "bool":
         return "exercise(strict = %r): True, False, or None for the project's" % (strict,)
+    return _functions_problem(functions, allowed)
+
+def _functions_problem(functions, allowed):
+    """What is wrong with an exercise()'s `functions` against its `allowed`; None if nothing."""
+    functions = functions or {}
+    if type(functions) != "dict":
+        return ("exercise(functions = %r): {function the subject's boxes name: the " +
+                "External Functions its box allows}") % (functions,)
+    if not functions:
+        return None
+    union = {}
+    for fn in sorted(functions):
+        if not _is_c_name(fn):
+            return "exercise(functions = ...): %r is not a C function name" % (fn,)
+        box = functions[fn]
+        if type(box) != "list" or (box and not _is_list_of_strings(box)):
+            return (("exercise(functions = ...): %r -> %r: the External Functions its " +
+                     "box names, as a list of names, [] for \"None\"") % (fn, box))
+        for f in box:
+            if f not in (allowed or []):
+                return (("exercise(functions = ...): %s's box allows %s, which the " +
+                         "exercise's `allowed` does not name. `allowed` is every " +
+                         "function some box allows: the forbidden layer reads it for " +
+                         "the whole library.") % (fn, f))
+            union[f] = True
+    if allowed == None:
+        return (("exercise(functions = ...) with allowed = None: with `functions`, " +
+                 "`allowed` is the union of the boxes' lists, [] where every box " +
+                 "says \"None\""))
+    unused = [f for f in allowed if f not in union]
+    if unused:
+        return (("exercise(functions = ...): no box allows %s, and `allowed` names it. " +
+                 "With `functions`, `allowed` is the union of the boxes' lists, so a " +
+                 "function no box allows is allowed to no function of the library.") %
+                ", ".join(unused))
     return None
 
 def linked_problem(exercises, exports):
@@ -340,7 +394,7 @@ subject_contract = rule(
     },
 )
 
-def subject(grader, group, exercises, strict = True, mandatory = None, mandatory_quote = None, name = "subject"):
+def subject(grader, group, exercises, strict = True, mandatory = None, mandatory_quote = None, memory_graded = None, name = "subject"):
     """A project's subject contract. The FIRST call in its BUILD.bazel.
 
     Args:
@@ -363,6 +417,32 @@ def subject(grader, group, exercises, strict = True, mandatory = None, mandatory
         mandatory_quote: the subject's sentence that says so, with its page,
             as the project's other quotes are written. Required with
             mandatory, and refused without it.
+        memory_graded: the subject's own sentences saying its grader judges
+            memory, as a dict of exactly two keys, each one line with its
+            project and page, as the project's other quotes are written:
+              "leaks"   what it says of memory left allocated: "Libft, p.3:
+                        \"All heap-allocated memory must be properly freed
+                        when necessary. Memory leaks will not be
+                        tolerated.\"";
+              "access"  what it says of a crash or an invalid access:
+                        "Libft, p.3: \"Your functions should not quit
+                        unexpectedly (segmentation fault, bus error, double
+                        free, etc.) except for undefined behavior. ...\"",
+                        the sentence whole.
+            Where a subject says so, a memory finding is a KO wherever the
+            project is graded, so the project's valgrind layer leaves
+            strict for basic -- every test of that layer in the package,
+            whichever macro emits it (tools/defs.bzl's _layer_level) -- and
+            each red quotes the sentence its finding breaks: "access" for an
+            invalid access, an uninitialised value or a crash
+            (valgrind_test.sh's --access-rule, every test of the layer),
+            "leaks" for a leak (--rule, every test of it that checks
+            leaks). Two sentences, because a red quoting the leak sentence
+            over an invalid read, or over a probe that checks no leak, named
+            a rule the finding does not break. A fact of the project,
+            declared once, never per target. None, the default, where the
+            subject says nothing of the kind: never inferred from a
+            grader's habits.
         name: unused: the contract is always the target `subject`, which is
             where every macro looks for it. Here because every macro takes a
             `name` (see c_levels in tools/defs.bzl).
@@ -374,6 +454,7 @@ def subject(grader, group, exercises, strict = True, mandatory = None, mandatory
         strict = strict,
         mandatory = mandatory,
         mandatory_quote = mandatory_quote,
+        memory_graded = memory_graded,
         name = name,
     )
     if problem:
@@ -394,13 +475,43 @@ def subject(grader, group, exercises, strict = True, mandatory = None, mandatory
             "exercises": exercises,
             "mandatory": mandatory or [],
             "mandatory_quote": mandatory_quote or "",
+            "memory_graded": memory_graded or {},
         }),
         libs = sorted(libs.keys()),
         lib_labels = sorted(libs.keys()),
         visibility = ["//visibility:public"],
     )
 
-def subject_problem(grader, group, exercises, strict = True, mandatory = None, mandatory_quote = None, name = "subject"):
+# What subject(memory_graded = {...}) holds: the subject's sentence for each
+# kind of memory finding (see subject()'s docstring).
+_MEMORY_GRADED_KEYS = ["access", "leaks"]
+
+def _memory_graded_problem(memory_graded):
+    """subject()'s message for a memory_graded it cannot take; None if it can."""
+    if memory_graded == None:
+        return None
+    if type(memory_graded) != "dict":
+        return (("subject(memory_graded = %r): a dict of the subject's own sentences, " +
+                 "{\"leaks\": ..., \"access\": ...}, each one line with its project and " +
+                 "page -- or leave it out where the subject says nothing of the kind") %
+                (memory_graded,))
+    for k in sorted(memory_graded):
+        if k not in _MEMORY_GRADED_KEYS:
+            return (("subject(memory_graded = {%r: ...}): not a key it takes: \"leaks\", " +
+                     "the subject's sentence on memory left allocated, and \"access\", its " +
+                     "sentence on a crash or an invalid access") % (k,))
+    for k in _MEMORY_GRADED_KEYS:
+        if k not in memory_graded:
+            return (("subject(memory_graded = ...) has no %r: both \"leaks\" and \"access\", " +
+                     "each the subject's own sentence, since a red quotes the one its finding " +
+                     "breaks") % (k,))
+        v = memory_graded[k]
+        if type(v) != "string" or not v.strip() or "\n" in v:
+            return (("subject(memory_graded = {%r: %r}): one line, the subject's own words " +
+                     "with its project and page") % (k, v))
+    return None
+
+def subject_problem(grader, group, exercises, strict = True, mandatory = None, mandatory_quote = None, memory_graded = None, name = "subject"):
     """What is wrong with a subject() call, as the message it fails with; None if nothing.
 
     A value for the reason exercise_problem() gives: proven on broken
@@ -413,6 +524,7 @@ def subject_problem(grader, group, exercises, strict = True, mandatory = None, m
         strict: as subject() takes it.
         mandatory: as subject() takes it.
         mandatory_quote: as subject() takes it.
+        memory_graded: as subject() takes it.
         name: as subject() takes it.
 
     Returns:
@@ -441,6 +553,9 @@ def subject_problem(grader, group, exercises, strict = True, mandatory = None, m
                  "(dir = None), and the project has other exercises. A root turn-in " +
                  "is the whole repository, so it is the project's only exercise.") %
                 ", ".join(roots))
+    problem = _memory_graded_problem(memory_graded)
+    if problem:
+        return problem
     if mandatory == None:
         if mandatory_quote != None:
             return ("subject(mandatory_quote = ...) with no mandatory list: it quotes the " +

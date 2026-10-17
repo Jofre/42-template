@@ -6,7 +6,7 @@ use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
 #[inline(never)] // keep this attributable under callgrind (see tools/)
-fn o_strncmp(a: &[u8], b: &[u8], n: usize) -> i64 {
+pub(crate) fn o_strncmp(a: &[u8], b: &[u8], n: usize) -> i64 {
     let mut i = 0usize;
     while i < n {
         let av = *a.get(i).unwrap_or(&0);
@@ -35,7 +35,7 @@ fn o_strncat(dest: &[u8], src: &[u8], n: usize) -> Vec<u8> {
 }
 
 #[inline(never)] // keep this attributable under callgrind (see tools/)
-fn o_strstr(hay: &[u8], needle: &[u8]) -> Option<usize> {
+pub(crate) fn o_strstr(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
@@ -53,7 +53,7 @@ fn o_strstr(hay: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 #[inline(never)] // keep this attributable under callgrind (see tools/)
-fn o_strlcat(dest: &[u8], src: &[u8], size: usize) -> (Vec<u8>, u64) {
+pub(crate) fn o_strlcat(dest: &[u8], src: &[u8], size: usize) -> (Vec<u8>, u64) {
     let dlen = dest.len().min(size);
     let slen = src.len();
     if dlen == size {
@@ -86,7 +86,7 @@ fn with_long<T>(mut cases: Vec<T>, at: usize, long: Vec<T>, count: usize) -> Vec
 /// the last one, with n reaching it and n stopping one short; a prefix of
 /// 4100 against 4101; and a last byte above 0x7f against one below it, after
 /// 4097 equal ones. Each string from a seed of its own.
-fn long_cmp_cases() -> Vec<(Vec<u8>, Vec<u8>, usize)> {
+pub(crate) fn long_cmp_cases() -> Vec<(Vec<u8>, Vec<u8>, usize)> {
     let t5000 = long_text(5000, 5000);
     let t4100 = long_text(4100, 4100);
     let mut last = t4100.clone();
@@ -190,17 +190,25 @@ fn strstr_pairs(rng: &mut Rng, count: usize) -> Vec<(Vec<u8>, Vec<u8>)> {
     out
 }
 
-fn gen_strcmp<W: Write>(w: &mut W, seed: u64, count: usize) {
+/// The value a corpus line carries: the int itself, or with `sign` its sign
+/// alone (-1, 0 or 1), which is all strcmp(3)'s RETURN VALUE promises. The
+/// plain corpora of C 03 ex00/ex01 and Reloaded ex17 carry the sign; the
+/// int is their `readings` target's (V206).
+fn shown(v: i64, sign: bool) -> i64 {
+    if sign { v.signum() } else { v }
+}
+
+fn gen_strcmp<W: Write>(w: &mut W, seed: u64, count: usize, sign: bool) {
     let mut rng = Rng::new(seed);
     let head = string_pairs(&mut Rng::new(seed), 0).len();
     let long = long_cmp_cases().into_iter().map(|(a, b, _)| (a, b)).collect();
     let pairs = with_long(string_pairs(&mut rng, count), head, long, count);
     for (a, b) in &pairs {
-        let _ = writeln!(w, "{}\t{}\t{}", to_hex(a), to_hex(b), o_strcmp(a, b));
+        let _ = writeln!(w, "{}\t{}\t{}", to_hex(a), to_hex(b), shown(o_strcmp(a, b), sign));
     }
 }
 
-fn gen_strncmp<W: Write>(w: &mut W, seed: u64, count: usize) {
+fn gen_strncmp<W: Write>(w: &mut W, seed: u64, count: usize, sign: bool) {
     let mut rng = Rng::new(seed);
     let head = string_pairs(&mut Rng::new(seed), 0).len();
     let mut cases: Vec<(Vec<u8>, Vec<u8>, usize)> = Vec::new();
@@ -210,7 +218,7 @@ fn gen_strncmp<W: Write>(w: &mut W, seed: u64, count: usize) {
         cases.push((a, b, n));
     }
     for (a, b, n) in &with_long(cases, head, long_cmp_cases(), count) {
-        let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(a), to_hex(b), n, o_strncmp(a, b, *n));
+        let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(a), to_hex(b), n, shown(o_strncmp(a, b, *n), sign));
     }
 }
 
@@ -300,8 +308,10 @@ fn gen_strlcat<W: Write>(w: &mut W, seed: u64, count: usize) {
 /// Dispatch: returns true if `name` belongs to this module.
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
-        "c03_strcmp" => gen_strcmp(&mut io::BufWriter::new(io::stdout()), seed, count),
-        "c03_strncmp" => gen_strncmp(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c03_strcmp" => gen_strcmp(&mut io::BufWriter::new(io::stdout()), seed, count, false),
+        "c03_strcmp_sign" => gen_strcmp(&mut io::BufWriter::new(io::stdout()), seed, count, true),
+        "c03_strncmp" => gen_strncmp(&mut io::BufWriter::new(io::stdout()), seed, count, false),
+        "c03_strncmp_sign" => gen_strncmp(&mut io::BufWriter::new(io::stdout()), seed, count, true),
         "c03_strcat" => gen_strcat(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c03_strncat" => gen_strncat(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c03_strstr" => gen_strstr(&mut io::BufWriter::new(io::stdout()), seed, count),
@@ -332,9 +342,9 @@ pub fn check() -> usize {
                 fails += 1;
             }
         };
-        let c = head(&|w| gen_strcmp(w, 1, 1000));
+        let c = head(&|w| gen_strcmp(w, 1, 1000, false));
         want(widest_hex(&c, 0) > past && widest_hex(&c, 1) > past, "strcmp", "s1 and s2");
-        let c = head(&|w| gen_strncmp(w, 1, 1000));
+        let c = head(&|w| gen_strncmp(w, 1, 1000, false));
         want(widest_hex(&c, 0) > past && widest_hex(&c, 1) > past, "strncmp", "s1 and s2");
         want(largest_dec(&c, 2) > past as i64, "strncmp", "n");
         let c = head(&|w| gen_strcat(w, 1, 200));
@@ -386,6 +396,20 @@ pub fn check() -> usize {
         }
     }
 
+    // ---- each _sign arm is its exact arm's corpus, the value's sign alone ----
+    for (arm, gen) in [
+        ("strcmp", (|w: &mut Vec<u8>, s: bool| gen_strcmp(w, 1, 2000, s)) as fn(&mut Vec<u8>, bool)),
+        ("strncmp", |w: &mut Vec<u8>, s: bool| gen_strncmp(w, 1, 2000, s)),
+    ] {
+        let (mut exact, mut sign) = (Vec::new(), Vec::new());
+        gen(&mut exact, false);
+        gen(&mut sign, true);
+        if !same_but_sign(&exact, &sign) {
+            eprintln!("CHECK FAIL c03 {}_sign is not {}'s corpus with the sign alone", arm, arm);
+            fails += 1;
+        }
+    }
+
     let mut rng = Rng::new(7);
     for _ in 0..5000 {
         let ld = rng.below(8);
@@ -430,10 +454,27 @@ pub fn check() -> usize {
     fails
 }
 
+/// Whether `sign` is `exact` line for line, every field the same but the last,
+/// which is the sign of exact's (-1, 0 or 1). c09 checks its arm with it too.
+pub(crate) fn same_but_sign(exact: &[u8], sign: &[u8]) -> bool {
+    let (e, s) = (String::from_utf8_lossy(exact), String::from_utf8_lossy(sign));
+    let (el, sl): (Vec<&str>, Vec<&str>) = (e.lines().collect(), s.lines().collect());
+    if el.is_empty() || el.len() != sl.len() {
+        return false;
+    }
+    el.iter().zip(&sl).all(|(a, b)| match (a.rsplit_once('\t'), b.rsplit_once('\t')) {
+        (Some((ai, av)), Some((bi, bv))) => {
+            ai == bi && av.parse::<i64>().map(|v| v.signum().to_string() == *bv).unwrap_or(false)
+        }
+        _ => false,
+    })
+}
+
 /// Replay a corpus and compute the reference answers; see common::bench_lines.
 /// Field order follows each gen_* emit: inputs first, reference output last.
 pub fn bench(name: &str) -> bool {
-    if !matches!(name, "c03_strcmp" | "c03_strncmp" | "c03_strcat" | "c03_strncat"
+    if !matches!(name, "c03_strcmp" | "c03_strcmp_sign" | "c03_strncmp" | "c03_strncmp_sign"
+        | "c03_strcat" | "c03_strncat"
         | "c03_strstr" | "c03_strlcat") { return false; }
     for l in bench_lines() {
         let f: Vec<&str> = l.split('\t').collect();
@@ -441,8 +482,10 @@ pub fn bench(name: &str) -> bool {
         let a = unhex(f[0]);
         match name {
             "c03_strcmp" => sink(o_strcmp(&a, &unhex(f[1]))),
+            "c03_strcmp_sign" => sink(o_strcmp(&a, &unhex(f[1])).signum()),
             "c03_strstr" => sink(o_strstr(&a, &unhex(f[1]))),
             "c03_strncmp" => { if f.len() >= 3 { if let Ok(n) = f[2].parse::<usize>() { sink(o_strncmp(&a, &unhex(f[1]), n)); } } }
+            "c03_strncmp_sign" => { if f.len() >= 3 { if let Ok(n) = f[2].parse::<usize>() { sink(o_strncmp(&a, &unhex(f[1]), n).signum()); } } }
             // dest, cap, src, ...
             "c03_strcat" => { if f.len() >= 3 { sink(o_strcat(&a, &unhex(f[2]))); } }
             "c03_strncat" => { if f.len() >= 4 { if let Ok(n) = f[3].parse::<usize>() { sink(o_strncat(&a, &unhex(f[2]), n)); } } }

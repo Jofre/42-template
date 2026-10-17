@@ -1,0 +1,4 @@
+# clues.tsv for ft_lstdelone -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+Who frees a node's content, you or del, and which content does del have to be handed: the node's own, or the node?	delete b of [a b c]: del called with	delete a lone node a: del called with
+The box frees one node and not the next: which nodes, besides the one you were handed, may your function read or write?	delete b of [a b c]: a	delete b of [a b c]: c

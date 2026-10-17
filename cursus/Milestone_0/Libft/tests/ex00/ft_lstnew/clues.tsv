@@ -1,0 +1,5 @@
+# clues.tsv for ft_lstnew -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+Should the new node hold the very pointer it was handed, or a copy of what that pointer points to? Would a caller comparing the two see the same address?	ft_lstnew("forty-two"): content	ft_lstnew(&x): content	ft_lstnew(NULL): content
+What does malloc leave in a field you never write, and is next one of the fields you write? Where does a walk along a one-node list stop?	ft_lstnew("forty-two"): next	ft_lstnew(&x): next	ft_lstnew(NULL): next
+A caller who keeps every node it asked for frees each one later: where does each of your nodes come from, and can two calls ever hand back the same one?	two calls, same content: nodes	5000 calls: content and next right

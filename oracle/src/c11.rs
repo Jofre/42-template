@@ -32,7 +32,7 @@
 //! csv    = comma-joined decimal ints ("" for size 0)
 //! tokN   = lowercase-hex of a NUL-free C string (tokens comma-joined)
 
-use crate::common::{bench_lines, ints_csv, join_csv, longest_csv, rand_body, sink, strcmp_signed, to_hex, unhex_csv, Rng};
+use crate::common::{bench_lines, ints_csv, join_csv, largest_dec, longest_csv, rand_body, sink, strcmp_signed, to_hex, unhex_csv, Rng};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -179,11 +179,19 @@ fn gen_foreach<W: Write>(w: &mut W, seed: u64, count: usize) {
     }
 }
 
-fn gen_map(seed: u64, count: usize) {
+fn gen_map<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     // f(x)=x*3-1 must not overflow i32 => |x| <= 700_000_000.
-    let tabs = bounded_tabs(&mut rng, count, 700_000_000);
-    let mut w = io::BufWriter::new(io::stdout());
+    let mut tabs = bounded_tabs(&mut rng, count, 700_000_000);
+    // Capacity cases (finding 041), as gen_foreach's: arrays of 300 and 5000
+    // ints, each from its index alone and within the same bound, after the
+    // structured head (eight arrays); the corpus keeps its count.
+    let long: Vec<Vec<i32>> = [300usize, 5000]
+        .iter()
+        .map(|&n| (0..n).map(|i| ((i as i64 * 7_919_027) % 1_400_000_001 - 700_000_000) as i32).collect())
+        .collect();
+    tabs.splice(8..8, long);
+    tabs.truncate(count.max(10));
     for v in &tabs {
         let mapped: Vec<i32> = v.iter().map(|&x| o_map(x)).collect();
         // trailing field: map returns a NEW array and must leave `tab` untouched.
@@ -192,10 +200,22 @@ fn gen_map(seed: u64, count: usize) {
     }
 }
 
-fn gen_any(seed: u64, count: usize) {
+/// Strings of 0, 1 or 2 letters, from their index alone: none of them is
+/// long enough for ft_any's predicate.
+fn short_tokens(n: usize) -> Vec<Vec<u8>> {
+    (0..n).map(|i| (0..i % 3).map(|j| b'a' + ((i + j) % 26) as u8).collect()).collect()
+}
+
+fn gen_any<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
+    // Capacity cases (finding 041): every other array holds 6 strings at
+    // most. Arrays of 300 and 5000 strings that all fail the predicate (0),
+    // and one of 5000 whose last string alone passes (1), so a walk that
+    // stops at a round size gives the wrong answer on one of them.
+    let mut far = short_tokens(5000);
+    far[4999] = b"abc".to_vec();
+    let long: Vec<Vec<Vec<u8>>> = vec![short_tokens(300), short_tokens(5000), far];
     // structured cases first
     let structured: &[Vec<Vec<u8>>] = &[
         vec![],                                                  // empty array -> 0
@@ -206,7 +226,7 @@ fn gen_any(seed: u64, count: usize) {
         vec![b"x".to_vec(), b"yy".to_vec()],                     // all below boundary -> 0
         vec![b"a".to_vec(), b"bb".to_vec(), b"ccc".to_vec()],    // last one triggers -> 1
     ];
-    for toks in structured {
+    for toks in structured.iter().chain(long.iter()) {
         if done >= count {
             break;
         }
@@ -227,10 +247,14 @@ fn gen_any(seed: u64, count: usize) {
     }
 }
 
-fn gen_count_if(seed: u64, count: usize) {
+fn gen_count_if<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
+    // Capacity cases (finding 041): every other array holds 8 strings at
+    // most. Arrays of 300 and 5000 lowercase strings (many_tokens), the
+    // longer with far more than 255 vowel-first strings, so a count kept in
+    // a char -- signed (past 127) or unsigned (past 255) -- wraps there.
+    let long: Vec<Vec<Vec<u8>>> = vec![many_tokens(300), many_tokens(5000)];
     let structured: &[Vec<Vec<u8>>] = &[
         vec![],                                                       // empty array -> 0
         vec![b"".to_vec()],                                           // one empty string -> 0
@@ -240,7 +264,7 @@ fn gen_count_if(seed: u64, count: usize) {
         // empty + vowel + consonant + vowel: exercises the empty-first edge and a count of 2
         vec![b"".to_vec(), b"echo".to_vec(), b"x".to_vec(), b"oak".to_vec()],
     ];
-    for toks in structured {
+    for toks in structured.iter().chain(long.iter()) {
         if done >= count {
             break;
         }
@@ -298,6 +322,19 @@ fn is_sort_corpus(seed: u64, count: usize) -> Vec<Vec<i32>> {
         }
         out.push(v.clone());
     }
+    // Capacity cases (finding 041): every other array holds 12 ints at most.
+    // Ascending arrays of 300 and 5000 ints (1), and one of 5000 whose last
+    // two are swapped (0), so a walk that stops at a round size answers it
+    // 1. From their index alone, within the bound; no reading parts on them.
+    let asc = |n: usize| -> Vec<i32> { (0..n).map(|i| (i as i64 * 400_000 - lim) as i32).collect() };
+    let mut descent = asc(5000);
+    descent.swap(4998, 4999);
+    for v in [asc(300), asc(5000), descent] {
+        if out.len() >= count {
+            break;
+        }
+        out.push(v);
+    }
     while out.len() < count {
         let size = rng.below(13);
         let mut v: Vec<i32> = (0..size).map(|_| bounded_val(&mut rng, lim)).collect();
@@ -321,8 +358,7 @@ fn is_sort_corpus(seed: u64, count: usize) -> Vec<Vec<i32>> {
     out
 }
 
-fn gen_is_sort(seed: u64, count: usize) {
-    let mut w = io::BufWriter::new(io::stdout());
+fn gen_is_sort<W: Write>(w: &mut W, seed: u64, count: usize) {
     for v in is_sort_corpus(seed, count) {
         // trailing field: is_sort is a pure query and must not reorder `tab`.
         let csv = join_csv(&v);
@@ -526,10 +562,10 @@ pub fn do_op_run(args: &[std::ffi::OsString]) -> i32 {
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
         "c11_foreach" => gen_foreach(&mut io::BufWriter::new(io::stdout()), seed, count),
-        "c11_map" => gen_map(seed, count),
-        "c11_any" => gen_any(seed, count),
-        "c11_count_if" => gen_count_if(seed, count),
-        "c11_is_sort" => gen_is_sort(seed, count),
+        "c11_map" => gen_map(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c11_any" => gen_any(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c11_count_if" => gen_count_if(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c11_is_sort" => gen_is_sort(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c11_sort_string_tab" => gen_sort_common(seed, count, SortKeep::Agree),
         "c11_sort_string_tab_readings" => gen_sort_common(seed, count, SortKeep::Part),
         "c11_advanced_sort_string_tab" => gen_sort_common(seed, count, SortKeep::All),
@@ -543,9 +579,10 @@ pub fn check() -> usize {
     let mut fails = 0usize;
 
     // ---- every unbounded input past the round capacities (finding 041) ----
-    // foreach's corpus holds an array past every capacity a function is
+    // Each array corpus holds an array past every capacity a function is
     // usually given room for (16, 64, 256, 1024, 4096), read back from what
-    // the generator writes.
+    // the generator writes: the ints of field 0, or the count of strings
+    // field 0 states. count_if's also counts past 255.
     {
         let past = 4096usize;
         let head = |g: &dyn Fn(&mut Vec<u8>)| -> Vec<u8> {
@@ -553,8 +590,40 @@ pub fn check() -> usize {
             g(&mut v);
             v
         };
-        if longest_csv(&head(&|w| gen_foreach(w, 1, 200)), 0) <= past {
-            eprintln!("CHECK FAIL c11 foreach corpus holds no array of more than 4096 ints");
+        let ints: [(&str, Vec<u8>); 3] = [
+            ("foreach", head(&|w| gen_foreach(w, 1, 200))),
+            ("map", head(&|w| gen_map(w, 1, 200))),
+            ("is_sort", head(&|w| gen_is_sort(w, 1, 200))),
+        ];
+        for (name, c) in &ints {
+            if longest_csv(c, 0) <= past {
+                eprintln!("CHECK FAIL c11 {} corpus holds no array of more than 4096 ints", name);
+                fails += 1;
+            }
+        }
+        let any = head(&|w| gen_any(w, 1, 200));
+        let count_if = head(&|w| gen_count_if(w, 1, 200));
+        for (name, c) in [("any", &any), ("count_if", &count_if)] {
+            if largest_dec(c, 0) <= past as i64 {
+                eprintln!("CHECK FAIL c11 {} corpus holds no array of more than 4096 strings", name);
+                fails += 1;
+            }
+        }
+        // ...with both of any's answers among its long arrays, and count_if's
+        // count past what a char holds.
+        for want in [b"0", b"1"] {
+            let hit = any.split(|&b| b == b'\n').any(|l| {
+                let f: Vec<&[u8]> = l.split(|&b| b == b'\t').collect();
+                f.len() > 2 && std::str::from_utf8(f[0]).ok().and_then(|n| n.parse::<usize>().ok()).unwrap_or(0) > past
+                    && f[2] == &want[..]
+            });
+            if !hit {
+                eprintln!("CHECK FAIL c11 any corpus holds no array of more than 4096 strings answered {}", want[0] as char);
+                fails += 1;
+            }
+        }
+        if largest_dec(&count_if, 2) <= 255 {
+            eprintln!("CHECK FAIL c11 count_if corpus holds no count past 255");
             fails += 1;
         }
     }

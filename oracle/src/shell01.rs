@@ -86,6 +86,12 @@
 //!       exit 0 when the test locale's order and C's differ on the names the
 //!       steps keep from FILE, 1 when they agree (then no output can tell the
 //!       two readings apart).
+//!   oracle shell01_rdwssap collates
+//!       exit 0 when the test locale collates apart from bytes, 1 when it
+//!       collates as they do: it is not installed (setlocale fails and the C
+//!       locale stays), or it is C, POSIX or C.UTF-8. Where it is 1 no file
+//!       can show the two readings of the order apart: `shows` leaves
+//!       "orders" out, and the checks say that property is a skip.
 //!   oracle shell01_rdwssap reaches <n> [--passwd FILE]
 //!       exit 0 when the steps keep at least <n> names from FILE, 1 if not.
 //!   oracle shell01_rdwssap shows [--passwd FILE]
@@ -100,6 +106,8 @@
 //!                        range, lines 7 to 15, runs past the end
 //!         orders         the test locale's order and C's agree on the kept
 //!                        names, so the two readings of the order look alike
+//!                        (asked only where `collates` is 0: elsewhere they
+//!                        agree on every file, and the machine is the cause)
 //!       Asked by ex07's check before the fixture runs: a fixture edited until
 //!       it no longer shows a step would otherwise pass every program that
 //!       skips that step.
@@ -457,6 +465,14 @@ fn use_env_locale() {
     }
 }
 
+/// Whether the test locale collates apart from bytes, as a dictionary does:
+/// "a" before "B", where bytes put 'B' (0x42) first. False where the locale
+/// is not installed -- setlocale fails and leaves C -- and in C, POSIX and
+/// C.UTF-8, whose order is the bytes'.
+fn locale_collates() -> bool {
+    coll_cmp(b"a", b"B", Coll::Locale) != coll_cmp(b"a", b"B", Coll::C)
+}
+
 fn coll_cmp(a: &[u8], b: &[u8], how: Coll) -> std::cmp::Ordering {
     if how == Coll::Locale {
         if let (Ok(ca), Ok(cb)) = (CString::new(a), CString::new(b)) {
@@ -642,6 +658,17 @@ fn fixture_misses(data: &[u8]) -> Vec<&'static str> {
     out
 }
 
+/// fixture_misses on a machine whose test locale `collates` apart from bytes,
+/// or does not: there the two orders agree on every file, which is the
+/// machine's doing and not the fixture's, so "orders" is left out.
+fn fixture_misses_here(data: &[u8], collates: bool) -> Vec<&'static str> {
+    let mut out = fixture_misses(data);
+    if !collates {
+        out.retain(|w| *w != "orders");
+    }
+    out
+}
+
 /// `oracle shell01_rdwssap ...` (see the module header), `args` after the name.
 pub fn rdwssap_cmd(args: &[String]) -> ! {
     use_env_locale();
@@ -672,6 +699,10 @@ pub fn rdwssap_cmd(args: &[String]) -> ! {
             }
         }
     }
+    // About the machine, not a file: asked before one is read.
+    if rest.as_slice() == ["collates"] {
+        exit(if locale_collates() { 0 } else { 1 });
+    }
     let data = read_passwd(&passwd);
     match rest.as_slice() {
         ["orders"] => {
@@ -680,7 +711,7 @@ pub fn rdwssap_cmd(args: &[String]) -> ! {
         }
         ["reaches", n] => exit(if kept_names(&data).len() >= line_number(n) { 0 } else { 1 }),
         ["shows"] => {
-            let missing = fixture_misses(&data);
+            let missing = fixture_misses_here(&data, locale_collates());
             if missing.is_empty() {
                 exit(0);
             }
@@ -695,6 +726,7 @@ pub fn rdwssap_cmd(args: &[String]) -> ! {
         _ => {
             eprintln!("usage: oracle shell01_rdwssap <first> <last> [--order locale|c] [--passwd FILE]");
             eprintln!("       oracle shell01_rdwssap orders|reaches <n>|shows [--passwd FILE]");
+            eprintln!("       oracle shell01_rdwssap collates");
             exit(2);
         }
     }
@@ -1006,6 +1038,16 @@ fn check_rdwssap() -> usize {
     // logins, and three names, short of the window.
     if fixture_misses(PW_FIXTURE) != vec!["window", "orders"] {
         fail("fixture_misses on the hand table");
+    }
+    // The probe, overridden: whether the machine collates apart from bytes is
+    // an argument here, so both branches hold on any machine.
+    if locale_collates() {
+        fail("the C locale collates as bytes do");
+    }
+    if fixture_misses_here(PW_FIXTURE, true) != vec!["window", "orders"]
+        || fixture_misses_here(PW_FIXTURE, false) != vec!["window"]
+    {
+        fail("fixture_misses_here leaves orders out only where the locale collates as bytes");
     }
     if fixture_misses(b"aa:x\nbb:x\n# late\n") != vec!["comment-first", "comment-later", "window", "orders"]
         || fixture_misses(b"# top\naa:x\n# mid\nbb:x\n") != vec!["window", "orders"]

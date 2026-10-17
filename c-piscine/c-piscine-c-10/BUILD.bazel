@@ -1,4 +1,4 @@
-load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_levels", "c_make", "c_program", "corpus_memory", "exercise", "hand_test", "subject")
+load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_levels", "c_make", "c_program", "corpus_memory", "exercise", "hand_test", "output_gate", "subject")
 
 # THE SUBJECT CONTRACT (tools/subject.bzl), from each exercise's header box.
 #
@@ -959,14 +959,31 @@ c_levels()
 # ONE TABLE for the plain replays and their memory twins below: c_levels()'
 # audit holds each plain replay to twins of exactly its corpus, and a count
 # written twice drifted once (ex03's went to 180 here and stayed 90 there).
+#
+# THE GATE, the row's last field: every replay of a corpus, and its twins,
+# waits for one named case of its exercise, the program run on a file of the
+# kind the corpus generates, which a stub fails: while that case is red each
+# says SKIP, since a corpus replayed over a program the case already fails
+# says that red again, 60 to 94 times (docs/reference.md, "Which layers wait
+# for which"). The case is named, not found: each exercise has several output
+# tests, and a gate waits for one. output_gate() reads the gate off it.
+#   ex00 show     the subject's display of a file
+#   ex01 one      one file, cat's way
+#   ex02 cbytes   "-c 20" on one file, the corpus's own flag
+#   ex03 canon    "-C" on one file, the corpus's own flag
 C10_FILE_CORPORA = [
-    ("00", "c10_display_file", "60", []),
-    ("01", "c10_cat", "60", []),
-    ("02", "c10_tail", "90", ["--expect-transform"]),
+    ("00", "c10_display_file", "60", [], "show"),
+    ("01", "c10_cat", "60", [], "one"),
+    ("02", "c10_tail", "90", ["--expect-transform"], "cbytes"),
     # 180 files, cut into one to three per case: about as many runs as
     # when each case was one file.
-    ("03", "c10_hexdump", "180", ["--expect-transform", "--expect-substring", "*"]),
+    ("03", "c10_hexdump", "180", ["--expect-transform", "--expect-substring", "*"], "canon"),
 ]
+
+C10_GATES = {
+    num: output_gate("ex%s_%s_output" % (num, case))
+    for num, _fn, _count, _extra, case in C10_FILE_CORPORA
+}
 
 [
     hand_test(
@@ -983,16 +1000,16 @@ C10_FILE_CORPORA = [
             fn,
             "--count",
             count,
-        ] + extra + ["--stderr-empty"],
+        ] + extra + C10_GATES[num][0] + ["--stderr-empty"],
         data = [
             ":ex%s_bin" % num,
             "//oracle:oracle",
             "//tools:file_check.sh",
             "//tools:exit_status",
             "//tools:runner_lib.sh",
-        ],
+        ] + C10_GATES[num][1],
     )
-    for num, fn, count, extra in C10_FILE_CORPORA
+    for num, fn, count, extra, _gate in C10_FILE_CORPORA
 ]
 
 # THE CORPUS UNDER THE MEMORY CHECKERS (finding 113): each file corpus on the
@@ -1014,8 +1031,8 @@ C10_FILE_CORPORA = [
             fn,
             "--count",
             count,
-        ] + extra,
-        data = ["//oracle:oracle"],
+        ] + extra + C10_GATES[num][0],
+        data = ["//oracle:oracle"] + C10_GATES[num][1],
     )
-    for num, fn, count, extra in C10_FILE_CORPORA
+    for num, fn, count, extra, _gate in C10_FILE_CORPORA
 ]

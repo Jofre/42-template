@@ -1,0 +1,15 @@
+  A string and a delimiter; the strings of the array are printed one per
+  column, as hex: decode them to read them as text. The column before them
+  is how many there are; the last column is 1 when an array came back at all.
+  Here s is never empty, c is never NUL, and no delimiter sits at either end
+  of s or beside another.
+    * the last word missing     -> the end of the string ends a word too
+    * one string too many       -> what marks the end of the array itself, as
+                                   opposed to the end of each string?
+    * a delimiter absent from s -> how many words does s hold then?
+    * the right words, one byte short or with garbage after them -> where
+                                   each string's terminator goes
+    * only strings holding a byte of 0x80 or more -> whether a comparison of a
+                                   byte with c sees that char as negative
+    * only the long strings, or thousands of words -> does anything stop
+                                   working past a few thousand of either?

@@ -62,7 +62,8 @@
 # `pinned-in` actually installs, which is the drift that can realistically
 # happen to them.
 #
-# TWO ROWS ARE OBSERVED BUT NOT PINNED: glibc, and perl.
+# ROWS OBSERVED BUT NOT PINNED: glibc and perl, argued below, and the shell
+# piscine's tools, whose own note sits above their rows.
 #
 # perl first, because it is the short one. callgrind_annotate is a perl script
 # that formats a profile valgrind has ALREADY produced, so the interpreter never
@@ -94,23 +95,35 @@
 # student's) the harness builds and runs on the same machine, so there is no
 # skew to protect against.
 #
-# FOUR campus rows have never been checked against a campus capture: glibc,
-# perl, cc-std and gcc-10-std. Their values were observed in the DEVCONTAINER,
-# because the one campus audit (2026-08-09) predates env-audit.sh capturing any
-# of them. Every other campus row was confirmed against that capture, line for
-# line. env-audit.sh captures all four now, so the next campus run is what
-# confirms them; Ubuntu 22.04.5 ships glibc 2.35 and perl 5.34, so they should
-# match, and a differing packaging suffix is graded "repackaged", not drift.
+# EVERY campus row holds campus's exact string, packaging suffix included. The
+# second campus audit (a campus box, 2026-10-13, report 90da4ff6 on
+# origin/env-audit-42) checked every one but ld and as under env_drift's own
+# rule, and glibc, perl, cc-std and gcc-10-std for the first time: until then
+# they had been observed in the DEVCONTAINER only, because the first audit
+# (2026-08-09) predates env-audit.sh capturing them. One row differed, glibc:
+# it said 2.35-0ubuntu3.13 where campus has 2.35-0ubuntu3.15, and was
+# re-pinned on 2026-10-14, because a pin is campus's exact number (the
+# owner's ruling). env_drift grades a suffix alone as "repackaged", not drift,
+# and --strict ignores it, but on a campus box it prints the re-pin edit as it
+# does for drift (since 2026-10-14; it said "Nothing to do" before). ld and
+# as are the two rows that report does not capture, so their strings are
+# inferred, not observed: they come from binutils-x86-64-linux-gnu, which it
+# shows at the pinned 2.38-4ubuntu2.12.
 #
 # WHEN CAMPUS MOVES: run `bazel run //tools:env_drift` there, read what it
 # reports, and edit BOTH this file and the place named in `pinned-in`. Repinning
 # is deliberately manual -- a pin changed automatically is a change to what the
 # suite tests, made by nobody.
-cc	campus	Ubuntu clang version 12.0.1-19ubuntu3	cc --version	the BOX's cc, observed: the binaries Bazel builds now come from //tools/cc_toolchain (the pinned clang-12 + binutils 2.38), not from this
+cc	campus	Ubuntu clang version 12.0.1-19ubuntu3	cc --version	the BOX's cc, observed: the binaries Bazel builds now come from //tools/cc_toolchain (the pinned clang-12 + binutils 2.38), and a Makefile's recipes run the pinned clang-12 as cc (make_test.sh), not this
 clang-12	campus	Ubuntu clang version 12.0.1-19ubuntu3	clang-12 --version	MODULE.bazel (deb_archive)	HERMETIC_CLANG
 gcc-10	campus	gcc-10 (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0	gcc-10 --version	MODULE.bazel (deb_archive)	HERMETIC_GCC
 make	campus	GNU Make 4.3	make --version	MODULE.bazel (deb_archive)	HERMETIC_MAKE
-ar	campus	GNU ar (GNU Binutils for Ubuntu) 2.38	ar --version	.devcontainer/Dockerfile
+# ar and ranlib are what a Makefile's recipes run by those names: make_test.sh
+# puts the fetched ones first on the recipes' PATH (TO VERIFY V60), with the
+# libbfd beside them, which it proves they load. As nm's, each version is the
+# frontend's own.
+ar	campus	GNU ar (GNU Binutils for Ubuntu) 2.38	ar --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_AR
+ranlib	campus	GNU ranlib (GNU Binutils for Ubuntu) 2.38	ranlib --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_RANLIB
 # nm's version string comes out of the FRONTEND's own .rodata, so this row
 # stays green whichever libbfd the loader supplies -- which it once did while
 # the box's 1.5 MB library was doing all the work behind a 44 KB pinned name.
@@ -118,15 +131,60 @@ ar	campus	GNU ar (GNU Binutils for Ubuntu) 2.38	ar --version	.devcontainer/Docke
 # runners take, and each of them refuses to run unless LD_DEBUG says libbfd
 # resolved inside the staged tree. Do not read a green here as that check.
 nm	campus	GNU nm (GNU Binutils for Ubuntu) 2.38	nm --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_NM
+# objdump is nm's sibling from the same package, read by forbidden_symbols.sh
+# --function, and the same holds: its frontend prints the version, and what
+# holds the pin is --objdump-lib, refused unless libbfd resolved in the tree.
+objdump	campus	GNU objdump (GNU Binutils for Ubuntu) 2.38	objdump --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_OBJDUMP
+# ld.bfd links every build the layers make (the cc toolchain's linker), and
+# its version, too, is the frontend's; the pin is held by the wrapper
+# rl_ld_pin writes (tools/runner_lib.sh), which proves libbfd's directory won.
+ld	campus	GNU ld (GNU Binutils for Ubuntu) 2.38	ld --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_LD
+# as is gcc's assembler, from the same package: the gcc layer's -B points
+# gcc at it (defs.bzl's compiler table, `progs`), and env_drift had no row
+# for it until conventions read every label a tools/*.bzl pins. As nm's,
+# its version is the frontend's own: which libbfd it loads, no row checks.
+as	campus	GNU assembler (GNU Binutils for Ubuntu) 2.38	as --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_AS
 valgrind	campus	valgrind-3.18.1	valgrind --version	MODULE.bazel (deb_archive)	HERMETIC_VALGRIND
 perl	campus	This is perl 5, version 34, subversion 0 (v5.34.0) built for x86_64-linux-gnu-thread-multi	perl --version	NOT PINNED -- callgrind_annotate is a perl script; see the note above
 gdb	campus	GNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1	gdb --version	.devcontainer/Dockerfile
 lldb-12	campus	lldb version 12.0.1	lldb-12 --version	.devcontainer/Dockerfile
 norminette	campus	3.3.58	norminette-version	tools/requirements.txt	HERMETIC_NORMINETTE
+# The interpreter norminette runs under, which is campus's too: the second
+# campus audit (report 90da4ff6, 2026-10-13) found norminette 3.3.58 under
+# pyenv's Python 3.13.1, and MODULE.bazel fetches that exact release for
+# every py_binary and py_test here. Kind `fetched`, not campus, because this
+# machine's python3 is not what any layer runs (the dev container's is
+# Ubuntu's 3.10.12, which `42` runs under there): the comparison that means
+# something is pin against fetch. //tools:conventions holds the
+# python_version MODULE.bazel names, at all three of its sites, to this row.
+python	fetched	Python 3.13.1	python3 --version	MODULE.bazel (python.defaults, python.toolchain, pip.parse; rules_python)	HERMETIC_PYTHON
 diff	campus	diff (GNU diffutils) 3.8	diff --version	MODULE.bazel (deb_archive)	HERMETIC_DIFF
 cc-std	campus	201710L gnu	default-std cc	tools/defs.bzl (_COPTS pins -std=gnu17)
 gcc-10-std	campus	201710L gnu	default-std gcc-10	tools/defs.bzl (_COPTS pins -std=gnu17)
-glibc	campus	ldd (Ubuntu GLIBC 2.35-0ubuntu3.13) 2.35	ldd --version	NOT PINNED -- observed only, see the note in the header
+glibc	campus	ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35	ldd --version	NOT PINNED -- observed only, see the note in the header
+# The shell piscine's tools. Every one is the box's own copy: no layer fetches
+# them, the shell exercises run on them, and several of the checks do too
+# (file, find, tar, git, and ssh-keygen and ifconfig from the openssh and
+# net-tools packages these rows stand for). The image installs them
+# unversioned (.devcontainer/Dockerfile, "NOT PINNED", says why), so each row
+# is observed, not pinned: campus's exact line, from the second campus audit
+# (report 90da4ff6, 2026-10-13), which the dev container prints identically.
+# ssh's and ip's lines end in another program's version, OpenSSL's and
+# libbpf's. env_drift grades a line's first number, the tool's own, as well as
+# its last, so a move of either number is drift, and a new Ubuntu revision of
+# the same two is a repackaging (on a campus box, that too prints the re-pin
+# edit). OpenSSH's portable suffix (8.9p1 to 8.9p2) is not part of its number,
+# and reads as a repackaging too.
+bash	campus	GNU bash, version 5.1.16(1)-release (x86_64-pc-linux-gnu)	bash --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+ssh	campus	OpenSSH_8.9p1 Ubuntu-3ubuntu0.17, OpenSSL 3.0.2 15 Mar 2022	ssh -V	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+file	campus	file-5.41	file --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+bc	campus	bc 1.07.1	bc --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+netstat	campus	net-tools 2.10-alpha	netstat --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+ip	campus	ip utility, iproute2-5.15.0, libbpf 0.5.0	ip -V	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+find	campus	find (GNU findutils) 4.8.0	find --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+tar	campus	tar (GNU tar) 1.34	tar --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+patch	campus	GNU patch 2.7.6	patch --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+git	campus	git version 2.34.1	git --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
 shellcheck	fetched	version: 0.10.0	shellcheck --version	MODULE.bazel (http_archive)	HERMETIC_SHELLCHECK
 # llvm-symbolizer turns a sanitizer report's frames into function, file and
 # line. It is campus's 12.0.1 build (the llvm-12 .deb beside clang-12's), but
@@ -148,10 +206,11 @@ rustc	fetched	rustc 1.96.1 (31fca3adb 2026-06-26)	rustc --version	MODULE.bazel (
 rust-std-i686	fetched	1.96.1	-	MODULE.bazel (http_archive rust_std_i686_musl: url, strip_prefix)
 bazel	ours	9.2.0	-	.bazelversion
 bazelisk	ours	v1.29.0	-	tools/setup.sh (BAZELISK_VERSION) + .devcontainer/Dockerfile
-# The strlcpy(3bsd) and strlcat(3bsd) manual pages, C 02 ex10's and C 03
-# ex05's contract, and nothing else of the package: glibc 2.35 has neither
-# function, so on Ubuntu 22.04 the page ships only here. The image extracts
-# the two pages from this .deb and installs neither its header nor its
-# library, so no code builds there that would not build on a campus box
-# without them. Whether campus has the page is env-audit.sh's to record.
-libbsd-dev	ours	0.11.5-1	-	.devcontainer/Dockerfile (LIBBSD_DEV_VERSION: the strlcpy/strlcat manual pages only)
+# The strlcpy(3bsd), strlcat(3bsd) and strnstr(3bsd) manual pages, C 02
+# ex10's, C 03 ex05's and Libft's contract, and nothing else of the package:
+# glibc 2.35 has none of the three functions, so on Ubuntu 22.04 their pages
+# ship only here. The image extracts those pages from this .deb and installs
+# neither its header nor its library, so no code builds there that would not
+# build on a campus box, which need not have them. Whether campus has the
+# page is env-audit.sh's to record.
+libbsd-dev	ours	0.11.5-1	-	.devcontainer/Dockerfile (LIBBSD_DEV_VERSION: the strlcpy/strlcat/strnstr manual pages only)

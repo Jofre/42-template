@@ -263,7 +263,7 @@ is welcome:
 - **Docs**: `README.md`, `docs/` and this file. (Deliverable filenames and `ft_*` names are
   fixed by the subject (see §4) and must match it exactly.)
 - **Git & delivery plumbing**: branches, merges, `tools/init` / `generate` / `submit`
-  workflows — subject to §5 (no unsolicited commits/pushes).
+  workflows — subject to §5, which says when a commit or a push waits for the human.
 
 Debugging *the test framework itself* (e.g. a test that checks the wrong thing) is
 encouraged; fixing *the student's exercise so the test passes* is not.
@@ -374,8 +374,15 @@ encouraged; fixing *the student's exercise so the test passes* is not.
 ## 5. Interaction rules
 
 - **No unsolicited side effects.** Never commit, push, generate/push submission repos,
-  or submit to Vogsphere unless the human explicitly asks. Present build/test results
-  before acting.
+  or submit to Vogsphere unless the human explicitly asks, or has written a standing
+  grant for it into this section. Present build/test results before acting.
+- **Keep every commit and push undoable.** Stage by path the files you mean to
+  commit. Use `git add -A`, `git add .` or `git commit -a` only when the human asks
+  for it, or a procedure they asked you to run says to: the human edits this
+  checkout too, and a file you did not change goes into a commit only when they
+  ask. Never skip a hook (`--no-verify`). Never force a push, or rewrite history
+  that was pushed, unless the human asks for that one by name: a pushed commit is
+  undone by `git revert`, which an ordinary push carries.
 - **The subject and `man` first**: the subject PDF in the project's folder, and `man`; use
   the web only when neither has the answer or a system-specific detail is unclear.
 - **Be honest about test state.** If tests fail, say so with the output; never make an
@@ -393,10 +400,10 @@ encouraged; fixing *the student's exercise so the test passes* is not.
   When you cannot tell which side of the scope it falls on, ask the human. Write a
   lead, not a verdict: what you saw, where, how to reproduce it, what is still
   unproven, and the fix you suspect. Writing the entry needs no
-  permission; committing it does (above). A bug in the student's own exercise code
-  is not an entry: the tests report it, and writing it down would hand over the
-  answer by another door (§0). The template ships without the maintainer's
-  `TODO.md`, so in a fresh clone the first entry creates the file.
+  permission; committing it is a commit like any other (above). A bug in the
+  student's own exercise code is not an entry: the tests report it, and writing it
+  down would hand over the answer by another door (§0). The template ships without
+  the maintainer's `TODO.md`, so in a fresh clone the first entry creates the file.
 
 ---
 

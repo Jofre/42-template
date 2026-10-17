@@ -111,9 +111,15 @@ c_diff(
 # diff harness's comparator answers "no match" to a call that does not hand it
 # the query, so a search that never does finds nothing there. //tools/tests's
 # selftest builds the fixture over a toy that hands cmpf a node, and requires
-# the last row to count it, so the file is visible to it.
+# the last row to count it, so the file is visible to it. It also builds
+# ex00's fixture over a toy that hands back one static block, whose crash in
+# free() must be marked on the first call's last row (V303).
 exports_files(
-    ["tests/ex05/test_btree_search_item.c"],
+    [
+        "tests/ex00/test_btree_create_node.c",
+        "tests/ex00/expected.txt",
+        "tests/ex05/test_btree_search_item.c",
+    ],
     visibility = ["//tools/tests:__pkg__"],
 )
 

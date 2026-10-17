@@ -1,0 +1,11 @@
+"abc" vs "abc", n 3	zero
+"abc" vs "abd", n 3	negative
+"abd" vs "abc", n 3	positive
+"abc" vs "abd", n 2	zero
+"a" vs "b", n 0	zero
+"a\0b" vs "a\0c", n 3	negative
+byte 0x80 vs byte 0x01, n 1	positive
+byte 0x01 vs byte 0xff, n 1	negative
+byte 0xff vs a NUL byte, n 1	positive
+5000 equal bytes, n 5000 (past 4096)	zero
+5000 bytes, the last 0xe9 vs 0x10, n 5000 (past 4096)	positive

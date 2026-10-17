@@ -1,0 +1,4 @@
+# clues_empty.tsv for ft_lstlast's strict target on the empty list -- hints only, never answers.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+The empty list has no last node, and its box does not say what comes back for it. This harness's reading, at strict: NULL, the one pointer that is no node. Does your function look inside a node before it knows there is one? The basic table never asks this, so a red here alone is about the reading.	NULL (the empty list)
+This row is one of the basic table's own: is ex00_ft_lstlast_output green?	3 nodes

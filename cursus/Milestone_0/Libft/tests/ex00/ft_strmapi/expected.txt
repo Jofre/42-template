@@ -1,0 +1,7 @@
+"aaaa", c + i	"abcd", calls 0:a 1:a 2:a 3:a
+"abc", c + i	"ace", calls 0:a 1:b 2:c
+"", c + i	"", no call
+"abc", 0xe0 + i	"\xe0\xe1\xe2", calls 0:a 1:b 2:c
+"a<TAB>b<LF>", c	"a\tb\n", calls 0:a 1:\t 2:b 3:\n
+0xe9 0xff 0x80, c	"\xe9\xff\x80", calls 0:\xe9 1:\xff 2:\x80
+5000 letters, upper case	5000 bytes, 5000 calls

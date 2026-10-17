@@ -1,0 +1,6 @@
+# clues.tsv for ft_lstmap -- pedagogic hints only. NEVER state the expected value or the fix.
+# Format: <hint><TAB><member CASE label><TAB>...   (fires if ANY member case fails)
+What does a node of the new list hold: the content of the old node, or what f returned for it? And is f handed every old node's content, once, in the list's order?	[1 2 3]: f called with	[1 2 3]: new list	[7]: f called with	[7]: new list	5000 nodes: new list
+The box creates a new list: is each of its nodes one you made, and does the list handed over still hold the nodes and contents it held?	[1 2 3]: nodes of the list handed over in it	[7]: nodes of the list handed over in it	[1 2 3]: list handed over, afterwards	[7]: list handed over, afterwards
+What is there to map when the first node is NULL, and should f or del be called at all then?	NULL (the empty list): result	NULL (the empty list): calls
+When every allocation succeeds, is there a content that needs deleting? Whose contents would del be deleting?	[1 2 3]: del called	[7]: del called

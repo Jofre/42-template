@@ -1,0 +1,6 @@
+  The input's ints, each a node's content, are added at the front one by
+  one, from the empty list; the output is the list afterwards, first node
+  first. A z is the node every new->next held before its call.
+    * a z in the list         -> what new->next holds after the call
+    * fewer nodes than added  -> which pointer the caller reads the list from
+    * still going             -> a node whose next leads back to itself

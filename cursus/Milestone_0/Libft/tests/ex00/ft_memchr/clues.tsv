@@ -1,0 +1,6 @@
+# clues.tsv for ft_memchr -- pedagogic hints only, each a question. NEVER state the expected value or the fix.
+# Format: <hint><TAB><CASE label><TAB>...   (a hint fires when ANY of its cases fails)
+man memchr: it returns "a pointer to the matching byte or NULL if the character does not occur in the given memory area". Which pointer does your function return when it finds c, and which one when it does not?	'W', n 11	'l', n 11 (two of them)	'z', n 11 (none)
+The search covers "the initial n bytes" (man memchr): how many bytes does your function look at -- the n-th one included, or not -- and what is left to look at when n is 0?	'o', n 4 (the 'o' is the 5th byte)	'o', n 5	'H', n 0
+memchr searches memory, not a string: what decides when your function stops looking -- n, or a byte it meets on the way?	'\0', n 11	'd', n 11 (after the NUL)
+man memchr: "Both c and the bytes of the memory area pointed to by s are interpreted as unsigned char." What value does a byte of 0x80 or more have as a char here, and what does 328 or -23 become as an unsigned char?	'a' then byte 0xe9, 233 (0xe9), n 2	'a' then byte 0xe9, -23, n 2	256 + 'H' (328), n 11	-256, n 11	0xe9 (233), n 5000, only the last byte (past 4096)

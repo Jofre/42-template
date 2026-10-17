@@ -1,5 +1,6 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//tools:defs.bzl", "hand_test", "lvl_tags", "starlark_selftest")
 load(":starlark_unit.bzl", "starlark_unit")
 
@@ -62,6 +63,25 @@ SELFTEST_ARGS = [
         "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd)",
         "--ld-lib",
         "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
+        # The pinned objdump, for forbidden_symbols.sh --function, which takes
+        # one with no PATH fallback, as it takes nm. Its libraries are nm's.
+        "--objdump",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-objdump)",
+        # The pinned assembler gcc shells out to, for compile_check.sh's
+        # --cc-progs arms: that it loads its libbfd and libopcodes from the
+        # fetched tree, and that one which cannot start is the harness's
+        # refusal and never the student's FAIL (TO VERIFY V228). Its
+        # libraries are --nm-lib's.
+        "--as",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-as)",
+        # The pinned ar and ranlib, for make_test.sh's pinned arms: with the
+        # build above, gcc-10 and as, what tools/defs.bzl hands every
+        # make_test.sh test (_pinned_make_args, TO VERIFY V60). Their
+        # libraries are --ld-lib's.
+        "--ar",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ar)",
+        "--ranlib",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ranlib)",
 ]
 
 # Shared so :selftest and :selftest_bash cannot drift apart: the second exists
@@ -82,6 +102,10 @@ SELFTEST_DATA = [
         # libLLVM, which it loads too, is listed above for clang-12.
         "@clang_12_ubuntu//:usr/lib/llvm-12/bin/llvm-symbolizer",
         "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-objdump",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-as",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ar",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ranlib",
         "@binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so",
         "@shellcheck_linux_x86_64//:shellcheck",
         "@valgrind_ubuntu//:runtime",
@@ -141,6 +165,7 @@ SELFTEST_DATA = [
         "//tools:oracle_fixtures.sh",
         "//tools:reference_cases.sh",
         "//tools:issued_test.sh",
+        "//tools:readme_check.sh",
         "//tools:norminette_test.sh",
         "//tools:probe_under.sh",
         "//tools:progname_test.sh",
@@ -238,6 +263,20 @@ SELFTEST_DATA = [
         "//c-piscine/c-piscine-c-01:tests/ex03/test_div_mod.c",
         "//c-piscine/c-piscine-c-01:tests/ex03/expected.txt",
         "//c-piscine/c-piscine-c-02:tests/ex12/diff_print_memory.c",
+        # C 07 ex00's fixture and its expected rows, built over a toy that
+        # hands back a static block, whose crash in free() must be marked on
+        # the first row, the case that crashed (V220).
+        "//c-piscine/c-piscine-c-07:tests/ex00/test_strdup.c",
+        "//c-piscine/c-piscine-c-07:tests/ex00/expected.txt",
+        # And C 13 ex00's, whose crash in the first node's free() must be
+        # marked on that call's last row (V303).
+        "//c-piscine/c-piscine-c-13:tests/ex00/test_btree_create_node.c",
+        "//c-piscine/c-piscine-c-13:tests/ex00/expected.txt",
+        # And Libft's three fd readers, built over a toy that writes to fd 1
+        # (V217).
+        "//cursus/Milestone_0/Libft:tests/ex00/ft_putendl_fd/diff_ft_putendl_fd.c",
+        "//cursus/Milestone_0/Libft:tests/ex00/ft_putnbr_fd/diff_ft_putnbr_fd.c",
+        "//cursus/Milestone_0/Libft:tests/ex00/ft_putstr_fd/diff_ft_putstr_fd.c",
         "//c-piscine/c-piscine-c-13:tests/ex05/test_btree_search_item.c",
         "//c-piscine/c-piscine-bsq:tests/ex00/clues.tsv",
         "//c-piscine/c-piscine-rush-01:tests/ex00/clues.tsv",
@@ -253,6 +292,18 @@ SELFTEST_DATA = [
         "//c-piscine/c-piscine-rush-00:tests/ex00/survive_rush.c",
         "//c-piscine/c-piscine-rush-00:tests/ex00/rush_capture.h",
         "//c-piscine/c-piscine-rush-00:tests/ex00/test_defense.c",
+        # What each section costs, which the shards are dealt by: read
+        # beside selftest.sh, whose deal refuses to run without it.
+        "selftest_costs.tsv",
+        # Sourced before any arm: the replay under C on a machine without
+        # the test locale, shared with selftest_slow.sh.
+        "selftest_locale.sh",
+        # Not a runner: :selftest_costs's script, run on a toy table and toy
+        # shard logs by "the shard deal" arms.
+        "selftest_costs.sh",
+        # Not a runner: :fetched_needed's script, run on a toy tree and toy
+        # pages by "the borrowed libraries" arms.
+        "fetched_needed.sh",
 ]
 
 # A toy reader harness linked through //tools:diffio, the library every c_diff
@@ -312,12 +363,18 @@ hand_test(
     # rely on). They were dealt in turn, and one shard held the conventions
     # section, a run of conventions.sh per arm: 450 of the file's 750 seconds
     # of arms, that shard 466-590s against 120-150s for the others, and
-    # :selftest_bash 714s of its 900 (finding 066). They are dealt by weight
-    # now ("SHARD WEIGHTS"), conventions is eight sections, and its plain
-    # runs of the check happen only in the shard whose arms read them:
-    # measured on one run, 144-172s per shard, :selftest_bash 217-306s --
-    # and with two full suites on the machine 373s and 742s, so they are
-    # eight shards, not four: each runs all the plain code (10-15s) and an
+    # :selftest_bash 714s of its 900 (finding 066). Dealt next by a count of
+    # lines, they were even in count and not in time: on an idle machine at
+    # 6e639729 the shards took 342-590s (:selftest) and 355-596s
+    # (:selftest_bash), the slowest 1.38x and 1.29x the mean, and loaded
+    # runs timed shards out at 900s (V138, V208). They are dealt by
+    # measured seconds now (selftest_costs.tsv, "SHARD WEIGHTS"), no section
+    # costs more than three quarters of a shard's share (conventions is twenty
+    # sections), and the plain runs of the check happen only in the shard
+    # whose arms read them. In three runs of that deal, at load 9-49 beside
+    # other branches' builds, the slowest shard was 1.04-1.05x the mean
+    # (:selftest 500-647s, :selftest_bash 573-728s of their 900).
+    # Eight shards, not four: each runs all the plain code (20-45s) and an
     # eighth of the arms. Each shard has the whole timeout, its log is
     # bazel-testlogs/tools/tests/selftest/shard_N_of_8/test.log, and every
     # section's time is printed in it ("[section ...]"). A hand run still
@@ -414,6 +471,19 @@ hand_test(
     env = {"SELFTEST_SH": "bash"},
 )
 
+# bazel run //tools/tests:selftest_costs [-- --write]
+#
+# The two targets above are dealt by selftest_costs.tsv, whose rows the deal
+# never checks against a run: a listed section that grows keeps its row
+# (TO VERIFY V285). This reads the last run's shard logs back against the
+# table, and with --write measures it again. Run by hand, by whoever keeps
+# the selftest; "the shard deal" arms run it on a toy.
+sh_binary(
+    name = "selftest_costs",
+    srcs = ["selftest_costs.sh"],
+    data = ["selftest_costs.tsv"],
+)
+
 # The same question as :selftest, for the runners too expensive to ask it of on
 # every build. Split rather than merged so that valgrind's 20-50x, zig's
 # compiles and the //oracle build stay off the selftest people run most — a
@@ -475,6 +545,14 @@ SLOW_ARGS = [
         "$(rootpath //oracle:oracle)",
         "--redirect-lib",
         "$(rootpath //tools:path_redirect.so)",
+        # Two stand-ins for C 02 ex10's function, compiled from Rust, that
+        # differ only in what its manual page leaves open: C 02 ex10's
+        # output fixture is built over each, and both must pass (V205).
+        "--strlcpy-standins",
+        "$(rootpath //oracle:c02_strlcpy_standins)",
+        # The same for C 03 ex05's function and fixture (V283).
+        "--strlcat-standins",
+        "$(rootpath //oracle:c03_strlcat_standins)",
 ]
 
 SLOW_DATA = [
@@ -503,12 +581,51 @@ SLOW_DATA = [
         "//tools:standin.sh",
         "//tools:student_build.sh",
         "//tools:unbuffered_stdout.c",
+        # Sourced before any arm, as selftest.sh does (SELFTEST_DATA).
+        "selftest_locale.sh",
         "//tools:runner_lib.sh",
         "//tools:valgrind_test.sh",
         "//tools:shell_check.sh",
         "//tools:shell_test.sh",
         "//tools:path_redirect.so",
         "//oracle:oracle",
+        # Not runners: C 02 ex10's and C 03 ex05's fixtures and their
+        # expected rows, and the stand-ins the arm builds each over.
+        "//oracle:c02_strlcpy_standins",
+        "//c-piscine/c-piscine-c-02:tests/ex10/test_strlcpy.c",
+        "//c-piscine/c-piscine-c-02:tests/ex10/expected.txt",
+        "//oracle:c03_strlcat_standins",
+        "//c-piscine/c-piscine-c-03:tests/ex05/test_strlcat.c",
+        "//c-piscine/c-piscine-c-03:tests/ex05/expected.txt",
+        # And the comparison exercises' corpora, run over toys by the
+        # runner the diff layer runs (V206): each c_diff call is read from
+        # its BUILD file, and each harness it may name is here, with the
+        # texts its plain targets ship.
+        "//tools:rust_diff.sh",
+        "//tools:diffio.h",
+        "//c-piscine/c-piscine-c-03:BUILD.bazel",
+        "//c-piscine/c-piscine-c-03:tests/ex00/diff_strcmp.c",
+        "//c-piscine/c-piscine-c-03:tests/ex00/diff_strcmp_readings.c",
+        "//c-piscine/c-piscine-c-03:tests/ex00/test_strcmp.c",
+        "//c-piscine/c-piscine-c-03:tests/ex00/clues.tsv",
+        "//c-piscine/c-piscine-c-03:tests/ex00/diff_clues.txt",
+        "//c-piscine/c-piscine-c-03:tests/ex01/diff_strncmp.c",
+        "//c-piscine/c-piscine-c-03:tests/ex01/diff_strncmp_readings.c",
+        "//c-piscine/c-piscine-c-03:tests/ex01/test_strncmp.c",
+        "//c-piscine/c-piscine-c-03:tests/ex01/clues.tsv",
+        "//c-piscine/c-piscine-c-03:tests/ex01/diff_clues.txt",
+        "//c-piscine/c-piscine-c-09:BUILD.bazel",
+        "//c-piscine/c-piscine-c-09:tests/ex00/diff_strcmp.c",
+        "//c-piscine/c-piscine-c-09:tests/ex00/diff_strcmp_readings.c",
+        "//c-piscine/c-piscine-c-09:tests/ex00/test_libft.c",
+        "//c-piscine/c-piscine-c-09:tests/ex00/clues.tsv",
+        "//c-piscine/c-piscine-c-09:tests/ex00/diff_clues.txt",
+        "//c-piscine-reloaded/c-piscine-reloaded:BUILD.bazel",
+        "//c-piscine-reloaded/c-piscine-reloaded:tests/ex17/diff_strcmp.c",
+        "//c-piscine-reloaded/c-piscine-reloaded:tests/ex17/diff_strcmp_readings.c",
+        "//c-piscine-reloaded/c-piscine-reloaded:tests/ex17/test_strcmp.c",
+        "//c-piscine-reloaded/c-piscine-reloaded:tests/ex17/clues.tsv",
+        "//c-piscine-reloaded/c-piscine-reloaded:tests/ex17/diff_clues.txt",
         "//c-piscine/c-piscine-shell-01:tests/ex07/check.sh",
         "//c-piscine/c-piscine-shell-01:tests/ex07/literal.sh",
         "//c-piscine/c-piscine-shell-01:tests/ex07/passwd",
@@ -572,6 +689,8 @@ hand_test(
 _MODULES = [
     # Piscine Reloaded: one project.
     "//c-piscine-reloaded/c-piscine-reloaded",
+    # The Common Core, one folder per milestone.
+    "//cursus/Milestone_0/Libft",
 ] + [
     "//c-piscine/c-piscine-%s" % m
     for m in [
@@ -638,6 +757,7 @@ hand_test(
         "//tools/tests/macro_fixtures/root:conventions_srcs",
         "//tools/tests/macro_fixtures/levels:conventions_srcs",
         "//tools/tests/macro_fixtures/knobs:conventions_srcs",
+        "//tools/tests/macro_fixtures/graded:conventions_srcs",
         "@buildifier_prebuilt//:buildifier",
         "@shellcheck_linux_x86_64//:shellcheck",
     ] + [m + ":conventions_srcs" for m in _MODULES],
@@ -650,9 +770,11 @@ hand_test(
 # drives.sh), and runs no Bazel: the end-to-end runs are docs/testing.md's.
 py_test(
     name = "fortytwo_test",
-    # 28-30 s on its own, 19 of them in eleven slow cases, 40 s beside the
-    # four selftests, and out at "small"'s 60 in the template's full suite
-    # (2026-10-12).
+    # 28-30 s on its own, and out at "small"'s 60 in the template's full
+    # suite (2026-10-12). Real-time waits were 19 s of it; test_main.py's
+    # Clues now shortens them (V193): 13 s on its own and 32 s beside
+    # :selftest and :selftest_bash, on a machine at load 20 (2026-10-16),
+    # too close to 60 for "small".
     size = "medium",
     srcs = ["fortytwo_test.py"],
     data = [
@@ -671,6 +793,129 @@ py_test(
 # reach it. starlark_unit.bzl calls each such helper on inputs of its own, in
 # both directions, and this test is red naming any case that disagreed.
 starlark_unit(name = "starlark_unit")
+
+# Every shared library a fetched tool loads is fetched and staged too, or is
+# on docs/environment.md's list of what the harness borrows from the box --
+# and that list names nothing else. The fetched clang-12 could not start on a
+# release without libxml2.so.2, which nothing here had said it needed (TO
+# VERIFY V238, V244). fetched_needed.sh reads each program's dynamic section
+# with the pinned objdump, follows the libraries its tree stages, and compares
+# what is left with the list between the page's two markers.
+#
+# Here and not in //tools/cc_toolchain: it reads every fetched tree a layer
+# runs a program of -- valgrind, make and diff as well as the compilers and
+# binutils -- and holds a page, as the harness's other own tests do. Each
+# tree's --lib files are the folders its wrappers put on the loader's path
+# (clang's two, as _PINNED_CC_LIBS hands them; binutils' libbfd), and its
+# data stages what those folders hold for every layer: the trees' :runtime.
+# The Python every py_binary runs on (norminette among them) and the rustc
+# that builds //oracle are read too (V324): each finds its own libraries
+# from $ORIGIN, python3 by a path, rustc through its RUNPATH, so they need
+# no --lib, only the files beside them staged as their rules stage them.
+hand_test(
+    name = "fetched_needed",
+    layer = "selftest",
+    size = "small",
+    srcs = ["fetched_needed.sh"],
+    args = [
+        "--objdump",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-objdump)",
+        "--objdump-lib",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
+        "--doc",
+        "$(rootpath //:docs/environment.md)",
+        "--tree",
+        "clang_12_ubuntu",
+        "--lib",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/lib/libclang-cpp.so.12)",
+        "--lib",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1)",
+        "--elf",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12)",
+        "--elf",
+        "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/bin/llvm-symbolizer)",
+        "--tree",
+        "gcc_10_ubuntu",
+        "--elf",
+        "$(rootpath @gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10)",
+        "--elf",
+        "$(rootpath @gcc_10_ubuntu//:usr/lib/gcc/x86_64-linux-gnu/10/cc1)",
+        "--elf",
+        "$(rootpath @gcc_10_ubuntu//:usr/lib/gcc/x86_64-linux-gnu/10/collect2)",
+        "--tree",
+        "binutils_x86_64_linux_gnu",
+        "--lib",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so)",
+        "--elf",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm)",
+        "--elf",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-objdump)",
+        "--elf",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ar)",
+        "--elf",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ranlib)",
+        "--elf",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-as)",
+        "--elf",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd)",
+        "--elf",
+        "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.gold)",
+        "--tree",
+        "valgrind_ubuntu",
+        "--elf",
+        "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
+        "--elf",
+        "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux)",
+        "--elf",
+        "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux)",
+        "--tree",
+        "make_ubuntu",
+        "--elf",
+        "$(rootpath @make_ubuntu//:usr/bin/make)",
+        "--tree",
+        "diffutils_ubuntu",
+        "--elf",
+        "$(rootpath @diffutils_ubuntu//:usr/bin/diff)",
+        "--tree",
+        "python_3_13_1",
+        "--elf",
+        "$(rootpath @python_3_13_1//:python3)",
+        "--tree",
+        "rust",
+        "--elf",
+        "$(rootpath @rules_rust//rust/toolchain:current_rustc_files)",
+    ],
+    data = [
+        "//:docs/environment.md",
+        "@binutils_x86_64_linux_gnu//:runtime",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ar",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-as",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.gold",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-objdump",
+        "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ranlib",
+        "@binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so",
+        "@clang_12_ubuntu//:runtime",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/bin/clang-12",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/bin/llvm-symbolizer",
+        "@clang_12_ubuntu//:usr/lib/llvm-12/lib/libclang-cpp.so.12",
+        "@clang_12_ubuntu//:usr/lib/x86_64-linux-gnu/libLLVM-12.so.1",
+        "@diffutils_ubuntu//:usr/bin/diff",
+        "@gcc_10_ubuntu//:runtime",
+        "@gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10",
+        "@gcc_10_ubuntu//:usr/lib/gcc/x86_64-linux-gnu/10/cc1",
+        "@gcc_10_ubuntu//:usr/lib/gcc/x86_64-linux-gnu/10/collect2",
+        "@make_ubuntu//:usr/bin/make",
+        "@python_3_13_1//:files",
+        "@python_3_13_1//:python3",
+        "@rules_rust//rust/toolchain:current_rustc_files",
+        "@rules_rust//rust/toolchain:current_rustc_lib_files",
+        "@valgrind_ubuntu//:usr/bin/valgrind.bin",
+        "@valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux",
+        "@valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux",
+    ],
+)
 
 # This package's own scripts, for the test above.
 filegroup(
@@ -710,10 +955,15 @@ starlark_selftest(name = "starlark_selftest")
 # files against harnesses.expected: each harness names the test of the
 # signatures it calls (_student_bin's `prototype`), so a tag that stopped
 # being written is red here and not only a quieter audit.
+#
+# Medium (300 s), not small (60 s): it runs in 4-20 s, and it timed out at
+# 60 s once while four checkouts ran Bazel at once on one machine (TO VERIFY
+# V235). Its time is spent waiting for CPU that other tests hold, which the
+# limit has to leave room for.
 hand_test(
     name = "macro_fixtures_test",
     layer = "selftest",
-    size = "small",
+    size = "medium",
     srcs = ["macro_fixtures_test.sh"],
     args = [
         "--dir",
@@ -744,6 +994,12 @@ hand_test(
         "$(rootpath //tools/tests/macro_fixtures/levels:layers)",
         "--levels-expected-layers",
         "$(rootpath //tools/tests/macro_fixtures/levels:layers.expected)",
+        "--levels-member-strays",
+        "$(rootpath //tools/tests/macro_fixtures/levels:member_strays)",
+        "--graded-layers",
+        "$(rootpath //tools/tests/macro_fixtures/graded:layers)",
+        "--graded-expected-layers",
+        "$(rootpath //tools/tests/macro_fixtures/graded:layers.expected)",
         "--harnesses",
         "$(rootpath //tools/tests/macro_fixtures:harnesses)",
         "--expected-harnesses",
@@ -784,11 +1040,28 @@ hand_test(
         "--lines",
         "$(rootpath //tools/tests/macro_fixtures/levels:deliverable_files_names)",
         "old/toy_old.c,toy_loose.c",
+        # A library's Makefile's -I, which c_library() writes once for every
+        # layer that compiles its sources itself (V198): ex13's `-I inc`,
+        # and nothing for ex12, whose stub Makefile compiles nothing.
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/levels:ex13_make_bin_includes.txt)",
+        "tools/tests/macro_fixtures/levels/deliverable/ex13/inc",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/levels:ex12_make_bin_includes.txt)",
+        "-",
+        # The status a sentence is READ as naming keeps that source in the
+        # reference's run of the case too, not "subject" (V145). Quoted:
+        # sh_test splits `args` at blanks.
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/levels:reference_exit_sources)",
+        "'reading reading'",
         # Who waits for an output test, as subject()'s finalizer writes it
         # (tools/defs.bzl, _WAITING): the toys' gated layers with their
         # level; one case's own memory arm, and the survive case its gate's
-        # label names -- its output and its run under the sanitizer, which
-        # waits on the same case -- never another case's sharing the file;
+        # label names -- its output, and its runs under the sanitizer,
+        # under memcheck (V253) and under the allocation sweep (V282),
+        # which wait on the same case -- never another case's sharing the
+        # file;
         # and nothing for a toy whose layers wait for nothing (the root toy,
         # whose one case turns its valgrind arm off). Quoted: sh_test splits
         # `args` at blanks.
@@ -797,10 +1070,23 @@ hand_test(
         "'ex00_ilp32 (complete),ex00_memcheck (strict)'",
         "--lines",
         "$(rootpath //tools/tests/macro_fixtures/levels:waiting_ex00_exact_output)",
-        "'ex00_exact_valgrind (strict),ex00_survive_asan (robust),ex00_survive_output (basic)'",
+        "'ex00_exact_valgrind (strict),ex00_survive_asan (robust),ex00_survive_output (basic),ex00_survive_program_allocfail (robust),ex00_survive_valgrind (strict)'",
         "--lines",
         "$(rootpath //tools/tests/macro_fixtures/levels:waiting_ex00_raised_output)",
         "'ex00_raised_valgrind (strict)'",
+        # A library function's (a member's): every layer its member macros
+        # gate on its own output test, ex12_toy_len_output -- c_function's
+        # memcheck and ilp32, c_diff's two arms, the c_perf it hands
+        # `member` on to, and c_cycles -- and none on the library's.
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/levels:waiting_ex12_toy_len_output)",
+        "'ex12_toy_len_cycles (complete),ex12_toy_len_diff (strict),ex12_toy_len_diff_asan (robust),ex12_toy_len_ilp32 (complete),ex12_toy_len_memcheck (strict),ex12_toy_len_perf (complete)'",
+        # The member with every per-function knob (toy_cat): its allocfail
+        # pair, both readings corpora's arms and its perf series wait on its
+        # own output too, ex12_toy_cat_output.
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/levels:waiting_ex12_toy_cat_output)",
+        "'ex12_toy_cat_allocfail (basic),ex12_toy_cat_allocfail_leaks (robust),ex12_toy_cat_diff (strict),ex12_toy_cat_diff_asan (robust),ex12_toy_cat_ilp32 (complete),ex12_toy_cat_perf (complete),ex12_toy_cat_readings (robust),ex12_toy_cat_readings_diff_asan (robust),ex12_toy_cat_valgrind (strict)'",
         "--lines",
         "$(rootpath //tools/tests/macro_fixtures/root:waiting_ex00_output)",
         "-",
@@ -816,6 +1102,8 @@ hand_test(
         "$(rootpath //tools/tests/macro_fixtures/levels:turnin_dirs)",
         "--module-turnin-dirs",
         "$(rootpath //tools/tests/macro_fixtures/knobs:turnin_dirs)",
+        "--module-turnin-dirs",
+        "$(rootpath //tools/tests/macro_fixtures/graded:turnin_dirs)",
     ] + [
         a
         for m in _MODULES
@@ -854,6 +1142,8 @@ hand_test(
         "//tools/tests/macro_fixtures:ex13_bin",
         "//tools/tests/macro_fixtures:ex15_bin",
         "//tools/tests/macro_fixtures:ex15_reading_bin",
+        "//tools/tests/macro_fixtures:ex15_escaped_bin",
+        "//tools/tests/macro_fixtures:tests/ex15/reading_escaped.txt",
         "//tools/tests/macro_fixtures:ex13_bin_allocfail",
         "//tools/tests/macro_fixtures:ex14_files_names",
         "//tools/tests/macro_fixtures:ex04_files_names",
@@ -871,6 +1161,9 @@ hand_test(
         "//tools/tests/macro_fixtures:stray_reads",
         "//tools/tests/macro_fixtures:ex19_bin",
         "//tools/tests/macro_fixtures/levels:deliverable_files_names",
+        "//tools/tests/macro_fixtures/levels:ex12_make_bin_includes.txt",
+        "//tools/tests/macro_fixtures/levels:ex13_make_bin_includes.txt",
+        "//tools/tests/macro_fixtures/levels:reference_exit_sources",
         "//tools/tests/macro_fixtures:contract_problems",
         "//tools/tests/macro_fixtures:contract_problems.expected",
         "//tools/tests/macro_fixtures:layers",
@@ -884,8 +1177,24 @@ hand_test(
         "//tools/tests/macro_fixtures/root:layers.expected",
         "//tools/tests/macro_fixtures/levels:ex03_bin",
         "//tools/tests/macro_fixtures/levels:ex03_open_bin",
+        # A library's two members, each linking :ex12_lib through the stub
+        # Makefile: the library's sources stand in for it.
+        "//tools/tests/macro_fixtures/levels:ex12_toy_dup_bin",
+        "//tools/tests/macro_fixtures/levels:ex12_toy_len_bin",
+        # A library whose Makefile is written (ex13), its members built
+        # from what it compiles, -I and all; and the same with a source
+        # that does not compile (ex14), every member a stand-in.
+        "//tools/tests/macro_fixtures/levels:ex13_toy_up_bin",
+        "//tools/tests/macro_fixtures/levels:ex13_toy_down_bin",
+        "//tools/tests/macro_fixtures/levels:ex14_toy_left_bin",
+        "//tools/tests/macro_fixtures/levels:ex14_toy_right_bin",
+        "//tools/tests/macro_fixtures/levels:ex12_toy_cat_bin",
+        "//tools/tests/macro_fixtures/levels:ex12_toy_cat_open_bin",
         "//tools/tests/macro_fixtures/levels:layers",
         "//tools/tests/macro_fixtures/levels:layers.expected",
+        "//tools/tests/macro_fixtures/levels:member_strays",
+        "//tools/tests/macro_fixtures/graded:layers",
+        "//tools/tests/macro_fixtures/graded:layers.expected",
         # first_red's reading of the contracts, held to turnin_dir(): the
         # script, what it reads, and what the macros computed.
         "//tools:first_red.sh",
@@ -897,12 +1206,18 @@ hand_test(
         "//tools/tests/macro_fixtures/levels:turnin_dirs",
         "//tools/tests/macro_fixtures/knobs:conventions_srcs",
         "//tools/tests/macro_fixtures/knobs:turnin_dirs",
+        # Every knob toy analysed, none built (V139): a toy that stopped
+        # analysing is a red here, not only in `bazel test //...`.
+        "//tools/tests/macro_fixtures/knobs:toys_analysed",
+        "//tools/tests/macro_fixtures/graded:conventions_srcs",
+        "//tools/tests/macro_fixtures/graded:turnin_dirs",
         # ...and its --written reading of each module's exercises and their
         # mandatory part, held to the same lines and to c_levels()' own
         # :mandatory, with the judge it runs on each turn-in.
         "//tools:stub_check.sh",
         "//tools/tests/macro_fixtures/levels:mandatory",
         "//tools/tests/macro_fixtures/knobs:mandatory",
+        "//tools/tests/macro_fixtures/graded:mandatory",
         # What each knob no project turns gave its targets, and the one
         # program a knob is proven by.
         "//tools/tests/macro_fixtures/knobs:knobs",
@@ -922,10 +1237,19 @@ hand_test(
         "//tools/tests/macro_fixtures:waiting_ex00_output",
         "//tools/tests/macro_fixtures/levels:waiting_ex00_exact_output",
         "//tools/tests/macro_fixtures/levels:waiting_ex00_raised_output",
+        "//tools/tests/macro_fixtures/levels:waiting_ex12_toy_len_output",
+        "//tools/tests/macro_fixtures/levels:waiting_ex12_toy_cat_output",
         "//tools/tests/macro_fixtures/root:waiting_ex00_output",
         "//tools/tests/macro_fixtures:ex00_output",
         "//tools/tests/macro_fixtures/root:ex00_output",
         "//tools/tests/macro_fixtures/levels:ex00_survive_output",
+        # Every contract the macros read, as JSON beside its BUILD.bazel:
+        # first_red's reading of memory_graded is held to each one's.
+        "//tools/tests/macro_fixtures:subject",
+        "//tools/tests/macro_fixtures/root:subject",
+        "//tools/tests/macro_fixtures/levels:subject",
+        "//tools/tests/macro_fixtures/knobs:subject",
+        "//tools/tests/macro_fixtures/graded:subject",
     ] + [m + ":turnin_dirs" for m in _MODULES] + [m + ":mandatory" for m in _MODULES] +
-    [m + ":conventions_srcs" for m in _MODULES],
+    [m + ":conventions_srcs" for m in _MODULES] + [m + ":subject" for m in _MODULES],
 )

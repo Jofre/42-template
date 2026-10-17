@@ -1,0 +1,20 @@
+  Each line is n in decimal, then every byte your function wrote to the
+  descriptor it was handed, as hex (two digits a byte: 30 to 39 are the
+  digits 0 to 9, 2d is a minus sign).
+  Which FAMILY of numbers diverges?
+    * every one, nothing written -> which descriptor does each of your
+                                   write(2) calls receive?
+    * only 0                -> 0 is written with one digit, like 7: what does
+                               your code do differently for it?
+    * every negative        -> the sign, or the digit that follows it
+    * only -2147483648      -> it has no positive counterpart in an int: does
+                               your code compute anything from it that would
+                               need one?
+    * digits reversed       -> the order your code finds the digits in,
+                               against the order they are written in
+    * one digit short       -> what decides that the last digit has been
+                               written: does it decide one digit too early?
+    * a third column on your lines -> the bytes the call wrote to fd 1,
+                               the standard output: which descriptor
+                               does each of your write(2) calls
+                               receive?

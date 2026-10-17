@@ -28,10 +28,12 @@
 #                    [--argv-file FILE] [--run-as NAME [--cwd-file DEST=PATH]...]
 #                    [--show-run PROG] [--case NAME]
 #                    [--timeout SECS] [--no-leak-check] [--rule FILE]
-#                    [--status-file PATH] [--brief]
+#                    [--access-rule FILE] [--status-file PATH] [--brief]
 #                    [--gate-differ FILE --gate-bin PATH --gate-expected FILE
 #                     [--gate-expected-alt FILE]... [--gate-stdin FILE]
-#                     [--gate-stream NAME] [--gate-sanitize] [--gate-labeled]]
+#                     [--gate-stream NAME] [--gate-sanitize] [--gate-labeled]
+#                     [--gate-label NAME]]
+#                    [--survive [--gate-arg WORD]...]
 #                    [-- PROG ARGS...]
 #   valgrind_test.sh --explain KEY...
 #
@@ -42,9 +44,31 @@
 #                    and --gate-expected, they are refused as a wiring
 #                    mistake (runner_lib.sh's rl_gate_whole).
 #
+#   --gate-label NAME  the output test the gate stands for, named in the
+#                    SKIP line (c_levels()' audit holds it to that test,
+#                    _gate_label_problems). Without it the line says "this
+#                    exercise's own output fixture", which names no test.
+#
+#   --survive        this run is a survive case's (c_program, _survive_gate),
+#                    which compares no output, so its gate is ANOTHER case:
+#                    the exercise's first case at basic, written out whole --
+#                    its words in --gate-arg, one per word, in order, and its
+#                    feed and comparison in the other --gate-* options --
+#                    and handed nothing of this run: not the words after --,
+#                    not --argv-file, --run-as or --cwd-file. A survive case
+#                    asks only that the program ends by itself, and a program
+#                    nobody has written does, memory-clean: run ungated, it
+#                    met the stand-in of a Makefile that builds nothing and
+#                    was red where its asan arm said SKIP (V253). NO_SKIP=1
+#                    runs it without asking the gate, as diff_output.sh's
+#                    survive case does. --gate-arg without --survive is
+#                    refused (exit 2): every other gate here replays this
+#                    run's own words.
+#
 #   --argv-file, --run-as, --cwd-file, --show-run and --case mean what
 #                    tools/diff_output.sh's options of those names mean, and
-#                    the first three reach the gate too: the fixture a case
+#                    the first three reach the gate too (but under --survive,
+#                    above): the fixture a case
 #                    is gated on is the one its own run produces, from the
 #                    same arguments and the same folder (c_program's
 #                    "argv_file" and "cwd_files"). --case keys the hints:
@@ -94,6 +118,20 @@
 #                    most subjects have no such sentence, and the report used
 #                    to send every student to "the paragraph on memory
 #                    management" of a subject that has none (finding 082).
+#   --access-rule FILE  the sentence of the project's own subject about what
+#                    is no leak -- a read or write outside a block, a free of
+#                    what was not allocated, a decision on a value never set,
+#                    a run that crashed -- naming where it is from. Given it,
+#                    a FAIL quotes each sentence once, for the findings it
+#                    applies to: this one for any finding that is no leak,
+#                    --rule's for a leak (or, with no --rule, the leak half
+#                    of this layer's own rule, said to be this repo's), both
+#                    where the run shows both. A run that checks no leak
+#                    (--no-leak-check) quotes this one alone. Under --brief
+#                    the paragraphs are named "rule:access" and "rule:leak",
+#                    which --explain prints from --access-rule and --rule.
+#                    Without it, a FAIL quotes --rule for every finding, as
+#                    above, and a crash quotes nothing.
 set -u
 
 # The external commands this runner takes from PATH. See diff_output.sh for why
@@ -136,6 +174,16 @@ GATE_DIFFER=""
 GATE_BIN=""
 GATE_EXPECTED=""
 GATE_PASS=""
+# The run this case makes, which a gate that replays it is handed too:
+# --argv-file, --run-as and --cwd-file. Kept apart from GATE_PASS, the
+# gate's own options, because a survive case's gate is another case's run
+# (--survive) and takes none of it.
+GATE_RUN=""
+# A survive case's gate: its words (--gate-arg), and the output test it
+# stands for, also any other gate's (--gate-label).
+GATE_ARGS=""
+GATE_LABEL=""
+SURVIVE=0
 # Set by an option that describes the gate; checked by rl_gate_whole.
 GATE_SAID=""
 VALGRIND=""
@@ -146,6 +194,8 @@ CWD_FILES=""
 SHOW_RUN=""
 CASE_NAME=""
 RULE=""
+# The sentence about what is no leak: see --access-rule in the header.
+ACCESS_RULE=""
 STATUS_FILE=""
 BRIEF=0
 EXPLAIN=""
@@ -280,6 +330,27 @@ explain() {  # explain KEY -- its paragraph
 			echo "  evaluator may run a memory checker on your work."
 		fi
 		;;
+	# The sentences of a run judged with --access-rule, one for each kind
+	# of finding it showed (explained_rules): what is no leak, and a leak.
+	rule:access)
+		[ -n "$ACCESS_RULE" ] || {
+			echo "valgrind_test.sh: --explain rule:access quotes --access-rule, and none was given" >&2
+			exit 2
+		}
+		echo "  The sentence this applies to an invalid access or a crash:"
+		fold -s -w 70 "$ACCESS_RULE" | sed 's/ *$//; s/^/    /'
+		;;
+	rule:leak)
+		if [ -n "$RULE" ]; then
+			echo "  The sentence this applies to a leak:"
+			fold -s -w 70 "$RULE" | sed 's/ *$//; s/^/    /'
+		else
+			echo "  The rule this layer applies to a leak: every block allocated"
+			echo "  freed by the end of the run. It is not a sentence of your"
+			echo "  subject's: it is checked because an evaluator may run a memory"
+			echo "  checker on your work."
+		fi
+		;;
 	fds)
 		echo "  Every open() hands back a number the kernel holds for you until you"
 		echo "  close() it or the process ends. A program that ends promptly gets away"
@@ -328,17 +399,24 @@ while [ $# -gt 0 ]; do
 		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; GATE_SAID=1; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; GATE_SAID=1; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; GATE_SAID=1; shift ;;
+		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; GATE_SAID=1; shift 2 ;;
+		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; GATE_SAID=1; shift 2 ;;
+		--survive) SURVIVE=1; shift ;;
 		--no-leak-check) NO_LEAK_CHECK=1; shift ;;
-		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; rl_list_add GATE_PASS --argv-file "$2"; shift 2 ;;
-		--run-as) need "$1" "$#"; RUN_AS="$2"; rl_list_add GATE_PASS --run-as "$2"; shift 2 ;;
+		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; rl_list_add GATE_RUN --argv-file "$2"; shift 2 ;;
+		--run-as) need "$1" "$#"; RUN_AS="$2"; rl_list_add GATE_RUN --run-as "$2"; shift 2 ;;
 		--cwd-file) need "$1" "$#"; CWD_FILES="$CWD_FILES
-$2"; rl_list_add GATE_PASS --cwd-file "$2"; shift 2 ;;
+$2"; rl_list_add GATE_RUN --cwd-file "$2"; shift 2 ;;
 		--show-run) need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
 		--case) need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
 		--rule)
 			need "$1" "$#"
 			[ -s "$2" ] || { echo "valgrind_test.sh: no sentence in --rule $2" >&2; exit 2; }
 			RULE="$2"; shift 2 ;;
+		--access-rule)
+			need "$1" "$#"
+			[ -s "$2" ] || { echo "valgrind_test.sh: no sentence in --access-rule $2" >&2; exit 2; }
+			ACCESS_RULE="$2"; shift 2 ;;
 		--) shift; break ;;
 		# The binary used to be accepted as a bare first argument. That shape is
 		# gone: every caller passes --bin, and keeping a second spelling of the
@@ -350,6 +428,12 @@ done
 
 # A gate given in part is a wiring mistake (runner_lib.sh, rl_gate_whole).
 rl_gate_whole valgrind_test "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_SAID"
+# So is a word for a gate that replays this run's own (see --survive).
+if [ -n "$GATE_ARGS" ] && [ "$SURVIVE" = 0 ]; then
+	echo "valgrind_test.sh: --gate-arg is the words of a survive case's gate (--survive);" >&2
+	echo "  every other gate is handed this run's own words, after --" >&2
+	exit 2
+fi
 
 # --explain KEY...: the paragraphs the cases of a corpus named (--brief),
 # each once, and no run.
@@ -479,11 +563,18 @@ output_red_note() {
 	echo ""
 }
 
-if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ] &&
-	[ -x "$GATE_BIN" ] && [ -f "$GATE_EXPECTED" ]; then
-	# The program's own argv is forwarded to the gate as well: this layer can be
-	# emitted per argv case (defs.bzl's _emit_cases), and the fixture that case
-	# is gated on is the one produced by the SAME arguments.
+# A survive case's gate is another case (--survive): NO_SKIP=1 runs the case
+# without asking it, as diff_output.sh's survive case does, since there is no
+# output of this case's own for the note above to be about.
+if [ "$SURVIVE" = 1 ] && [ "${NO_SKIP:-0}" = "1" ]; then
+	GATE_DIFFER=""
+fi
+if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
+	# The program's own argv is forwarded to the gate as well, with its run
+	# (GATE_RUN): this layer can be emitted per argv case (defs.bzl's
+	# _emit_cases), and the fixture that case is gated on is the one produced
+	# by the SAME arguments. Not a survive case's: its gate is the case
+	# --gate-arg writes out, and nothing of this run.
 	# WHY THE STATUS IS CAPTURED RATHER THAN TESTED WITH `if !`.
 	#
 	# `if ! <gate>` treats EVERY non-zero the same, and the differ has two
@@ -502,9 +593,15 @@ if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ] &&
 	# So: skip on 1, and on 2-or-more say so and RUN ANYWAY. A gate that cannot
 	# answer must never be the reason a layer stayed quiet.
 	rl_split_on
-	# shellcheck disable=SC2086
-	sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
-			$GATE_PASS -- "$@" >/dev/null 2>&1
+	if [ "$SURVIVE" = 1 ]; then
+		# shellcheck disable=SC2086 # lists, one word per line (rl_list_add)
+		sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
+				$GATE_PASS -- $GATE_ARGS >/dev/null 2>&1
+	else
+		# shellcheck disable=SC2086 # lists, one word per line (rl_list_add)
+		sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
+				$GATE_PASS $GATE_RUN -- "$@" >/dev/null 2>&1
+	fi
 	_gate_rc=$?
 	rl_split_off
 	if [ "$_gate_rc" -ge 2 ]; then
@@ -512,9 +609,27 @@ if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ] &&
 		echo "               so this layer is running anyway rather than going quiet."
 	elif [ "$_gate_rc" -eq 1 ] && [ "${NO_SKIP:-0}" = "1" ]; then
 		OUTPUT_RED=1
+	elif [ "$_gate_rc" -eq 1 ] && [ "$SURVIVE" = 1 ]; then
+		if [ -n "$GATE_LABEL" ]; then
+			echo "valgrind_test: SKIP — $GATE_LABEL, this exercise's own case, is not passing yet."
+		else
+			echo "valgrind_test: SKIP — this exercise's own case is not passing yet."
+		fi
+		echo ""
+		echo "  This case asks only that the program ends by itself, and a program"
+		echo "  that does nothing yet ends without touching memory: green here would"
+		echo "  say nothing. Get that case green and this one starts checking."
+		echo ""
+		echo "  (NO_SKIP=1 runs a waiting layer anyway:"
+		echo "   $(rl_noskip_cmd))"
+		exit 0
 	elif [ "$_gate_rc" -eq 1 ]; then
-		echo "valgrind_test: SKIP — this exercise's own output fixture is not"
-		echo "               passing yet."
+		if [ -n "$GATE_LABEL" ]; then
+			echo "valgrind_test: SKIP — $GATE_LABEL, this exercise's own output fixture, is not passing yet."
+		else
+			echo "valgrind_test: SKIP — this exercise's own output fixture is not"
+			echo "               passing yet."
+		fi
 		echo ""
 		echo "  A memory report on a function that still returns the wrong answer"
 		echo "  describes allocations made by code you are about to rewrite. The"
@@ -530,9 +645,10 @@ fi
 
 # A PROGRAM THAT DID NOT BUILD is a stand-in script that says why (see
 # tools/standin.sh). Checked after the gate: a red gate has already skipped
-# this layer, and past a green one -- or one NO_SKIP=1 forced open -- a
-# stand-in is a failure, told in the compiler's words rather than as a
-# report about a program that does not exist.
+# this layer -- a survive case's too, on the case it waits for (--survive) --
+# and past a green one, or one NO_SKIP=1 forced open, a stand-in is a
+# failure, told in the compiler's words rather than as a report about a
+# program that does not exist.
 case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
 for _sl in "$_sl_dir/standin.sh" \
 	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
@@ -642,6 +758,10 @@ fi
 # How the run ended is read from waitpid() through tools/exit_status (rl_run,
 # rl_classify): valgrind ends the way its client did -- it returns the client's
 # status, or kills itself with the signal that killed the client.
+# The host's valgrind settings are off first (tools/runner_lib.sh, rl_vg_env):
+# a VALGRIND_OPTS or a ~/.valgrindrc could name another tool or a
+# suppression file that hides every finding.
+rl_vg_env "$WORK" "$RUN_DIR" || exit 2
 # shellcheck disable=SC2086 # LEAK_FLAGS is a list of flags, split on purpose.
 (
 	cd "$RUN_DIR" || exit 2
@@ -660,12 +780,21 @@ rl_classify "$RC"
 
 [ -f "$VGLOG" ] || : > "$VGLOG"
 
+# A VALGRIND THAT NEVER STARTED (V242): on a box whose ld.so has no debug
+# symbols, valgrind writes its startup abort to the log and exits 1 without
+# running the program, and that 1 read as the program's own status printed
+# OK over a leak (tools/runner_lib.sh, rl_vg_aborted, says why and what to
+# install). Only the log is read: with --log-file valgrind writes the abort
+# there, and the program's stderr is the program's to fill.
+rl_vg_aborted memcheck "$BIN" "$VGLOG" && exit 2
+
 # The classes memcheck reports, in the words it reports them. The leak patterns
 # are anchored on "in loss record" deliberately: the LEAK SUMMARY block printed
 # at the end of EVERY report contains the words "definitely lost:" even when the
 # count is zero, so matching the bare phrase would classify a pure invalid-read
 # run as a leak.
-ERR_RE='Invalid read of size|Invalid write of size|Invalid free\(\)|Mismatched free\(\)|uninitialised value|uninitialised byte'
+ACCESS_RE='Invalid read of size|Invalid write of size|Invalid free\(\)|Mismatched free\(\)|uninitialised value|uninitialised byte'
+ERR_RE=$ACCESS_RE
 LEAK_RE='are definitely lost in loss record|are indirectly lost in loss record|are possibly lost in loss record|are still reachable in loss record'
 if [ "$NO_LEAK_CHECK" = 0 ]; then
 	ERR_RE="$ERR_RE|$LEAK_RE"
@@ -887,6 +1016,63 @@ report_findings() {
 	fi
 }
 
+# THE SENTENCE A RED BREAKS (explain rule): --rule's, or this layer's own,
+# for every finding -- or, given --access-rule, one per kind of finding the
+# run showed, each once: a leak quotes --rule, anything else (an invalid
+# access, an uninitialised value, a class this layer does not name, a crash)
+# --access-rule. A subject can say one thing of a leak and another of an
+# invalid access, and a red quoting its leak sentence over an invalid read
+# -- or over a probe run that checks no leak at all -- named a rule the
+# finding does not break. CRASHED: the run was killed, which is no leak
+# whatever the report holds -- and the access sentence alone: the blocks a
+# killed process still held are ones it never reached the point of freeing,
+# so its loss records are no leak it made (a 16-byte block held over a NULL
+# read quoted the leak sentence too, the P1 review of 2026-10-12).
+explained_rules() {  # explained_rules [crashed]
+	if [ -z "$ACCESS_RULE" ]; then
+		explained rule
+		return
+	fi
+	if [ "${1:-}" = crashed ]; then
+		explained rule:access
+		return
+	fi
+	_er_leak=0
+	_er_access=0
+	if [ "$NO_LEAK_CHECK" = 0 ] && grep -qE "$LEAK_RE" "$VGLOG" 2>/dev/null; then
+		_er_leak=1
+	fi
+	if grep -qE "$ACCESS_RE" "$VGLOG" 2>/dev/null; then
+		_er_access=1
+	fi
+	# A finding of no class named above, beside a leak: every loss record is
+	# one context of the ERROR SUMMARY (--errors-for-leak-kinds=all), so more
+	# contexts than records is a finding that is no leak. A "fishy" malloc
+	# size beside a leak quoted the leak sentence alone (the same review).
+	# Summed over every ERROR SUMMARY: the log has no %p, so a forked child
+	# writes its own summary into it before the parent's, and its records are
+	# counted with the parent's below (the P1 fix review, 2026-10-12).
+	# Only the first "from" of a summary is its contexts: the line goes on
+	# "(suppressed: S from T)", and T is no finding this run reported (a
+	# leak beside a suppressed block quoted the access sentence, the libft
+	# review of 2026-10-13).
+	_er_ctx=$(awk '/ERROR SUMMARY: [0-9]+ errors? from [0-9]+ contexts?/ {
+			for (i = 1; i < NF; i++) if ($i == "from") { s += $(i + 1); n++; break }
+		} END { if (n) print s }' "$VGLOG" 2>/dev/null)
+	_er_recs=$(grep -cE "$LEAK_RE" "$VGLOG" 2>/dev/null)
+	if [ -n "$_er_ctx" ] && [ "$_er_ctx" -gt "${_er_recs:-0}" ]; then
+		_er_access=1
+	fi
+	# A red with no leak record is not a leak's: a finding this layer does
+	# not classify, or a verdict the report alone gave.
+	[ "$_er_leak" = 1 ] || _er_access=1
+	[ "$_er_access" = 0 ] || explained rule:access
+	if [ "$_er_access" = 1 ] && [ "$_er_leak" = 1 ] && [ "$BRIEF" = 0 ]; then
+		echo ""
+	fi
+	[ "$_er_leak" = 0 ] || explained rule:leak
+}
+
 # --- exit status triage ----------------------------------------------------
 # SIGXFSZ (runaway): the ulimit above stopped a report that would not stop
 # growing. That is a finding in itself, not a harness problem.
@@ -948,6 +1134,12 @@ if [ "$RL_CAUSE" = signal ] || [ "$RL_CAUSE" = stopped ]; then
 		echo " ----- the program's stderr said -----"
 		rl_excerpt "$CHILDERR" 20 program-stderr.txt "   "
 	fi
+	# The sentence a crash breaks, where the call site quotes one about
+	# what is no leak (--access-rule); none otherwise, as before it.
+	if [ -n "$ACCESS_RULE" ]; then
+		[ "$BRIEF" = 1 ] || echo ""
+		explained_rules crashed
+	fi
 	exit 1
 fi
 
@@ -983,8 +1175,32 @@ if [ "$VG_VERDICT" -eq 1 ] || log_has_errors; then
 	# once, under the runner's verdict, which says what is judged
 	# (tools/runner_lib.sh, rl_mem_tally).
 	[ "$BRIEF" = 1 ] || echo ""
-	explained rule
+	explained_rules
 	exit 1
+fi
+
+# NO REPORT, NO OK (V242). Memcheck ends every run it completes with an ERROR
+# SUMMARY line, a clean one included, so a log without one is a run nobody
+# judged: valgrind refused an option and exited 1 before the program started
+# (its message is on the stderr it shares with the program), or the program
+# replaced itself with exec, which leaves valgrind no exit to report at --
+# measured, a toy that calls execv("/bin/true") leaves exit 0 and a log that
+# stops after its header. Each of those used to reach the OK lines below,
+# the first one as "the program chose to exit 1". A finding already in the
+# log is still the red above: this guards the green alone.
+if ! grep -q 'ERROR SUMMARY:' "$VGLOG" 2>/dev/null; then
+	{
+		echo "valgrind_test.sh: valgrind's report on $BIN never reached its ERROR SUMMARY"
+		echo "                  line (exit $RC), so there is no memory verdict to give."
+		rl_excerpt "$VGLOG" 10 valgrind-log.txt "  "
+		rl_excerpt "$CHILDERR" 10 program-stderr.txt "  "
+		echo "  memcheck writes that line at the end of every run it completes. Without"
+		echo "  it, valgrind stopped before the program ran (an option it refused, in"
+		echo "  its own words above), or the program replaced itself with exec, which"
+		echo "  this layer does not follow. Nothing about memory was checked: this is"
+		echo "  a harness failure, not a student finding."
+	} >&2
+	exit 2
 fi
 
 HEAP=$(grep 'total heap usage' "$VGLOG" 2>/dev/null | sed 's/^==[0-9]*== *//' | head -1)

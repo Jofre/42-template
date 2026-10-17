@@ -18,14 +18,20 @@ static int	is_long(char *s)
 
 int	main(void)
 {
-	char	line[65536];
+	char	*line;
+	size_t	linecap;
 	char	*f[3];
 	char	**arr;
 	int		n;
 	int		res;
 	int		i;
 
-	while (dio_line(line, sizeof(line)))
+	/* A line of any length (tools/diffio.h, dio_getline): the corpus holds
+	 * arrays of 5000 strings (finding 041), and a fixed buffer stops on the
+	 * first line longer than it. */
+	line = NULL;
+	linecap = 0;
+	while (dio_getline(&line, &linecap))
 	{
 		if (dio_split(line, f, 3) < 3)
 			continue ;
@@ -49,5 +55,6 @@ int	main(void)
 		printf("\n");
 		dio_free_list(arr, n);
 	}
+	free(line);
 	return (0);
 }
