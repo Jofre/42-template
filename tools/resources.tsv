@@ -64,4 +64,4 @@
 # conventions: private-name -- the doc patch is checked where it exists
 c-piscine/c-piscine-shell-00	resources.tar.gz	c-piscine/c-piscine-shell-00/resources.tar.gz	harness	*resources.tar.gz	//c-piscine/c-piscine-shell-00:ex07_output	README.md,c-piscine/c-piscine-shell-00/tests/ex07/check.sh,docs/testing.md,tools/template_docs.patch	the intranet, beside the Shell 00 subject
 # conventions: private-name -- the doc patch is checked where it exists
-c-piscine/c-piscine-rush-02	numbers.dict	c-piscine/c-piscine-rush-02/deliverable/ex00/numbers.dict	turn-in	*.dict	-	README.md,docs/rushes.md,tools/template_docs.patch	the intranet, beside the Rush 02 subject
+c-piscine/c-piscine-rush-02	numbers.dict	c-piscine/c-piscine-rush-02/deliverable/ex00/numbers.dict	turn-in	*.dict	-	README.md,c-piscine/c-piscine-rush-02/README.md,tools/template_docs.patch	the intranet, beside the Rush 02 subject

@@ -1,34 +1,32 @@
 #include <stdio.h>
+#include "notation.h"
 
 unsigned int	ft_strlcat(char *dest, char *src, unsigned int size);
 
-/* Prints "<label>\tret=<return value> dest=\"<dest after>\"": each field
+/* Every value below is written in the notation of diff_output.sh's escaped
+ * values (its call says escaped_values = True), by tools/notation.h: \xHH
+ * for a byte outside printable ASCII, \\ for a backslash, \n and \t for a
+ * line break and a tab. Written raw, a backslash and an n in dest read as a
+ * line break.
+ *
+ * Prints "<label>\tret=<return value> dest=\"<dest after>\"": each field
  * names itself, so a red row says which of the two is wrong. */
 static void	test(char *label, char *dest, char *src, unsigned int size)
 {
 	unsigned int	ret;
 
 	ret = ft_strlcat(dest, src, size);
-	printf("%s\tret=%u dest=\"%s\"\n", label, ret, dest);
+	printf("%s\tret=%u dest=\"", label, ret);
+	nt_puts(dest);
+	printf("\"\n");
 }
 
-/* Shows the first n bytes of a buffer, each NUL as "\x00" (the notation of
- * diff_output.sh's escaped values: its call says escaped_values = True), so
- * where the terminator went -- and what lies past it -- is visible. Bounded
- * by n, so a result left unterminated is never read past its array. */
+/* Shows the first n bytes of a buffer, each NUL as "\x00", so where the
+ * terminator went -- and what lies past it -- is visible. Bounded by n, so
+ * a result left unterminated is never read past its array. */
 static void	show(char *d, int n)
 {
-	int	i;
-
-	i = 0;
-	while (i < n)
-	{
-		if (d[i] == '\0')
-			printf("\\x00");
-		else
-			printf("%c", d[i]);
-		i++;
-	}
+	nt_put(d, (size_t)n);
 	printf("\n");
 }
 
@@ -56,27 +54,17 @@ static void	test_x(char *label, char *src, unsigned int size, int showlen)
 	show(dest, showlen);
 }
 
-/* The same call, dest shown in the notation of diff_output.sh's escaped
- * values, for a src holding bytes above 0x7f (finding 039): a byte of src
- * read as a signed char is negative there, and a length counted while the
- * byte is above 0 stops at it. The text is right either way when the copy
- * runs to the terminator; the return value is what shows the count. */
+/* The same call, for a src holding bytes above 0x7f (finding 039): a byte
+ * of src read as a signed char is negative there, and a length counted while
+ * the byte is above 0 stops at it. The text is right either way when the
+ * copy runs to the terminator; the return value is what shows the count. */
 static void	test_hi(char *label, char *dest, char *src, unsigned int size)
 {
 	unsigned int	ret;
-	int				i;
 
 	ret = ft_strlcat(dest, src, size);
 	printf("%s\tret=%u dest=\"", label, ret);
-	i = 0;
-	while (dest[i] != '\0')
-	{
-		if ((unsigned char)dest[i] < 0x20 || (unsigned char)dest[i] > 0x7e)
-			printf("\\x%02x", (unsigned char)dest[i]);
-		else
-			printf("%c", dest[i]);
-		i++;
-	}
+	nt_puts(dest);
 	printf("\"\n");
 }
 

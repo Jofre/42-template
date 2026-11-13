@@ -44,8 +44,11 @@
 //! length.rs's c03_strstr_len, with the harness passing len = the line's
 //! length, where strnstr(3bsd) searches the whole string as strstr does.
 
-use crate::c03::{long_cmp_cases, o_strlcat, o_strncmp, o_strstr};
-use crate::common::{bench_lines, largest_dec, long_text, rand_body, sink, string_pairs, to_hex, unhex, widest_hex, Rng};
+use crate::c03::{long_cmp_cases, long_lcat_cases, o_strlcat, o_strncmp, o_strstr};
+use crate::common::{
+    bench_lines, is_space, largest_dec, long_text, or_null, rand_body, sink, string_pairs, to_hex, unhex, widest_hex, Rng,
+    ISSPACE, NULL,
+};
 use std::io::{self, Write};
 
 /// SIZE_MAX as a corpus writes it (see the header).
@@ -56,11 +59,6 @@ const SIZE_MAX: u64 = u64::MAX;
 /// copy of it is negative), 2^32 - 1, and SIZE_MAX.
 const HUGE: [u64; 3] = [2_147_483_648, 4_294_967_295, SIZE_MAX];
 
-/// The isspace(3) bytes of the C locale: "space, form-feed ('\f'), newline
-/// ('\n'), carriage return ('\r'), horizontal tab ('\t'), and vertical tab
-/// ('\v')".
-const WS: [u8; 6] = [b' ', b'\t', b'\n', 0x0b, 0x0c, b'\r'];
-
 /// A size_t field as the host's usize: SIZE_MAX and the other huge values
 /// mean "no limit", which usize::MAX means as well on this 64-bit host.
 fn as_usize(n: u64) -> usize {
@@ -68,23 +66,6 @@ fn as_usize(n: u64) -> usize {
 }
 
 // ------------------------------------------------------------- oracles
-
-/// ft_strlcat, strlcat(3bsd): "It will append at most size - strlen(dst) - 1
-/// bytes, NUL-terminating the result", and returns "the initial length of
-/// dst plus the length of src" -- except that "if strlcat() traverses size
-/// characters without finding a NUL, the length of the string is considered
-/// to be size", and nothing is appended. C 03's reference (wrapped here) holds
-/// the return for every size; what it returns as the buffer when strlen(dst)
-/// > size is dst cut at size, which its corpus never asks for. Here the
-/// buffer is dst, unchanged, as it is.
-/// Returns (the buffer up to its first NUL, the return value).
-#[inline(never)] // keep this attributable under callgrind (see tools/)
-fn o_strlcat_libft(dst: &[u8], src: &[u8], size: usize) -> (Vec<u8>, u64) {
-    if dst.len() >= size {
-        return (dst.to_vec(), (size + src.len()) as u64);
-    }
-    o_strlcat(dst, src, size)
-}
 
 /// The buffer a strlcat case puts dst in: `size` bytes when dst's NUL is
 /// within them (the man page's "full size of the buffer"), else room for dst
@@ -161,7 +142,7 @@ fn o_strnstr(big: &[u8], little: &[u8], len: u64) -> Option<usize> {
 /// that would overflow from one that does not.
 fn strtol10(s: &[u8]) -> i128 {
     let mut i = 0usize;
-    while i < s.len() && WS.contains(&s[i]) {
+    while i < s.len() && is_space(s[i]) {
         i += 1;
     }
     let mut neg = false;
@@ -259,13 +240,6 @@ fn alt_atoi(s: &[u8]) -> Option<i32> {
 
 // ---------------------------------------------------------- corpus helpers
 
-fn opt(o: Option<usize>) -> String {
-    match o {
-        Some(i) => i.to_string(),
-        None => "NULL".to_string(),
-    }
-}
-
 /// `n` bytes of every value but NUL and `b`, then `b` at `at` (each index in
 /// `at`), from a seed of its own: a long string where `b` stands only there.
 fn only_at(n: usize, b: u8, at: &[usize], seed: u64) -> Vec<u8> {
@@ -293,10 +267,9 @@ fn gen_strlcat<W: Write>(w: &mut W, seed: u64, count: usize) {
     // The man page's corners: an empty dst and src, size 0 and 1, size below,
     // at and one above strlen(dst) ("traverses size characters without
     // finding a NUL"), room for only the NUL, an exact fit, room to spare,
-    // high bytes (signed char), then the capacity cases (finding 041): a dst
-    // of 4100 and a src of 5000 with all the room they need (9101), cut at
-    // 6000, with none (size 4100 == strlen(dst)); a dst of 1100 and that src
-    // at 4097; and a dst of 5000 with size 4097, whose NUL lies past size.
+    // high bytes (signed char), then C 03's capacity cases (finding 041,
+    // c03::long_lcat_cases) and one of Libft's own: a dst of 5000 with size
+    // 4097, whose NUL lies past size.
     let hi: &[u8] = &[0x80, b'a'];
     let hs: &[u8] = &[0xff, 0xe9];
     let mut cases: Vec<(Vec<u8>, Vec<u8>, usize)> = vec![
@@ -320,13 +293,8 @@ fn gen_strlcat<W: Write>(w: &mut W, seed: u64, count: usize) {
         (hi.to_vec(), hs.to_vec(), 4),
         (hi.to_vec(), hs.to_vec(), 1),
     ];
-    let d = long_text(4100, 4100);
-    let s = long_text(5000, 5000);
-    cases.push((d.clone(), s.clone(), 9101));
-    cases.push((d.clone(), s.clone(), 6000));
-    cases.push((d, s.clone(), 4100));
-    cases.push((long_text(1100, 1100), s.clone(), 4097));
-    cases.push((s, b"abc".to_vec(), 4097));
+    cases.extend(long_lcat_cases());
+    cases.push((long_text(5000, 5000), b"abc".to_vec(), 4097));
     while cases.len() < count {
         let size = rng.below(25);
         // One case in four has its NUL at or past size.
@@ -338,7 +306,7 @@ fn gen_strlcat<W: Write>(w: &mut W, seed: u64, count: usize) {
         cases.push((d, s, size));
     }
     for (d, s, size) in &cases {
-        let (buf, ret) = o_strlcat_libft(d, s, *size);
+        let (buf, ret) = o_strlcat(d, s, *size);
         let _ = writeln!(
             w,
             "{}\t{}\t{}\t{}\t{}\t{}",
@@ -434,7 +402,7 @@ fn chr_cases(seed: u64, count: usize, part: bool) -> Vec<(Vec<u8>, i32)> {
 fn gen_chr<W: Write>(w: &mut W, seed: u64, count: usize, part: bool, last: bool) {
     for (s, c) in chr_cases(seed, count, part) {
         let r = if last { o_strrchr(&s, c) } else { o_strchr(&s, c) };
-        let _ = writeln!(w, "{}\t{}\t{}", to_hex(&s), c, opt(r));
+        let _ = writeln!(w, "{}\t{}\t{}", to_hex(&s), c, or_null(r));
     }
 }
 
@@ -574,7 +542,7 @@ fn gen_strnstr<W: Write>(w: &mut W, seed: u64, count: usize) {
         cases.push((big, little, len));
     }
     for (b, l, len) in &cases {
-        let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(b), to_hex(l), len, opt(o_strnstr(b, l, *len)));
+        let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(b), to_hex(l), len, or_null(o_strnstr(b, l, *len)));
     }
 }
 
@@ -607,10 +575,10 @@ fn atoi_structured() -> Vec<Vec<u8>> {
     // Capacity cases (finding 041): each run atoi may meet at any length, past
     // 4096 bytes -- whitespace, leading zeros, what follows the number -- and
     // a sign then 4100 signs, which read nothing.
-    let mut a: Vec<u8> = (0..5000).map(|i| WS[i % WS.len()]).collect();
+    let mut a: Vec<u8> = (0..5000).map(|i| ISSPACE[i % ISSPACE.len()]).collect();
     a.extend_from_slice(b"-7");
     v.push(a);
-    let mut a: Vec<u8> = (0..5000).map(|i| WS[(i * 5) % WS.len()]).collect();
+    let mut a: Vec<u8> = (0..5000).map(|i| ISSPACE[(i * 5) % ISSPACE.len()]).collect();
     a.extend_from_slice(b"-2147483648");
     v.push(a);
     let mut z = vec![b'0'; 5000];
@@ -649,7 +617,7 @@ fn gen_atoi<W: Write>(w: &mut W, seed: u64, count: usize) {
     while cases.len() < count {
         let mut s = Vec::new();
         for _ in 0..rng.below(5) {
-            s.push(WS[rng.below(WS.len())]);
+            s.push(ISSPACE[rng.below(ISSPACE.len())]);
         }
         // now and then a byte that looks like a space and is not one
         if rng.below(12) == 0 {
@@ -725,7 +693,7 @@ pub fn bench(name: &str) -> bool {
         match name {
             "libft_strlcat" if f.len() >= 4 => {
                 if let Ok(size) = f[3].parse::<usize>() {
-                    sink(o_strlcat_libft(&a, &unhex(f[2]), size));
+                    sink(o_strlcat(&a, &unhex(f[2]), size));
                 }
             }
             "libft_strchr" | "libft_strchr_readings" => {
@@ -807,7 +775,7 @@ pub fn check() -> usize {
         (&[0x80, b'a'], &[0xff, 0xe9], 4, &[0x80, b'a', 0xff], 4),
     ];
     for (d, s, size, buf, ret) in sl {
-        want!(o_strlcat_libft(d, s, *size) == (buf.to_vec(), *ret), "strlcat table {:?} {:?} {}", d, s, size);
+        want!(o_strlcat(d, s, *size) == (buf.to_vec(), *ret), "strlcat table {:?} {:?} {}", d, s, size);
     }
     want!(strlcat_cap(3, 10) == 10 && strlcat_cap(3, 3) == 4 && strlcat_cap(5, 2) == 6 && strlcat_cap(0, 0) == 1, "strlcat cap rule");
 
@@ -938,7 +906,7 @@ pub fn check() -> usize {
         let c = if rng.below(4) == 0 { rng.next_u64() as i32 } else { rng.below(256) as i32 };
 
         // strlcat: the man page's formula, written a second way.
-        let (buf, ret) = o_strlcat_libft(&a, &b, size);
+        let (buf, ret) = o_strlcat(&a, &b, size);
         want!((buf.clone(), ret) == alt_strlcat(&a, &b, size), "prop strlcat {:?} {:?} {}", a, b, size);
         want!(buf.starts_with(&a), "prop strlcat keeps dst");
         want!(a.len() >= size || buf.len() < size, "prop strlcat writes past size");
@@ -974,7 +942,7 @@ pub fn check() -> usize {
         // atoi: the round trip from the decimal of any int, with whitespace
         // and one sign before it and junk after it; two signs read 0.
         let v = rng.i32val();
-        let mut s: Vec<u8> = (0..rng.below(4)).map(|_| WS[rng.below(6)]).collect();
+        let mut s: Vec<u8> = (0..rng.below(4)).map(|_| ISSPACE[rng.below(6)]).collect();
         if v >= 0 && rng.below(2) == 0 {
             s.push(b'+');
         }
@@ -1028,7 +996,7 @@ pub fn check() -> usize {
             let (mut nul, mut high, mut hit_open) = (false, false, false);
             for f in rows(&c) {
                 let (s, cv) = (unhex(&f[0]), f[1].parse::<i32>().unwrap_or(0));
-                let got = if f[2] == "NULL" { None } else { f[2].parse::<usize>().ok() };
+                let got = if f[2] == NULL { None } else { f[2].parse::<usize>().ok() };
                 want!(got == alt_strchr(&s, cv, last), "{} line {} {}", name, f[0], cv);
                 let inside = (0..=255).contains(&cv);
                 want!(inside != part, "{} {} corpus holds c {}", name, if part { "readings" } else { "plain" }, cv);
@@ -1064,7 +1032,7 @@ pub fn check() -> usize {
     let (mut beyond, mut exact, mut empty0, mut huge, mut nul) = (false, false, false, false, false);
     for f in rows(&c) {
         let (b, l, len) = (unhex(&f[0]), unhex(&f[1]), f[2].parse::<u64>().unwrap_or(0));
-        let got = if f[3] == "NULL" { None } else { f[3].parse::<usize>().ok() };
+        let got = if f[3] == NULL { None } else { f[3].parse::<usize>().ok() };
         want!(got == alt_strnstr(&b, &l, len), "strnstr line {} {} {}", f[0], f[1], len);
         want!(len <= 4_294_967_295 || len == SIZE_MAX, "strnstr len {} is neither under 2^32 nor SIZE_MAX", len);
         let free = o_strstr(&b, &l);

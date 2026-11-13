@@ -38,7 +38,7 @@
 //! their longest list holds 2000 nodes, short of every round capacity (4096),
 //! and c12.rs's corpora are C 12's to keep; c12_list_clear carries no headNull
 //! and c12_list_last holds the empty list. The values are drawn as C 12's are
-//! (c12::full_val, and c12::ranged_val within +/-1 000 000 for the two
+//! (Rng::i32val, and Rng::range_i32 within +/-1 000 000 for the two
 //! callbacks, so that x*3-1 cannot overflow an int), and f is C 12's
 //! o_foreach.
 //!
@@ -46,8 +46,8 @@
 //! small shapes, the value boundaries, and lists of 600 and 5000 nodes drawn
 //! from a seed of their own -- and a small count keeps the whole head.
 
-use crate::c12::{full_val, o_foreach, ranged_val};
-use crate::common::{bench_lines, ints_csv, join_csv, longest_csv, sink, Rng};
+use crate::c12::o_foreach;
+use crate::common::{bench_lines, ints_csv, join_csv, longest_csv, or_null, sink, Rng, NULL};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -106,8 +106,8 @@ enum Vals {
 
 fn val(kind: Vals, rng: &mut Rng) -> i32 {
     match kind {
-        Vals::Full => full_val(rng),
-        Vals::Mapped => ranged_val(rng, MAP_LO, MAP_HI),
+        Vals::Full => rng.i32val(),
+        Vals::Mapped => rng.range_i32(MAP_LO, MAP_HI),
     }
 }
 
@@ -201,10 +201,7 @@ fn reference(a: Arm, v: &[i32]) -> String {
     match a {
         Arm::AddFront => join_csv(&o_lstadd_front(v)),
         Arm::Size => o_lstsize(v).to_string(),
-        Arm::Last => match o_lstlast(v) {
-            Some(x) => x.to_string(),
-            None => "NULL".to_string(),
-        },
+        Arm::Last => or_null(o_lstlast(v)),
         Arm::AddBack => join_csv(&o_lstadd_back(v)),
         Arm::Clear => {
             let (n, null) = o_lstclear(v);
@@ -333,7 +330,7 @@ pub fn check() -> usize {
     let mut rng = Rng::new(0x11f7_4242);
     for i in 0..20_000 {
         let n = if i % 2000 == 0 { PAST + 1 } else { rng.below(13) };
-        let v: Vec<i32> = (0..n).map(|_| full_val(&mut rng)).collect();
+        let v: Vec<i32> = (0..n).map(|_| rng.i32val()).collect();
         // Built a second way: node by node, as the harness calls the function.
         let mut front: Vec<i32> = Vec::new();
         let mut back: Vec<i32> = Vec::new();
@@ -353,7 +350,7 @@ pub fn check() -> usize {
         if o_lstlast(&v) != (if n == 0 { None } else { Some(v[n - 1]) }) {
             bad.push(format!("lstlast property, n={}", n));
         }
-        let m: Vec<i32> = (0..n).map(|_| ranged_val(&mut rng, MAP_LO, MAP_HI)).collect();
+        let m: Vec<i32> = (0..n).map(|_| rng.range_i32(MAP_LO, MAP_HI)).collect();
         let r = o_foreach(&m);
         if r.len() != m.len() || r.iter().zip(&m).any(|(&y, &x)| y as i64 != x as i64 * 3 - 1) {
             bad.push(format!("f property, n={}", n));
@@ -424,7 +421,7 @@ pub fn check() -> usize {
         if saw_empty != empty {
             bad.push(format!("{}: the empty list is {}", name, if saw_empty { "there" } else { "missing" }));
         }
-        if a == Arm::Last && text.contains("NULL") {
+        if a == Arm::Last && text.contains(NULL) {
             bad.push(format!("{}: a NULL answer", name));
         }
         if saw != (true, true) {

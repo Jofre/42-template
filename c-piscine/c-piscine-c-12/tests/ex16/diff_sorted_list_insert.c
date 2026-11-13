@@ -112,8 +112,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		tab = dio_csv_ints(f[0], &n);
 		node = (t_list **)dio_alloc((size_t)n, sizeof(t_list *));
 		seen = (t_list **)dio_alloc((size_t)(n + 2), sizeof(t_list *));

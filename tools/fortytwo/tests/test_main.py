@@ -17,9 +17,11 @@ import unittest
 import urllib.parse
 from unittest import mock
 
-from common import WS, run42
+from common import WS, run42, tool_text
 import main
 import workspace
+from test_workspace import LEVELS_BZL, tree
+from workspace import Workspace
 
 C05 = "c-piscine/c-piscine-c-05"
 EX03 = os.path.join(WS, C05, "tests", "ex03")
@@ -77,8 +79,11 @@ class Env:
                 with open(p, "w") as f:
                     f.write('#!/bin/sh\necho "$0 $*" >> "%s"\nexit 0\n' % self.calls)
                 os.chmod(p, 0o755)
+            # A user file of its own too (config.yaml, userconfig.py): never
+            # the one of whoever runs the tests.
             self.environ = {"PATH": self.bin + os.pathsep + os.environ.get("PATH", ""),
                             "HOME": self.tmp, "XDG_STATE_HOME": os.path.join(self.tmp, "state"),
+                            "XDG_CONFIG_HOME": os.path.join(self.tmp, "config"),
                             "SUBMIT_GATE": "basic",
                             # tools/drives.sh's stand-in for /etc/bazel.bazelrc,
                             # one that does not exist: no case reads this machine's.
@@ -200,6 +205,9 @@ class Registry(unittest.TestCase):
             self.assertIn(r["audience"], ("student", "maintainer", "internal"), r)
             self.assertEqual(r["command"] == "-", r["audience"] == "internal", r)
             self.assertTrue(r["text"].strip(), r)
+        # A row that runs nothing is one of the two commands AGENTS.md section
+        # 4 allows, and `42 help CMD` says what each runs instead.
+        self.assertEqual({r["command"] for r in rows if not r["runs"].strip()}, set(main.NO_BAZEL))
 
     def floor(self):
         """The oldest python3 tools/42.sh lets run 42."""
@@ -215,6 +223,26 @@ class Registry(unittest.TestCase):
         for name in names:
             with open(os.path.join(here, name), encoding="utf-8") as f:
                 ast.parse(f.read(), name, feature_version=self.floor())
+
+    def test_no_module_imports_what_the_floor_lacks(self):
+        # Parsing at the floor sees syntax, never a module the floor's Python
+        # does not have: tomllib (3.11) parses everywhere and fails to import
+        # on 3.10.12, the campus Python. These are every public module of the
+        # hermetic 3.13 that 3.10.12 has not (compared on both, 2026-10-23).
+        newer = ("tomllib", "wsgiref.types", "dbm.sqlite3")
+        here = os.path.join(WS, "tools", "fortytwo")
+        for name in sorted(f for f in os.listdir(here) if f.endswith(".py")):
+            with open(os.path.join(here, name), encoding="utf-8") as f:
+                tree = ast.parse(f.read(), name)
+            for node in ast.walk(tree):
+                mods = []
+                if isinstance(node, ast.Import):
+                    mods = [a.name for a in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    # `from wsgiref import types` is wsgiref.types too.
+                    mods = [node.module] + ["%s.%s" % (node.module, a.name) for a in node.names]
+                for mod in mods:
+                    self.assertFalse([m for m in newer if mod == m or mod.startswith(m + ".")], (name, mod))
 
     def test_doctor_names_the_same_floor(self):
         import doctor
@@ -286,6 +314,15 @@ class Help(Case):
         self.assertIn("refuses a project with nothing written", flat)
         self.assertIn("an exercise its subject calls mandatory", flat)
 
+    def test_help_submit_says_a_part_not_written_blocks(self):
+        # A project divided into parts is blocked by default while a part
+        # outside its mandatory one is not written; the help said only what
+        # --written-only refuses.
+        _, detail, _ = self.run42(["help", "submit"])
+        flat = " ".join(detail.split())
+        self.assertIn("is blocked while another part is not written yet", flat)
+        self.assertIn("or a part it calls so", flat)
+
     def test_the_here_line(self):
         rc, out, _ = self.run42([], EX03)
         self.assertIn("here: c-05 ex03, level basic (from SUBMIT_GATE).", out)
@@ -324,6 +361,191 @@ class Help(Case):
             self.assertEqual(rc, 2, argv)
             self.assertIn(help_ + " says how to call it", err)
             self.assertNotIn("42 help 42", err)
+
+
+# A contract of units, as tools/subject.bzl's unit() writes one: a library
+# with two functions, its subject's mandatory part, and a project that is one
+# program. Toy tasks with toy names.
+TOYLIB_BUILD = (
+    'load("//tools:defs.bzl", "c_levels", "subject", "unit")\n'
+    "subject(\n"
+    '    grader = "defense",\n'
+    "    group = False,\n"
+    "    units = {\n"
+    '        "libtoy": unit(\n'
+    "            page = 1,\n"
+    '            files = ["Makefile"],\n'
+    "            allowed = [],\n"
+    '            functions = {"toy_len": [], "toy_up": []},\n'
+    "        ),\n"
+    "    },\n"
+    '    mandatory = ["libtoy"],\n'
+    '    mandatory_quote = "Toy, p.1: \\"A toy sentence.\\"",\n'
+    ")\n"
+    "c_levels()\n")
+TOYPROG_BUILD = (
+    "subject(\n"
+    '    grader = "both",\n'
+    "    group = False,\n"
+    '    units = {"toy_root": unit(page = 1, files = ["Makefile"], allowed = None)},\n'
+    ")\n"
+    "c_levels()\n")
+
+
+class Units(Case):
+    """`42 units`: what a project's contract divides it into, read as text.
+
+    It runs no Bazel (AGENTS.md, 4): the bazel first on PATH here fails, and
+    tearDown fails the test if anything ran it. It is first on this process's
+    PATH too, so a Bazel started some other way than through 42's own
+    environment is caught as well.
+    """
+
+    def setUp(self):
+        Case.setUp(self)
+        for name in ("bazel", "bazelisk"):
+            with open(os.path.join(self.env.bin, name), "w") as f:
+                f.write('#!/bin/sh\necho "$0 $*" >> "%s"\nexit 1\n' % self.env.calls)
+        path = mock.patch.dict(os.environ, {"PATH": self.env.bin + os.pathsep + os.environ.get("PATH", "")})
+        path.start()
+        self.addCleanup(path.stop)
+
+    def toy(self):
+        """A checkout of its own with the two contracts of units: its root."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        tree(tmp.name, {"tools/units.awk": tool_text("units.awk"), "tools/defs_levels.bzl": LEVELS_BZL,
+                        "cursus/Milestone_9/Toylib/BUILD.bazel": TOYLIB_BUILD,
+                        "cursus/Milestone_9/Toyprog/BUILD.bazel": TOYPROG_BUILD})
+        return tmp.name
+
+    def listing(self, argv, cwd=WS, ws=None):
+        rc, out, err = run42(argv, cwd, self.env.environ, ws=ws)
+        self.assertEqual((rc, err), (0, ""), argv)
+        lines = out.splitlines()
+        first = next(i for i, l in enumerate(lines) if l.startswith("  "))
+        return " ".join(lines[:first]), [l for l in lines[first:] if l.startswith("  ")], \
+            [l for l in lines[first:] if not l.startswith("  ")]
+
+    def test_an_exercise_project(self):
+        head, rows, tail = self.listing(["units", "c-00"])
+        self.assertEqual(head, "c-00 (c-piscine/c-piscine-c-00): 9 exercises, each in its own folder "
+                               "of your repository.")
+        self.assertEqual(rows, ["  EXERCISE  ex0%d  ex0%d/  %s  42 test c-00 ex0%d" % (
+            n, n, "mandatory" if n < 5 else "         ", n) for n in range(9)])
+        self.assertEqual(" ".join(tail), "mandatory: in the part its subject calls mandatory. "
+                         "`42 submit --written-only` pushes nothing while one marked so has nothing "
+                         "written yet. The project's tests, at your level: 42 test c-00")
+        head, rows, tail = self.listing(["units", "c-05"])
+        self.assertEqual(rows[3], "  EXERCISE  ex03  ex03/  42 test c-05 ex03")
+        self.assertEqual(tail, ["The project's tests, at your level: 42 test c-05"])
+
+    def test_a_library_and_a_project_of_units(self):
+        ws = self.toy()
+        lib = workspace.Project(ws, "cursus/Milestone_9/Toylib").short
+        head, rows, tail = self.listing(["units", lib], ws, ws)
+        self.assertEqual(head, "%s (cursus/Milestone_9/Toylib): 1 library of 2 functions, at the root "
+                               "of your repository." % lib)
+        self.assertEqual(rows, ["  LIBRARY   libtoy   mandatory  42 test %s libtoy" % lib,
+                                "  FUNCTION  toy_len             42 test %s toy_len" % lib,
+                                "  FUNCTION  toy_up              42 test %s toy_up" % lib])
+        # A function is in its library's part, though its row leaves the
+        # column blank, and the floor judges the library, not each function.
+        self.assertEqual(" ".join(tail), "mandatory: in the part its subject calls mandatory, "
+                         "as is each function listed under one. `42 submit --written-only` pushes "
+                         "nothing while one marked so has nothing written yet. The project's tests, "
+                         "at your level: 42 test %s" % lib)
+        prog = workspace.Project(ws, "cursus/Milestone_9/Toyprog").short
+        head, rows, tail = self.listing(["units", prog], ws, ws)
+        self.assertEqual(head, "%s (cursus/Milestone_9/Toyprog): 1 project, at the root of your "
+                               "repository." % prog)
+        self.assertEqual(rows, ["  PROJECT  toy_root  42 test %s toy_root" % prog])
+        self.assertEqual(tail, ["The project's tests, at your level: 42 test %s" % prog])
+
+    def test_every_command_it_prints_runs_what_it_names(self):
+        # Each row's `42 test` selects that unit's own suite, and the last
+        # line the project: 42 units and 42 test read the words alike.
+        ws = self.toy()
+        for root in (WS, ws):
+            W = workspace.Workspace(root, root)
+            for p in W.projects():
+                _, rows, tail = self.listing(["units", p.short], root, root)
+                self.assertTrue(rows, p.rel)
+                for row, u in zip(rows, p.units()):
+                    words = row.split("42 test ", 1)[1].split()
+                    self.assertEqual(words, [p.short, u.name], row)
+                    self.assertEqual(W.selection(W.resolve(words), "basic")[0], [p.label + ":" + u.name], row)
+                self.assertEqual(len(rows), len(p.units()), p.rel)
+                words = tail[-1].split("42 test ", 1)[1].split()
+                self.assertEqual(W.selection(W.resolve(words), "basic")[0], [p.label + "/..."], p.rel)
+
+    def test_a_word_no_unit_has_points_here(self):
+        # 42 test answers a word that is no part of a project of units with
+        # this command, and the command it names lists them.
+        ws = self.toy()
+        lib = workspace.Project(ws, "cursus/Milestone_9/Toylib").short
+        rc, out, err = run42(["test", lib, "ex00", "--dry-run"], ws, self.env.environ, ws=ws)
+        self.assertEqual((rc, out), (2, ""))
+        self.assertTrue(err.startswith("42: ex00 is not a part of %s; `42 units %s` lists them." % (lib, lib)), err)
+        _, rows, _ = self.listing(err.split("`")[1].split()[1:], ws, ws)
+        self.assertEqual([r.split()[1] for r in rows], ["libtoy", "toy_len", "toy_up"])
+
+    def test_in_a_project_it_lists_that_project(self):
+        want = self.run42(["units", "c-05"])
+        self.assertEqual(want[0], 0, want)
+        for argv in (["units"], ["units", "--dry-run"], ["units", "--show_bazel"]):
+            self.assertEqual(self.run42(argv, EX03), want, argv)
+
+    def test_outside_a_project_it_names_one_and_lists_them(self):
+        rc, out, err = self.run42(["units"])
+        self.assertEqual((rc, out), (2, ""))
+        self.assertTrue(err.startswith("42: 42 units needs a project, and you are not in one."), err)
+        self.assertIn("\n  42 units c-05\nThe projects: %s\n" % Workspace(WS, WS).project_list(), err)
+        self.assertNotIn("42 units c-05 ex03", err)
+
+    def test_it_takes_a_project_and_nothing_else(self):
+        for argv, said in ((["units", "ex03"], "42: 42 units takes a project, not ex03."),
+                           (["units", "norm"], "42: 42 units takes a project, not norm."),
+                           (["units", "ft_strlen"], "42: 42 units takes a project, not ft_strlen."),
+                           (["units", "nonsense"], "42: 'nonsense' is not a project."),
+                           (["units", "c-05", "c-06"], "42: unrecognized arguments: c-06. `42 help units`")):
+            rc, out, err = self.run42(argv)
+            self.assertEqual((rc, out), (2, ""), argv)
+            self.assertTrue(err.startswith(said), (argv, err))
+
+    def test_a_unit_is_no_project(self):
+        # A unit's own name, a library's, a function's or a program's, is a
+        # word of 42 test, and 42 units refuses it as it refuses an exercise.
+        ws = self.toy()
+        for word in ("libtoy", "toy_len", "toy_root"):
+            rc, out, err = run42(["units", word], ws, self.env.environ, ws=ws)
+            self.assertEqual((rc, out, err), (2, "", "42: 42 units takes a project, not %s.\n" % word))
+
+    def test_a_contract_it_cannot_read_is_said(self):
+        ws = self.toy()
+        tree(ws, {"cursus/Milestone_9/Toyprog/BUILD.bazel": TOYPROG_BUILD.replace('["Makefile"]', "FILES")
+                  .replace("units = {", 'mandatory = [DIR],\n    units = {')})
+        rc, out, err = run42(["units", "cursus/Milestone_9/Toyprog"], ws, self.env.environ, ws=ws)
+        self.assertEqual((rc, out), (2, ""))
+        self.assertTrue(err.startswith("42: units.awk: cursus/Milestone_9/Toyprog/BUILD.bazel:"), err)
+
+    def test_a_contract_that_lists_nothing_says_so(self):
+        ws = self.toy()
+        rel = "cursus/Milestone_9/Toyempty"
+        for key in ("exercises", "units"):
+            tree(ws, {rel + "/BUILD.bazel": 'subject(\n    grader = "both",\n    group = False,\n'
+                      '    %s = {},\n)\nc_levels()\n' % key})
+            rc, out, err = run42(["units", rel], ws, self.env.environ, ws=ws)
+            self.assertEqual((rc, err), (0, ""), key)
+            self.assertEqual(" ".join(out.splitlines()), "toyempty (%s): its subject() contract lists "
+                             "no exercise or unit yet." % rel, key)
+            self.assertTrue(out.endswith("\n") and max(map(len, out.splitlines())) <= 80, out)
+
+    def test_help_says_it_runs_no_bazel(self):
+        _, detail, _ = self.run42(["help", "units"])
+        self.assertIn("Runs: no Bazel command; 42 reads the project's BUILD.bazel itself", detail)
+        _, usage, _ = self.run42(["help"])
+        self.assertIn("  42 units [project]\n", usage)
 
 
 class DryRun(Case):
@@ -463,9 +685,13 @@ class DryRun(Case):
     def test_the_one_target_commands(self):
         self.assertEqual(self.dry(["init", "--login", "jdoe"]), ["bazel run //tools:init -- --login jdoe"])
         self.assertEqual(self.dry(["stop"]), ["bazel shutdown"])
-        self.assertEqual(self.dry(["selftest"]), ["bazel test //tools/tests:fortytwo_test"])
-        self.assertEqual(self.dry(["selftest", "--harness"]), ["bazel test //tools/tests:fortytwo_test //tools/..."])
+        self.assertEqual(self.dry(["selftest"]),
+                         ["bazel test //tools/tests:fortytwo_test //tools/tests:userconfig_oracle_test"])
+        self.assertEqual(self.dry(["selftest", "--harness"]),
+                         ["bazel test //tools/tests:fortytwo_test //tools/tests:userconfig_oracle_test //tools/..."])
         self.assertEqual(self.dry(["conventions"]), ["bazel run //tools:conventions"])
+        # The root's fast gate, the harness's tests that take seconds.
+        self.assertEqual(self.dry(["gate"]), ["bazel test //:gate_fast"])
         self.assertEqual(self.dry(["stubcheck"]), ["bazel run //tools:stub_check -- " + C05])
         self.assertEqual(self.dry(["stubcheck"], WS), ["bazel run //tools:stub_check"])
 
@@ -820,6 +1046,9 @@ class HintBlock(unittest.TestCase):
         " HINTS:",
         " HINTS (none matches this case -- showing what this exercise has):",
         " HINTS (from this exercise, written for its output test rather than this one):",
+        # A pin of the reader, green before the runners named a unit by its
+        # kind and after: a function's test words that heading with its kind.
+        " HINTS (from this function, written for its output test rather than this one):",
     )
 
     def block(self, text):

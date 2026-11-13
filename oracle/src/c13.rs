@@ -19,7 +19,7 @@
 //! Line formats (input fields, then reference output):
 //!   c13_create_node <hexItem>\t<hexItem>\tNULL\tNULL\t1  (trailing 1: item aliased)
 //!   c13_insert_data  <seq>\t<paths>\t<found-csv>  (hex at an item's path, NULL at an empty slot)
-//!   c13_search_item  <seq>\t<shape>\t<hexQuery>\t<hexFound|NULL>
+//!   c13_search_item  <seq>\t<shape>\t<hexQuery>\t<at>\t<hexFound|NULL>  (at: the found item's index in <seq>, -1 for none)
 //!   c13_level_count  <seq>\t<shape>\t<height>
 //!   c13_apply_prefix <seq>\t<shape>\t<prefix-hex-csv>
 //!   c13_apply_infix  <seq>\t<shape>\t<infix-hex-csv>
@@ -29,7 +29,7 @@
 //! <seq> stays the FIRST field of every arm: the c_cycles targets count nodes
 //! off $1 (c-piscine-c-13/BUILD.bazel, NODE).
 
-use crate::common::{bench_lines, push_hex, rand_body, sink, to_hex, unhex, unhex_csv, Rng};
+use crate::common::{bench_lines, join_hex, or_null_with, push_hex, rand_body, sink, to_hex, unhex, unhex_csv, Rng, NULL};
 use std::fmt::Write as _;
 use std::io::{self, Write};
 
@@ -128,7 +128,7 @@ fn shape_field(sh: &[Option<(usize, bool)>]) -> String {
             None => s.push('-'),
             Some((p, right)) => {
                 // Straight into the field, no temporary String per node (the
-                // same reasoning as join_hex below).
+                // same reasoning as common::join_hex).
                 let _ = write!(s, "{}{}", p, if *right { 'R' } else { 'L' });
             }
         }
@@ -252,9 +252,9 @@ fn height(n: &Link) -> i64 {
     }
 }
 
-/// btree_search_item: infix-first node whose key equals `q`. Because equal keys
-/// share identical bytes, membership decides the result and the found item's
-/// bytes equal `q`; a BST descent finds a present key.
+/// Whether the tree holds an item equal to `q`: a BST descent finds a present
+/// key. What btree_search_item returns is `search_at`'s; this is the second
+/// construction check() holds it to.
 fn contains(n: &Link, q: &[u8]) -> bool {
     match n {
         None => false,
@@ -267,6 +267,34 @@ fn contains(n: &Link, q: &[u8]) -> bool {
                 contains(&b.right, q)
             }
         }
+    }
+}
+
+/// btree_search_item's answer, as the index in `seq` of the item it returns:
+/// the first node an infix walk of the tree meets, the order the subject
+/// names, whose item equals `q`; None when no item does. Walked on the
+/// shape's own nodes, so the answer says WHICH item: equal items have the
+/// same bytes, and the harness reads back the index of the node whose item
+/// the returned pointer is.
+fn search_at(seq: &[Vec<u8>], sh: &[Option<(usize, bool)>], q: &[u8]) -> Option<usize> {
+    let mut kids: Vec<[Option<usize>; 2]> = vec![[None, None]; seq.len()];
+    for (i, e) in sh.iter().enumerate() {
+        if let Some((p, right)) = e {
+            kids[*p][*right as usize] = Some(i);
+        }
+    }
+    let mut stack: Vec<usize> = Vec::new();
+    let mut at = if seq.is_empty() { None } else { Some(0) };
+    loop {
+        while let Some(i) = at {
+            stack.push(i);
+            at = kids[i][0];
+        }
+        let i = stack.pop()?;
+        if seq[i].as_slice() == q {
+            return Some(i);
+        }
+        at = kids[i][1];
     }
 }
 
@@ -297,20 +325,6 @@ fn by_level(root: &Link) -> Vec<(Vec<u8>, i64, i64)> {
 }
 
 // ------------------------------------------------------------- helpers
-/// Comma-joined lowercase-hex of each byte-string (empty slice -> "").
-fn join_hex<T: AsRef<[u8]>>(seq: &[T]) -> String {
-    // Hex straight into the accumulator. The previous version called to_hex per
-    // element, which allocated a String, copied it in and dropped it — once per
-    // tree node per case. Same bytes out; see common::push_hex.
-    let mut s = String::with_capacity(seq.iter().map(|x| x.as_ref().len() * 2 + 1).sum());
-    for (i, x) in seq.iter().enumerate() {
-        if i != 0 {
-            s.push(',');
-        }
-        push_hex(&mut s, x.as_ref());
-    }
-    s
-}
 
 /// `hex@level@first` entries comma-joined.
 fn join_level(v: &[(Vec<u8>, i64, i64)]) -> String {
@@ -445,9 +459,8 @@ fn gen_create_node(seed: u64, count: usize) {
     }
 }
 
-fn gen_insert_data(seed: u64, count: usize) {
+fn gen_insert_data<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     for_each_seq(&mut rng, count, |seq| {
         // Routes, then what the student's tree must hold at the end of each:
         // the item that was inserted n-th at the n-th route, nothing at the
@@ -468,16 +481,26 @@ fn gen_insert_data(seed: u64, count: usize) {
             if k < n {
                 push_hex(&mut found, &seq[k]);
             } else {
-                found.push_str("NULL");
+                found.push_str(NULL);
             }
         }
         let _ = writeln!(w, "{}\t{}\t{}", join_hex(seq), paths, found);
     });
 }
 
+/// One c13_search_item line: the tree `seq` makes, `q`, and the item
+/// btree_search_item returns for it, by its index in `seq` (-1 for none) and
+/// as bytes (NULL for none). Draws no RNG, so both loops of gen_search_item
+/// can share it.
+fn search_line(seq: &[Vec<u8>], q: &[u8]) -> String {
+    let sh = shape(seq);
+    let at = search_at(seq, &sh, q);
+    let found = or_null_with(at, |i| to_hex(&seq[i]));
+    let at = at.map_or_else(|| "-1".to_string(), |i| i.to_string());
+    format!("{}\t{}\t{}\t{}\t{}", join_hex(seq), shape_field(&sh), to_hex(q), at, found)
+}
+
 fn gen_search_item(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let seqs = gen_seqs(&mut rng, count);
     let mut w = io::BufWriter::new(io::stdout());
     let s = |b: &[u8]| b.to_vec();
     // Deterministic corners emitted first (each pins one contract edge):
@@ -506,81 +529,61 @@ fn gen_search_item(seed: u64, count: usize) {
         if done >= count {
             break;
         }
-        let root = build(seq);
-        let res = if contains(&root, q) {
-            to_hex(q)
-        } else {
-            "NULL".to_string()
-        };
-        let sh = shape_field(&shape(seq));
-        let _ = writeln!(w, "{}\t{}\t{}\t{}", join_hex(seq), sh, to_hex(q), res);
+        let _ = writeln!(w, "{}", search_line(seq, q));
         done += 1;
     }
+    // The queries draw from the RNG where the whole run of `count` sequences
+    // leaves it: this generator once built every sequence first (gen_seqs) and
+    // then drew its queries from the same RNG. Streaming keeps that corpus
+    // byte for byte without holding it: a second RNG from the same seed runs
+    // through the sequences without keeping one, and the queries draw from it,
+    // while the lines stream from a fresh one. The cost is generating the
+    // sequences twice, in time, not memory.
+    let mut qrng = Rng::new(seed);
+    for_each_seq(&mut qrng, count, |_| {});
     // NOT .skip(done). The corpus opens with 11 structured tree shapes — empty,
     // single, both chains, all-equal, high-byte, strict-prefix — and `done` is
     // 13 by the time the deterministic corner queries above have run, so
     // skipping that many stepped over every one of them. btree_search_item was
     // therefore only ever exercised against randomly-shaped trees: never an
     // empty tree, never a pure chain, never a set of equal keys. Starting from
-    // the beginning keeps the total at `count` (the loop still breaks there) and
-    // costs only 13 random tail cases.
-    for seq in seqs.iter() {
+    // the beginning keeps the total at `count` (no line once done reaches it)
+    // and costs only 13 random tail cases.
+    for_each_seq(&mut Rng::new(seed), count, |seq| {
         if done >= count {
-            break;
+            return;
         }
-        let root = build(seq);
         // half the time query a present key, else a random (usually absent) one
-        let q = if rng.below(2) == 0 && !seq.is_empty() {
-            seq[rng.below(seq.len())].clone()
+        let q = if qrng.below(2) == 0 && !seq.is_empty() {
+            seq[qrng.below(seq.len())].clone()
         } else {
-            let high = rng.below(2) == 1;
-            rand_str(&mut rng, high)
+            let high = qrng.below(2) == 1;
+            rand_str(&mut qrng, high)
         };
-        let res = if contains(&root, &q) {
-            to_hex(&q)
-        } else {
-            "NULL".to_string()
-        };
-        let sh = shape_field(&shape(seq));
-        let _ = writeln!(w, "{}\t{}\t{}\t{}", join_hex(seq), sh, to_hex(&q), res);
+        let _ = writeln!(w, "{}", search_line(seq, &q));
         done += 1;
-    }
+    });
 }
 
-fn gen_level_count(seed: u64, count: usize) {
+/// Every tree corpus but ex04's and search_item's: <seq>\t<shape>\t<answer>,
+/// one line per sequence for_each_seq hands over, the answer computed from
+/// the tree the sequence makes.
+fn emit_trees(seed: u64, count: usize, answer: impl Fn(&Link) -> String) {
     let mut rng = Rng::new(seed);
     let mut w = io::BufWriter::new(io::stdout());
     for_each_seq(&mut rng, count, |seq| {
         let root = build(seq);
         let sh = shape_field(&shape(seq));
-        let _ = writeln!(w, "{}\t{}\t{}", join_hex(seq), sh, height(&root));
+        let _ = writeln!(w, "{}\t{}\t{}", join_hex(seq), sh, answer(&root));
     });
 }
 
-fn gen_traversal(seed: u64, count: usize, kind: u8) {
-    let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
-    for_each_seq(&mut rng, count, |seq| {
-        let root = build(seq);
+/// A traversal's corpus: `walk` is prefix, infix or suffix.
+fn gen_traversal(seed: u64, count: usize, walk: for<'a> fn(&'a Link, &mut Vec<&'a [u8]>)) {
+    emit_trees(seed, count, |root| {
         let mut out: Vec<&[u8]> = Vec::new();
-        match kind {
-            0 => prefix(&root, &mut out),
-            1 => infix(&root, &mut out),
-            _ => suffix(&root, &mut out),
-        }
-        let sh = shape_field(&shape(seq));
-        let _ = writeln!(w, "{}\t{}\t{}", join_hex(seq), sh, join_hex(&out));
-    });
-}
-
-fn gen_apply_by_level(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
-    for_each_seq(&mut rng, count, |seq| {
-        let root = build(seq);
-        let lv = by_level(&root);
-        let sh = shape_field(&shape(seq));
-        let _ = writeln!(w, "{}\t{}\t{}", join_hex(seq), sh, join_level(&lv));
+        walk(root, &mut out);
+        join_hex(&out)
     });
 }
 
@@ -588,13 +591,13 @@ fn gen_apply_by_level(seed: u64, count: usize) {
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
         "c13_create_node" => gen_create_node(seed, count),
-        "c13_insert_data" => gen_insert_data(seed, count),
+        "c13_insert_data" => gen_insert_data(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c13_search_item" => gen_search_item(seed, count),
-        "c13_level_count" => gen_level_count(seed, count),
-        "c13_apply_prefix" => gen_traversal(seed, count, 0),
-        "c13_apply_infix" => gen_traversal(seed, count, 1),
-        "c13_apply_suffix" => gen_traversal(seed, count, 2),
-        "c13_apply_by_level" => gen_apply_by_level(seed, count),
+        "c13_level_count" => emit_trees(seed, count, |root| height(root).to_string()),
+        "c13_apply_prefix" => gen_traversal(seed, count, prefix),
+        "c13_apply_infix" => gen_traversal(seed, count, infix),
+        "c13_apply_suffix" => gen_traversal(seed, count, suffix),
+        "c13_apply_by_level" => emit_trees(seed, count, |root| join_level(&by_level(root))),
         _ => return false,
     }
     true
@@ -612,6 +615,24 @@ pub fn check() -> usize {
     };
     if sizes(1).iter().map(|q| q.len()).collect::<Vec<usize>>() != LONG_TREES.to_vec() || sizes(1) != sizes(5) {
         eprintln!("CHECK FAIL c13 for_each_seq: the long trees are not LONG_TREES, the same at every seed");
+        fails += 1;
+    }
+
+    // ---- bench does insert_data's own work: the <found> field of every
+    //      line, long trees included, from following its <paths> ----
+    let mut corpus = Vec::new();
+    gen_insert_data(&mut corpus, 1, 200);
+    let text = String::from_utf8_lossy(&corpus);
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() != 200 {
+        eprintln!("CHECK FAIL c13 insert_data corpus: {} lines at count 200", lines.len());
+        fails += 1;
+    }
+    if let Some(l) = lines.iter().find(|l| {
+        let f: Vec<&str> = l.split('\t').collect();
+        f.len() != 3 || bench_insert_data(&f) != f[2]
+    }) {
+        eprintln!("CHECK FAIL c13 bench insert_data disagrees with its corpus on {:.120}", l);
         fails += 1;
     }
 
@@ -743,6 +764,28 @@ pub fn check() -> usize {
     if !shape_field(&shape(&[])).is_empty() {
         eprintln!("CHECK FAIL c13 shape empty");
         fails += 1;
+    }
+
+    // ---- search_item's lines, derived by hand: WHICH item is returned, by
+    //      its index in <seq>, then its bytes ----
+    // 5 5 5: the infix walk meets item 0 first (each copy hangs right of the
+    // one before). m a a: the second a hangs right of the first, so the walk
+    // meets a (1), a (2), m (0). b a c: c is item 2.
+    let lines: &[(&[&[u8]], &[u8], &str)] = &[
+        (&[], b"a", "\t\t61\t-1\tNULL"),
+        (&[b"a"], b"a", "61\t-\t61\t0\t61"),
+        (&[b"a"], b"b", "61\t-\t62\t-1\tNULL"),
+        (&[b"5", b"5", b"5"], b"5", "35,35,35\t-,0R,1R\t35\t0\t35"),
+        (&[b"m", b"a", b"a"], b"a", "6d,61,61\t-,0L,1R\t61\t1\t61"),
+        (&[b"b", b"a", b"c"], b"c", "62,61,63\t-,0L,0R\t63\t2\t63"),
+    ];
+    for (seq, q, want) in lines {
+        let seq: Vec<Vec<u8>> = seq.iter().map(|x| x.to_vec()).collect();
+        let got = search_line(&seq, q);
+        if got != *want {
+            eprintln!("CHECK FAIL c13 search_item line {:?}, not {:?}", got, want);
+            fails += 1;
+        }
     }
 
     // ---- ex04's probes, derived by hand ----
@@ -884,6 +927,20 @@ pub fn check() -> usize {
             }
         }
 
+        // search_at, by a second construction: the item it returns for each
+        // key of the tree is the EARLIEST inserted of the items equal to it
+        // (each later copy lands right of it, so the infix walk meets it
+        // first), and it finds a key exactly when contains() does.
+        if seq.iter().any(|k| search_at(seq, &sh, k) != seq.iter().position(|x| x == k)) {
+            eprintln!("CHECK FAIL c13 search_at is not the earliest of the equal items");
+            fails += 1;
+        }
+        let near = [seq.first().map_or(&b""[..], |x| x.as_slice()), b"z"].concat();
+        if search_at(seq, &sh, &near).is_some() != contains(&root, &near) {
+            eprintln!("CHECK FAIL c13 search_at and contains disagree on {:?}", near);
+            fails += 1;
+        }
+
         // ex04's probes against build(): the k-th inserted item at the k-th
         // route, nothing at any empty-slot route. By the argument at `probes`
         // that pins build()'s whole tree -- so it also proves that the shape
@@ -937,11 +994,40 @@ pub fn check() -> usize {
     fails
 }
 
+/// One c13_insert_data line's work, from its fields: the tree the items of
+/// <seq> make when inserted in order, then what lies at the end of each route
+/// of <paths>, rendered as <found> is. That is what ex04's harness does with
+/// the tree the student's inserts built. (It once ran the infix and prefix
+/// traversals, the corpus's answer before the routes replaced it.)
+fn bench_insert_data(f: &[&str]) -> String {
+    let root = build(&unhex_csv(f[0]));
+    let routes: Vec<String> = f
+        .get(1)
+        .unwrap_or(&"")
+        .split(',')
+        .map(|r| if r == "." { String::new() } else { r.to_string() })
+        .collect();
+    let mut found = String::new();
+    for (k, at) in observe(&root, &routes).into_iter().enumerate() {
+        if k != 0 {
+            found.push(',');
+        }
+        match at {
+            Some(item) => push_hex(&mut found, item),
+            None => found.push_str(NULL),
+        }
+    }
+    found
+}
+
 /// Replay a corpus and compute the reference answers; see common::bench_lines.
 /// Every c13 line starts with <seq>: the comma-hex node list the tree is built
-/// from, so the reference work is building that tree and walking it. (The C
-/// harnesses link it from <shape> instead; for at most eleven nodes the two
-/// costs are the same order, and neither is the student's.)
+/// from, so the reference work is building that tree and doing the arm's work
+/// on it (for insert_data, bench_insert_data). Every tree harness but ex04's
+/// links its tree from <shape> instead, comparing no item, so the two sides
+/// build it differently: on the long trees (LONG_TREES, hundreds and
+/// thousands of nodes) inserting costs a descent per node, and linking a
+/// parse of <shape>. Neither is the function the student wrote.
 pub fn bench(name: &str) -> bool {
     if !matches!(name, "c13_create_node" | "c13_insert_data" | "c13_search_item"
         | "c13_level_count" | "c13_apply_prefix" | "c13_apply_infix" | "c13_apply_suffix"
@@ -952,18 +1038,21 @@ pub fn bench(name: &str) -> bool {
             sink(unhex(f[0]).len());
             continue;
         }
+        if name == "c13_insert_data" {
+            sink(bench_insert_data(&f));
+            continue;
+        }
         let seq = unhex_csv(f[0]);
         let root = build(&seq);
         let mut out: Vec<&[u8]> = Vec::new();
         match name {
-            "c13_insert_data" => { infix(&root, &mut out); prefix(&root, &mut out); }
             "c13_apply_prefix" => prefix(&root, &mut out),
             "c13_apply_infix" => infix(&root, &mut out),
             "c13_apply_suffix" => suffix(&root, &mut out),
             "c13_level_count" => sink(height(&root)),
             "c13_apply_by_level" => sink(by_level(&root).len()),
-            // <seq>\t<shape>\t<hexQuery>\t...
-            _ => { if f.len() >= 3 { sink(contains(&root, &unhex(f[2]))); } }
+            // <seq>\t<shape>\t<hexQuery>\t...: which item the walk returns
+            _ => { if f.len() >= 3 { sink(search_at(&seq, &shape(&seq), &unhex(f[2]))); } }
         }
         sink(out.len());
     }

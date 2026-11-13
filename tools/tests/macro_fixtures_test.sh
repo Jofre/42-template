@@ -38,40 +38,36 @@
 # to layers.expected here.
 #
 # Usage:
-#   macro_fixtures_test.sh --dir DIR --diff-output PATH --layers FILE --expected-layers FILE
-#                          --root-dir DIR --root-layers FILE --root-expected-layers FILE
-#                          --root-files-names FILE --root-includes FILE
+#   macro_fixtures_test.sh --dir DIR --diff-output PATH
 #                          --ex14-files-names FILE
-#                          --contract-problems FILE --contract-expected FILE
-#                          --levels-layers FILE --levels-expected-layers FILE
-#                          --levels-member-strays FILE
-#                          --graded-layers FILE --graded-expected-layers FILE
+#                          --contract-problems FILE... --contract-expected FILE
+#                          --toy PACKAGE LAYERS EXPECTED...
 #                          --harnesses FILE --expected-harnesses FILE
-#                          --first-red PATH --turnin-dirs FILE --root-turnin-dirs FILE
+#                          --lines FILE WANT...
 #                          --shell-tags FILE --redirect-args FILE --argvguard-builds FILE
 #                          --knobs FILE --expected-knobs FILE
 #
 #   --dir              the fixture package's directory in the runfiles
 #   --diff-output      tools/diff_output.sh, the runner every output layer uses
-#   --layers           what the macros emitted (the package's :layers)
-#   --expected-layers  what they must emit (its layers.expected)
-#   --root-*           the same for ./root, the toy turned in at the root of
-#                      deliverable/, plus its files layer's name list and the
-#                      include directories its Makefile passes
 #   --ex14-files-names ex14's files layer's name list: the grader's file in a
 #                      subfolder, copied into the turn-in
 #   --contract-problems  every contract check's message on a broken contract
 #                      (the package's :contract_problems), against
-#   --contract-expected  contract_problems.expected beside it
-#   --levels-*         the same as --layers for ./levels, the toy module whose
-#                      exercises c_levels() finds and audits: its tests and its
-#                      suites, the stray folders' files tests among them
-#   --levels-member-strays  ./levels' :member_strays: every word a library
-#                      member's test or program names outside its own files,
-#                      programs and output test -- none
-#   --graded-*         the same for ./graded, the toy project whose subject()
-#                      declares memory_graded: every test of its valgrind
-#                      layer at basic, quoting the contract's sentence
+#   --contract-expected  contract_problems.expected beside it.
+#                      --contract-problems repeats: after the top fixture's,
+#                      a toy's :contract_problems, the calls it refuses,
+#                      whose cases contract_problems.expected holds too
+#   --toy PACKAGE LAYERS EXPECTED  (repeatable) a fixture package whose tests
+#                      are listed: its folder from the workspace root, what
+#                      its macros emitted (its :layers) and what they must
+#                      emit (its layers.expected). tools/tests/BUILD.bazel
+#                      gives one for each package of _LAYERED_FIXTURES, DIR's
+#                      among them: ./levels, the toy module whose exercises
+#                      c_levels() finds and audits; ./graded, the toy project
+#                      whose subject() declares memory_graded; the toys
+#                      divided into named units (./named_*). A toy library's
+#                      layers are also read for each function's own tests
+#                      (unit_tests)
 #   --harnesses        every program the package builds from a student's
 #                      files, and the prototype test its harness names (the
 #                      package's :harnesses), against
@@ -80,15 +76,9 @@
 #                      exactly the lines WANT gives, comma-separated ("-": none)
 #                      -- ex04's files layer walking into backup/, the .c lists
 #                      the Makefile toys' builds wrote, the files ./levels has
-#                      outside every exercise folder
-#   --first-red        tools/first_red.sh, whose reading of each exercise's
-#                      turn-in folder from the subject() as written is held to
-#   --turnin-dirs      the macros' own turnin_dir(), one "exNN FOLDER" line per
-#   --root-turnin-dirs exercise (the package's :turnin_dirs, and ./root's)
-#   --module-turnin-dirs  the same lines c_levels() emits for a module (its
-#                      :turnin_dirs), repeatable: one per module, with the
-#                      module's BUILD.bazel beside it, so first_red is held to
-#                      every project's contract and not only the toy ones'
+#                      outside every exercise folder, the root toy's files and
+#                      its Makefile's -I (./named_prog), who waits for an
+#                      output test
 #   --shell-tags       where shell_exercise put the toy ex09's tags and
 #                      run_tags: one "name tag..." line per test
 #   --redirect-args    where shell_exercise put the toy ex23's redirect: one
@@ -107,7 +97,14 @@ require() {
 		exit 2
 	done
 }
-require awk cat diff grep head mktemp od rm sed sort tr
+require awk cat diff grep head mktemp od rm sed sort tr uniq
+
+RL_NAME=macro_fixtures_test
+case $0 in */*) RL_LIB=${0%/*}/../runner_lib.sh ;; *) RL_LIB=../runner_lib.sh ;; esac
+[ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
+[ -f "$RL_LIB" ] || { echo "macro_fixtures_test.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
+# shellcheck source=tools/runner_lib.sh
+. "$RL_LIB"
 
 # A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
 # in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
@@ -116,92 +113,71 @@ case ${TMPDIR:-/tmp} in /tmp | /tmp/) [ -z "${TEST_TMPDIR:-}" ] || export TMPDIR
 
 DIR=""
 DIFF_OUTPUT=""
-LAYERS=""
-EXPECTED_LAYERS=""
-ROOT_DIR=""
-ROOT_LAYERS=""
-ROOT_EXPECTED=""
-ROOT_NAMES=""
-ROOT_INCLUDES=""
 EX14_NAMES=""
 PROBLEMS=""
 PROBLEMS_EXPECTED=""
-LEVELS_LAYERS=""
-LEVELS_EXPECTED=""
-LEVELS_STRAYS=""
-GRADED_LAYERS=""
-GRADED_EXPECTED=""
+TOYS=""
 HARNESSES=""
 EXPECTED_HARNESSES=""
 LINES=""
-FIRST_RED=""
-TURNIN_DIRS=""
-ROOT_TURNIN_DIRS=""
 SHELL_TAGS=""
 REDIRECT_ARGS=""
 ARGVGUARD_BUILDS=""
 KNOBS=""
 EXPECTED_KNOBS=""
-MODULE_TURNIN=""
 NL='
 '
-need() { [ "$2" -ge 2 ] || { echo "macro_fixtures_test.sh: $1 needs a value" >&2; exit 2; }; }
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--dir) need "$1" "$#"; DIR="$2"; shift 2 ;;
-		--diff-output) need "$1" "$#"; DIFF_OUTPUT="$2"; shift 2 ;;
-		--layers) need "$1" "$#"; LAYERS="$2"; shift 2 ;;
-		--expected-layers) need "$1" "$#"; EXPECTED_LAYERS="$2"; shift 2 ;;
-		--root-dir) need "$1" "$#"; ROOT_DIR="$2"; shift 2 ;;
-		--root-layers) need "$1" "$#"; ROOT_LAYERS="$2"; shift 2 ;;
-		--root-expected-layers) need "$1" "$#"; ROOT_EXPECTED="$2"; shift 2 ;;
-		--root-files-names) need "$1" "$#"; ROOT_NAMES="$2"; shift 2 ;;
-		--root-includes) need "$1" "$#"; ROOT_INCLUDES="$2"; shift 2 ;;
-		--ex14-files-names) need "$1" "$#"; EX14_NAMES="$2"; shift 2 ;;
-		--contract-problems) need "$1" "$#"; PROBLEMS="$2"; shift 2 ;;
-		--contract-expected) need "$1" "$#"; PROBLEMS_EXPECTED="$2"; shift 2 ;;
-		--levels-layers) need "$1" "$#"; LEVELS_LAYERS="$2"; shift 2 ;;
-		--levels-expected-layers) need "$1" "$#"; LEVELS_EXPECTED="$2"; shift 2 ;;
-		--levels-member-strays) need "$1" "$#"; LEVELS_STRAYS="$2"; shift 2 ;;
-		--graded-layers) need "$1" "$#"; GRADED_LAYERS="$2"; shift 2 ;;
-		--graded-expected-layers) need "$1" "$#"; GRADED_EXPECTED="$2"; shift 2 ;;
-		--harnesses) need "$1" "$#"; HARNESSES="$2"; shift 2 ;;
-		--expected-harnesses) need "$1" "$#"; EXPECTED_HARNESSES="$2"; shift 2 ;;
+		--dir) rl_need "$1" "$#"; DIR="$2"; shift 2 ;;
+		--diff-output) rl_need "$1" "$#"; DIFF_OUTPUT="$2"; shift 2 ;;
+		--ex14-files-names) rl_need "$1" "$#"; EX14_NAMES="$2"; shift 2 ;;
+		--contract-problems)
+			rl_need "$1" "$#"
+			[ -f "$2" ] || { echo "macro_fixtures_test.sh: no file at $2" >&2; exit 2; }
+			PROBLEMS="$PROBLEMS$2$NL"
+			shift 2 ;;
+		--contract-expected) rl_need "$1" "$#"; PROBLEMS_EXPECTED="$2"; shift 2 ;;
+		--toy)
+			[ "$#" -ge 4 ] || { echo "macro_fixtures_test.sh: --toy needs PACKAGE, LAYERS and EXPECTED" >&2; exit 2; }
+			TOYS="$TOYS$2 $3 $4$NL"
+			shift 4 ;;
+		--harnesses) rl_need "$1" "$#"; HARNESSES="$2"; shift 2 ;;
+		--expected-harnesses) rl_need "$1" "$#"; EXPECTED_HARNESSES="$2"; shift 2 ;;
 		--lines)
 			[ "$#" -ge 3 ] || { echo "macro_fixtures_test.sh: --lines needs FILE and WANT" >&2; exit 2; }
 			[ -f "$2" ] || { echo "macro_fixtures_test.sh: no file at $2" >&2; exit 2; }
 			LINES="$LINES$2 $3$NL"
 			shift 3 ;;
-		--first-red) need "$1" "$#"; FIRST_RED="$2"; shift 2 ;;
-		--turnin-dirs) need "$1" "$#"; TURNIN_DIRS="$2"; shift 2 ;;
-		--root-turnin-dirs) need "$1" "$#"; ROOT_TURNIN_DIRS="$2"; shift 2 ;;
-		--module-turnin-dirs) need "$1" "$#"; MODULE_TURNIN="$MODULE_TURNIN$2$NL"; shift 2 ;;
-		--shell-tags) need "$1" "$#"; SHELL_TAGS="$2"; shift 2 ;;
-		--redirect-args) need "$1" "$#"; REDIRECT_ARGS="$2"; shift 2 ;;
-		--argvguard-builds) need "$1" "$#"; ARGVGUARD_BUILDS="$2"; shift 2 ;;
-		--knobs) need "$1" "$#"; KNOBS="$2"; shift 2 ;;
-		--expected-knobs) need "$1" "$#"; EXPECTED_KNOBS="$2"; shift 2 ;;
+		--shell-tags) rl_need "$1" "$#"; SHELL_TAGS="$2"; shift 2 ;;
+		--redirect-args) rl_need "$1" "$#"; REDIRECT_ARGS="$2"; shift 2 ;;
+		--argvguard-builds) rl_need "$1" "$#"; ARGVGUARD_BUILDS="$2"; shift 2 ;;
+		--knobs) rl_need "$1" "$#"; KNOBS="$2"; shift 2 ;;
+		--expected-knobs) rl_need "$1" "$#"; EXPECTED_KNOBS="$2"; shift 2 ;;
 		*) echo "macro_fixtures_test.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
-[ -n "$DIR" ] && [ -n "$DIFF_OUTPUT" ] && [ -n "$LAYERS" ] && [ -n "$EXPECTED_LAYERS" ] &&
-	[ -n "$ROOT_DIR" ] && [ -n "$ROOT_LAYERS" ] && [ -n "$ROOT_EXPECTED" ] && [ -n "$ROOT_NAMES" ] &&
-	[ -n "$ROOT_INCLUDES" ] && [ -n "$EX14_NAMES" ] && [ -n "$PROBLEMS" ] && [ -n "$PROBLEMS_EXPECTED" ] &&
-	[ -n "$LEVELS_LAYERS" ] && [ -n "$LEVELS_EXPECTED" ] && [ -n "$LEVELS_STRAYS" ] && [ -n "$HARNESSES" ] &&
-	[ -n "$GRADED_LAYERS" ] && [ -n "$GRADED_EXPECTED" ] &&
-	[ -n "$EXPECTED_HARNESSES" ] && [ -n "$FIRST_RED" ] &&
-	[ -n "$TURNIN_DIRS" ] && [ -n "$ROOT_TURNIN_DIRS" ] && [ -n "$SHELL_TAGS" ] && [ -n "$REDIRECT_ARGS" ] && [ -n "$ARGVGUARD_BUILDS" ] &&
+[ -n "$DIR" ] && [ -n "$DIFF_OUTPUT" ] &&
+	[ -n "$EX14_NAMES" ] && [ -n "$PROBLEMS" ] && [ -n "$PROBLEMS_EXPECTED" ] &&
+	[ -n "$HARNESSES" ] && [ -n "$TOYS" ] && [ -n "$EXPECTED_HARNESSES" ] &&
+	[ -n "$LINES" ] && [ -n "$SHELL_TAGS" ] && [ -n "$REDIRECT_ARGS" ] && [ -n "$ARGVGUARD_BUILDS" ] &&
 	[ -n "$KNOBS" ] && [ -n "$EXPECTED_KNOBS" ] || {
 	echo "macro_fixtures_test.sh: every option is required (see its header)" >&2
 	exit 2
 }
-for _f in "$LAYERS" "$EXPECTED_LAYERS" "$ROOT_LAYERS" "$ROOT_EXPECTED" "$ROOT_NAMES" \
-	"$ROOT_INCLUDES" "$EX14_NAMES" "$PROBLEMS" "$PROBLEMS_EXPECTED" "$LEVELS_LAYERS" "$LEVELS_EXPECTED" "$LEVELS_STRAYS" \
-	"$GRADED_LAYERS" "$GRADED_EXPECTED" "$HARNESSES" "$EXPECTED_HARNESSES" \
-	"$FIRST_RED" "$TURNIN_DIRS" "$ROOT_TURNIN_DIRS" "$SHELL_TAGS" "$REDIRECT_ARGS" "$ARGVGUARD_BUILDS" \
-	"$KNOBS" "$EXPECTED_KNOBS" "$DIR/BUILD.bazel" "$ROOT_DIR/BUILD.bazel"; do
+for _f in "$EX14_NAMES" "$PROBLEMS_EXPECTED" "$HARNESSES" "$EXPECTED_HARNESSES" \
+	"$SHELL_TAGS" "$REDIRECT_ARGS" "$ARGVGUARD_BUILDS" \
+	"$KNOBS" "$EXPECTED_KNOBS" "$DIR/BUILD.bazel"; do
 	[ -f "$_f" ] || { echo "macro_fixtures_test.sh: no file at $_f" >&2; exit 2; }
 done
+while IFS=' ' read -r _tp _tl _te; do
+	[ -n "$_tp" ] || continue
+	for _f in "$_tl" "$_te"; do
+		[ -f "$_f" ] || { echo "macro_fixtures_test.sh: no file at $_f" >&2; exit 2; }
+	done
+done <<TOYS_EOF
+$TOYS
+TOYS_EOF
 [ -f "$DIFF_OUTPUT" ] || { echo "macro_fixtures_test.sh: no runner at $DIFF_OUTPUT" >&2; exit 2; }
 
 # The contract: the mark and the status, from the file that defines them.
@@ -220,17 +196,49 @@ FAIL=0
 ok() { printf '  %-60s ok\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  %-60s FAIL < %s\n' "$1" "$2"; FAIL=$((FAIL + 1)); }
 
+# THE LISTINGS THE MACROS WRITE, each against the .expected file beside it:
+# the tests a package emitted, the programs built from a student's files,
+# the knobs no project turns. One compare and one recipe for all three:
+# written three times, the copies drifted, one without a floor (an empty
+# listing passed as "0 tests") and two without the recipe's caveat.
+#
+# listing_match OK_TEXT BAD_LABEL BAD_TEXT FLOOR_ERE FLOOR_MSG EXPECTED EMITTED
+# -- ok OK_TEXT where EMITTED holds a line matching FLOOR_ERE and is
+# EXPECTED byte for byte (0); else bad BAD_LABEL, with FLOOR_MSG where the
+# floor failed (2) or BAD_TEXT where the two differ (1), the diff left at
+# $WORK/listing.diff for the caller's legend.
+listing_match() {
+	if ! grep -q -- "$4" "$7"; then
+		bad "$2" "$5"
+		return 2
+	fi
+	if diff "$6" "$7" > "$WORK/listing.diff" 2>&1; then
+		ok "$1"
+		return 0
+	fi
+	bad "$2" "$3"
+	return 1
+}
+# regen_recipe TARGET BAZEL_BIN_TXT EXPECTED_PATH -- the commands that
+# write a listing's .expected from what was emitted.
+regen_recipe() {
+	echo "    bazel build //$1 &&"
+	echo "      cat bazel-bin/$2 > $3   (cat, not cp: a"
+	echo "      copy of bazel-bin's read-only, executable file keeps its mode)"
+}
+
 # A real program: an ELF file that runs and prints what the harness prints on
 # the stub, 0.
 is_program() {  # is_program NAME BIN [OUTPUT]  -- OUTPUT defaults to 0
 	[ -f "$2" ] || { bad "$1" "$2 was not built"; return; }
 	if [ "$(head -c 4 "$2" | od -An -c | tr -d ' \n')" != '177ELF' ]; then
-		bad "$1" "not a program: $(head -n 3 "$2" | tr '\n' ' ')"
+		bad "$1" "not a program: $(head -n 3 "$2" | rl_vis lines 3 300)"
 		return
 	fi
 	_o=$("$2" 2>&1)
 	_want=${3-0}
-	[ "$_o" = "$_want" ] && ok "$1" || bad "$1" "it printed '$_o', not '$_want'"
+	[ "$_o" = "$_want" ] && ok "$1" ||
+		bad "$1" "it printed '$(printf '%s' "$_o" | rl_vis arg 1 300)', not '$(printf '%s' "$_want" | rl_vis arg)'"
 }
 
 # A stand-in that explains itself: the mark, the kind, the reserved status,
@@ -315,32 +323,6 @@ else
 	ok "the output layer on an empty stand-in: nothing to build"
 fi
 
-# A turn-in at the root of deliverable/ (./root): no exNN/ folder, sources in
-# srcs/, the header in includes/, a Makefile that says so. Its program is
-# real only if the build staged the subfolders, took srcs/main.c from
-# `make -Bn`, and took `-I includes` from it too -- main.c includes a header
-# nothing else would find. And the files layer names each file by its path
-# from the root, so a srcs/ file is never mistaken for a top-level one.
-is_program "a root turn-in in srcs/ and includes/ builds, -I and all" "$ROOT_DIR/ex00_bin" ""
-printf 'Makefile\nincludes/toy_root.h\nsrcs/main.c\n' > "$WORK/root_names"
-if diff "$WORK/root_names" "$ROOT_NAMES" > /dev/null 2>&1; then
-	ok "its files layer lists the tree, by path from the root"
-else
-	bad "its files layer lists the tree, by path from the root" \
-		"it lists: $(tr '\n' ' ' < "$ROOT_NAMES")"
-fi
-
-# ...and the include directories its Makefile passes, as its build wrote them
-# for the compile and forbidden layers (--inc-file): the same `make -Bn`, so a
-# layer compiling main.c on its own finds toy_root.h exactly where the
-# program's build did -- through -I includes, and through nothing else.
-if [ "$(cat "$ROOT_INCLUDES")" = "$ROOT_DIR/deliverable/includes" ]; then
-	ok "its Makefile's -I reaches the static layers"
-else
-	bad "its Makefile's -I reaches the static layers" \
-		"the list reads: $(tr '\n' ' ' < "$ROOT_INCLUDES")"
-fi
-
 # THE INCLUDE PATH IS THE GRADER'S. ex12 and ex13 are compiled the way Rush
 # 01's grader compiles, `cc *.c` with no -I, and keep their header in
 # includes/. ex12 includes it by name, which that compile cannot find -- so
@@ -384,7 +366,7 @@ sh "$DIFF_OUTPUT" --bin "$DIR/ex15_escaped_bin" --harness-fixture --expected "$_
 	--labeled --escaped-values > "$WORK/esc_ok" 2>&1
 _rc=$?
 [ "$_rc" -eq 0 ] && ok "ex15's escaped reading passes on its fixture" ||
-	bad "ex15's escaped reading passes on its fixture" "exit $_rc: $(head -n 5 "$WORK/esc_ok" | tr '\n' ' ')"
+	bad "ex15's escaped reading passes on its fixture" "exit $_rc: $(rl_vis lines 5 300 < "$WORK/esc_ok")"
 printf 'bytes\t\\x01\\xffX\n' > "$WORK/esc_wrong.txt"
 sh "$DIFF_OUTPUT" --bin "$DIR/ex15_escaped_bin" --harness-fixture --expected "$WORK/esc_wrong.txt" \
 	--labeled --escaped-values > "$WORK/esc_bad" 2>&1
@@ -392,10 +374,10 @@ _rc=$?
 if [ "$_rc" -ne 1 ]; then
 	bad "...and a wrong row shows its bytes once" "exit $_rc, not 1"
 elif ! grep -qF 'x00' "$WORK/esc_bad" || grep -qF '\\x00' "$WORK/esc_bad"; then
-	bad "...and a wrong row shows its bytes once" "$(grep -F 'x00' "$WORK/esc_bad" | head -n 2 | tr '\n' ' ')"
+	bad "...and a wrong row shows its bytes once" "$(grep -F 'x00' "$WORK/esc_bad" | rl_vis lines 2 300)"
 elif ! grep -qF '\xHH any other byte outside' "$WORK/esc_bad" ||
 	grep -qF 'one backslash' "$WORK/esc_bad"; then
-	bad "...and a wrong row shows its bytes once" "the legend: $(grep -e 'byte outside' -e 'backslash' "$WORK/esc_bad" | head -n 2 | tr '\n' ' ')"
+	bad "...and a wrong row shows its bytes once" "the legend: $(grep -e 'byte outside' -e 'backslash' "$WORK/esc_bad" | rl_vis lines 2 300)"
 else
 	ok "...and a wrong row shows its bytes once, under the legend for them"
 fi
@@ -412,35 +394,56 @@ is_program "levels ex03's own output test runs test_toy.c" \
 is_program "...and its reading, ex03_open, runs test_toy_open.c" \
 	"$DIR/levels/ex03_open_bin" "$(printf 'negative\t0')"
 
-# A library's members (./levels ex12): each program links the library's
-# unit through its Makefile, a stub that compiles nothing yet, so the
-# library's sources stand in -- and runs its OWN main, under
-# tests/ex12/<member>/, which prints the row only it prints.
-is_program "levels ex12's member toy_len runs its own test_toy_len.c" \
-	"$DIR/levels/ex12_toy_len_bin" "$(printf 'zero\t0')"
+# The toy libraries and the root toy, declared as named units: each program
+# is its unit's own, by the unit's name. A function of a library links the
+# library through its Makefile and runs its OWN main, from tests/<function>/,
+# which prints the row only it prints. In ./named_lib the Makefile is a stub
+# that compiles nothing yet, so the library's sources stand in. In
+# ./named_lib_make it is written, and each function's program is built from
+# what `make -Bn` says it compiles, -I inc and all: the library's sources
+# standing in would not find inc/toy13.h, so a real program there is one
+# built from the plan. In ./named_lib_broken a source does not compile, and
+# every function's program is a stand-in in the compiler's words, toy_left's
+# too, whose own file compiles -- the archive both link holds toy_right.c --
+# and none is built from anything else in silence. The root program is real
+# only if the build staged the subfolders, took srcs/main.c from `make -Bn`,
+# and took `-I includes` from it too: main.c includes a header nothing else
+# would find.
+is_program "named_lib's toy_len runs its own test_toy_len.c" \
+	"$DIR/named_lib/toy_len_bin" "$(printf 'zero\t0')"
 is_program "...and toy_dup its own test_toy_dup.c" \
-	"$DIR/levels/ex12_toy_dup_bin" "$(printf 'null\t1')"
+	"$DIR/named_lib/toy_dup_bin" "$(printf 'null\t1')"
 is_program "...and toy_cat its own test_toy_cat.c" \
-	"$DIR/levels/ex12_toy_cat_bin" "$(printf 'null\t1')"
+	"$DIR/named_lib/toy_cat_bin" "$(printf 'null\t1')"
 is_program "...and toy_cat's reading, open, its own test_toy_cat_open.c" \
-	"$DIR/levels/ex12_toy_cat_open_bin" "$(printf 'from_null\t1')"
-
-# A library whose Makefile is written (./levels ex13): each member's program
-# is built from what `make -Bn` says it compiles, -I inc and all -- the
-# library's sources standing in would not find inc/toy13.h, so a real
-# program here is one built from the plan. And the same library with a
-# source that does not compile (ex14): every member's program is a stand-in
-# in the compiler's words, toy_left's too, whose own file compiles -- the
-# archive both link holds toy_right.c -- and none is built from anything
-# else in silence.
-is_program "levels ex13's toy_up is built from its Makefile's plan, -I and all" \
-	"$DIR/levels/ex13_toy_up_bin" "$(printf 'up\t0')"
+	"$DIR/named_lib/toy_cat_open_bin" "$(printf 'from_null\t1')"
+is_program "named_lib_make's toy_up is built from its Makefile's plan, -I and all" \
+	"$DIR/named_lib_make/toy_up_bin" "$(printf 'up\t0')"
 is_program "...and so is toy_down" \
-	"$DIR/levels/ex13_toy_down_bin" "$(printf 'down\t0')"
-is_standin "levels ex14's toy_right does not compile, in the compiler's words" \
-	"$DIR/levels/ex14_toy_right_bin" broke "does not compile" "toy_right.c"
+	"$DIR/named_lib_make/toy_down_bin" "$(printf 'down\t0')"
+is_standin "named_lib_broken's toy_right does not compile, in the compiler's words" \
+	"$DIR/named_lib_broken/toy_right_bin" broke "does not compile" "toy_right.c"
 is_standin "...and toy_left, which links the same archive, says the same" \
-	"$DIR/levels/ex14_toy_left_bin" broke "does not compile" "toy_right.c"
+	"$DIR/named_lib_broken/toy_left_bin" broke "does not compile" "toy_right.c"
+is_program "named_prog's program, in srcs/ and includes/, builds, -I and all" \
+	"$DIR/named_prog/toy_root_bin" ""
+
+# A root divided into parts: each part's program is its own, built and run.
+# Which sources each named_units_files part's library takes is pinned by
+# --lines (its :units_srcs): the two parts' stubs print the same, so a
+# program built from the other part's files would print it too.
+is_program "named_units_files' base runs its own test_toy_tally.c" \
+	"$DIR/named_units_files/base_bin" "$(printf 'zero\t0')"
+is_program "...and bonus its own test_toy_tally_bonus.c" \
+	"$DIR/named_units_files/bonus_bin" "$(printf 'bonus\t0')"
+is_program "named_units_programs' sorter is what a bare make builds" \
+	"$DIR/named_units_programs/sorter_bin" ""
+is_program "...and checker what make bonus builds" \
+	"$DIR/named_units_programs/checker_bin" ""
+is_program "named_units_same's base links its own library target of toy_fmt" \
+	"$DIR/named_units_same/base_bin" "$(printf 'zero\t0')"
+is_program "...and bonus its own, from the same files" \
+	"$DIR/named_units_same/bonus_bin" "$(printf 'bonus\t0')"
 
 # A Makefile program with a .c its Makefile never names: the program is built
 # from what `make -Bn` names, and the extra file changes nothing it links.
@@ -452,7 +455,7 @@ if grep -qx 'srcs/toy.c' "$EX14_NAMES"; then
 	ok "ex14's files layer sees a copy of the grader's srcs/ file"
 else
 	bad "ex14's files layer sees a copy of the grader's srcs/ file" \
-		"it lists: $(tr '\n' ' ' < "$EX14_NAMES")"
+		"it lists: $(rl_vis lines 40 300 < "$EX14_NAMES")"
 fi
 
 # THE LISTS THE MACROS WROTE for the files layer, each against what its toy's
@@ -465,7 +468,6 @@ fi
 # shared file and no variant is normed by a target of its own (ex21's
 # toy_switch.c, and nothing else); and ./levels' deliverable_files lists what
 # is in no exercise folder.
-[ -n "$LINES" ] || { echo "macro_fixtures_test.sh: no --lines given" >&2; exit 2; }
 while IFS=' ' read -r _lf _lw; do
 	[ -n "$_lf" ] || continue
 	_want=""
@@ -475,7 +477,8 @@ while IFS=' ' read -r _lf _lw; do
 		ok "$_name holds what its toy's state gives"
 	else
 		bad "$_name holds what its toy's state gives" \
-			"it reads: $(tr '\n' ' ' < "$_lf"), not: $(printf '%s' "$_want" | tr '\n' ' ')"
+			"it reads: $(rl_vis lines 40 300 < "$_lf"), not: $(
+				{ [ -z "$_want" ] || printf '%s\n' "$_want"; } | rl_vis lines 40)"
 	fi
 done <<LINES_EOF
 $LINES
@@ -484,12 +487,20 @@ LINES_EOF
 # Every contract check, fed the broken contract it guards against: each case's
 # message holds the words contract_problems.expected gives it, and a case
 # written to pass says OK. A check that stops firing -- or starts firing on a
-# good contract -- is red here, not in a module that happens to trip it.
+# good contract -- is red here, not in a module that happens to trip it. The
+# toys' own lists, of the calls each refuses, are read as one with the top
+# fixture's, their cases named after the toy.
+while IFS= read -r _pf; do
+	[ -z "$_pf" ] || cat "$_pf"
+done > "$WORK/problems" <<PROBLEMS_EOF
+$PROBLEMS
+PROBLEMS_EOF
+PROBLEMS="$WORK/problems"
 while IFS= read -r _line; do
 	case "$_line" in "" | "#"*) continue ;; esac
 	_case=${_line%%"	"*}
 	_want=${_line#*"	"}
-	_got=$(sed -n "s/^$_case: //p" "$PROBLEMS" | head -n 1)
+	_got=$(awk -v c="$_case" 'index($0, c ": ") == 1 { print substr($0, length(c) + 3); exit }' "$PROBLEMS")
 	if [ -z "$_got" ]; then
 		bad "contract check: $_case" "no such case in :contract_problems"
 	elif [ "$_want" = OK ]; then
@@ -501,108 +512,31 @@ while IFS= read -r _line; do
 		esac
 	fi
 done < "$PROBLEMS_EXPECTED"
-_cases=$(grep -c . "$PROBLEMS")
-_listed=$(grep -c '^[^#]' "$PROBLEMS_EXPECTED")
-[ "$_cases" = "$_listed" ] && ok "every contract case is in contract_problems.expected" ||
-	bad "every contract case is in contract_problems.expected" "$_cases cases, $_listed expected"
-
-# THE TURN-IN FOLDER, read the way tools/first_red.sh reads it -- from the
-# subject() call as it is written, since it runs outside Bazel on a log --
-# against the folder the macros compute from the same contract (turnin_dir).
-# A reading that parts from the macros' names the wrong folder when it asks
-# whether an exercise is written, and calls a written one "not written yet".
-turnin_match() {  # turnin_match PACKAGE DIR EXPECTED
-	_tm_bad=""
-	while read -r _tm_ex _tm_want; do
-		[ -n "$_tm_ex" ] || continue
-		_tm_got=$(sh "$FIRST_RED" --turnin "$2" "$_tm_ex" 2>&1)
-		[ "$_tm_got" = "$_tm_want" ] || _tm_bad="$_tm_bad $_tm_ex:'$_tm_got'!='$_tm_want'"
-	done < "$3"
-	if [ -z "$_tm_bad" ]; then
-		ok "first_red reads $1's turn-in folders as the macros do"
-	else
-		bad "first_red reads $1's turn-in folders as the macros do" "$_tm_bad"
-	fi
-}
-# THE EXERCISES AND THE MANDATORY PART, as `first_red.sh --written` reads them
-# for submit's floor: its second column against the exercises the macros list
-# (:turnin_dirs), its third against c_levels()' own :mandatory. A reading that
-# parts from the macros' lets --written-only push without an exercise the
-# subject calls mandatory, or refuses over one it does not.
-written_match() {  # written_match DIR TURNIN_DIRS MANDATORY
-	if [ ! -f "$3" ]; then
-		bad "first_red --written reads $1's contract as the macros do" "no $3 staged"
-		return
-	fi
-	_wm_out=$(sh "$FIRST_RED" --written "$1" 2>&1) || {
-		bad "first_red --written reads $1's contract as the macros do" "it failed: $_wm_out"
-		return
-	}
-	_wm_ex=$(printf '%s\n' "$_wm_out" | awk -F'\t' '{ print $2 }' | sort)
-	_wm_want_ex=$(awk '{ print $1 }' "$2" | sort)
-	_wm_mand=$(printf '%s\n' "$_wm_out" | awk -F'\t' '$3 == "mandatory" { print $2 }' | sort)
-	_wm_want_mand=$(sort "$3")
-	_wm_parts=$(printf '%s\n' "$_wm_out" | awk -F'\t' '$3 != "mandatory" && $3 != "optional" || $1 != "written" && $1 != "stub"')
-	if [ "$_wm_ex" != "$_wm_want_ex" ]; then
-		bad "first_red --written reads $1's contract as the macros do" \
-			"exercises: $(printf '%s' "$_wm_ex" | tr '\n' ' ') != $(printf '%s' "$_wm_want_ex" | tr '\n' ' ')"
-	elif [ "$_wm_mand" != "$_wm_want_mand" ]; then
-		bad "first_red --written reads $1's contract as the macros do" \
-			"mandatory: '$(printf '%s' "$_wm_mand" | tr '\n' ' ')' != '$(printf '%s' "$_wm_want_mand" | tr '\n' ' ')'"
-	elif [ -n "$_wm_parts" ]; then
-		bad "first_red --written reads $1's contract as the macros do" "a line it should not print: $_wm_parts"
-	else
-		ok "first_red --written reads $1's contract as the macros do"
-	fi
-}
-
-# WHETHER THE CONTRACT DECLARES memory_graded, read the way first_red.sh
-# reads it (--graded) -- from the subject() call as it is written -- against
-# the contract the macros read, the JSON subject() wrote beside it: a graded
-# module's valgrind red filed as rigour hides a KO, and an ungraded one's
-# filed as a KO overstates one. The reading took `memory_graded = "` for
-# the one declaration, and a dict, or one in parentheses, for none.
-graded_match() {  # graded_match DIR
-	if [ ! -f "$1/subject.json" ]; then
-		bad "first_red reads whether $1's contract declares memory_graded" "no $1/subject.json staged"
-		return
-	fi
-	if grep -q '"memory_graded":{"' "$1/subject.json"; then
-		_gm_want=graded
-	else
-		_gm_want="not graded"
-	fi
-	_gm_got=$(sh "$FIRST_RED" --graded "$1" 2>&1)
-	if [ "$_gm_got" = "$_gm_want" ]; then
-		ok "first_red reads whether $1's contract declares memory_graded ($_gm_want)"
-	else
-		bad "first_red reads whether $1's contract declares memory_graded" \
-			"it reads '$_gm_got', the contract says '$_gm_want'"
-	fi
-}
-
-turnin_match tools/tests/macro_fixtures "$DIR" "$TURNIN_DIRS"
-turnin_match tools/tests/macro_fixtures/root "$ROOT_DIR" "$ROOT_TURNIN_DIRS"
-graded_match "$DIR"
-graded_match "$ROOT_DIR"
-# Every module's, from the lines c_levels() emits beside its BUILD.bazel. A
-# module none is given for is the test's data falling behind: conventions.sh
-# holds tools/tests/BUILD.bazel's _MODULES to the REMOTES table, and this list
-# is built from the same _MODULES.
-[ -n "$MODULE_TURNIN" ] || { echo "macro_fixtures_test.sh: no --module-turnin-dirs given" >&2; exit 2; }
-while IFS= read -r _mt_f; do
-	[ -n "$_mt_f" ] || continue
-	_mt_d=${_mt_f%/*}
-	[ -f "$_mt_f" ] && [ -f "$_mt_d/BUILD.bazel" ] || {
-		echo "macro_fixtures_test.sh: $_mt_f, or the BUILD.bazel beside it, is not staged" >&2
-		exit 2
-	}
-	turnin_match "$_mt_d" "$_mt_d" "$_mt_f"
-	written_match "$_mt_d" "$_mt_f" "$_mt_d/mandatory.txt"
-	graded_match "$_mt_d"
-done <<MT_EOF
-$MODULE_TURNIN
-MT_EOF
+# ...and every case is listed there, once: by name, since counts that
+# agree hid a case left out behind one listed twice. The floor: a side with
+# no case compares nothing. The two files are told apart by name, never by
+# FNR == NR, which an empty first file makes true of the second as well:
+# contract_problems.expected's rows were then read as the cases emitted.
+_unlisted=$(awk -F'\t' '
+	FILENAME == ARGV[1] { if ((i = index($0, ": ")) > 0) have[substr($0, 1, i - 1)] = 1; next }
+	$0 == "" || /^#/ { next }
+	{ listed[$1] = 1 }
+	END { for (c in have) if (!(c in listed)) print c }' "$PROBLEMS" "$PROBLEMS_EXPECTED" |
+	sort | tr '\n' ' ' | sed 's/ $//')
+_twice=$(awk -F'\t' '$0 != "" && !/^#/ { print $1 }' "$PROBLEMS_EXPECTED" | sort | uniq -d |
+	tr '\n' ' ' | sed 's/ $//')
+if ! grep -q -- ': ' "$PROBLEMS"; then
+	bad "every contract case is in contract_problems.expected" \
+		"its listing is empty: :contract_problems printed no case"
+elif ! grep -v '^#' "$PROBLEMS_EXPECTED" | grep -q .; then
+	bad "every contract case is in contract_problems.expected" \
+		"its listing is empty: contract_problems.expected has no case"
+elif [ -z "$_unlisted$_twice" ]; then
+	ok "every contract case is in contract_problems.expected"
+else
+	bad "every contract case is in contract_problems.expected" \
+		"not listed: ${_unlisted:-none}; listed twice: ${_twice:-none}"
+fi
 
 # WHERE A SHELL EXERCISE'S TAGS LAND. `tags` go on every test that judges the
 # turn-in, `run_tags` only on the ones that run it: Shell 01 ex04's output
@@ -652,73 +586,81 @@ else
 fi
 is_program "ex29's stub Makefile: the guarded program is its sources" "$DIR/ex29_argvguard_bin_asan" ""
 
-# What the macros emitted, against what they must.
+# What the macros emitted, against what they must, for every package --toy
+# names. The floor: a listing with no line in it compares nothing.
 layers_match() {  # layers_match PACKAGE EXPECTED EMITTED
-	if diff "$2" "$3" > "$WORK/layers.diff" 2>&1; then
-		ok "every layer of $1 emitted as expected ($(grep -c . "$3") tests)"
-		return
-	fi
-	bad "the tests the macros emitted in $1" "they differ from its layers.expected"
+	listing_match "every layer of $1 emitted as expected ($(grep -c . "$3") tests)" \
+		"the tests the macros emitted in $1" "they differ from its layers.expected" \
+		. "its listing is empty" "$2" "$3"
+	[ "$?" -eq 1 ] || return
 	echo ""
 	echo "  '<' is in $1/layers.expected and was not emitted;"
 	echo "  '>' was emitted and is not in it. A test that is 'no_turnin.sh' reads"
 	echo "  NOT TURNED IN; ' gated' means it SKIPs unless NO_SKIP=1; ' staged' and"
 	echo "  ' make-includes' say what reaches a compile layer's include path (see"
 	echo "  the :layers target in tools/tests/macro_fixtures/BUILD.bazel)."
-	sed 's/^/    /' "$WORK/layers.diff"
+	sed 's/^/    /' "$WORK/listing.diff"
 	echo ""
 	echo "  If a macro changed on purpose (a new layer, a layer renamed), check"
 	echo "  that every new line is what that exercise's state should give, then:"
-	echo "    bazel build //$1:layers &&"
-	echo "      cat bazel-bin/$1/layers.txt > $1/layers.expected   (cat, not cp: a"
-	echo "      copy of bazel-bin's read-only, executable file keeps its mode)"
+	regen_recipe "$1:layers" "$1/layers.txt" "$1/layers.expected"
 }
-layers_match tools/tests/macro_fixtures "$EXPECTED_LAYERS" "$LAYERS"
-layers_match tools/tests/macro_fixtures/root "$ROOT_EXPECTED" "$ROOT_LAYERS"
-layers_match tools/tests/macro_fixtures/levels "$LEVELS_EXPECTED" "$LEVELS_LAYERS"
-layers_match tools/tests/macro_fixtures/graded "$GRADED_EXPECTED" "$GRADED_LAYERS"
+while IFS=' ' read -r _tp _tl _te; do
+	[ -n "$_tp" ] || continue
+	layers_match "$_tp" "$_te" "$_tl"
+done <<TOYS_EOF
+$TOYS
+TOYS_EOF
 
 # EACH FUNCTION OF A LIBRARY HAS EXACTLY ITS OWN TESTS: the tests carrying
-# member=exNN/<function> in ./levels, read from the tags the macros gave
-# them, against the list each member's calls must emit -- written here,
-# from the calls in levels/BUILD.bazel, not copied from layers.expected,
-# which is regenerated from what was emitted. A layer a member call dropped,
-# a test of one function tagged as another's, or one of the whole library's
+# unit=<function> in a toy library (./named_lib, ./named_lib_make,
+# ./named_lib_broken), read from the tags the macros gave them, against the
+# list each function's calls must emit -- written here, from the calls in
+# the toy's BUILD file, not copied from its layers.expected, which is
+# regenerated from what was emitted. A layer a function's call dropped, a
+# test of one function tagged as another's, or one of the whole library's
 # tagged as a function's, is red here by name.
-member_tests() {  # member_tests exNN/<function> -- its tests, one line, sorted
-	awk -v want="member=$1" '$2 == "suite" { next } { for (i = 3; i <= NF; i++) if ($i == want) { print $1; next } }' \
-		"$LEVELS_LAYERS" | sort | tr '\n' ' ' | sed 's/ $//'
+toy_field() {  # toy_field PACKAGE N -- field N of the --toy row naming PACKAGE (2 :layers, 3 .expected)
+	printf '%s\n' "$TOYS" | awk -v want="$1" -v n="$2" '$1 == want { print $n; exit }'
 }
-while IFS='|' read -r _m _want; do
-	[ -n "$_m" ] || continue
-	_got=$(member_tests "$_m")
-	if [ "$_got" = "$_want" ]; then
-		ok "the tests of library function $_m are its own, all of them"
-	else
-		bad "the tests of library function $_m are its own, all of them" "they are: $_got"
+toy_layers() {  # toy_layers TOY -- the :layers file --toy gave for ./TOY
+	toy_field "tools/tests/macro_fixtures/$1" 2
+}
+unit_tests() {  # unit_tests LAYERS UNIT -- that unit's tests in one toy, one line, sorted
+	awk -v want="unit=$2" '$2 == "suite" { next } { for (i = 3; i <= NF; i++) if ($i == want) { print $1; next } }' \
+		"$1" | sort | tr '\n' ' ' | sed 's/ $//'
+}
+while IFS='|' read -r _toy _u _want; do
+	[ -n "$_toy" ] || continue
+	_tl=$(toy_layers "$_toy")
+	if [ -z "$_tl" ]; then
+		bad "the tests of library function $_u are its own, all of them" "no --toy names ./$_toy"
+		continue
 	fi
-done <<'MEMBERS_EOF'
-ex12/toy_cat|ex12_toy_cat_allocfail ex12_toy_cat_allocfail_leaks ex12_toy_cat_diff ex12_toy_cat_diff_asan ex12_toy_cat_ilp32 ex12_toy_cat_open_output ex12_toy_cat_output ex12_toy_cat_perf ex12_toy_cat_readings ex12_toy_cat_readings_diff_asan ex12_toy_cat_valgrind
-ex12/toy_dup|ex12_toy_dup_diff ex12_toy_dup_diff_asan ex12_toy_dup_ilp32 ex12_toy_dup_output ex12_toy_dup_readings ex12_toy_dup_valgrind
-ex12/toy_len|ex12_toy_len_asan ex12_toy_len_cycles ex12_toy_len_diff ex12_toy_len_diff_asan ex12_toy_len_ilp32 ex12_toy_len_memcheck ex12_toy_len_output ex12_toy_len_perf ex12_toy_len_probe_memcheck
-ex13/toy_down|ex13_toy_down_ilp32 ex13_toy_down_memcheck ex13_toy_down_output
-ex13/toy_up|ex13_toy_up_ilp32 ex13_toy_up_memcheck ex13_toy_up_method ex13_toy_up_output
-ex14/toy_left|ex14_toy_left_ilp32 ex14_toy_left_memcheck ex14_toy_left_output
-ex14/toy_right|ex14_toy_right_ilp32 ex14_toy_right_memcheck ex14_toy_right_output
-MEMBERS_EOF
-_mall=$(grep -o ' member=[^ ]*' "$LEVELS_LAYERS" | sort -u | tr -d ' ' | sed 's/^member=//' | tr '\n' ' ' | sed 's/ $//')
-[ "$_mall" = "ex12/toy_cat ex12/toy_dup ex12/toy_len ex13/toy_down ex13/toy_up ex14/toy_left ex14/toy_right" ] &&
+	_got=$(unit_tests "$_tl" "$_u")
+	if [ "$_got" = "$_want" ]; then
+		ok "the tests of library function $_u ($_toy) are its own, all of them"
+	else
+		bad "the tests of library function $_u ($_toy) are its own, all of them" "they are: $_got"
+	fi
+done <<'UNITS_EOF'
+named_lib|toy_cat|toy_cat_allocfail toy_cat_allocfail_leaks toy_cat_diff toy_cat_diff_asan toy_cat_ilp32 toy_cat_open_output toy_cat_output toy_cat_perf toy_cat_readings toy_cat_readings_diff_asan toy_cat_valgrind
+named_lib|toy_dup|toy_dup_diff toy_dup_diff_asan toy_dup_ilp32 toy_dup_output toy_dup_readings toy_dup_valgrind
+named_lib|toy_len|toy_len_asan toy_len_cycles toy_len_diff toy_len_diff_asan toy_len_ilp32 toy_len_memcheck toy_len_output toy_len_perf toy_len_probe_memcheck
+named_lib_make|toy_down|toy_down_ilp32 toy_down_memcheck toy_down_output
+named_lib_make|toy_up|toy_up_ilp32 toy_up_memcheck toy_up_method toy_up_output
+named_lib_broken|toy_left|toy_left_ilp32 toy_left_memcheck toy_left_output
+named_lib_broken|toy_right|toy_right_ilp32 toy_right_memcheck toy_right_output
+UNITS_EOF
+# ...and no test of the three is tagged as a unit that is neither a library
+# nor a function the lists above name.
+_uall=$(for _toy in named_lib named_lib_make named_lib_broken; do
+	_tl=$(toy_layers "$_toy")
+	[ -z "$_tl" ] || grep -o ' unit=[^ ]*' "$_tl"
+done | sed 's/^ unit=//' | grep -vxE 'libtoy|libtoy13|libtoy14' | sort -u | tr '\n' ' ' | sed 's/ $//')
+[ "$_uall" = "toy_cat toy_down toy_dup toy_left toy_len toy_right toy_up" ] &&
 	ok "no test is tagged as a function no list above names" ||
-	bad "no test is tagged as a function no list above names" "the tags name: $_mall"
-
-# ...and none of them reads another function's files, runs another's
-# program, or waits for another's output test (./levels' :member_strays).
-if [ -s "$LEVELS_STRAYS" ]; then
-	bad "every library member's test and program stays inside its own function" \
-		"$(tr '\n' ';' < "$LEVELS_STRAYS")"
-else
-	ok "every library member's test and program stays inside its own function"
-fi
+	bad "no test is tagged as a function no list above names" "the tags name: $_uall"
 
 # The hand measurement in the package's BUILD file ("N tests, R red; ...")
 # counts the tests a run of all of them executes, which is the lines of
@@ -729,8 +671,11 @@ fi
 # appear from nowhere. A count that changes with layers.expected is
 # re-measured with it.
 _said=$(sed -n 's/^# \([0-9][0-9]*\) tests, .*/\1/p' "$DIR/BUILD.bazel" | head -n 1)
-_have=$(grep -c . "$EXPECTED_LAYERS")
-if [ -z "$_said" ]; then
+_dl=$(toy_field "$DIR" 3)
+_have=$([ -z "$_dl" ] || grep -c . "$_dl")
+if [ -z "$_dl" ]; then
+	bad "the BUILD file's hand-measured count" "no --toy names $DIR, whose layers.expected it is held to"
+elif [ -z "$_said" ]; then
 	bad "the BUILD file's hand-measured count" \
 		"no '# N tests, R red' line in $DIR/BUILD.bazel to hold to layers.expected"
 elif [ "$_said" -eq "$_have" ]; then
@@ -744,22 +689,20 @@ fi
 # harness names. A harness with no prototype_test= tag reads UNTAGGED, and one
 # missing from the list was not built at all; either differs from the file.
 # The floor: a listing with no harness in it lists nothing worth comparing.
-if ! grep -q ' prototype_test=' "$HARNESSES"; then
-	bad "the harnesses of tools/tests/macro_fixtures" "none carries a prototype_test= tag"
-elif diff "$EXPECTED_HARNESSES" "$HARNESSES" > "$WORK/harnesses.diff" 2>&1; then
-	ok "every harness names its prototype test ($(grep -c ' prototype_test=' "$HARNESSES") harnesses)"
-else
-	bad "the programs built in tools/tests/macro_fixtures" "they differ from its harnesses.expected"
+listing_match "every harness names its prototype test ($(grep -c ' prototype_test=' "$HARNESSES") harnesses)" \
+	"the programs built in tools/tests/macro_fixtures" "they differ from its harnesses.expected" \
+	' prototype_test=' "none carries a prototype_test= tag" "$EXPECTED_HARNESSES" "$HARNESSES"
+if [ "$?" -eq 1 ]; then
 	echo ""
 	echo "  '<' is in harnesses.expected and was not built so; '>' was built and is"
 	echo "  not in it. Each line is a student_binary and the prototype test its"
-	echo "  harness names (tools/defs.bzl's _student_bin), UNTAGGED where it names"
+	echo "  harness names (tools/defs_contract.bzl's _student_bin), UNTAGGED where it names"
 	echo "  none, or 'own program' where it links no harness."
-	sed 's/^/    /' "$WORK/harnesses.diff"
+	sed 's/^/    /' "$WORK/listing.diff"
 	echo ""
 	echo "  If a macro changed on purpose, check every new line, then:"
-	echo "    bazel build //tools/tests/macro_fixtures:harnesses &&"
-	echo "      cat bazel-bin/tools/tests/macro_fixtures/harnesses.txt > tools/tests/macro_fixtures/harnesses.expected"
+	regen_recipe tools/tests/macro_fixtures:harnesses tools/tests/macro_fixtures/harnesses.txt \
+		tools/tests/macro_fixtures/harnesses.expected
 fi
 
 # EVERY KNOB NO PROJECT TURNS (./knobs): a macro's parameter or a case's key
@@ -767,22 +710,20 @@ fi
 # given, against knobs.expected. A knob nothing calls is a branch nothing
 # ran; this is where one that stops doing what its docstring says goes red.
 # The floor: a listing with no line in it compares nothing.
-if ! grep -q . "$KNOBS"; then
-	bad "the knobs of tools/tests/macro_fixtures/knobs" "its listing is empty"
-elif diff "$EXPECTED_KNOBS" "$KNOBS" > "$WORK/knobs.diff" 2>&1; then
-	ok "every knob no project turns does what it says ($(grep -c . "$KNOBS") probes)"
-else
-	bad "the knobs of tools/tests/macro_fixtures/knobs" "they differ from its knobs.expected"
+listing_match "every knob no project turns does what it says ($(grep -c . "$KNOBS") probes)" \
+	"the knobs of tools/tests/macro_fixtures/knobs" "they differ from its knobs.expected" \
+	. "its listing is empty" "$EXPECTED_KNOBS" "$KNOBS"
+if [ "$?" -eq 1 ]; then
 	echo ""
 	echo "  '<' is in knobs.expected and was not emitted so; '>' was emitted and is"
 	echo "  not in it. Each line is a knob, a target it shapes, what was asked of"
 	echo "  that target and what it holds (see :knobs in the package's BUILD file)."
-	sed 's/^/    /' "$WORK/knobs.diff"
+	sed 's/^/    /' "$WORK/listing.diff"
 	echo ""
 	echo "  If a macro changed on purpose, check every new line against the knob's"
 	echo "  docstring, then:"
-	echo "    bazel build //tools/tests/macro_fixtures/knobs:knobs &&"
-	echo "      cat bazel-bin/tools/tests/macro_fixtures/knobs/knobs.txt > tools/tests/macro_fixtures/knobs/knobs.expected"
+	regen_recipe tools/tests/macro_fixtures/knobs:knobs tools/tests/macro_fixtures/knobs/knobs.txt \
+		tools/tests/macro_fixtures/knobs/knobs.expected
 fi
 # ...and one knob only a build shows: student_lib's hdrs and includes. ex06's
 # source includes a header that sits in inc/, which only the unit's own

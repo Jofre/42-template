@@ -1,6 +1,8 @@
 #include "ft_list.h"
 #include <stdio.h>
 
+t_list	*ft_list_last(t_list *begin_list);
+
 /* Prints "<label>\t<value>" so tools/diff_output.sh (run with --labeled) can
  * show each case in its own column. For a returned node we render its data as
  * the original test does, (char *); a NULL result renders as the text "NULL".

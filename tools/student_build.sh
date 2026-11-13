@@ -23,7 +23,7 @@
 # Exit 2 is kept for what is not the student's, and it fails the build action,
 # loudly, because a stand-in there would blame the student for the machine --
 # and a build action that exits 0 is CACHED, so that stand-in would go on being
-# served until something else changed. Three kinds:
+# served until something else changed. Five kinds:
 #
 #   * the harness cannot run the build at all: no compiler, a flag this script
 #     does not know, an archiver that fails;
@@ -35,8 +35,21 @@
 #   * a file of the HARNESS that does not compile and reads nothing of the
 #     student's: no header of theirs, no file of theirs, reached that compile
 #     (asked of the preprocessor, -E -H), so the student cannot have caused it.
-#     A harness file that includes a turn-in header stays a stand-in: a header
-#     that does not declare what the subject says fails there first.
+#     A harness file that includes a turn-in header stays a stand-in: what
+#     that header holds (a structure written otherwise, a name it lacks or
+#     defines twice) can break the harness first. A harness declares the
+#     functions it calls itself (//tools:conventions), so a header holding
+#     what its subject asks, a structure alone, breaks nothing there;
+#   * a Makefile this runner cannot plan a part from by the rule that builds
+#     it (--make-goal): one whose database strays from the shape make prints
+#     one in, or that leaves make's database in a file of the tree each time
+#     make reads it, or whose rule the dry run that plans the build reads as
+#     another, or not at all, or cannot be read as it reads it. A stand-in
+#     there would say the Makefile has no such rule, or be built by a rule
+#     make has built in, and neither is what the student wrote;
+#   * a make that did not finish within MAKE_TMO seconds, and was not seen
+#     running make inside itself without end (BOUNDED MAKES, below): a load
+#     on the machine slows a dry run as surely as a $(shell sleep) does.
 #
 # STUDENT_BUILD_STRICT=1 is the maintainer's switch, and exit 1 is its only
 # user. EVERY file of the harness's own (a --harness source under tests/) that
@@ -62,7 +75,7 @@
 #                calls into it, so a main() left inside the function's own file
 #                is a duplicate, as the grader finds it. A stray main.c beside
 #                it never gets here: the macros hand over only the files the
-#                subject contract names or allows (tools/defs.bzl,
+#                subject contract names or allows (tools/defs_contract.bzl,
 #                _turnin_files), and the files layer reports the rest.
 #   --harness F  a source of the test's own (its main()): always linked.
 #   --no-archive link the --src files directly, as a program exercise's are.
@@ -81,6 +94,13 @@
 #   --fallback-src F  with --makefile, repeatable: build these instead while
 #                there is no Makefile, or while its recipes compile nothing
 #                (a stub's only echo) -- see "UNTIL THE MAKEFILE IS WRITTEN".
+#   --make-goal G  with --makefile: the program is what `make G` builds, not
+#                what a bare `make` builds -- one part of a project whose
+#                subject builds that part by a rule of its own -- see "A PART
+#                BUILT BY A RULE OF ITS OWN".
+#   --kind K     in a contract of units, what the program is built for, for
+#                the stand-in's words (tools/standin.sh's standin_noun);
+#                without it, "exercise".
 #
 # Usage:
 #   student_build.sh --out PATH [--label TEXT] [--dir DIR]
@@ -88,7 +108,8 @@
 #                    [--ar AR] [--arflag F]... [--copt F]...
 #                    [--src F]... [--harness F]... [--no-archive]
 #                    [--makefile M] [--make MAKE] [--includes-out F]
-#                    [--sources-out F]
+#                    [--sources-out F] [--fallback-src F]... [--make-goal G]
+#                    [--kind exercise|library|function|project|part]
 #
 # With no --cflag the compile line is "-c @SRC@ -o @OBJ@" plus any --copt; with
 # no --lflag the link line is "-o @OUT@ @OBJS@"; with no --arflag the archive
@@ -130,6 +151,23 @@
 # ITSELF works is make_test.sh's question, asked separately. rules_foreign_cc's
 # make() would run the build the Makefile describes, flags and all -- the half
 # deliberately not wanted here.
+#
+# A PART BUILT BY A RULE OF ITS OWN (--make-goal G). Where a subject is in
+# parts and builds one of them with a rule it names ("make bonus"), that part's
+# program is what `make -Bn G` plans, and nothing else. Whether the Makefile
+# HAS a rule G is asked first, of make's own list of the rules it read --
+# `make -pnq`, its database, with the built-in rules and variables `make G`
+# reads -- and never of what `make G` says or builds: a file or a folder named
+# G makes it answer "Nothing to be done", and a G.c makes a built-in rule
+# compile it, so a Makefile with no rule G would have stood for one. A rule G
+# that is not there, or one named (in .PHONY, say) with no prerequisite and no
+# recipe, is a stand-in saying so, of the EMPTY kind, as an unwritten part is:
+# never a program built from the folder's sources instead (--fallback-src is
+# refused with it), and never a planning error that names nothing. A rule G
+# that the planning's dry run reads as another, or not at all, stops the build,
+# which says why: a Makefile that tests MAKEFLAGS can read so. A Makefile make
+# cannot read at all is left to the planning below, which shows make's own
+# words.
 set -u
 
 # The external commands this runner takes from PATH. See diff_output.sh for why
@@ -142,15 +180,20 @@ require() {
 		exit 2
 	done
 }
-require awk chmod cp dirname grep mkdir mktemp rm sed tr
+require awk cat chmod cmp cp dirname find grep mkdir mktemp rm sed sleep timeout tr
 
 # The contract this writes, shared with every runner that reads it.
 _sl="$(dirname "$0")/standin.sh"
 [ -f "$_sl" ] || { echo "student_build.sh: $_sl is not staged beside it" >&2; exit 2; }
 # shellcheck source=tools/standin.sh
 . "$_sl"
+# The readers of make's database (Makefile mode), shared with make_test.sh.
+MAKE_DB="$(CDPATH='' cd "$(dirname "$0")" && pwd)/make_db.awk"
+[ -f "$MAKE_DB" ] || { echo "student_build.sh: $MAKE_DB is not staged beside it" >&2; exit 2; }
 
 OUT=""
+RL_UNIT_KIND=""
+KIND_GIVEN=0
 LABEL=""
 MAKE_NOTE=""
 DIR=""
@@ -159,6 +202,8 @@ LD=""
 AR=""
 MAKEFILE=""
 MAKE_BIN="make"
+MAKE_GOAL=""
+GOAL_GIVEN=0
 INCLUDES_OUT=""
 SOURCES_OUT=""
 ARCHIVE=1
@@ -181,6 +226,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--out) need "$1" "$#"; OUT="$2"; shift 2 ;;
 		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
+		--kind) need "$1" "$#"; RL_UNIT_KIND="$2"; KIND_GIVEN=1; shift 2 ;;
 		--dir) need "$1" "$#"; DIR="$2"; shift 2 ;;
 		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
 		--ld) need "$1" "$#"; LD="$2"; shift 2 ;;
@@ -197,6 +243,7 @@ while [ $# -gt 0 ]; do
 		--includes-out) need "$1" "$#"; INCLUDES_OUT="$2"; shift 2 ;;
 		--sources-out) need "$1" "$#"; SOURCES_OUT="$2"; shift 2 ;;
 		--fallback-src) need "$1" "$#"; FALLBACK=$(add "$FALLBACK" "$2"); shift 2 ;;
+		--make-goal) need "$1" "$#"; MAKE_GOAL="$2"; GOAL_GIVEN=1; shift 2 ;;
 		*) echo "student_build.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -206,6 +253,13 @@ done
 [ -n "$LD" ] || LD="$CC"
 [ -n "$AR" ] || AR="ar"
 [ -n "$LABEL" ] || LABEL="$OUT"
+# A --kind given names a kind: an empty one is refused like any other word.
+if [ "$KIND_GIVEN" = 1 ]; then
+	case "$RL_UNIT_KIND" in
+		exercise | library | function | project | part) ;;
+		*) echo "student_build.sh: --kind is exercise, library, function, project or part, not '$RL_UNIT_KIND'" >&2; exit 2 ;;
+	esac
+fi
 if [ -n "$MAKEFILE" ] && [ -n "$SRCS" ]; then
 	echo "student_build.sh: --makefile and --src are exclusive: the Makefile decides" >&2
 	exit 2
@@ -214,6 +268,26 @@ if [ -n "$FALLBACK" ] && [ -z "$MAKEFILE" ]; then
 	echo "student_build.sh: --fallback-src is what a Makefile not written yet stands for, and there is no --makefile" >&2
 	exit 2
 fi
+if [ "$GOAL_GIVEN" = 1 ]; then
+	case "$MAKE_GOAL" in
+		"" | [-.]* | *[!A-Za-z0-9_.-]*)
+			echo "student_build.sh: --make-goal takes a Makefile rule's name (letters, digits, _ . and -, not - or . first), not '$MAKE_GOAL'" >&2
+			exit 2 ;;
+	esac
+	[ -n "$MAKEFILE" ] || {
+		echo "student_build.sh: --make-goal names a rule of the Makefile, and there is no --makefile" >&2
+		exit 2
+	}
+	[ -z "$FALLBACK" ] || {
+		echo "student_build.sh: --make-goal and --fallback-src are exclusive: a part built by a rule of its own is judged by that rule alone, never by the folder's sources while the rule is not written" >&2
+		exit 2
+	}
+fi
+# How the messages below name the planning: a bare `make -Bn`, or the part's.
+MK_ASK="make -Bn${MAKE_GOAL:+ $MAKE_GOAL}"
+# ...and what it plans: the default goal, or the part's rule.
+MK_WHAT="the default goal"
+[ -z "$MAKE_GOAL" ] || MK_WHAT="the $MAKE_GOAL rule"
 # Written empty first, so it exists whichever way this ends -- a stand-in
 # for a missing Makefile included: a declared output the action does not
 # write fails the build, which is the one thing this script never does.
@@ -258,9 +332,20 @@ fi
 [ -n "$ARFLAGS" ] || ARFLAGS=$(printf -- 'rcs\n@LIB@')
 
 WORK=$(mktemp -d) || { echo "student_build.sh: mktemp failed" >&2; exit 2; }
-trap 'rm -rf "$WORK"' EXIT
+# bmake_stop: end the make bmake runs, and the subshell that runs bmake
+# (BOUNDED MAKES). timeout puts make in a process group of its own, which
+# no signal to this script or to its group reaches, so each way out of the
+# script ends them first; timeout hands the TERM on to its whole group.
+BMAKE_SUB=
+bmake_stop() {
+	[ -z "$BMAKE_SUB" ] || kill "$BMAKE_SUB" 2> /dev/null
+	[ ! -s "$WORK/bmake.pid" ] || kill "$(cat "$WORK/bmake.pid")" 2> /dev/null
+	return 0
+}
+trap 'bmake_stop; rm -rf "$WORK"' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 
 # ------------------------------------------------------------- the lists
 # Every list here is one entry per line, and is only ever walked one line at a
@@ -327,9 +412,14 @@ standin() {  # standin broke|empty HEADLINE <<message
 }
 ESC=$(printf '\033')
 CR=$(printf '\r')
+# sedre PATH: PATH escaped for a sed pattern, where . * [ ] ^ $ \ and the
+# delimiter # mean something. The scratch path is one in tidy: a # or a . in
+# TMPDIR made it another pattern, or no command at all (F0497).
+sedre() { printf '%s' "$1" | sed 's/[][#.*^$\\]/\\&/g'; }
 tidy() {
+	_tw=$(sedre "$WORK")
 	sed -e "s/${ESC}\[[0-9;]*[A-Za-z]//g" -e "s/${CR}\$//" \
-		-e "s#$WORK/o/##g" -e "s#$WORK/##g" \
+		-e "s#$_tw/o/##g" -e "s#$_tw/##g" \
 		-e 's#[^ ]*/x86_64-linux-gnu-ld\.gold:#ld:#g' \
 		-e 's#[^ ]*/x86_64-linux-gnu-ld\.bfd:#ld:#g' \
 		-e 's#[^ ]*/x86_64-linux-gnu-ld:#ld:#g' \
@@ -406,6 +496,120 @@ died() {  # died STATUS OUTPUT WHAT [status-only]
 	exit 2
 }
 
+# BOUNDED MAKES. make runs a recipe line that names $(MAKE) even under -n, so
+# a rule that calls itself (`all:` then `$(MAKE) all`) ran a make inside a
+# make without end, hundreds of levels a second, and a $(shell sleep ...)
+# ran as long as it said: Bazel gives a build action no time limit, so
+# `bazel test //...` hung there (F0495). So every make here runs through
+# bmake, which stops it after MAKE_TMO seconds, or as soon as it runs
+# MAKE_DEPTH processes deep. The depth is read from the process tree (ps),
+# and not from what make prints: a sub-make says "make[N]: Entering
+# directory" only unless told not to, and --no-print-directory, on the
+# $(MAKE) line or in a Makefile's MAKEFLAGS, tells every level not to. No
+# dry run of a Makefile goes that deep on its own, the shells a recipe line
+# or a $(shell) runs in counted. A "make[MAKE_DEPTH]:" line in its output
+# stops it too, which still holds where ps cannot be run. The depth is what
+# the Makefile does on any machine: a stand-in, by bounded. The time may be
+# the machine's load: exit 2, uncached. MAKE_TMO is generous, since a dry
+# run of the largest Makefile here takes well under a second;
+# STUDENT_BUILD_MAKE_TIMEOUT sets it for a hand run, and for the
+# selftest's arms.
+MAKE_TMO=${STUDENT_BUILD_MAKE_TIMEOUT:-120}
+case "$MAKE_TMO" in
+	"" | *[!0-9]* | 0)
+		echo "student_build.sh: STUDENT_BUILD_MAKE_TIMEOUT is a number of seconds, not '$MAKE_TMO'" >&2
+		exit 2 ;;
+esac
+MAKE_DEPTH=40
+# bmake_deep PID: whether a process MAKE_DEPTH levels below PID runs (exit
+# 0); 1 when none does, or when ps cannot say.
+bmake_deep() {
+	ps -A -o pid= -o ppid= 2> /dev/null | awk -v top="$1" -v deep="$MAKE_DEPTH" '
+		{ kids[$2] = kids[$2] " " $1 }
+		END {
+			lv[top] = 0
+			q[0] = top
+			h = 0
+			t = 1
+			while (h < t) {
+				p = q[h++]
+				n = split(kids[p], k, " ")
+				for (i = 1; i <= n; i++) {
+					if (k[i] in lv)
+						continue
+					lv[k[i]] = lv[p] + 1
+					if (lv[k[i]] >= deep)
+						exit 0
+					q[t++] = k[i]
+				}
+			}
+			exit 1
+		}'
+}
+# bmake OUT ERR COMMAND...: COMMAND, bounded and in the C locale, with its
+# stdout in OUT and its stderr in ERR (OUT again for both in one); its
+# status, 124 when MAKE_TMO stopped it. $WORK/bmake.deep says the depth did,
+# and $WORK/bmake.pid holds its job's PID while it runs. Each caller runs it
+# in a subshell started with & and waits for that, its PID in BMAKE_SUB: a
+# shell runs a trap only once the command it waits on in the foreground has
+# ended, and `wait` is the one wait a signal cuts short.
+bmake() {
+	_bo=$1
+	_be=$2
+	shift 2
+	rm -f "$WORK/bmake.deep"
+	# A build action: no test's limit reaches it, and Bazel bounds it by none.
+	# In make's own English, whoever runs the build: make translates its
+	# messages, and this script reads them -- the depth below, the lines -w
+	# prints around a sub-make, "No targets" -- in English (N155). LANGUAGE
+	# is emptied as well as overridden by LC_ALL, as the database makes do.
+	if [ "$_bo" = "$_be" ]; then
+		# conventions: bounds itself -- a build action (above)
+		LANGUAGE='' LC_ALL=C timeout -k 5 "$MAKE_TMO" "$@" > "$_bo" 2>&1 &
+	else
+		# conventions: bounds itself -- a build action (above)
+		LANGUAGE='' LC_ALL=C timeout -k 5 "$MAKE_TMO" "$@" > "$_bo" 2> "$_be" &
+	fi
+	_bp=$!
+	echo "$_bp" > "$WORK/bmake.pid"
+	# Looked at often at first, since most makes here end in a few
+	# hundredths of a second, and each look is time every build waits.
+	_bn=0
+	while kill -0 "$_bp" 2> /dev/null; do
+		if grep -q "^${MAKE_BIN##*/}\[$MAKE_DEPTH\]: " "$_bo" "$_be" 2> /dev/null ||
+			bmake_deep "$_bp"; then
+			: > "$WORK/bmake.deep"
+			kill "$_bp" 2> /dev/null
+			break
+		fi
+		_bn=$((_bn + 1))
+		if [ "$_bn" -le 20 ]; then sleep 0.01; else sleep 0.1; fi
+	done
+	# A job a signal ended is reported on stderr ("Terminated") by wait.
+	wait "$_bp" 2> /dev/null
+	_bs=$?
+	rm -f "$WORK/bmake.pid"
+	return "$_bs"
+}
+# bounded WHAT STATUS: how a make bmake ran (WHAT, as the student would run
+# it) ended, when it was stopped.
+bounded() {
+	[ -f "$WORK/bmake.deep" ] && standin broke "make runs make inside itself without end." <<-EOF
+	  Asked about the build without building it ('$1'), make ran a recipe
+	  line that calls \$(MAKE) -- make runs those even then -- and each make
+	  it started started another, until the chain was $MAKE_DEPTH deep and
+	  this stopped it. A bare 'make' would do the same, without end.
+
+	  Which rule calls make again, and what is the make it starts asked to
+	  build?
+	EOF
+	[ "$2" -eq 124 ] || return 0
+	echo "student_build.sh: $1 did not finish within ${MAKE_TMO}s ($LABEL)." >&2
+	echo "  A loaded machine slows make down, and so does a Makefile that makes it" >&2
+	echo "  wait: what does yours run while make reads it (a \$(shell ...), say)?" >&2
+	exit 2
+}
+
 # ------------------------------------------------------------ the Makefile
 # No Makefile yet, and sources to build until there is one: build those.
 if [ -n "$MAKEFILE" ] && [ ! -f "$MAKEFILE" ] && [ -n "$FALLBACK" ]; then
@@ -414,7 +618,7 @@ if [ -n "$MAKEFILE" ] && [ ! -f "$MAKEFILE" ] && [ -n "$FALLBACK" ]; then
 fi
 if [ -n "$MAKEFILE" ]; then
 	[ -f "$MAKEFILE" ] || standin empty "there is no Makefile at $MAKEFILE." <<-EOF
-	  This exercise's programs are built from what its Makefile compiles, and
+	  This $(standin_noun)'s programs are built from what its Makefile compiles, and
 	  the turn-in has no Makefile there (the name is case-sensitive: a
 	  makefile is not a Makefile).
 	EOF
@@ -429,8 +633,12 @@ if [ -n "$MAKEFILE" ]; then
 	SRCDIR=$(dirname "$MAKEFILE")
 	# A COPY, because the Makefile may include a file make would rebuild even
 	# under -n, and the tree here is read-only. The compile below still reads
-	# the files in place, so every diagnostic names the path you edit.
-	mkdir -p "$WORK/make" && cp -R "$SRCDIR"/. "$WORK/make"/ 2> /dev/null || {
+	# the files in place, so every diagnostic names the path you edit. A copy
+	# of the files the links point to (-L), as make_test.sh stages its tree:
+	# a sandbox lays its inputs out as symlinks, cp -R kept them, and make
+	# wrote a remade include through one into the student's own file, while
+	# db_make compared each file with itself (F0494).
+	mkdir -p "$WORK/make" && cp -RL "$SRCDIR"/. "$WORK/make"/ 2> /dev/null || {
 		echo "student_build.sh: could not stage '$SRCDIR'" >&2
 		exit 2
 	}
@@ -442,9 +650,296 @@ if [ -n "$MAKEFILE" ]; then
 	# their output quiet; a MAKEFLAGS given on the command line overrides that
 	# assignment, and keeps -B and -n for every sub-make -- a MAKEFLAGS that
 	# dropped them would have the sub-make really build.
-	RECIPES=$(cd "$WORK/make" && "$MAKE_BIN" -Bnw MAKEFLAGS=Bnw 2>&1)
-	MAKE_RC=$?
-	died "$MAKE_RC" "$RECIPES" "make -Bn in $SRCDIR" status-only
+	# A PART BUILT BY A RULE OF ITS OWN: the rule, from make's database
+	# (goal_state: 0 a rule, 1 none, 3 a name with nothing to do). The goal
+	# asked for is .DEFAULT, which no rule step uses, so make reads every
+	# line, prints its database, and stops on one error of its own: that
+	# .DEFAULT has no rule, or that a prerequisite the Makefile gives it has
+	# none. The database is trusted only when make read the whole Makefile,
+	# which stderr alone cannot say: a $(error) whose text holds a newline
+	# ends in that complaint, word for word. So make reads a makefile of
+	# this runner's after the one it reads by itself (the first of
+	# GNUmakefile, makefile and Makefile), and the variable that sets with
+	# override, so that no value the Makefile gives it stands, printed in the
+	# last database as set from that file, says the reading got there; its
+	# rule for itself keeps make from remaking it with a rule of the
+	# student's. The last, because make prints a database each time it reads
+	# the Makefile: once it has made a makefile the Makefile includes, it
+	# starts again and reads every line anew, and that reading is the one
+	# `make G` goes on with, so its database is the one read below. That
+	# makefile asks for the database too, adding -pnq to MAKEFLAGS as a
+	# Makefile does (with override only when the Makefile set its own
+	# MAKEFLAGS with it, which a plain assignment cannot change): so whenever
+	# make reads the Makefile, $(MAKEFLAGS) reads as it does under `make G`,
+	# and a sub-make that remakes an include is not asked for a dry run, as
+	# make leaves -n and -q out of what it passes on while it remakes them. A
+	# reading that stops before the end prints no database, then, so a
+	# makefile of this runner's read first prints a line each reading starts
+	# with, and only a database after the last such line is read; it also
+	# empties MAKEFILE_LIST, which the Makefile then reads as under `make G`.
+	# But make passes -p on to a sub-make that remakes an include, so it
+	# prints a database too, and one whose output is the include leaves that
+	# database there, for make to read as lines of the Makefile the next time.
+	# So a reading after which a file of the tree holds a database it did not
+	# hold before is not trusted: the tree is put back as it was before it, a
+	# make asked for no database, and for a goal of this runner's whose rule
+	# runs nothing, makes the includes as `make G` makes them, and make is
+	# read again, told that the files the first reading made or changed are up
+	# to date (-o), so that an include made each time make reads the Makefile
+	# is read as that make made it. -o knows a file only by the name it is
+	# given, so each is given as a path from the folder make runs in and as
+	# one from $(CURDIR); a file the Makefile names another way is remade all
+	# the same. A second reading that leaves a database too stops this
+	# runner, which says why: a built-in rule would answer the planning below
+	# for a rule G the Makefile lacks. A database left in a file outside the
+	# tree is not seen.
+	# The makefile read last sets .RECIPEPREFIX back to a tab before any rule
+	# of its own, so none of its lines reads as a recipe under a prefix the
+	# Makefile set last. And make is given both names relative to the folder
+	# it runs in, so a space, a # or a $ in the path of this runner's scratch
+	# folders is no part of what make reads. Then make ended without an error,
+	# or the last line it wrote ends in that complaint: make stops at its
+	# first error, so what it printed on the way was none -- a recipe given
+	# twice, a $(warning) whose text holds ***, what a $(shell) wrote to
+	# stderr (with no newline, the complaint ends that line), a sub-make that
+	# failed to remake an optional include. Under -k, from the Makefile's
+	# MAKEFLAGS or the environment's, make goes on past an error and its
+	# complaint has no "Stop.", and may follow it with a warning of a clock
+	# skew (a makefile it read is dated in the future): that is allowed, but a
+	# makefile it failed to remake is not -- an include that is not there,
+	# whose rules the database lacks. That is a makefile make names so on
+	# stderr and its last database marks as failed to be updated: a sub-make
+	# that a $(shell) runs says the same words of its own makefiles, which are
+	# in no database of this make's. Any other end is an error that stopped
+	# the reading, and that Makefile is left to the planning below, which
+	# shows make's own words. The complaint is matched in make's own English:
+	# make translates its messages, so this one call runs with LC_ALL=C and no
+	# LANGUAGE. And make is given the MAKECMDGOALS that `make G` sets, through
+	# the environment, so a Makefile that reads it (one that refuses a goal it
+	# does not know, say) reads here as it does when G is asked for, and one
+	# that sets it itself reads its own value, as under `make G`. The makefile
+	# of this runner's read first takes it out of the environment make gives
+	# the recipes, so a make a recipe runs reads its own goals, as under
+	# `make G`; a $(shell) still passes it on. The database prints each
+	# variable with its value, and a
+	# value may hold any line, the "# Files" the rules are listed under among
+	# them. So the makefile of this runner's also writes a pattern rule named
+	# for this run, which make lists among its implicit rules, after every
+	# variable, and whose recipes make prints with the tab that makefile set
+	# the prefix back to. Each database is read from the line that names that
+	# rule on, block by block, as make prints them: a recipe line by line,
+	# with each line that goes on in the next (an odd number of backslashes at
+	# its end) and that next line, whatever it holds; a target's own variables
+	# up to the target's own line; a block after a line that names the
+	# Makefile's prefix, with that prefix; the blocks of a :: rule as one; and
+	# the files up to the line make prints after them, never the search paths
+	# it prints next. A database that strays from that shape, or names a file
+	# twice, stops this runner, which says why: it is never left to the
+	# planning below, which a Makefile made to stray from it on purpose would
+	# reach with no rule G, and a built-in rule would then answer. The last
+	# database is trusted only when it was read to that line. A rule G found
+	# there is looked for again in the database of a second reading, made as
+	# the planning below reads the Makefile (make -Bnw, with MAKEFLAGS=Bnw on
+	# the command line, and a makefile of this runner's read last that adds
+	# nothing to MAKEFLAGS, so that a sub-make that remakes an include runs as
+	# under that planning), which must be trusted too, leaving no database
+	# in a file of the tree, and name G with the same prerequisites, and its
+	# recipes from the same lines. A Makefile that tests MAKEFLAGS can have a
+	# rule G under `make G` and none under that dry run, which a built-in rule
+	# would then answer, or another, which would be planned in its place; this
+	# runner stops then, and says why. The rules of what G depends on, and the
+	# values its recipes use, are not compared. What may still read as lines
+	# of a database: a name that holds a newline, and a value of a target's
+	# own made to print the lines of a block.
+	if [ -n "$MAKE_GOAL" ]; then
+		_db_mf=Makefile
+		for _db_f in GNUmakefile makefile Makefile; do
+			if [ -f "$WORK/make/$_db_f" ]; then
+				_db_mf=$_db_f
+				break
+			fi
+		done
+		_db_run=${WORK##*/}
+		printf '%s\n' "\$(info harness-reading-$_db_run)" 'MAKEFILE_LIST :=' 'unexport MAKECMDGOALS' \
+			> "$WORK/pre.mk"
+		printf '%s\n' 'override HARNESS_READ_TO_THE_END := yes' 'override .RECIPEPREFIX :=' \
+			'ifeq ($(findstring override,$(origin MAKEFLAGS)),)' 'MAKEFLAGS += -pnq' 'else' \
+			'override MAKEFLAGS += -pnq' 'endif' '../pre.mk ../probe.mk: ;' \
+			"harness-anchor-$_db_run%: ;" > "$WORK/probe.mk"
+		printf '%s\n' 'override .RECIPEPREFIX :=' "harness-remade-$_db_run: override .EXTRA_PREREQS :=" \
+			".PHONY: harness-remade-$_db_run" "harness-remade-$_db_run: ;" '../pre.mk ../remake.mk: ;' \
+			> "$WORK/remake.mk"
+		# db_make DB WHAT [SWITCH...]: one reading, its databases in $WORK/DB
+		# and what make wrote to stderr in $WORK/DB.err, its status in _db_rc,
+		# and in _db_leak 1 when a make it ran wrote a database into a file
+		# of the tree, which is then put back as it was before the reading,
+		# and the files that reading made or changed are listed in
+		# $WORK/DB.made. With _db_old, a list of such files, make takes each
+		# as up to date (-o), by both its names.
+		db_make() {
+			_db_o=$1
+			_db_w=$2
+			shift 2
+			rm -rf "$WORK/staged" && mkdir "$WORK/staged" && cp -pR "$WORK/make"/. "$WORK/staged"/ || {
+				echo "student_build.sh: could not stage '$SRCDIR'" >&2
+				exit 2
+			}
+			_db_rc=0
+			_db_leak=0
+			(cd "$WORK/make" && unset LANGUAGE &&
+				if [ -n "$_db_old" ]; then
+					_db_cd=$(pwd -P) &&
+					while IFS= read -r _db_l; do
+						set -- "$@" -o "$_db_l" -o "$_db_cd/$_db_l"
+					done < "$_db_old"
+				fi &&
+				LC_ALL=C && MAKECMDGOALS=$MAKE_GOAL && export LC_ALL MAKECMDGOALS &&
+				bmake "$WORK/$_db_o" "$WORK/$_db_o.err" "$MAKE_BIN" "$@" -f ../pre.mk \
+					-f "$_db_mf" -f ../probe.mk .DEFAULT) &
+			BMAKE_SUB=$!
+			wait "$BMAKE_SUB" || _db_rc=$?
+			BMAKE_SUB=
+			bounded "$_db_w" "$_db_rc"
+			died "$_db_rc" "" "$_db_w in $SRCDIR" status-only
+			(cd "$WORK/make" && find . -type f -exec grep -l -e '^# Make data base, printed on' {} + \
+				2> /dev/null) | {
+				while IFS= read -r _db_l; do
+					cmp -s "$WORK/make/$_db_l" "$WORK/staged/$_db_l" || { echo leaked; break; }
+				done
+			} | grep -q leaked && _db_leak=1
+			[ "$_db_leak" -eq 0 ] || (cd "$WORK/make" && find . -type f) | {
+				while IFS= read -r _db_l; do
+					cmp -s "$WORK/make/$_db_l" "$WORK/staged/$_db_l" || printf '%s\n' "${_db_l#./}"
+				done
+			} > "$WORK/$_db_o.made"
+			[ "$_db_leak" -eq 0 ] ||
+				{ rm -rf "$WORK/make" && mkdir "$WORK/make" && cp -pR "$WORK/staged"/. "$WORK/make"/; } || {
+				echo "student_build.sh: could not stage '$SRCDIR' again" >&2
+				exit 2
+			}
+		}
+		# db_read DB: the last database of $WORK/DB, in $WORK/DB.read, and
+		# whether it is trusted; one not laid out as make lays one out stops
+		# this runner. A reading a database leaked into is not trusted.
+		db_read() {
+			[ "$_db_leak" -eq 0 ] || return 1
+			_db_rd=0
+			READING="harness-reading-$_db_run" ANCHOR="harness-anchor-$_db_run%:" \
+				PROBE="# 'override' directive (from '../probe.mk', line 1)" \
+				awk -v part=read -f "$MAKE_DB" "$WORK/$1" > "$WORK/$1.read" || _db_rd=$?
+			if [ "$_db_rd" -eq 3 ]; then
+				echo "student_build.sh: cannot tell whether $SRCDIR/$_db_mf has a rule $MAKE_GOAL:" \
+					"make's list of its rules (make -p) is not laid out as make lays one out," \
+					"which a value or a name that holds lines like make's own can do" >&2
+				exit 2
+			elif [ "$_db_rd" -gt 1 ]; then
+				# Not an answer of the reader's (0, 1 or 3): awk itself failed.
+				echo "student_build.sh: could not read make's database of $SRCDIR/$_db_mf" \
+					"(awk exited $_db_rd)" >&2
+				exit 2
+			fi
+			[ "$_db_rd" -eq 0 ] &&
+				! ERR="$WORK/$1.err" awk -v part=remake -v q="'" -f "$MAKE_DB" "$WORK/$1.read" &&
+				{ [ "$_db_rc" -le 1 ] || { [ "$_db_rc" -eq 2 ] &&
+					sed -e '$!b' \
+						-e '/^[^ :]*: warning:  Clock skew detected\.  Your build may be incomplete\.$/d' \
+						"$WORK/$1.err" | sed -n '$p' |
+						grep -Eq "\*\*\* No rule to make target ('\.DEFAULT'|'.*', needed by '\.DEFAULT')\.(  Stop\.)?\$"; }; }
+		}
+		# db_goal DB: the state of the goal in $WORK/DB.read, in _gs, and in
+		# $WORK/DB.goal the lines that name it and say where its recipes are.
+		db_goal() {
+			_gs=0
+			GOAL="$WORK/$1.goal" awk -v part=goal -v t="$MAKE_GOAL" -f "$MAKE_DB" "$WORK/$1.read" ||
+				_gs=$?
+		}
+		_db_old=
+		db_make db "make -pnq"
+		if [ "$_db_leak" -ne 0 ]; then
+			cp "$WORK/db.made" "$WORK/db.old"
+			_db_rc=0
+			(cd "$WORK/make" && unset LANGUAGE &&
+				LC_ALL=C && MAKECMDGOALS=$MAKE_GOAL && export LC_ALL MAKECMDGOALS &&
+				bmake "$WORK/remade" "$WORK/remade" "$MAKE_BIN" -f ../pre.mk -f "$_db_mf" \
+					-f ../remake.mk "harness-remade-$_db_run") &
+			BMAKE_SUB=$!
+			wait "$BMAKE_SUB" || _db_rc=$?
+			BMAKE_SUB=
+			bounded "make -pnq" "$_db_rc"
+			died "$_db_rc" "" "make, remaking the includes in $SRCDIR," status-only
+			_db_old=$WORK/db.old
+			db_make db "make -pnq"
+			_db_old=
+			if [ "$_db_leak" -ne 0 ]; then
+				echo "student_build.sh: cannot tell whether $SRCDIR/$_db_mf has a rule $MAKE_GOAL:" \
+					"each time make reads it, a make it runs leaves make's database (make -p) in" \
+					"a file of the tree, which make may then read as lines of the Makefile" >&2
+				exit 2
+			fi
+		fi
+		if db_read db; then
+			db_goal db
+			case "$_gs" in
+				0)
+				printf '%s\n' 'override HARNESS_READ_TO_THE_END := yes' 'override .RECIPEPREFIX :=' \
+					'../pre.mk ../probe.mk: ;' "harness-anchor-$_db_run%: ;" > "$WORK/probe.mk"
+				db_make pdb "make -Bnwp MAKEFLAGS=Bnw" -Bnwp MAKEFLAGS=Bnw
+				# A database leaked into that reading says nothing this runner
+				# can read of how the dry run reads the Makefile.
+				if [ "$_db_leak" -ne 0 ]; then
+					echo "student_build.sh: cannot plan 'make $MAKE_GOAL' from $SRCDIR/$_db_mf:" \
+						"make reads a rule $MAKE_GOAL there, but read as the dry run this runner plans" \
+						"the build with reads it (make -Bnw MAKEFLAGS=Bnw $MAKE_GOAL), it leaves" \
+						"make's database in a file of the tree, which make may then read as lines of" \
+						"the Makefile" >&2
+					exit 2
+				fi
+				_gs=4
+				! db_read pdb || db_goal pdb
+				if [ "$_gs" -ne 0 ] || ! cmp -s "$WORK/db.goal" "$WORK/pdb.goal"; then
+					echo "student_build.sh: cannot plan 'make $MAKE_GOAL' from $SRCDIR/$_db_mf:" \
+						"make reads a rule $MAKE_GOAL there, but the dry run this runner plans the" \
+						"build with (make -Bnw MAKEFLAGS=Bnw $MAKE_GOAL) reads none, or another, or" \
+						"stops before the end of the Makefile. A Makefile that tests MAKEFLAGS," \
+						"which that run sets, can read differently under it" >&2
+					exit 2
+				fi
+				;;
+				1) standin empty "your Makefile has no $MAKE_GOAL rule." <<-EOF
+				  This program is what 'make $MAKE_GOAL' builds, and make's own list of
+				  the rules your Makefile defines (make -p) has none named $MAKE_GOAL.
+				  Nothing else stands in for one here: a file or a folder named
+				  $MAKE_GOAL, or a source make can compile by itself, would let 'make
+				  $MAKE_GOAL' answer without a rule of yours.
+
+				  If this part is not written yet, that is exactly what you should
+				  expect to see. If it is: which rule of your Makefile does
+				  'make $MAKE_GOAL' run?
+				EOF
+				;;
+				3) standin empty "your Makefile names $MAKE_GOAL and gives it no rule." <<-EOF
+				  This program is what 'make $MAKE_GOAL' builds. Your Makefile names
+				  $MAKE_GOAL (in .PHONY, say, or as a target alone) but gives it no
+				  prerequisite and no recipe, so 'make $MAKE_GOAL' has nothing to do.
+
+				  If this part is not written yet, that is exactly what you should
+				  expect to see. If it is: what does make need before it has
+				  anything to run for $MAKE_GOAL?
+				EOF
+				;;
+				*) echo "student_build.sh: could not read make's database of $SRCDIR/Makefile" >&2; exit 2 ;;
+			esac
+		fi
+	fi
+	(cd "$WORK/make" &&
+		bmake "$WORK/recipes" "$WORK/recipes" "$MAKE_BIN" -Bnw MAKEFLAGS=Bnw ${MAKE_GOAL:+"$MAKE_GOAL"}) &
+	BMAKE_SUB=$!
+	MAKE_RC=0
+	wait "$BMAKE_SUB" || MAKE_RC=$?
+	BMAKE_SUB=
+	RECIPES=$(cat "$WORK/recipes")
+	bounded "$MK_ASK" "$MAKE_RC"
+	died "$MAKE_RC" "$RECIPES" "$MK_ASK in $SRCDIR" status-only
 	# What make said, as the student would read it: without the top
 	# directory's own Entering/Leaving lines (-w's, not their Makefile's),
 	# and a sub-make's directory from the Makefile's, not from our scratch copy.
@@ -473,7 +968,7 @@ if [ -n "$MAKEFILE" ]; then
 		MAKE_RC=0
 		RECIPES=""
 	fi
-	[ "$MAKE_RC" -eq 0 ] || standin broke "'make -Bn' could not work out what to build." <<-EOF
+	[ "$MAKE_RC" -eq 0 ] || standin broke "'$MK_ASK' could not work out what to build." <<-EOF
 	  Nothing was compiled: this is make refusing to plan the build, not
 	  your code failing to compile. A file named in the Makefile that is not
 	  in the turn-in, or a syntax error in the Makefile, both look like this.
@@ -667,7 +1162,11 @@ if [ -n "$MAKEFILE" ]; then
 	# The list the Makefile gave, said FIRST in anything that follows: the
 	# compiler's errors can be long, and a reader cut off below them never
 	# learns that these files came from their own Makefile.
-	MAKE_NOTE="  Your Makefile builds the program from:$NL$(indent "$SRCS")$NL"
+	if [ -n "$MAKE_GOAL" ]; then
+		MAKE_NOTE="  Your Makefile's $MAKE_GOAL rule builds the program from:$NL$(indent "$SRCS")$NL"
+	else
+		MAKE_NOTE="  Your Makefile builds the program from:$NL$(indent "$SRCS")$NL"
+	fi
 	[ -z "$INCS" ] || MAKE_NOTE="$MAKE_NOTE  with the include directories it passes:$NL$(indent "$INCS")$NL"
 	[ -z "$INC_SKIPPED" ] || MAKE_NOTE="$MAKE_NOTE  (left out, being outside the turn-in:$INC_SKIPPED)$NL"
 	MAKE_NOTE="$MAKE_NOTE$NL"
@@ -680,7 +1179,7 @@ if [ -n "$MAKEFILE" ]; then
 	# push looks like, and a name no layer can carry ("utils (1).c"), which
 	# the files layer reports.
 	[ -z "$NAMED_MISSING" ] || standin broke "the Makefile names a source that is not in the turn-in." <<-EOF
-	  'make -Bn' says the default goal compiles:$NAMED_MISSING
+	  '$MK_ASK' says $MK_WHAT compiles:$NAMED_MISSING
 	  and there is no such file in the turn-in ($SRCDIR). Run by the
 	  grader, make stops right there. Each path is the one the recipe
 	  gives, read from the directory that recipe runs in -- the
@@ -698,6 +1197,20 @@ if [ -n "$MAKEFILE" ]; then
 		SRCS=$FALLBACK
 		MAKE_NOTE="  Your Makefile compiles nothing yet, so the program is built from every$NL  .c file of the folder:$NL$(indent "$SRCS")$NL$NL"
 	fi
+	if [ -z "$SRCS" ] && [ -n "$MAKE_GOAL" ]; then
+		standin empty "'make $MAKE_GOAL' compiles no .c files." <<-EOF
+		  '$MK_ASK' was asked what the $MAKE_GOAL rule would run and named no
+		  source: either it builds something other than this program, or its
+		  recipes never mention the sources by name.
+
+		  If this part is not written yet, that is exactly what you should
+		  expect to see.
+
+		  This is what it said it would run:
+
+		$SHOWN
+		EOF
+	fi
 	[ -n "$SRCS" ] || standin empty "the Makefile compiles no .c files." <<-EOF
 	  'make -Bn' was asked what the default goal would run and named no
 	  source.
@@ -705,7 +1218,7 @@ if [ -n "$MAKEFILE" ]; then
 	  first target in the file is the default one -- check what that is), or
 	  the recipes never mention the sources by name.
 
-	  If this exercise is not written yet, that is exactly what you should
+	  If this $(standin_noun) is not written yet, that is exactly what you should
 	  expect to see: a stub Makefile whose recipes only echo compiles
 	  nothing, so there is no program for the run layers to run.
 
@@ -739,7 +1252,8 @@ fi
 # scratch one, so two builds of the same files write the same object.
 # One sed over the whole template, not one per argument: this runs once per
 # file of every program in the repo. The paths are escaped for sed's
-# replacement text, where & and the delimiter mean something.
+# replacement text, where & and the delimiter mean something (sedre, above,
+# escapes one for a pattern).
 sedrep() { printf '%s' "$1" | sed 's/[#&\\]/\\&/g'; }
 expand() {  # expand TEMPLATE SRC OBJ
 	_es=$(sedrep "$2")
@@ -798,8 +1312,10 @@ each "$SRCS" compile_src
 # ------------------------------------------------- a harness that fails
 # Where a failed file is the harness's own (a --harness source, under tests/),
 # the error can still be the student's: the harness compiles against their
-# header, and a header that does not declare what the subject says it does
-# fails there first. Or it cannot be: a harness file that no file of the
+# header, and what that header holds (a structure written otherwise, a name
+# it lacks or defines twice) can fail there first. Never a declaration of
+# the function under test: a harness carries its own (//tools:conventions).
+# Or it cannot be: a harness file that no file of the
 # student's reaches fails the same whatever they wrote, and blaming them for it
 # would send them hunting a bug that is not theirs -- in a stand-in Bazel then
 # caches. So ask the preprocessor which headers that compile read (-E -H, the
@@ -888,23 +1404,26 @@ fi
 # The student's objects as a library the harness links against, so the linker
 # takes a file only when something calls into it -- what a cc_library gave, and
 # closer to a grader that compiles the files it asked for than a glob is. The
-# member names are the objects' paths with / as _, so no two collide (ar
-# replaces a member of the same name), and a linker message naming one is
-# turned back into the file it came from.
+# member names are the objects' paths with / as _, after the object's place in
+# the list, so no two collide (ar replaces a member of the same name: a/b_c.o
+# and a_b/c.o were one, F0496), and a linker message naming one is turned back
+# into the file it came from.
 if [ "$ARCHIVE" = 1 ] && [ -n "$HARNESS" ] && [ -n "$LIBOBJS" ]; then
 	mkdir -p "$WORK/lib"
 	MEMBERS=""
 	MAP=""
+	_mn=0
 	_member() {
 		_rel=${1#"$WORK/o/"}
-		_m=$(printf '%s' "$_rel" | tr '/ ' '__')
+		_mn=$((_mn + 1))
+		_m=$_mn-$(printf '%s' "$_rel" | tr '/ ' '__')
 		cp "$1" "$WORK/lib/$_m" || { echo "student_build.sh: cannot stage $1" >&2; exit 2; }
 		MEMBERS=$(add "$MEMBERS" "$WORK/lib/$_m")
-		MAP="$MAP${NL}s#[^ ]*libstudent\\.a($(sedrep "$_m"))#$(sedrep "$_rel")#g"
+		MAP="$MAP${NL}s#[^ ]*libstudent\\.a($(sedre "$_m"))#$(sedrep "$_rel")#g"
 	}
 	each "$LIBOBJS" _member
 	LIB="$WORK/libstudent.a"
-	_argv=$(printf '%s\n%s\n%s' "$AR" "$(printf '%s\n' "$ARFLAGS" | sed "s#@LIB@#$LIB#g")" "$MEMBERS")
+	_argv=$(printf '%s\n%s\n%s' "$AR" "$(printf '%s\n' "$ARFLAGS" | sed "s#@LIB@#$(sedrep "$LIB")#g")" "$MEMBERS")
 	if ! _out=$(run_lines "$_argv" 2>&1); then
 		echo "student_build.sh: the archiver failed on objects that compiled:" >&2
 		printf '%s\n' "$_out" >&2
@@ -922,7 +1441,7 @@ fi
 _largs=$(printf '%s\n' "$LFLAGS" | while IFS= read -r _a; do
 	case "$_a" in
 		@OBJS@) printf '%s\n' "$LINKIN" ;;
-		*) printf '%s\n' "$_a" | sed "s#@OUT@#$OUT#g" ;;
+		*) printf '%s\n' "$_a" | sed "s#@OUT@#$(sedrep "$OUT")#g" ;;
 	esac
 done)
 _argv=$(printf '%s\n%s' "$LD" "$_largs")

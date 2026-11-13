@@ -8,6 +8,26 @@ void	ft_putstr(char *str);
 int		ft_strlen(char *str);
 int		ft_strcmp(char *s1, char *s2);
 
+/* A string of 5000 bytes, "abc...z" over and over: past every capacity a
+ * function is usually given room for (16, 64, 256, 1024, 4096; finding 041),
+ * so a length counted, or a string passed, through room of a fixed size
+ * comes out wrong. The subject bounds no string, so every reading agrees on
+ * the long_5000 and putstr_long lines. */
+static char	*long_string(void)
+{
+	static char	s[5001];
+	int			i;
+
+	i = 0;
+	while (i < 5000)
+	{
+		s[i] = 'a' + i % 26;
+		i++;
+	}
+	s[i] = '\0';
+	return (s);
+}
+
 /* The utf8_ and hi_ strlen lines, and putstr_hi, hold bytes >= 0x80: a scan
  * that treats a byte a plain char holds as negative as the end of the string
  * stops early on them. Each module is its own repository, graded on its own
@@ -21,6 +41,7 @@ static void	test_strlen(void)
 	printf("  spaced=%d\n", ft_strlen("a b c 42!"));
 	printf("  utf8_cafe=%d\n", ft_strlen("caf\xC3\xA9"));
 	printf("  hi_ff=%d\n", ft_strlen("\xff"));
+	printf("  long_5000=%d\n", ft_strlen(long_string()));
 }
 
 /* The SIGN of a comparison result, as a word. The subject sends you to
@@ -100,6 +121,9 @@ static void	test_putstr(void)
 	printf("putstr_hi:[");
 	ft_putstr("caf\xC3\xA9");
 	ft_putstr("\xff");
+	printf("]\n");
+	printf("putstr_long:[");
+	ft_putstr(long_string());
 	printf("]\n");
 }
 

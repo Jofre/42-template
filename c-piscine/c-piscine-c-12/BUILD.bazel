@@ -85,7 +85,6 @@ c_diff(
     harness = "diff_create_elem.c",
     oracle_fn = "c12_create_elem",
     diff_clues = "diff_clues.txt",
-    gate_labeled = True,
 )
 
 # ---------------------------------------------------------------- leak policy
@@ -129,7 +128,6 @@ c_diff(
     harness = "diff_list_push_front.c",
     oracle_fn = "c12_push_front",
     diff_clues = "diff_clues.txt",
-    gate_labeled = True,
 )
 
 c_function(
@@ -181,11 +179,8 @@ c_diff(
     harness = "diff_list_push_back.c",
     oracle_fn = "c12_push_back",
     diff_clues = "diff_clues.txt",
-    gate_labeled = True,
 )
 
-# no c_diff: NO-CORPUS-SHAPE -- char **, where this module's corpus is
-# comma-joined ints. A second corpus shape, not a second generator.
 c_function(
     num = "05",
     fn = "ft_list_push_strs",
@@ -193,6 +188,23 @@ c_function(
     labeled = True,
     malloc = True,
     clues = "clues.tsv",
+)
+
+# This said "no c_diff: NO-CORPUS-SHAPE -- char **, where this module's corpus
+# is comma-joined ints. A second corpus shape, not a second generator", the
+# kind of reason that withdraws itself, as ex13's below once did: the code is
+# for a structure the generator cannot express, and a char ** is a list of
+# strings, which tools/diffio.h's dio_hex_list already reads for C 13's
+# harnesses. So the corpus carries the strings, each as hex, comma-joined,
+# none of them empty, and the harness hands them to the function as the
+# subject does: a char ** and its size. The output fixture asks for three
+# sizes; the corpus holds every size up to 12, and lists of 600 and 2000.
+c_diff(
+    num = "05",
+    fn = "ft_list_push_strs",
+    harness = "diff_list_push_strs.c",
+    oracle_fn = "c12_push_strs",
+    diff_clues = "diff_clues.txt",
 )
 
 # ft_list_push_strs carries a `size` SAFETY bound on the strs[] array: it must
@@ -256,7 +268,6 @@ c_diff(
     harness = "diff_list_reverse.c",
     oracle_fn = "c12_list_reverse",
     diff_clues = "diff_clues.txt",
-    gate_labeled = True,
 )
 
 c_function(
@@ -288,7 +299,6 @@ c_diff(
     harness = "diff_list_foreach_if.c",
     oracle_fn = "c12_foreach_if",
     diff_clues = "diff_clues.txt",
-    gate_labeled = True,
 )
 
 # no c_diff: NO-CORPUS-SHAPE -- returns a pointer INTO the list, so a
@@ -334,7 +344,6 @@ c_diff(
     harness = "diff_list_remove_if.c",
     oracle_fn = "c12_remove_if",
     diff_clues = "diff_clues.txt",
-    gate_labeled = True,
 )
 
 c_function(
@@ -558,7 +567,6 @@ c_cycles(
     unit_name = "element",
     budget = 8,
     syscall_budget = 0,
-    gate_labeled = True,
 )
 
 c_cycles(

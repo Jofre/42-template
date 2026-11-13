@@ -34,24 +34,28 @@
 #      construction in the same crate.
 #   3. generator self-checks — that the CORPUS still contains what it claims,
 #      which nothing else would notice. ONLY c00, c01, c02, c03, c04, c06, c07,
-#      c08, c10, c11, c12, c13, libft_mem, libft_str, libft_part2, libft_fd,
-#      libft_list, shell01, rush00, rush01, rush01_bonus, bsq, rush02 and
-#      length do this (oracle/README.md says what each asserts). c01, c02, c03,
-#      c04, c06, c07 and c11 assert that the corpora they name for an unbounded
-#      input still hold a case past every round capacity (16..4096): a string
-#      past 4096 bytes, a list past 4096 ints, an argument list past 1024; c12
+#      c08, c09, c10, c11, c12, c13, libft_mem, libft_str, libft_part2,
+#      libft_fd, libft_list, shell01, rush00, rush01, rush01_bonus, bsq, rush02
+#      and length do this (oracle/README.md says what each asserts). c01, c02,
+#      c03, c04, c06, c07, c09 and c11 assert that the corpora they name for an
+#      unbounded input still hold a case past every round capacity (16..4096): a
+#      string past 4096 bytes, a list past 4096 ints, a split into more than
+#      4096 words, a join of more than 1024 strings, an argument list past 1024; c12
 #      and c13, that their lists and trees still hold two of 600 and 2000
-#      elements; c08, that its corners still hold a high byte, an empty array
+#      elements, and c12, that its push_strs corpus, read back, holds every
+#      size from 0 to 12 and no string a C reader cannot carry; c08, that its corners still hold a high byte, an empty array
 #      and an empty string; c10, that its files still hold an empty one, a NUL,
-#      no final newline, one past 4096 bytes and a hexdump squeeze. c00
-#      asserts its corpus head still pins 0, +/-1 and the i32 boundaries rather
-#      than letting them drift into the random tail; rush00 asserts its size
-#      table stays inside the contract, has no duplicates, and still covers both
-#      the subject's sizes and the ceiling dimensions; bsq, that each count
-#      error isolates its rule, as each non-printable record does (its first
-#      line keeps its count and three characters), and that no settled record
-#      holds a reading its strict arm owns; rush02, that its generated
-#      dictionaries answer what the corpus expects of them when parsed back.
+#      no final newline, one past 4096 bytes and a hexdump squeeze. c00,
+#      libft_part2 and libft_fd assert that the int corpus they share still
+#      pins 0, +/-1, the i32 boundaries and every 10^k-1, 10^k and 10^k+1 of
+#      both signs rather than letting them drift into the random tail; rush00
+#      asserts its size table stays inside the contract, has no duplicates,
+#      and still covers both the subject's sizes and the ceiling dimensions;
+#      bsq, that each count error isolates its rule, as each non-printable
+#      record does (its first line keeps its count and three characters), and
+#      that no settled record holds a reading its strict arm owns; rush02,
+#      that its generated dictionaries answer what the corpus expects of them
+#      when parsed back.
 #      libft_mem recomputes every line of its eight corpora by a second
 #      construction; each holds an n past 4096 and a block past 4096 bytes in
 #      its first 200 lines (calloc: a zeroed product past 4096); memset's
@@ -87,16 +91,21 @@
 #
 # Beside the modules' checks, `oracle check` runs the binary itself with an
 # argument that is not UTF-8 -- to each reference program `oracle run` knows,
-# to c-06's and c-10's, and once to the commands that take words -- and holds
+# to c-06's and c-10's, to the two Shell 01 commands that take a login, and
+# once to the commands that take words -- and holds
 # each run to a status of that command's own: the reference's answer, its "no
 # answer", or a refusal, never Rust's panic (exit 101), which a runner would
 # read as the reference crashing. Rush 01's and Rush 02's runs are held to
 # their bytes too: the output on an argument holding 0xff is the output with
-# an ASCII 'x' in its place.
+# an ASCII 'x' in its place. Two more runs hold the numbers to a usage error
+# (exit 2), never a corpus: a seed that is not a number, and a length-series
+# arm it does not know at a count of 0.
 # And it runs `oracle bench` on a regular file: an unknown arm and
 # c05_ten_queens, which read no corpus, must leave it unread, since a module
 # that read stdin before it knew the arm was its own would eat the corpus's
-# first line for every arm asked after it.
+# first line for every arm asked after it; and c01_putstr, whose corpus holds
+# a line that is not UTF-8, must read the file to its end, since a reader
+# that stopped at that line would time a few lines and exit 0.
 #
 # WHAT IT DOES NOT CHECK, despite what this comment used to say. It never
 # compares against libc, and it never reads the curated expected.txt fixtures.
@@ -173,10 +182,11 @@ done
 [ -n "$ORACLE" ] || { echo "oracle_check.sh: --oracle is required" >&2; exit 2; }
 [ -x "$ORACLE" ] || { echo "oracle_check.sh: $ORACLE is not executable" >&2; exit 2; }
 
-OUT=$(mktemp)
+OUT=$(mktemp) || { echo "oracle_check.sh: cannot create a scratch file" >&2; exit 2; }
 trap 'rm -f "$OUT"' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 
 if "$ORACLE" check > "$OUT" 2>&1; then
 	cat "$OUT"

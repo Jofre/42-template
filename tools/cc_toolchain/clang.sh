@@ -14,6 +14,10 @@
 # reports its resource headers under, and Bazel accepts a header only at the
 # exec-root-relative path it staged it at. The loader has no such constraint,
 # and an absolute entry cannot change meaning if a child changes directory.
+#
+# conventions: no-require -- runs at each compile and link,
+# and without dirname the line below cannot open pinned.sh and the shell
+# stops at once: a probe on every run would buy nothing.
 set -u
 . "$(dirname "$0")/pinned.sh"
 CLANG_REPO=$(pinned_repo clang_12_ubuntu) || exit 2

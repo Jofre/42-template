@@ -47,7 +47,7 @@
 //! n (and for calloc a product) past every round capacity (16, 64, 256, 1024,
 //! 4096), within its first 200 lines.
 
-use crate::common::{bench_lines, largest_dec, sink, to_hex, unhex, widest_hex, Rng};
+use crate::common::{bench_lines, largest_dec, or_null, sink, to_hex, unhex, widest_hex, Rng, NULL};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -139,7 +139,7 @@ fn o_memcmp(a: &[u8], b: &[u8], n: usize) -> i32 {
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 fn o_calloc(nmemb: u64, size: u64) -> &'static str {
     if calloc_overflows(nmemb, size) {
-        "NULL"
+        NULL
     } else if nmemb == 0 || size == 0 {
         "nonnull"
     } else {
@@ -204,8 +204,9 @@ fn dirty(len: usize) -> Vec<u8> {
     vec![b'X'; len]
 }
 
-/// A c outside 0..=255 for memset's readings corpus: just past either end,
-/// the next 256 on either side, or any int.
+/// A c outside 0..=255 for memset's readings corpus: one of the 512 values
+/// past either end (256 to 767, -512 to -1), one of eight near the ends or at
+/// int's own, or any int.
 fn c_outside(rng: &mut Rng) -> i32 {
     loop {
         let c = match rng.below(4) {
@@ -398,11 +399,7 @@ fn gen_memchr<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut done = 0usize;
     let emit = |w: &mut W, buf: &[u8], c: i32, n: usize, done: &mut usize| {
         if *done < count {
-            let r = match o_memchr(buf, c, n) {
-                Some(o) => o.to_string(),
-                None => "NULL".to_string(),
-            };
-            let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(buf), c, n, r);
+            let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(buf), c, n, or_null(o_memchr(buf, c, n)));
             *done += 1;
         }
     };
@@ -693,9 +690,9 @@ pub fn check() -> usize {
     want!(o_calloc(3, 4) == "zeroed" && o_calloc(1, MIB) == "zeroed", "calloc small");
     want!(o_calloc(0, 5) == "nonnull" && o_calloc(5, 0) == "nonnull" && o_calloc(0, 0) == "nonnull", "calloc zero");
     want!(o_calloc(0, u64::MAX) == "nonnull" && o_calloc(u64::MAX, 0) == "nonnull", "calloc zero beside SIZE_MAX");
-    want!(o_calloc((1 << 63) + 1, 2) == "NULL", "calloc wraps to 2");
-    want!(o_calloc(1 << 32, 1 << 32) == "NULL", "calloc wraps to 0");
-    want!(o_calloc(u64::MAX, u64::MAX) == "NULL", "calloc wraps to 1");
+    want!(o_calloc((1 << 63) + 1, 2) == NULL, "calloc wraps to 2");
+    want!(o_calloc(1 << 32, 1 << 32) == NULL, "calloc wraps to 0");
+    want!(o_calloc(u64::MAX, u64::MAX) == NULL, "calloc wraps to 1");
     // Outside o_calloc's domain (no overflow, past 1 MiB) only the overflow
     // predicate is asserted: a real calloc may return NULL there for want of
     // memory, so no label is right for it.
@@ -747,7 +744,7 @@ pub fn check() -> usize {
         want!(calloc_overflows(a, b) == (p > u64::MAX as u128), format!("prop calloc overflow {} {}", a, b));
         want!(calloc_in_domain(a, b) == (p > u64::MAX as u128 || p <= MIB as u128), format!("prop calloc domain {} {}", a, b));
         if calloc_in_domain(a, b) {
-            let cat = if p > u64::MAX as u128 { "NULL" } else if p == 0 { "nonnull" } else { "zeroed" };
+            let cat = if p > u64::MAX as u128 { NULL } else if p == 0 { "nonnull" } else { "zeroed" };
             want!(o_calloc(a, b) == cat, format!("prop calloc {} {}", a, b));
         }
         // and a pair drawn inside the domain, every product at most 1 MiB
@@ -883,14 +880,14 @@ pub fn check() -> usize {
             let byte = c.rem_euclid(256) as u8;
             let ok = n <= buf.len() && {
                 let r = buf[..n].iter().position(|&x| x == byte);
-                l[3] == r.map_or("NULL".to_string(), |o| o.to_string())
+                l[3] == or_null(r)
             };
             want!(ok, format!("memchr line {:?} {} {}", &l[0], c, n));
             if !ok {
                 continue;
             }
             cs.insert(c);
-            let found = l[3] != "NULL";
+            let found = l[3] != NULL;
             neg |= found && c < 0;
             over |= found && c > 255;
             nul |= found && byte == 0 && buf[..n].iter().any(|&x| x != 0);
@@ -939,7 +936,7 @@ pub fn check() -> usize {
                 continue;
             };
             let p = a as u128 * b as u128;
-            let cat = if p > u64::MAX as u128 { "NULL" } else if p == 0 { "nonnull" } else { "zeroed" };
+            let cat = if p > u64::MAX as u128 { NULL } else if p == 0 { "nonnull" } else { "zeroed" };
             want!(l[2] == cat, format!("calloc line {} {}", a, b));
             // never a large size that does not overflow: o_calloc's domain
             want!(p > u64::MAX as u128 || p <= MIB as u128, format!("calloc {} {} asks for more than 1 MiB", a, b));
@@ -952,7 +949,7 @@ pub fn check() -> usize {
             }
             z |= cat == "zeroed";
             nn |= cat == "nonnull";
-            null |= cat == "NULL";
+            null |= cat == NULL;
         }
         want!(z && nn && null && wrap0 && wrap_small && wrap_far, "calloc corpus lacks a class");
     }

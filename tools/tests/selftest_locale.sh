@@ -23,6 +23,16 @@
 # st_locale SHELL: the probe, and the fallback. ST_TEST_LOCALE keeps the
 # name of the locale the run was handed, for the words that name it
 # ("... is not installed"), which LC_ALL says no longer once it is C.
+#
+# env, from PATH, probed as a library probes what it takes (runner_lib.sh):
+# without it the second probe below fails, its error reads as a warning C
+# does not quiet, and a missing locale went unnoticed.
+# shellcheck disable=SC2043 # one tool: the loop is the declaration //tools:conventions reads
+for _lc_t in env; do
+	command -v "$_lc_t" > /dev/null 2>&1 && continue
+	echo "selftest_locale.sh: required command '$_lc_t' is not on PATH" >&2
+	exit 2
+done
 st_locale() {
 	ST_TEST_LOCALE=${LC_ALL:-${LANG:-}}
 	[ -n "$("$1" -c 'LC_ALL=C true' 2>&1 < /dev/null)" ] || return 0

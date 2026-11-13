@@ -82,8 +82,9 @@ require() {
 	done
 }
 require awk basename cat chmod cut dirname grep id ln mkdir mktemp mv rm sed sort tail tr
-# conventions: optional python3 -- last resort in both fallback chains below
-# (download: wget, curl, then python3; digest: sha256sum, shasum, then python3).
+# conventions: optional python3 -- first fetcher and last digest tool in the
+# two fallback chains below (download: python3, wget, then curl, the reason in
+# fetch(); digest: sha256sum, shasum, then python3).
 # conventions: optional sha256sum -- first choice of the digest chain; shasum
 # and python3 follow. Having all three absent is what the chain reports on.
 
@@ -121,8 +122,9 @@ _drift_out=""
 trap 'rm -f ${_rl:+"$_rl"} ${_drift_out:+"$_drift_out"}' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 
-WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+WS="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
 cd "$WS" || die "cannot enter '$WS'"
 [ -f .bazelversion ] || die "this does not look like the repo root ($WS): no .bazelversion"
 
@@ -607,8 +609,12 @@ export PATH BAZELISK_HOME
 # since cc_binary uses the pinned //tools/cc_toolchain. It is still reached by
 # --config=gcc, and it is still cached in output bases from before the pin.
 # Detection runs ONCE per output base and writes ABSOLUTE paths into
-# local_config_cc's BUILD as `tool_paths = {"ar": "...", ...}`. It does not
-# re-run because PATH changed.
+# local_config_cc's BUILD as `tool_paths = {"ar": "...", ...}`, one pair a
+# line and the `}` on the last, so the dict is read from its `{` to its
+# first `}` whatever lines it spans: read a line at a time, as it once was,
+# it gave no path at all from a real file, and this said every cached tool
+# path still resolved over the very case it exists for. It does not re-run
+# because PATH changed.
 #
 # So: Homebrew on PATH when it ran records ~/.linuxbrew/bin/ar. Uninstall
 # Homebrew -- which this repo RECOMMENDS, because that brew shadows the pinned
@@ -633,7 +639,8 @@ _tc_fixed=0
 for _cc in "${NEW_ROOT:-$ROOT}"/*/external/*local_config_cc/BUILD; do
 	[ -f "$_cc" ] || continue
 	_tc_bad=""
-	for _tp in $(sed -n 's/.*tool_paths = {\(.*\)}.*/\1/p' "$_cc" |
+	for _tp in $(awk '!on && /tool_paths = \{/ { on = 1; sub(/.*tool_paths = \{/, "") }
+			on { i = index($0, "}"); if (i) { print substr($0, 1, i - 1); exit } print }' "$_cc" |
 			tr ',' '\n' | sed -n 's/.*"\(\/[^"]*\)".*/\1/p' | sort -u); do
 		[ -x "$_tp" ] || _tc_bad="$_tc_bad $_tp"
 	done
@@ -705,7 +712,7 @@ if [ "$SKIP_DRIFT" = "1" ]; then
 	exit 0
 fi
 printf '\n'
-_drift_out=$(mktemp)
+_drift_out=$(mktemp) || die "cannot create a scratch file"
 say "checking this machine against tools/pins.tsv (warnings only)..."
 say "the first time, this downloads the pinned tools: it can take several"
 say "minutes, and prints nothing until it ends."

@@ -97,7 +97,7 @@ c_argv_table(num = "03", model = ["c06_run", "sort"])
 #
 # Why ex03_high_bytes_argv_diff sits where it does is said under its FAIL by
 # every raised test's runner, from docs/reference.md's row for it
-# (tools/defs.bzl's _RAISED, tools/runner_lib.sh's rl__raised); it names the
+# (tools/defs_levels.bzl's _RAISED, tools/runner_lib.sh's rl__raised); it names the
 # open question, never which way the reference answers it.
 
 # THE ARGUMENT CORPORA, one table, read by the plain replays, the exit
@@ -106,7 +106,7 @@ c_argv_table(num = "03", model = ["c06_run", "sort"])
 # and a generator or count written three times is three places to drift.
 # A row is (stem, exercise, generator, count, what the plain replay judges
 # beyond its corpus, the plain replay's level): the options that choose no
-# corpus (tools/defs.bzl's _CORPUS_RUN_OPTS), and None for the diff layer's.
+# corpus (tools/defs_test.bzl's _CORPUS_RUN_OPTS), and None for the diff layer's.
 #
 # ex03's two corpora split on the readings of "sorted in ASCII order", and a
 # self-check in the reference holds each to its side. ex03_argv_diff's holds
@@ -119,7 +119,7 @@ c_argv_table(num = "03", model = ["c06_run", "sort"])
 # above 0x7f: the order the reference gives them is not a reading of the
 # sentence but a convention this repo chose, and the Run contract puts a
 # convention of this repo's own at robust (docs/reference.md, "Targets
-# raised above their layer", and tools/defs.bzl's _RAISED). Until they were split, the one corpus held both, so the cases
+# raised above their layer", and tools/defs_levels.bzl's _RAISED). Until they were split, the one corpus held both, so the cases
 # every reading agrees on sat at robust with the rest, and nothing at strict
 # compared ex03's order with a reference at all.
 C06_ARGV_CORPORA = [
@@ -157,15 +157,13 @@ C06_GATES = {num: output_gate("ex%s_output" % num) for num in ["01", "02", "03"]
             "--count",
             count,
         ] + judging + C06_GATES[num][0] +
-        # A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the
+        # A choice at every call (tools/defs_test.bzl's _RUNNER_CHOICES), and the
         # Run contract's: ignored, unless the subject requires something of it.
         stderr_ignored("C 06's subjects ask nothing of standard error"),
         data = [
             ":ex%s_bin" % num,
             "//oracle:oracle",
             "//tools:argv_check.sh",
-            "//tools:exit_status",
-            "//tools:runner_lib.sh",
         ] + C06_GATES[num][1],
     )
     for stem, num, fn, count, judging, level in C06_ARGV_CORPORA
@@ -202,8 +200,6 @@ C06_GATES = {num: output_gate("ex%s_output" % num) for num in ["01", "02", "03"]
             ":ex%s_bin" % num,
             "//oracle:oracle",
             "//tools:argv_check.sh",
-            "//tools:exit_status",
-            "//tools:runner_lib.sh",
         ] + C06_GATES[num][1],
     )
     for stem, num, fn, count, _judging, _level in C06_ARGV_CORPORA

@@ -1,6 +1,8 @@
 #include "ft_list.h"
 #include <stdio.h>
 
+int		ft_list_size(t_list *begin_list);
+
 /* Prints "<label>\t<value>" so tools/diff_output.sh (run with --labeled) can
  * show each case in its own column. Cases are ordered trivial -> hardest, so
  * the first failing row is the most fundamental thing to fix.

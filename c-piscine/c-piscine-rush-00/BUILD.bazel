@@ -1,4 +1,4 @@
-load("//tools:defs.bzl", "c_levels", "exercise", "hand_test", "rush_common", "rush_owed", "rush_variant", "subject")
+load("//tools:defs.bzl", "c_levels", "exercise", "oracle_fixtures", "rush_common", "rush_owed", "rush_variant", "subject")
 load(":team.bzl", "ASSIGNED")
 
 # THE SUBJECT CONTRACT (tools/subject.bzl), from the header box on page 8:
@@ -129,33 +129,12 @@ RUSH00_OWNED = [
     "survive.txt",
 ]
 
-hand_test(
+oracle_fixtures(
     name = "ex00_oracle_fixtures",
-    layer = "oracle",
-    size = "small",
-    srcs = ["//tools:oracle_fixtures.sh"],
-    args = [
-        "--oracle",
-        "$(location //oracle:oracle)",
-        "--fn",
-        "rush00_fixtures",
-        "--in-dir-of",
-        "$(location tests/ex00/defense.txt)",
-    ] + [
-        a
-        for p in RUSH00_OWNED
-        for a in ["--owns", p]
-    ],
-    # The files the patterns above name, read from them: what is staged is
-    # what is owned, and a pattern that matches nothing staged stops the run
-    # (exit 2). A name is staged as itself and a pattern globbed, so no glob
-    # names one file (//tools:conventions keeps those for 42's material).
-    data = [
-        "//oracle:oracle",
-        "//tools:oracle_fixtures.sh",
-    ] + [_RUSH00_DIR + p for p in RUSH00_OWNED if "*" not in p] + glob(
-        [_RUSH00_DIR + p for p in RUSH00_OWNED if "*" in p],
-    ),
+    fn = "rush00_fixtures",
+    dir = _RUSH00_DIR,
+    in_dir_of = "defense.txt",
+    owns = RUSH00_OWNED,
 )
 
 c_levels()

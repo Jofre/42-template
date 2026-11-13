@@ -40,8 +40,10 @@
 # profile (yours alone, on this machine), or by writing the level into a
 # .submit-level file at the repo root, which is not gitignored and so follows
 # the repo to every machine you clone it to. With no such file the gate is
-# `basic`. An unknown level is an error, and lists the levels with the layers
-# each one runs, read from docs/reference.md.
+# `basic`, unless your user file sets a level (`42 config set --global level`):
+# `42 submit` passes that one on as --gate-level, and this script, run without
+# one, stops rather than gate on basic. An unknown level is an error, and lists
+# the levels with the layers each one runs, read from docs/reference.md.
 #
 # Other options: -b/--branch B (default master), -m/--message M, -h/--help.
 #
@@ -55,7 +57,11 @@
 #   --written-only  an exercise not written yet does not block: the gate lets
 #                   through each one tools/first_red.sh's report calls "not
 #                   written yet", gates the rest, and names what it let
-#                   through. It is pushed as it is on disk.
+#                   through. It is pushed as it is on disk. So does a part of
+#                   a project divided into parts at the root: without the
+#                   flag, a project whose mandatory part reads as written
+#                   and another part not is not pushed, and the run names
+#                   each part not written yet.
 #   --no-gate       push without running the gate. For emergencies; the gate is
 #                   the only thing standing between a red module and 42.
 #   --url URL       push the one module named to URL, whatever .submit-remotes
@@ -77,7 +83,7 @@ require awk cat chmod dirname git grep head mkdir mktemp od rm sed sort tail tr
 
 # Repo root: from `bazel run` it's BUILD_WORKSPACE_DIRECTORY; run directly it's the
 # parent of tools/.
-WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+WS="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
 cd "$WS" || exit 1
 
 # Its scratch files, made in your TMPDIR, are removed on every exit, a Ctrl-C
@@ -94,6 +100,7 @@ submit_cleanup() {
 trap submit_cleanup EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 
 # ============================================================================
 # REMOTES TABLE — every module this script can push, as a path from the repo
@@ -141,11 +148,11 @@ URL_GIVEN=0
 
 # The tag filter for a gate level.
 #
-# tools/defs.bzl owns which layer sits at which level (_LAYER_LEVEL), and every
-# test its macros emit carries CUMULATIVE lvl_* tags: a norm test is tagged
-# lvl_basic AND lvl_strict AND lvl_robust AND lvl_complete. So ONE tag selects a
-# whole rung, and a layer added to _LAYER_LEVEL is gated here with no edit to
-# this file.
+# tools/defs_levels.bzl owns which layer sits at which level (_LAYER_LEVEL),
+# and every test the macros emit carries CUMULATIVE lvl_* tags: a norm test is
+# tagged lvl_basic AND lvl_strict AND lvl_robust AND lvl_complete. So ONE tag
+# selects a whole rung, and a layer added to _LAYER_LEVEL is gated here with no
+# edit to this file.
 #
 # This was three hardcoded lists of layer names. They agreed with _LAYER_LEVEL
 # the day they were written, and that is the whole problem: a new level-1 layer
@@ -166,7 +173,7 @@ URL_GIVEN=0
 # if a gate named a target.
 #
 # Which layer sits at which level, and why, is not repeated here: the level is
-# _LAYER_LEVEL's in tools/defs.bzl, with the reason beside each entry, and
+# _LAYER_LEVEL's in tools/defs_levels.bzl, with the reason beside each entry, and
 # docs/reference.md is the one written copy, checked against it. This file used
 # to carry a third, which lost allocfail from its level; //tools:conventions now
 # refuses a copy anywhere else.
@@ -181,7 +188,8 @@ gate_tags() {
 # Which layers must be green before a module is pushed.
 #
 # In order: --gate-level, then SUBMIT_GATE, then the .submit-level file, then
-# basic. The file is optional; without one the gate is `basic` -- every layer
+# basic (your user file comes before basic, and only 42 reads it: below the
+# options). The file is optional; without one the gate is `basic` -- every layer
 # whose failure is a KO wherever the project is graded, at the Moulinette or at
 # a defense -- so this suite never refuses to push work that would score fine,
 # and nobody inherits someone else's stricter personal bar by cloning. The
@@ -207,6 +215,7 @@ if [ -z "${SUBMIT_GATE:-}" ] && [ -f "$_level_file" ]; then
 	SUBMIT_GATE=$(tr -d " \t\n\r" < "$_level_file")
 fi
 GATE_LEVEL="${SUBMIT_GATE:-basic}"
+GATE_LEVEL_GIVEN=0
 BRANCH=master
 MSG="Piscine submission"
 ONLY=""
@@ -224,9 +233,23 @@ MATCHED=""
 norm_arg() { printf '%s' "$1" | sed 's:/*$::'; }
 # ...and a name that normalises to nothing ("", "/") is a usage error, not a
 # filter that silently matches no row and exits 0.
+#
+# So is a name holding a glob character. $ONLY is split unquoted, and the
+# --url check below splits it with globbing off while the selection (wanted)
+# and the UNMATCHED loop split it with globbing on, in the repo root: a quoted
+# 'c-piscine/c-piscine-c-0?' passed --url's one-module check, then expanded to
+# ten project folders, each pushed to the one URL given. No table key holds
+# one of these characters, so refusing them here makes every reader of $ONLY
+# read the same names.
 add_only() {
 	_a=$(norm_arg "$1")
 	[ -n "$_a" ] || { echo "submit.sh: empty module name: '$1'" >&2; exit 2; }
+	case $_a in
+		*[*?[]*)
+			echo "submit.sh: a module name holds a glob character (*, ? or [): '$1'" >&2
+			echo "  Name each module as the table spells it, one argument each." >&2
+			exit 2 ;;
+	esac
 	ONLY="$ONLY $_a"
 }
 
@@ -250,7 +273,7 @@ while [ $# -gt 0 ]; do
 			exit 2 ;;
 		--no-gate) GATE=0; shift ;;
 		--written-only) WRITTEN_ONLY=1; shift ;;
-		--gate-level) need "$1" "$#"; GATE_LEVEL="$2"; shift 2 ;;
+		--gate-level) need "$1" "$#"; GATE_LEVEL="$2"; GATE_LEVEL_GIVEN=1; shift 2 ;;
 		--url) need "$1" "$#"; URL_ARG="$2"; URL_GIVEN=1; shift 2 ;;
 		-b|--branch) need "$1" "$#"; BRANCH="$2"; shift 2 ;;
 		-m|--message) need "$1" "$#"; MSG="$2"; shift 2 ;;
@@ -297,6 +320,47 @@ if ! gate_tags "$GATE_LEVEL" >/dev/null 2>&1; then
 	echo "           What each one means: docs/reference.md, \"The four levels\"." >&2
 	echo "           set it per-user with:  export SUBMIT_GATE=complete" >&2
 	exit 2
+fi
+# Your user file can set a level too (`42 config set --global level`), but it is
+# 42's to read, not this script's: `42 submit` reads it and passes the level on
+# as --gate-level. Run with none, and with nothing above setting one, this script
+# would gate on basic where 42 gates on that file's level, so it stops instead.
+# It finds the line and reads nothing in it (tools/userconfig_line.awk), and
+# looks for the file where tools/fortytwo/userconfig.py does: XDG_CONFIG_HOME
+# when it is an absolute path, else HOME.
+if [ "$GATE" = 1 ] && [ "$GATE_LEVEL_GIVEN" = 0 ] && [ -z "${SUBMIT_GATE:-}" ]; then
+	case "${XDG_CONFIG_HOME:-}" in
+		/*) _uf="$XDG_CONFIG_HOME/42/config.yaml" ;;
+		*) case "${HOME:-}" in
+			/*) _uf="$HOME/.config/42/config.yaml" ;;
+			*) _uf="" ;;
+		esac ;;
+	esac
+	_st=1
+	if [ -n "$_uf" ] && [ -f "$_uf" ]; then
+		_st=0
+		_n=$(LC_ALL=C awk -v name=level -f tools/userconfig_line.awk "$_uf") || _st=$?
+	fi
+	_home="${HOME:-}"
+	_home="${_home%/}"
+	# shellcheck disable=SC2088 # shown to a person, as 42 shows it: ~ is meant
+	case "$_uf" in
+		"$_home"/*) [ -n "$_home" ] && _uf="~/${_uf#"$_home"/}" ;;
+	esac
+	# 1 is "no line sets it"; anything else is a finder that did not look,
+	# which says nothing about what the file holds.
+	if [ "$_st" = 0 ]; then
+		echo "submit.sh: your user file sets a level, and only 42 reads that file:" >&2
+		echo "           $_uf, line $_n" >&2
+		echo "           \`42 submit\` passes the level on as --gate-level. Without 42, give" >&2
+		echo "           the level yourself: --gate-level LEVEL." >&2
+		exit 2
+	elif [ "$_st" != 1 ]; then
+		echo "submit.sh: could not look for a level in your user file (above):" >&2
+		echo "           $_uf" >&2
+		echo "           \`42 submit\` reads it, or give the level: --gate-level LEVEL." >&2
+		exit 2
+	fi
 fi
 for arg in "$@"; do add_only "$arg"; done
 if [ "$GATE" = 0 ] && [ "$WRITTEN_ONLY" = 1 ]; then
@@ -366,13 +430,27 @@ fi
 GATE_FRESH=0
 GATE_FLAGS="--keep_going --nocache_test_results --use_action_cache=false"
 
+# gate_args MOD, advisory_args MOD -- the words after `bazel test` of the gate's
+# run and of the advisory pass's, on one line. run_gate and run_advisory run
+# them, and every command printed for the student to re-run is `bazel test`
+# and them: the printed command is the one that ran, flag for flag (the
+# BLOCKED branch below says what leaving one out once cost), so it is written
+# once. Split unquoted under set -f: a module name holds no blank (the table
+# is split on blanks) and no glob character (add_only refuses one).
+gate_args() {
+	printf '//%s/... --test_tag_filters=%s %s\n' "$1" "$(gate_tags "$GATE_LEVEL")" "$GATE_FLAGS"
+}
+advisory_args() { printf '//%s/... --test_tag_filters=-manual --keep_going\n' "$1"; }
+
 # ---- SSH-key onboarding helpers --------------------------------------------
 
-# Classify a failed fetch or push from its captured stderr. auth = the server
-# answered but rejected the key (the host key is fixed here; the student's own key
-# is shown to them for registering, never created); conn = the server was
-# unreachable (EXPECTED off campus — Vogsphere is campus-only); behind = the push
-# was refused because the remote moved on since the fetch; other = anything else.
+# Classify a failed fetch or push from its captured stderr. hostkey = the
+# server's host key is not the one known_hosts records for it (never trusted
+# here: the run stops); auth = the server answered but rejected the key (a host
+# known_hosts has no line for gets one here; the student's own key is shown to
+# them for registering, never created); conn = the server was unreachable
+# (EXPECTED off campus — Vogsphere is campus-only); behind = the push was
+# refused because the remote moved on since the fetch; other = anything else.
 classify_push_error() {
 	f=$1
 	# First: a refused push can also say "failed to push some refs", which
@@ -380,6 +458,16 @@ classify_push_error() {
 	# student looking for a flag to force it.
 	if grep -qiE '\[rejected\]|non-fast-forward|fetch first|stale info' "$f"; then
 		echo behind
+		return
+	fi
+	# Hostkey = ssh refused the server because its key differs from the one
+	# known_hosts holds for it. ssh ends that refusal with "Host key
+	# verification failed", the same words it prints for a host known_hosts
+	# has no line for, so it is asked before auth: what ssh-keyscan receives
+	# from a server whose key changed is what someone posing as it would
+	# send, and appending it would trust that key from then on.
+	if grep -qiE 'remote host identification has changed|host key for .* has changed' "$f"; then
+		echo hostkey
 		return
 	fi
 	# Auth = the server ANSWERED but rejected the key. Note: "could not read from
@@ -413,16 +501,32 @@ existing_ssh_key() {
 	return 1
 }
 
-# Add the remote's host key to known_hosts (fixes "Host key verification failed").
-# ~/.ssh is created first if it is missing, with the permissions ssh insists on,
-# so the known_hosts line has somewhere to go even before any key exists.
+# Add the remote's host key to known_hosts when it holds NO line for the host
+# (the first contact's "Host key verification failed"). ~/.ssh is created first
+# if it is missing, with the permissions ssh insists on, so the known_hosts line
+# has somewhere to go even before any key exists.
+#
+# Never when a line is there: ssh accepts a host when ANY line for it matches,
+# so a second key appended beside the recorded one is trusted from then on --
+# the changed key classify_push_error stops on, and a duplicate line on every
+# refused key. ssh-keygen -F says whether one is there: 0 one is, 1 none is,
+# anything else (no such file is 255) it cannot tell, and nothing is added.
+# conventions: optional ssh-keygen -- without it no line is added, since nothing can tell whether one is there
+# conventions: optional ssh-keyscan -- without it no line is added; ssh then refuses an unknown host again
 remediate_host_key() {
 	host=${1#*@}
 	host=${host#ssh://}
 	host=${host%%/*}
 	host=${host%%:*}
 	mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh" 2>/dev/null
-	[ -n "$host" ] && ssh-keyscan -H "$host" >> "$HOME/.ssh/known_hosts" 2>/dev/null
+	[ -n "$host" ] || return 0
+	command -v ssh-keygen > /dev/null 2>&1 || return 0
+	command -v ssh-keyscan > /dev/null 2>&1 || return 0
+	if [ -e "$HOME/.ssh/known_hosts" ]; then
+		ssh-keygen -F "$host" -f "$HOME/.ssh/known_hosts" > /dev/null 2>&1
+		[ $? -eq 1 ] || return 0
+	fi
+	ssh-keyscan -H "$host" >> "$HOME/.ssh/known_hosts" 2>/dev/null
 }
 
 # Run a module's Bazel tests. 0 = green.
@@ -477,31 +581,54 @@ run_gate() {
 		GATE_FRESH=1
 		bazel shutdown > /dev/null 2>&1 || :
 	fi
-	# shellcheck disable=SC2086 # GATE_FLAGS is several words, none of them quoted
-	bazel test "//$1/..." \
-		--test_tag_filters="$(gate_tags "$GATE_LEVEL")" $GATE_FLAGS \
-		>"$GATE_OUT" 2>"$GATE_ERR"
+	# Bazel's status is kept before set +f, which would replace it.
+	set -f
+	# shellcheck disable=SC2046 # gate_args: words with no blank and no glob
+	bazel test $(gate_args "$1") >"$GATE_OUT" 2>"$GATE_ERR"
+	_rg_rc=$?
+	set +f
+	return "$_rg_rc"
 }
 
 # The lines of the gate's stderr that tie a build error to the student's files:
 # a compiler line naming a turn-in file, a turn-in file Bazel was told about and
 # could not find, a compiler line in the test program built against them, or a
-# linker line under the failed link of an exercise target (exNN_bin: only those
-# link a turn-in). The same test tools/first_red.sh uses before it says DOES NOT
-# BUILD. None of them means the build stopped somewhere else: a download that
-# failed, or a harness file.
+# linker line under the failed link of a unit's target (exNN_bin, or a named
+# unit's <unit>_bin: only those link a turn-in). A unit is one of UNIT_ALL,
+# the names tools/units.awk lists for the module (unit_names, below), and an
+# exercise's exNN whatever it lists. The same test tools/first_red.sh uses
+# before it says DOES NOT BUILD. None of them means the build stopped
+# somewhere else: a download that failed, or a harness file.
 gate_own_lines() {
 	[ -s "$GATE_ERR" ] || return 0
-	awk '
+	awk -v names="$UNIT_ALL" '
+		# Whether T begins with a unit of the module followed by "_"
+		# (a target), or is one (a folder under tests/).
+		function unit_word(t, whole,   n, u, i) {
+			n = split(names, u, " ")
+			for (i = 1; i <= n; i++)
+				if (whole ? t == u[i] : index(t, u[i] "_") == 1) return 1
+			return 0
+		}
 		# A test log (--test_output=errors in a .bazelrc.local) is not the
 		# build: a compile layer quotes the compiler there on a tree that builds.
 		/^=+ Test output for / { intest = 1; next }
 		intest && /^=+$/ { intest = 0; next }
 		intest { next }
-		/^ERROR: / { exlink = ($0 ~ /rule target \/\/[^ )]*:ex[0-9]+_/) }
+		/^ERROR: / {
+			exlink = ($0 ~ /rule target \/\/[^ )]*:ex[0-9]+_/)
+			if (!exlink && match($0, /rule target \/\/[^ )]*:[A-Za-z0-9_]+/)) {
+				t = substr($0, RSTART, RLENGTH); sub(/^.*:/, "", t)
+				exlink = unit_word(t, 0)
+			}
+		}
 		/deliverable\/[^ :]*:[0-9]+:/ && /error|multiple definition|undefined reference/ { print; next }
 		/missing input file|not a declared prerequisite/ && /:deliverable\// { print; next }
 		/\/tests\/ex[0-9]+\/[^ :]*:[0-9]+:/ && /error/ { print; next }
+		match($0, /\/tests\/[A-Za-z0-9_]+\/[^ :]*:[0-9]+:/) && /error/ {
+			t = substr($0, RSTART + 7, RLENGTH - 7); sub(/\/.*$/, "", t)
+			if (unit_word(t, 1)) { print; next }
+		}
 		/multiple definition of|undefined reference to|undefined symbol/ && exlink { print; next }
 	' "$GATE_ERR"
 }
@@ -540,19 +667,36 @@ gate_files_reports() {
 # and the function returned a bare boolean, so the NOTE below could only say
 # "something above the gate is red" -- about the one set of tests a student
 # submitting at `basic` never otherwise hears about.
+#
+# ADV_WHY is "mktemp" when the pass never ran Bazel because ADV_OUT could not
+# be made. Unchecked, the name was empty, the redirection failed, and the NOTE
+# said "0 test(s) above the gate are red" about a pass that never ran: run_gate
+# says the same failure by name (GATE_WHY).
 ADV_OUT=""
+ADV_WHY=""
 run_advisory() {
+	ADV_WHY=""
 	case "$GATE_LEVEL" in
 		complete | all) return 0 ;;
 	esac
-	[ -n "$ADV_OUT" ] || ADV_OUT=$(mktemp)
-	bazel test "//$1/..." \
-		--test_tag_filters=-manual --keep_going > "$ADV_OUT" 2>&1
+	if [ -z "$ADV_OUT" ]; then
+		ADV_OUT=$(mktemp) || { ADV_OUT=""; ADV_WHY=mktemp; return 2; }
+	fi
+	set -f
+	# shellcheck disable=SC2046 # advisory_args: words with no blank and no glob
+	bazel test $(advisory_args "$1") > "$ADV_OUT" 2>&1
+	_ra_rc=$?
+	set +f
+	return "$_ra_rc"
 }
 
-# The failing TARGETS of that run, so the note names what is red rather than
-# that something is. Bazel prints one `//target FAILED in …` line per failing
-# test.
+# The red TARGETS of that run, each with its status, so the note names what is
+# red rather than that something is. Bazel's summary gives one line per test,
+# its label and then its status, and every status but PASSED is red: FAILED
+# (in …, or TO BUILD), TIMEOUT, NO STATUS and INCOMPLETE. tools/first_red.sh
+# reads the same summary with the same words (its comment says how reading
+# FAILED alone made a run whose only red was a TIMEOUT "nothing failed"); this
+# copy read FAILED alone, and the upper layers are the ones that time out.
 #
 # Targets rather than layer names, which was the first attempt: a layer has to
 # be recovered by stripping the target name, and the strip is wrong for every
@@ -561,12 +705,95 @@ run_advisory() {
 # thing the reader can paste back into bazel.
 advisory_failures() {
 	[ -s "$ADV_OUT" ] || return 0
-	sed -n 's|^\(//[^ ]*\) *FAILED.*|\1|p' "$ADV_OUT" | sort -u
+	awk '/^\/\/[^ \t]*:[^ \t]+[ \t]/ {
+		label = $0; sub(/[ \t].*$/, "", label)
+		rest = substr($0, length(label) + 1)
+		if (rest ~ /FAILED TO BUILD/) st = "FAILED TO BUILD"
+		else if (rest ~ /[ \t]FAILED( |$)/) st = "FAILED"
+		else if (rest ~ /[ \t]TIMEOUT( |$)/) st = "TIMEOUT"
+		else if (rest ~ /NO STATUS/) st = "NO STATUS"
+		else if (rest ~ /[ \t]INCOMPLETE( |$)/) st = "INCOMPLETE"
+		else next
+		print label "  " st
+	}' "$ADV_OUT" | sort -u
 }
 
-# --written-only: the exercises the gate's reds leave unwritten, one per line
-# in UNW, when every red of the run is in one of them (0); 1 when something
-# else is red; 2 when the triage itself failed, with why in UNW_WHY.
+# THE UNITS OF MOD'S SUBJECT() CONTRACT, as tools/units.awk lists them, read
+# once a module before its gate. The two readers of first_red's columns below
+# take a name only when it is one of these: an exercise (exNN) or a named unit
+# a push is judged by, never a function of a library, which goes to 42 with
+# its library. A name that is no unit of the contract is never taken for one,
+# whatever its shape.
+#   UNIT_ROWS   "NAME<tab>REQ" for each of those units, in the contract's order
+#   UNIT_NAMES  the same names, " ex00 ex01 ": a blank before and after each
+#   UNIT_ALL    every name it lists, a library's functions included, for
+#               gate_own_lines
+#   UNIT_PARTS  the names of kind part, " base bonus ": the units of a
+#               project whose root is divided among several; " " for none
+#   UNIT_RC     0, or 2 when the list could not be read, with tools/units.awk's
+#               words, or this run's, in UNIT_SAID
+# and the words the messages name those units by, from their kind
+# (units.awk's KIND): "exercise" for a contract of exercises, else the kind
+# its units share ("library", "project"), or "part" when they share none.
+# U_ONE is the noun, U_MANY its plural, U_AN and U_AN_C it with its article
+# ("an exercise", "An exercise"), and U_EVERY and U_EVERY_C "every exercise",
+# or "the library" for a contract whose one unit is not an exercise. Until it
+# is read, and when it cannot be, they are the exercise's words.
+UNIT_ROWS=""
+UNIT_NAMES=""
+UNIT_ALL=""
+UNIT_PARTS=""
+UNIT_RC=2
+UNIT_SAID=""
+U_ONE=exercise U_MANY=exercises U_AN="an exercise" U_AN_C="An exercise"
+U_EVERY="every exercise" U_EVERY_C="Every exercise"
+unit_names() {  # unit_names MOD
+	UNIT_ROWS=""
+	UNIT_NAMES=""
+	UNIT_ALL=""
+	UNIT_PARTS=""
+	UNIT_SAID=""
+	U_ONE=exercise U_MANY=exercises U_AN="an exercise" U_AN_C="An exercise"
+	U_EVERY="every exercise" U_EVERY_C="Every exercise"
+	if [ ! -f tools/units.awk ]; then
+		UNIT_SAID="tools/units.awk is missing from this checkout."
+		UNIT_RC=2
+		return 2
+	fi
+	_un=$(LC_ALL=C awk -f tools/units.awk "$1/BUILD.bazel" 2>&1)
+	UNIT_RC=$?
+	if [ "$UNIT_RC" -ne 0 ]; then
+		UNIT_SAID=$(printf '%s\n' "$_un" | head -n 3)
+		[ -n "$UNIT_SAID" ] || UNIT_SAID="tools/units.awk found no subject() contract in $1/BUILD.bazel."
+		UNIT_RC=2
+		return 2
+	fi
+	UNIT_ROWS=$(printf '%s\n' "$_un" | LC_ALL=C awk -F'\t' -v OFS='\t' 'NF == 6 && $2 != "function" { print $1, $3 }')
+	UNIT_NAMES=" $(printf '%s\n' "$UNIT_ROWS" | LC_ALL=C awk -F'\t' 'NF == 2 { printf "%s ", $1 }')"
+	UNIT_ALL=" $(printf '%s\n' "$_un" | LC_ALL=C awk -F'\t' 'NF == 6 { printf "%s ", $1 }')"
+	UNIT_PARTS=" $(printf '%s\n' "$_un" | LC_ALL=C awk -F'\t' 'NF == 6 && $2 == "part" { printf "%s ", $1 }')"
+	_uw=$(printf '%s\n' "$_un" | LC_ALL=C awk -F'\t' '
+		NF == 6 && $2 != "function" { n++; k = (n == 1 || $2 == k) ? $2 : "part" }
+		END {
+			if (n == 0 || k == "exercise") {
+				print "exercise\texercises\tan exercise\tAn exercise\tevery exercise\tEvery exercise"
+				exit
+			}
+			e = (n == 1 ? "the " : "every ") k
+			print k "\t" (k == "library" ? "libraries" : k "s") "\ta " k "\tA " k "\t" e "\t" \
+				toupper(substr(e, 1, 1)) substr(e, 2)
+		}')
+	IFS='	' read -r U_ONE U_MANY U_AN U_AN_C U_EVERY U_EVERY_C <<UNIT_WORDS
+$_uw
+UNIT_WORDS
+	return 0
+}
+
+# --written-only: the units the gate's reds leave unwritten, one per line in
+# UNW, when every red of the run is in one of them (0); 1 when something else
+# is red; 2 when the triage itself failed, with why in UNW_WHY. A unit is an
+# exercise (exNN) of a contract of exercises, and a named unit of a contract
+# of units: one of UNIT_NAMES.
 #
 # Which exercise is "not written yet" is first_red's verdict (its --triage),
 # the sentence its report prints: a red output over files stub_check calls a
@@ -611,10 +838,16 @@ unwritten_reds() {
 	UNW_STATUS=$?
 	case $UNW_STATUS in
 		0)
+			# Each line's unit must be one units.awk lists. With no list
+			# (UNIT_RC), the floor could not be read either, and the
+			# caller lets nothing through whatever this returns: the
+			# bucket alone then picks the words the block is said in.
 			if [ ! -s "$_tri" ]; then
 				UNW_WHY=silent
 				_trc=2
-			elif awk -F'\t' '$1 != "work" || $3 !~ /^ex[0-9]+$/ { bad = 1 } END { exit bad }' "$_tri"; then
+			elif awk -F'\t' -v names="$UNIT_NAMES" -v known="$UNIT_RC" '
+				$1 != "work" || (known == 0 && ($3 !~ /^[^ ]+$/ || index(names, " " $3 " ") == 0)) { bad = 1 }
+				END { exit bad }' "$_tri"; then
 				UNW=$(awk -F'\t' '{ print $3 }' "$_tri" | sort -u)
 				_trc=0
 			else
@@ -632,26 +865,38 @@ unwritten_reds() {
 
 # THE FLOOR --written-only WILL NOT PUSH BELOW, read before the gate from
 # `first_red.sh --written` (the judge whose verdict the report words as "not
-# written yet"): FLOOR_STUBS, the exercises still a stub; FLOOR_MANDATORY,
-# those of them its subject calls mandatory (the contract's `mandatory`);
+# written yet"): FLOOR_STUBS, the units still a stub; FLOOR_MANDATORY, those
+# of them its subject calls mandatory (the contract's `mandatory`);
 # FLOOR_WRITTEN, how many are written; FLOOR_PART, 1 when the contract names
-# a mandatory part. 0 when it was read; 2 when it was not, with first_red's
-# words, or this run's, in FLOOR_SAID.
+# a mandatory part; FLOOR_PARTS_LEFT, the parts (UNIT_PARTS) outside that
+# part still a stub, which a run without --written-only does not push
+# without. 0 when it was read; 2 when it was not, with the words of FLOOR_WHO
+# (first_red, or units.awk), or this run's, in FLOOR_SAID.
+#
+# Its rows are held to unit_names' list: one row for each unit it holds, in
+# its order, and PART mandatory exactly where REQ says so. A row for a
+# function of a library is none of them, so a library is judged whole, by
+# its folder, as first_red's --written judges it; and a unit first_red left
+# out could never be counted a stub below the floor.
 #
 # Nothing written is below it for every project: --written-only then pushed
-# the stubs as they were, with every red let through. A mandatory exercise
+# the stubs as they were, with every red let through. A mandatory unit
 # still a stub is below it for a project whose subject names that part.
 FLOOR_STUBS=""
 FLOOR_MANDATORY=""
 FLOOR_WRITTEN=0
 FLOOR_PART=0
+FLOOR_PARTS_LEFT=""
 FLOOR_SAID=""
+FLOOR_WHO=""
 written_floor() {  # written_floor MOD
 	FLOOR_STUBS=""
 	FLOOR_MANDATORY=""
 	FLOOR_WRITTEN=0
 	FLOOR_PART=0
+	FLOOR_PARTS_LEFT=""
 	FLOOR_SAID=""
+	FLOOR_WHO="tools/first_red.sh --written $1"
 	if [ ! -f tools/first_red.sh ]; then
 		FLOOR_SAID="tools/first_red.sh is missing from this checkout."
 		return 2
@@ -662,10 +907,23 @@ written_floor() {  # written_floor MOD
 		FLOOR_SAID=$(printf '%s\n' "$_fl" | head -n 3)
 		return 2
 	fi
-	if ! printf '%s\n' "$_fl" | awk -F'\t' '
-		NF != 3 || ($1 != "written" && $1 != "stub") || $2 !~ /^ex[0-9]+$/ ||
-		($3 != "mandatory" && $3 != "optional") { bad = 1 }
-		END { exit bad }'; then
+	if [ "$UNIT_RC" -ne 0 ]; then
+		FLOOR_WHO="tools/units.awk, reading $1/BUILD.bazel,"
+		FLOOR_SAID=$UNIT_SAID
+		return 2
+	fi
+	if ! printf '%s\n' "$_fl" | FR_UNIT_ROWS=$UNIT_ROWS awk -F'\t' '
+		BEGIN {
+			n = split(ENVIRON["FR_UNIT_ROWS"], row, "\n")
+			for (i = 1; i <= n; i++) {
+				split(row[i], c, "\t")
+				name[i] = c[1]
+				part[i] = (c[2] == "mandatory") ? "mandatory" : "optional"
+			}
+		}
+		NF != 3 || ($1 != "written" && $1 != "stub") || NR > n ||
+			$2 != name[NR] || $3 != part[NR] { bad = 1 }
+		END { exit (bad || NR != n) }'; then
 		FLOOR_SAID=$(printf '%s\n' "$_fl" | head -n 3)
 		return 2
 	fi
@@ -673,6 +931,10 @@ written_floor() {  # written_floor MOD
 	FLOOR_MANDATORY=$(printf '%s\n' "$_fl" | awk -F'\t' '$1 == "stub" && $3 == "mandatory" { printf "%s%s", s, $2; s = " " }')
 	FLOOR_WRITTEN=$(printf '%s\n' "$_fl" | awk -F'\t' '$1 == "written" { n++ } END { print n + 0 }')
 	FLOOR_PART=$(printf '%s\n' "$_fl" | awk -F'\t' '$3 == "mandatory" { p = 1 } END { print p + 0 }')
+	if [ "$FLOOR_PART" = 1 ]; then
+		FLOOR_PARTS_LEFT=$(printf '%s\n' "$_fl" | awk -F'\t' -v parts="$UNIT_PARTS" '
+			$1 == "stub" && $3 == "optional" && index(parts, " " $2 " ") { printf "%s%s", s, $2; s = " " }')
+	fi
 	return 0
 }
 
@@ -704,13 +966,28 @@ SKIPPED=0
 # network, and it gets the same onboarding the push always had.
 remote_git() {
 	_what=$1
-	err=$(mktemp)
+	# Checked, as run_gate's are: unchecked, git never ran, and the shell's
+	# error was read as git's ("git's own words are above").
+	err=$(mktemp) || {
+		err=""
+		printf '     %s NOT RUN for %s: no temporary file could be made for git'\''s\n' "$_what" "$mod"
+		printf '     words (mktemp failed). Nothing reached the server; run this again.\n'
+		return 1; }
 	if git -C "$dir" "$@" </dev/null 2>"$err"; then
 		cat "$err" >&2; rm -f "$err"
 		return 0
 	fi
 	cat "$err" >&2
 	case "$(classify_push_error "$err")" in
+		hostkey)
+			rm -f "$err"
+			printf '     %s STOPPED: the server'\''s host key is NOT the one your\n' "$_what"
+			printf '     ~/.ssh/known_hosts records for it (ssh'\''s warning is above). The\n'
+			printf '     server may have been reinstalled, or something between you and it\n'
+			printf '     may be posing as it. Nothing was pushed, and this tool trusts no new\n'
+			printf '     key for you. Ask campus staff whether its key changed; once they\n'
+			printf '     confirm it, remove the old line (man ssh-keygen, -R) and run this again.\n'
+			return 1 ;;
 		conn)
 			rm -f "$err"
 			printf '     %s could not REACH the server (DNS/timeout/refused).\n' "$_what"
@@ -734,7 +1011,11 @@ remote_git() {
 			printf '       (intra.42.fr -> Settings -> "SSH Keys"), then keep this terminal:\n\n'
 			printf '%s\n\n' "$(cat "$pub")"
 			printf '     Retrying the %s once...\n' "$_what"
-			err2=$(mktemp)
+			err2=$(mktemp) || {
+				err2=""
+				printf '     The retry did NOT RUN: no temporary file could be made for\n'
+				printf '     git'\''s words (mktemp failed). Run this again.\n'
+				return 1; }
 			if git -C "$dir" "$@" </dev/null 2>"$err2"; then
 				cat "$err2" >&2; rm -f "$err2"
 				printf '     %s SUCCEEDED after the key fix.\n' "$_what"
@@ -766,6 +1047,15 @@ remote_git() {
 # core.excludesFile. Either would omit a required source from the pushed repo
 # while every local layer stayed green, because the layers read the working tree.
 #
+# And byte for byte: core.autocrlf off and an empty core.attributesFile, so no
+# setting of the owner's global configuration rewrites what is staged. An
+# autocrlf of true or input (common on WSL and Windows), or a global attributes
+# file with a text or eol rule, stored a CRLF file the layers had tested as LF.
+# The rest of the owner's configuration stays: the fetch and the push need its
+# SSH, credential and insteadOf settings. Not switched off either, and said so
+# in docs/submitting.md: a .gitattributes inside deliverable/, which is staged
+# with the files and applies to them, and git's /etc/gitattributes.
+#
 # The ':(exclude)' pathspecs are NOT ignore rules and still apply -- build
 # products stay out. They are extension-based, though, so a compiled program
 # (bsq, rush-02, an a.out renamed) would be pushed if it were there, and
@@ -775,7 +1065,8 @@ remote_git() {
 # --git-dir=D --work-tree=. for the dry run's scratch one, so the list -n
 # prints and the push cannot disagree.
 stage_deliverable() {
-	git -C "$dir" "$@" -c core.excludesFile=/dev/null add -A --force -- . \
+	git -C "$dir" "$@" -c core.excludesFile=/dev/null -c core.autocrlf=false \
+		-c core.attributesFile=/dev/null add -A --force -- . \
 		':(exclude)*.o' ':(exclude)*.a' ':(exclude)*.out' ':(exclude)*.gch'
 }
 
@@ -796,6 +1087,7 @@ pushed_files() {
 		trap 'rm -rf "$_gd"' EXIT
 		trap 'exit 143' TERM
 		trap 'exit 130' INT
+		trap 'exit 129' HUP
 		if git --git-dir="$_gd" init -q && stage_deliverable --git-dir="$_gd" --work-tree=.; then
 			git --git-dir="$_gd" ls-files -z > "$_gd/pushed.z"
 			_prc=$?
@@ -891,12 +1183,16 @@ last_push_by_you() {
 # since your last push $3: every commit after yours is someone else's. Not every
 # file that differs from the tip -- a file of yours that you edited while a
 # teammate pushed only OTHER files is still yours, not theirs.
+#
+# With no temporary file to filter by, every file in $1 is named: a NOTE that
+# says too much, never one dropped without a word.
 changed_since() {
 	(
-		_cs=$(mktemp) || exit 0
+		_cs=$(mktemp) || { printf '%s\n' "$1"; exit 0; }
 		trap 'rm -f "$_cs"' EXIT
 		trap 'exit 143' TERM
 		trap 'exit 130' INT
+		trap 'exit 129' HUP
 		git -C "$dir" -c core.quotePath=false diff --name-only "$3" "$2" > "$_cs"
 		printf '%s\n' "$1" | grep -Fx -f "$_cs"
 	)
@@ -971,6 +1267,7 @@ submit() {
 	# without the flag a blocked gate's hint says where the project stands.
 	FLOOR_RC=2
 	if [ "$GATE" = 1 ]; then
+		unit_names "$mod"
 		written_floor "$mod"
 		FLOOR_RC=$?
 	fi
@@ -983,10 +1280,10 @@ submit() {
 		fi
 		if [ "$FLOOR_WRITTEN" -eq 0 ]; then
 			printf 'nothing written to push.\n'
-			printf '              Every exercise is still the stub it started as, and\n'
+			printf '              %s is still the stub it started as, and\n' "$U_EVERY_C"
 			printf '              --written-only pushes what you have written, never stubs alone.\n'
 		else
-			printf 'a mandatory exercise is\n'
+			printf 'a mandatory %s is\n' "$U_ONE"
 			printf '              not written yet: %s\n' "$FLOOR_MANDATORY"
 			printf '              Its subject calls it part of what validates the project, and\n'
 			printf '              --written-only does not push the project without it.\n'
@@ -995,12 +1292,39 @@ submit() {
 		[ "$DRY" = 1 ] && list_pushed
 		return 0
 	fi
+	# A project divided into parts at the root, whose subject names its
+	# mandatory part: with that part read as written and another part not, a
+	# run without --written-only does not push it, before any test runs,
+	# names each part not written yet, and says that --written-only pushes
+	# the project without waiting for them. It never says that a part is
+	# written: the judge's "written" means only that the part is not plainly
+	# a stub. A project of exercises has no part: what is not written there
+	# is red, and the gate says so.
+	if [ "$WRITTEN_ONLY" = 0 ] && [ "$FLOOR_RC" -eq 0 ] && [ "$FLOOR_PART" = 1 ] &&
+		[ -z "$FLOOR_MANDATORY" ] && [ -n "$FLOOR_PARTS_LEFT" ]; then
+		case "$FLOOR_PARTS_LEFT" in
+			*" "*) _left="parts are not written yet: $FLOOR_PARTS_LEFT" ;;
+			*) _left="a part is not written yet: $FLOOR_PARTS_LEFT" ;;
+		esac
+		if [ "$DRY" = 1 ]; then
+			printf '     dry-run: would be BLOCKED -- %s\n' "$_left"
+		else
+			printf '     BLOCKED -- not pushed: %s\n' "$_left"
+		fi
+		printf '              42 submit --written-only pushes the project without waiting\n'
+		printf '              for what is not written yet: that goes as it is on disk, and\n'
+		printf '              every other test, the mandatory part'\''s included, still has\n'
+		printf '              to pass.\n'
+		FAIL=$((FAIL + 1))
+		[ "$DRY" = 1 ] && list_pushed
+		return 0
+	fi
 
 	if [ "$DRY" = 1 ]; then
-		[ "$GATE" = 1 ] && printf '     dry-run: would gate on  bazel test //%s/... --test_tag_filters=%s %s  (level: %s; skip if red)\n' \
-			"$mod" "$(gate_tags "$GATE_LEVEL")" "$GATE_FLAGS" "$GATE_LEVEL"
+		[ "$GATE" = 1 ] && printf '     dry-run: would gate on  bazel test %s  (level: %s; skip if red)\n' \
+			"$(gate_args "$mod")" "$GATE_LEVEL"
 		[ "$WRITTEN_ONLY" = 1 ] &&
-			printf '     dry-run: --written-only: an exercise not written yet does not block; every other red does\n'
+			printf '     dry-run: --written-only: %s not written yet does not block; every other red does\n' "$U_AN"
 		[ "$is_shell" = 1 ] && printf '     dry-run: would regenerate %s from generators/\n' "$dir"
 		printf '     dry-run: would fetch the remote, commit on top of its %s branch (a first\n' "$BRANCH"
 		printf '              commit if it has none) and push; never --force\n'
@@ -1042,13 +1366,13 @@ submit() {
 			# levels above this one too, and not which reds stopped the push;
 			# and the two flags that trust no cache, or it could serve the
 			# very result the gate would not trust.
-			gate_cmd="bazel test //$mod/... --test_tag_filters=$(gate_tags "$GATE_LEVEL") $GATE_FLAGS"
+			gate_cmd="bazel test $(gate_args "$mod")"
 			if [ "$gate_status" -eq 3 ]; then
 				printf '     BLOCKED: tests are FAILING — not pushed. See which, with:\n'
 				printf '                %s\n' "$gate_cmd"
 				if [ "$WRITTEN_ONLY" = 1 ] && [ "$_unw_rc" -eq 2 ]; then
 					printf '              --written-only let nothing through: the gate'\''s report\n'
-					printf '              could not be read, so which exercises are red, and\n'
+					printf '              could not be read, so which %s are red, and\n' "$U_MANY"
 					printf '              whether you have written them, is not known.\n'
 					case "$UNW_WHY" in
 						missing)
@@ -1070,28 +1394,28 @@ submit() {
 						printf '                %s 2>&1 | sh tools/first_red.sh\n' "$gate_cmd"
 					fi
 				elif [ "$WRITTEN_ONLY" = 1 ] && [ "$_unw_rc" -eq 3 ]; then
-					printf '              --written-only let nothing through: which exercises this\n'
+					printf '              --written-only let nothing through: which %s this\n' "$U_MANY"
 					printf '              project'\''s subject calls mandatory could not be read.\n'
-					printf '              tools/first_red.sh --written %s said:\n' "$mod"
+					printf '              %s said:\n' "$FLOOR_WHO"
 					printf '%s\n' "${FLOOR_SAID:-(nothing)}" | sed 's/^/              | /'
 				elif [ "$WRITTEN_ONLY" = 1 ]; then
-					printf '              --written-only lets through only an exercise not written\n'
-					printf '              yet, and something else is red: an exercise you have\n'
+					printf '              --written-only lets through only %s not written\n' "$U_AN"
+					printf '              yet, and something else is red: %s you have\n' "$U_AN"
 					printf '              written, a test of the whole module, or a run that did\n'
 					printf '              not complete. Fix that first.\n'
 				elif [ "$FLOOR_RC" -eq 0 ] && [ "$FLOOR_WRITTEN" -eq 0 ]; then
-					printf '              Nothing of it is written yet: every exercise is still the\n'
+					printf '              Nothing of it is written yet: %s is still the\n' "$U_EVERY"
 					printf '              stub it started as.\n'
 				elif [ "$FLOOR_RC" -eq 0 ] && [ -n "$FLOOR_MANDATORY" ]; then
-					printf '              Then fix them. A mandatory exercise is not written yet:\n'
+					printf '              Then fix them. A mandatory %s is not written yet:\n' "$U_ONE"
 					printf '              %s. Its subject calls it part of what validates the\n' "$FLOOR_MANDATORY"
 					printf '              project, so --written-only does not push without it either.\n'
 				elif [ "$FLOOR_RC" -eq 0 ] && [ "$FLOOR_PART" = 1 ] && [ -n "$FLOOR_STUBS" ]; then
-					printf '              Then fix them. Every mandatory exercise is written, and\n'
+					printf '              Then fix them. Every mandatory %s is written, and\n' "$U_ONE"
 					printf '              these are not: %s. To push without them, add\n' "$FLOOR_STUBS"
 					printf '              --written-only: it lets those through and gates the rest.\n'
 				else
-					printf '              Then fix them. An exercise you have not started blocks too:\n'
+					printf '              Then fix them. %s you have not started blocks too:\n' "$U_AN_C"
 					printf '              --written-only lets those through and gates the rest, and\n'
 					printf '              --no-gate skips the gate altogether.\n'
 				fi
@@ -1114,7 +1438,7 @@ submit() {
 					printf '              a leftover main()), or a turn-in file that is missing,\n'
 					printf '              which scores 0 wherever the project is graded.\n'
 					printf '%s\n' "$_own" | head -n 6 | sed 's/^/              | /'
-					printf '              Which exercise does not build, and why:\n'
+					printf '              Which %s does not build, and why:\n' "$U_ONE"
 				else
 					printf '     BLOCKED: the build STOPPED — not pushed. Bazel exited 1, and no\n'
 					printf '              line of its errors names a file of yours: most often a\n'
@@ -1180,16 +1504,31 @@ submit() {
 			# is that these layers are above the rung this run chose, and that
 			# the choice was the student's to make. Say that, name what is red,
 			# and let them decide.
-			_advn=$(advisory_failures | grep -c .)
-			printf '     NOTE: %s test(s) above the "%s" gate are red for this module:\n' \
-				"$_advn" "$GATE_LEVEL"
-			advisory_failures | sed -n '1,6p' | sed 's/^/             /'
-			[ "$_advn" -gt 6 ] && printf '             ... and %d more\n' "$((_advn - 6))"
-			printf '           Not blocking: you chose the "%s" rung, and this is what sits\n' "$GATE_LEVEL"
-			printf '           above it. Whether 42 exercises any of it is not something this\n'
-			printf '           script can tell you — a red here is still a real finding about\n'
-			printf '           the code. Read it with:\n'
-			printf '             bazel test //%s/... --test_tag_filters=-manual --keep_going\n' "$mod"
+			#
+			# A pass that never ran (ADV_WHY) says so, and one that is red
+			# with no test named in its summary (a build that stopped first)
+			# says that: "0 test(s) are red" was both, and neither is true.
+			if [ "$ADV_WHY" = mktemp ]; then
+				printf '     NOTE: the tests above the "%s" gate were not run: no temporary\n' "$GATE_LEVEL"
+				printf '           file could be made for their output (mktemp failed). Run them with:\n'
+			else
+				_advn=$(advisory_failures | grep -c .)
+				if [ "$_advn" -eq 0 ]; then
+					printf '     NOTE: the tests above the "%s" gate are red for this module, but\n' "$GATE_LEVEL"
+					printf '           no line of its summary names one (the build may have stopped\n'
+					printf '           before any test ran).\n'
+				else
+					printf '     NOTE: %s test(s) above the "%s" gate are red for this module:\n' \
+						"$_advn" "$GATE_LEVEL"
+					advisory_failures | sed -n '1,6p' | sed 's/^/             /'
+					[ "$_advn" -gt 6 ] && printf '             ... and %d more\n' "$((_advn - 6))"
+				fi
+				printf '           Not blocking: you chose the "%s" rung, and this is what sits\n' "$GATE_LEVEL"
+				printf '           above it. Whether 42 exercises any of it is not something this\n'
+				printf '           script can tell you — a red here is still a real finding about\n'
+				printf '           the code. Read it with:\n'
+			fi
+			printf '             bazel test %s\n' "$(advisory_args "$mod")"
 		fi
 	fi
 
@@ -1371,15 +1710,23 @@ fi
 
 # The short name `42` gives a project: c-piscine/c-piscine-c-05 is c-05. The
 # course folder goes when the project's own name says the course, then the
-# c-piscine- prefix; any other path stays whole (cursus/libft). The rule of
+# c-piscine- prefix. A Common Core project is its own folder's name in lower
+# case, at any depth under cursus/ (cursus/Milestone_0/Libft is libft), and
+# any other path stays whole with its c-piscine- prefix gone. The rule of
 # tools/fortytwo/workspace.py's short_name() and first_red.sh's shortname(),
-# which //tools/tests:fortytwo_test holds this one to, on every project.
-# Into $_sn, not printed: called as $(short_name ...), it forked a subshell for
-# every module each key was compared with.
+# which //tools/tests:fortytwo_test holds this one to, on every project; and
+# //tools:conventions refuses two modules of the REMOTES table with one short
+# name. Into $_sn, not printed: called as $(short_name ...), it forked a
+# subshell for every module each key was compared with. The one program it
+# runs, for a Common Core project, runs once a table row, never per key.
 short_name() {
 	_sn=$1
 	case "${_sn##*/}" in
 		c-piscine-*) _sn=${_sn##*/} ;;
+		*)
+			case "$_sn" in
+				cursus/*) _sn=$(printf '%s' "${_sn##*/}" | LC_ALL=C tr 'A-Z' 'a-z') ;;
+			esac ;;
 	esac
 	_sn=${_sn#c-piscine-}
 }

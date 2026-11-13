@@ -22,8 +22,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		src = dio_unhex(f[0], NULL, 0);
 		n = (unsigned int)strtoul(f[1], NULL, 10);
 		/* EXACTLY the window the function is given, never one more. With

@@ -18,8 +18,7 @@ int	main(void)
 
 	while (dio_line(line, sizeof(line)))
 	{
-		if (dio_split(line, f, 4) < 3)
-			continue ;
+		dio_fields(line, f, 4, 3);
 		nbr = dio_unhex(f[0], NULL, 0);
 		from = dio_unhex(f[1], NULL, 0);
 		to = dio_unhex(f[2], NULL, 0);

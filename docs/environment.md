@@ -19,7 +19,7 @@ table is only about what it still takes from the machine underneath, which
 |---|---|---|
 | **A 42 campus machine** | nothing but `sh tools/setup.sh` | the list below — the box has all of it |
 | **Your own Mac / Windows / Linux, with Docker** — the easy path | **Docker**, plus VS Code + *Dev Containers* or the `@devcontainers/cli` | the same list, supplied by the container image |
-| **Your own Linux, no Docker** (proven on Ubuntu 22.04 and the dev container) | `perl`, `build-essential` (the C library's headers, `libgcc` and the libraries the fetched gcc loads: [below](#what-the-harness-borrows-from-the-box)), `libedit2`, `libffi8` and `libtinfo6` (libraries the fetched clang loads, which `build-essential` does not bring), the `en_US.UTF-8` locale (`42 doctor` checks for it) and ld.so's debug symbols (`libc6-dbg` on Debian/Ubuntu); then `sh tools/setup.sh` | the same list, from your distro |
+| **Your own Linux, no Docker** (proven on Ubuntu 22.04 and the dev container) | `build-essential` (the C library's headers, `libgcc` and the libraries the fetched gcc loads: [below](#what-the-harness-borrows-from-the-box)), `libedit2`, `libffi8` and `libtinfo6` (libraries the fetched clang loads, which `build-essential` does not bring), the `en_US.UTF-8` locale (`42 doctor` checks for it) and ld.so's debug symbols (`libc6-dbg` on Debian/Ubuntu); then `sh tools/setup.sh` | the same list, from your distro |
 
 Rows 1 and 3 are the same path and differ only in whether you had to install the
 borrowed tools yourself. The container is the easy path off campus because it
@@ -51,8 +51,13 @@ box's. That is what `tools/pins.tsv`'s `fetched-as` column records and what
 
 - `/bin/sh`, which runs every script here ([design.md](design.md) says why the
   shell is held to portable usage rather than pinned);
-- `perl`, which runs `callgrind_annotate`, the script the `cycles` layer reads
-  its counts with;
+- a `python3` on `PATH`, to start the Python targets: rules_python's launcher
+  of a `py_binary` or `py_test` (the pinned norminette the `norm` layer runs,
+  and the Python tests of `//tools/tests`) is a `#!/usr/bin/env python3`
+  script, which then hands over to the fetched Python 3.13. `42` needs one
+  too, 3.10 or later (`tools/42.sh`). `//tools:env_drift` needs none: its
+  launcher starts the fetched interpreter itself, so a box with no `python3`
+  still gets its answer, and that answer says the norminette cannot start;
 - the `en_US.UTF-8` locale, which `.bazelrc` sets for every test and
   `42 doctor` looks for. Ubuntu installs it with `sudo locale-gen
   en_US.UTF-8`; Debian, once `en_US.UTF-8 UTF-8` is uncommented in
@@ -75,6 +80,14 @@ box's. That is what `tools/pins.tsv`'s `fetched-as` column records and what
   `find`, `tar`, `git`, `file` and the rest, and so do several of their
   checks. `tools/pins.tsv` records campus's version of each, observed rather
   than pinned;
+- `awk`, `sed`, `grep` and coreutils (`sort`, `tr`, `wc` and the rest), which
+  every runner takes from this machine. Under the test locale their results
+  can depend on which implementation it has (`mawk` counts a string's bytes
+  where `gawk` counts its characters), so the rule is portable usage, and
+  `LC_ALL=C` wherever a byte is counted or matched. It is kept by hand, not
+  checked, and not every site keeps it yet. `tools/pins.tsv` says why they
+  are not pinned, and `bazel run //tools:env_audit` records which ones a
+  machine has;
 - the shared libraries the fetched programs load that no fetched package
   carries. A program names each library it needs, and the loader takes the
   ones the fetch does not bring from the box: on a box without one, that
@@ -278,6 +291,7 @@ reports.
 | `~/.local/bin/bazelisk` | ~7 MB | `$HOME` is the only place that may follow you to another machine (on campus that is not confirmed yet), and this is the piece small enough to belong there |
 | `$SCRATCH/bazel` | GBs | Bazel's output and install bases. Rebuildable |
 | `$SCRATCH/bazelisk` | ~63 MB | the Bazel bazelisk downloads |
+| `~/.config/42/` | bytes | your user file, `config.yaml`, which `42 config --global` writes and every checkout of yours reads ([testing.md](testing.md#the-42-command)). `$XDG_CONFIG_HOME/42/` when that is an absolute path. It is yours, not a checkout's, so it is in `$HOME`; `42` creates the folder readable by you alone, and refuses one inside the checkout you run it in, or a link into it, where the file would end up in a commit |
 
 ---
 
@@ -344,6 +358,12 @@ checkout, and the other way round.
   here, which stops every Bazel command as surely.
 - `~/.bazelrc` and the cache live in the container, and go when it is deleted
   and created again.
+- So does your user file, `~/.config/42/config.yaml`
+  ([testing.md](testing.md#the-42-command)): a rebuild loses it. Nothing
+  keeps it on purpose, because `42` runs on a campus machine with no container
+  at all, and there the file stays in your home. Before you rebuild,
+  `42 config list --global` shows what to set again. Never move it into the
+  checkout to keep it: the checkout is shared with the host and can be pushed.
 
 ---
 
@@ -454,6 +474,12 @@ the suite tests that nobody decided. Its advice is for whoever can act on
 it: on a campus box it lists the campus-kind drift worth reporting; anywhere
 else it says there is nothing to do, because the pins describe campus, not
 your machine.
+
+It is a short `sh` launcher, `tools/env_drift.sh`, over `tools/env_drift.py`,
+which it runs on the Python 3.13 Bazel fetched and never on the box's: a
+`py_binary` would start on the box's `python3` (above), and a box without one
+is a box this has to be able to describe. The tools it asks are still asked
+through `/bin/sh`, as the layers ask them.
 
 To capture a campus machine in the first place, run there:
 

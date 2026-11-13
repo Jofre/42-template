@@ -195,15 +195,18 @@ c_mem_check(num = "12", fn = "ft_print_memory", probe = "mem_print_memory.c")
 # The address column is normalised to the row's offset on BOTH sides: the
 # subject prints the real address, which no reference can predict and which
 # changes between runs. Both sides check it first: the harness knows the
-# address it passed and keeps a wrong one as printed, as `sanitize` does with
-# the addresses this exercise's own fixture publishes (finding 048). The last
-# column is whether the function returned addr (finding 050).
+# address it passed and keeps a wrong one as printed, behind a mark the
+# reference never prints, as `sanitize` does with the addresses this
+# exercise's own fixture publishes (finding 048): kept bare, a row's offset
+# printed as its address was the reference's record. The last column is
+# whether the function returned addr (finding 050).
 #
 # Where the harness puts the block decides whether a narrowed address shows:
 # below 4 GiB, an address cut to 32 bits is the real one. So the block is
 # moved above 4 GiB before each call (the harness says how), and
 # //tools/tests's selftest builds the harness as this one is built, over a toy
-# that prints its argument cut to 32 bits, so the file is visible to it.
+# that prints its argument cut to 32 bits and one that prints the row's
+# offset, and with the pinned gcc too, so the file is visible to it.
 exports_files(
     ["tests/ex12/diff_print_memory.c"],
     visibility = ["//tools/tests:__pkg__"],
@@ -215,14 +218,6 @@ c_diff(
     harness = "diff_print_memory.c",
     oracle_fn = "c02_print_memory",
     diff_clues = "diff_clues.txt",
-    # MUST match this exercise's c_function(sanitize = True) above. Without it
-    # the gate ran the fixture WITHOUT --sanitize, compared a real address
-    # against a fixture written in offsets, and concluded the exercise was red
-    # -- so this layer, ex12_diff_asan and ex12_perf all skipped green on a
-    # finished, correct ft_print_memory. Reproduced: ex12_output PASSED while
-    # ex12_diff printed "SKIP -- this exercise's own output fixture is not
-    # passing yet". //tools:conventions now checks the pair repo-wide.
-    gate_sanitize = True,
     # The corpus is small blocks, and each case pays for a pipe, a fork-free
     # capture and a read.
     # 200000, not 100000: as many as the ASan twin replays, so each case it

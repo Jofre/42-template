@@ -18,6 +18,8 @@
 #   --exit-only   replay the same corpus and judge only how each run ended: a
 #                 plain non-zero return fails, and the output is not compared.
 #                 That is the robust exNN_argv_diff_exit target; see below.
+#                 Standard error is not read, so it takes --stderr-ignored,
+#                 never --stderr-empty (refused, exit 2).
 #   --sanitized   BIN is the ASan/UBSan build: replay the corpus judging memory
 #                 and how each run ended, never the output (exNN_argv_diff_asan;
 #                 tools/runner_lib.sh, "A CORPUS UNDER A MEMORY CHECKER").
@@ -58,7 +60,7 @@
 # standard error is held to is the call site's decision, by the Run contract.
 # This runner threw it away on every run, which decided it by default
 # (tools/runner_lib.sh, STANDARD ERROR, A CHOICE AT EVERY CALL; review of
-# WP-50). tools/defs.bzl refuses such a call while loading (_RUNNER_CHOICES).
+# WP-50). tools/defs_test.bzl refuses such a call while loading (_RUNNER_CHOICES).
 # Under --sanitized or --valgrind neither is given: standard error carries the
 # checker's report there, and no output is judged.
 #
@@ -148,7 +150,7 @@ require awk cat cmp mktemp rm sed sort tail uniq wc
 RL_NAME=argv_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "argv_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "argv_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -171,30 +173,24 @@ STDERR_EMPTY=0
 STDERR_WHY=""
 GATE_DIFFER=""; GATE_BIN=""; GATE_EXPECTED=""; GATE_ARGS=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "argv_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--bin) need "$1" "$#"; BIN="$2"; shift 2 ;;
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
-		--fn) need "$1" "$#"; FN="$2"; shift 2 ;;
-		--seed) need "$1" "$#"; SEED="$2"; shift 2 ;;
-		--count) need "$1" "$#"; COUNT="$2"; shift 2 ;;
-		--show) need "$1" "$#"; SHOW="$2"; shift 2 ;;
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--fn) rl_need "$1" "$#"; FN="$2"; shift 2 ;;
+		--seed) rl_need "$1" "$#"; SEED="$2"; shift 2 ;;
+		--count) rl_need "$1" "$#"; COUNT="$2"; shift 2 ;;
+		--show) rl_need "$1" "$#"; SHOW="$2"; shift 2 ;;
 		--expect-reordering) EXPECT_REORDER=1; shift ;;
 		--exit-only) EXIT_ONLY=1; shift ;;
 		--guarded-argv) GUARDED=1; shift ;;
-		--stderr-empty) STDERR_EMPTY=1; shift ;;
-		--stderr-ignored) need "$1" "$#"; STDERR_WHY="$2"; shift 2 ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; shift 2 ;;
-		--gate-scenarios) need "$1" "$#"; rl_list_add RL_GATE_PASS --scenarios "$2"; shift 2 ;;
-		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
+		--stderr-empty | --stderr-ignored) rl_stderr_opt "$@"; shift "$RL_STDERR_SHIFT" ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-arg) rl_need "$1" "$#"; rl_list_add GATE_ARGS "$2"; shift 2 ;;
+		--gate-scenarios) rl_need "$1" "$#"; rl_list_add RL_GATE_PASS --scenarios "$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
 		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
 		*) echo "argv_check.sh: unknown option: $1" >&2; exit 2 ;;
@@ -220,9 +216,17 @@ if [ "$EXIT_ONLY" = 1 ] && [ -n "$RL_MEM" ]; then
 	echo "  judges the same runs its own way." >&2
 	exit 2
 fi
+# --exit-only never reads standard error, so --stderr-empty would hold it to
+# nothing while the PASS line said nothing reached it.
+if [ "$EXIT_ONLY" = 1 ] && [ "$STDERR_EMPTY" = 1 ]; then
+	echo "argv_check.sh: --exit-only judges only how each run ended and never reads" >&2
+	echo "  standard error, so --stderr-empty would hold it to nothing: pass" >&2
+	echo "  --stderr-ignored WHY instead." >&2
+	exit 2
+fi
 # THE GATE (see the header): the output test run as it runs, each --gate-arg
 # one word of its run, or its table's rows (--gate-scenarios). c_levels()'
-# audit holds the two to each other (tools/defs.bzl, _gate_problems).
+# audit holds the two to each other (tools/defs_module.bzl, _gate_problems).
 rl_split_on
 # shellcheck disable=SC2086 # a list, one word per line (rl_list_add)
 rl_gate argv_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" $GATE_ARGS
@@ -234,14 +238,9 @@ rl_split_off
 # this exercise's hints, none of which is about a build. Say what the build
 # said instead, whole, and fail. Checked after the gate: a red gate has
 # already skipped this layer.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "argv_check.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check argv_check "$BIN" "$RL_STANDIN" "the program"
 
 WORK=$(mktemp -d) || exit 2
@@ -250,31 +249,17 @@ rl_traps 'rm -rf "$WORK"'
 
 TAB=$(printf '\t')
 
-# Decode one escaped field WITHOUT losing a trailing newline.
-#
-# `v=$(printf '%b' "$f")` is wrong here and the difference is a whole class of
-# case: command substitution strips every trailing newline, so an expected block
-# that ENDS in one -- which every one of them does -- would arrive a byte short
-# and the layer would report a difference the student did not cause. The
-# sentinel dot is the last byte, so nothing of the value is stripped, and it is
-# removed afterwards.
-#
-# Only for the block that is REDIRECTED to a file. A caller writing
-# `$(dec "$x")` wraps a second substitution around the first and loses exactly
-# what this preserves; the argument peel does the same two lines inline for
-# that reason.
-dec() {
-	_d=$(printf '%b.' "$1")
-	printf '%s' "${_d%.}"
-}
-
 "$ORACLE" "$FN" "$SEED" "$COUNT" > "$WORK/corpus.tsv" 2> "$WORK/oracle.err" || {
 	echo "argv_check: the reference failed to produce a corpus for '$FN'." >&2
 	rl_excerpt "$WORK/oracle.err" 10 oracle-stderr.txt >&2
 	exit 2
 }
 
-CASES=$(wc -l < "$WORK/corpus.tsv")
+# How many cases the replay below must see: rl_corpus_lines, a line of at
+# least one byte, which is what the loop takes for a case (it skips a blank
+# line). wc -l counts newlines, so it agreed with a loop that never saw an
+# unterminated last line, and the guard after the loop never fired.
+CASES=$(rl_corpus_lines "$WORK/corpus.tsv")
 
 # Every argv:, expected: and got: line is rendered by rl_vis (runner_lib.sh):
 # printable ASCII as it is, the backslash doubled, $ ending a line and a literal
@@ -291,11 +276,7 @@ ends_nl() {
 # FLOORS. Every one of these is a corpus that would pass a program that does
 # nothing of what the exercise asks, so a corpus failing them is a layer
 # reporting OK having checked nothing -- exit 2, not 1.
-MIN_CASES=${MIN_ARGV_CASES:-12}
-if [ "$CASES" -lt "$MIN_CASES" ]; then
-	echo "argv_check: only $CASES cases (floor $MIN_CASES). Refusing to report OK." >&2
-	exit 2
-fi
+rl_corpus_floor "$WORK/corpus.tsv" "${MIN_ARGV_CASES:-12}" "'$FN'" "$WORK/oracle.err"
 
 # The properties a hand-written case never has, checked ON THE CORPUS rather
 # than assumed from the generator's source.
@@ -369,11 +350,7 @@ LNO=0
 # What KIND of difference is this? A hundred failures that are all one mistake
 # should read as one mistake. The categories are ordered most-specific first.
 classify() {  # classify EXPECTED-FILE GOT-FILE (after rl_sweep_ran)
-	case "$RL_CAUSE" in
-		"timeout") echo "did-not-finish"; return ;;
-		"runaway") echo "runaway-output"; return ;;
-		"signal") echo "crash"; return ;;
-	esac
+	rl_end_fault && return
 	if [ ! -s "$2" ] && [ -s "$1" ]; then echo "no-output"; return; fi
 	if [ -s "$2" ] && [ ! -s "$1" ]; then echo "output-when-none-expected"; return; fi
 	# The bytes agree but for one newline at the very end. Tested BEFORE the
@@ -478,8 +455,8 @@ while IFS= read -r line; do
 	_i=0
 	while [ "$_i" -lt "$nargs" ]; do
 		_f=${rest%%"$TAB"*}; rest=${rest#*"$TAB"}
-		# The sentinel is stripped HERE and not inside a helper. `$(dec ...)`
-		# would be a second command substitution wrapped around the first, and
+		# The sentinel is stripped HERE and not inside a helper. `$(helper
+		# ...)` would be a second command substitution wrapped around the first, and
 		# the outer one strips the trailing newline the inner one went to
 		# trouble to keep -- which showed up as eleven of a hundred and twenty
 		# CORRECT cases reported as differences, every one of them an argument
@@ -488,7 +465,7 @@ while IFS= read -r line; do
 		set -- "$@" "${_v%.}"
 		_i=$((_i + 1))
 	done
-	dec "$rest" > "$WORK/want"
+	rl_dec_to "$rest" "$WORK/want"
 
 	# UNDER A MEMORY CHECKER the case runs when it is in the sample, and only
 	# memory and how it ended are judged (tools/runner_lib.sh, rl_mem_run).
@@ -522,12 +499,7 @@ while IFS= read -r line; do
 	# return, a signal, the time limit or the output budget.
 	rl_sweep_ran "$st"
 	rl_stderr "$WORK/err" "case $CHECKED"
-	case "$RL_CAUSE" in
-		ok | "exit" | "timeout" | runaway | signal) ;;
-		*)
-			echo "argv_check.sh: case $CHECKED could not be run: the program $RL_WHY" >&2
-			exit 2 ;;
-	esac
+	rl_unjudged "case $CHECKED"
 
 	# A BYTE MATCH IS NOT A PASS IF THE PROGRAM THEN DIED.
 	#
@@ -593,31 +565,12 @@ while IFS= read -r line; do
 	rl_block "$WORK/block" >> "$WORK/report"
 done < "$WORK/corpus.tsv"
 
-# The loop must have SEEN the corpus. A program that eats stdin, a corpus whose
-# last line has no newline, a `while read` that died on the first case: all of
-# them end here with fewer cases run than the file holds, and all of them used
-# to be reported as a pass.
-if [ -z "$RL_STOP" ] && [ "$SEEN" -ne "$CASES" ]; then
-	echo "argv_check: read $SEEN of $CASES cases. Refusing to report on a partial replay." >&2
-	exit 2
-fi
-
-if [ -n "$RL_MEM" ]; then
-	cat "$WORK/report"
-	rl_tally
-	if [ -n "$RL_STOP" ]; then
-		echo ""
-		rl_mem_count "$CASES"
-		rl_mem_stopped "$CHECKED"
-		exit 1
-	fi
-	rl_mem_tally "$CHECKED" "$CASES"
-	_mt=$?
-	# What the sanitizer could see of the arguments themselves, pass or fail.
-	rl_mem_argv_note "$GUARDED" "A replay on the guarded build (--guarded-argv) puts each one in
+# The loop must have SEEN the corpus (rl_corpus_seen); under a memory checker
+# that is the whole report (rl_corpus_mem_end), with what the sanitizer could
+# see of the arguments themselves, pass or fail.
+rl_corpus_seen "$SEEN" "$CASES"
+rl_corpus_mem_end "$WORK/report" "$CHECKED" "$CASES" "$GUARDED" "A replay on the guarded build (--guarded-argv) puts each one in
   a heap block of its own, where it does."
-	exit "$_mt"
-fi
 
 # The note on plain non-zero returns, pass or fail: it is not this layer's
 # verdict, and a student should still hear about it before the robust target
@@ -692,44 +645,8 @@ families() {
 		}' "$WORK/corpus.tsv"
 }
 
-if [ -n "$RL_STOP" ]; then
-	# The cases judged wrong before the sweep stopped, not counting the one
-	# the time ran out in (counted in $FAILED, but cut short, not wrong): a verdict,
-	# which keeps the report from reading as "ran out of time" alone. Nor any
-	# that ran out of its own limit (both in RL_DNF, and in $FAILED too): not
-	# judged (ruling R4), and rl_sweep_stopped names them apart (V84).
-	rl_sweep_stopped "$CHECKED" "$CASES" "$((FAILED - RL_DNF))"
-	# Out of time with nothing wrong so far: said as that, not as "0 differ".
-	if [ "$FAILED" -eq 0 ]; then
-		echo "  None of the $CHECKED case(s) that ran differed from the reference."
-		exit 1
-	fi
-fi
-# A run that did not finish (RL_DNF, in $FAILED too) is said apart, and
-# never as a case that differs or did not return 0: it was not seen to its
-# end (V85).
-WRONG=$((FAILED - RL_DNF))
-_differ=$((WRONG - NOISY_ONLY))
-rl_dnf_said "$CASE_TMO"
-_and=${RL_DNF_SAID:+, and $RL_DNF_SAID}
-if [ "$EXIT_ONLY" = 1 ] && [ "$WRONG" -eq 0 ]; then
-	echo "argv_check: FAIL — $((CHECKED - FAILED)) of $CHECKED cases returned 0$_and."
-elif [ "$EXIT_ONLY" = 1 ]; then
-	echo "argv_check: FAIL — $WRONG of $CHECKED cases did not return 0$_and."
-elif [ "$WRONG" -eq 0 ]; then
-	echo "argv_check: FAIL — $((CHECKED - FAILED)) of $CHECKED cases agree with the reference$_and."
-elif [ "$NOISY_ONLY" -eq 0 ]; then
-	echo "argv_check: FAIL — $WRONG of $CHECKED cases differ from the reference$_and."
-elif [ "$_differ" -eq 0 ] && [ "$RL_DNF" -eq 0 ]; then
-	echo "argv_check: FAIL — $FAILED of $CHECKED cases wrote to standard error; their output was right."
-elif [ "$_differ" -eq 0 ]; then
-	echo "argv_check: FAIL — $FAILED of $CHECKED cases: $NOISY_ONLY had the right output and wrote to standard error$_and."
-elif [ "$RL_DNF" -eq 0 ]; then
-	echo "argv_check: FAIL — $FAILED of $CHECKED cases: $_differ differ from the reference, and $NOISY_ONLY more had the right output and wrote to standard error."
-else
-	echo "argv_check: FAIL — $FAILED of $CHECKED cases: $_differ differ from the reference, $NOISY_ONLY more had the right output and wrote to standard error$_and."
-fi
-rl_dnf_note "$WRONG"
+# The stop, when the sweep stopped, and the verdict line (rl_corpus_verdict).
+rl_corpus_verdict "$CHECKED" "$CASES" "$FAILED" "$NOISY_ONLY" "$EXIT_ONLY" "$CASE_TMO"
 cat "$WORK/report"
 rl_tally
 echo ""

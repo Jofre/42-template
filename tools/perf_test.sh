@@ -22,7 +22,7 @@
 #
 #   * the time over the CASE COUNT grows at n^GATE_EXPONENT (2.6) or steeper,
 #     and a second measurement from scratch agrees;
-#   * in ratio mode, GATE_SLOWDOWN (5000) times the reference's time, or
+#   * in ratio mode, GATE_SLOWDOWN (5000) times the reference's CPU time, or
 #     GATE_MEMORY (200) times its peak memory;
 #   * a measured run that crashes (killed by a signal): a crash fails at every
 #     level (docs/reference.md, Run contract);
@@ -47,16 +47,14 @@
 #    This is the pedagogically interesting number and it needs no baseline at
 #    all, because the student is compared only against themselves.
 #
-# 2. RATIO (needs --baseline-bin). Time the student against a reference binary
-#    replaying the SAME corpus, and report the slowdown and memory multiples.
-#    NOTE: the //oracle binary cannot be used as that baseline as it stands —
-#    `oracle <fn> <seed> <count>` GENERATES cases (seeded RNG, hex encoding,
-#    formatting, ~90% of a diff test's cost) rather than replaying them, so
-#    timing it measures the generator, not the reference implementation. Adding
-#    `oracle bench <fn>` EXISTS now: it reads a corpus on stdin and computes the
-#    reference answers without generating or printing them, which is the shape a
-#    baseline needs. Pass it here as --baseline-bin and ratio mode lights up. In
-#    the meantime this script reports scaling only and says so.
+# 2. RATIO (needs --baseline-oracle or --baseline-bin). Time the student
+#    against a reference replaying the SAME corpus, and report the slowdown and
+#    memory multiples. --baseline-oracle times `oracle bench <fn>`, which reads
+#    the corpus and computes the reference answers without generating or
+#    printing them (every c_perf passes it); --baseline-bin names a binary
+#    instead. A function with no bench arm reports scaling only, and says so.
+#    The slowdown is of CPU time, as the exponent is: wall time also counts
+#    the moments a run waited for a core, which is the machine, not the code.
 #
 # ---------------------------------------------------------------------------
 # 3. LENGTH (needs --length-oracle-fn). SCALING varies the number of cases,
@@ -70,7 +68,8 @@
 #
 # Usage:
 #   perf_test.sh --runner PATH --student-bin PATH --oracle PATH --oracle-fn FN
-#                [--seed N] [--count N] [--baseline-bin PATH]
+#                [--seed N] [--count N] [--baseline-oracle]
+#                [--baseline-bin PATH]
 #                [--gate-exponent F] [--gate-slowdown F] [--gate-memory F]
 #                [--length-oracle-fn FN --length-bin PATH
 #                 [--length-base L] [--length-cases K]]
@@ -106,7 +105,7 @@ require awk cmp cut mktemp rm sed
 RL_NAME=perf_test
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "perf_test.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "perf_test.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -146,38 +145,33 @@ GATE_EXPONENT="2.6"
 GATE_SLOWDOWN="5000"
 GATE_MEMORY="200"
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "perf_test.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--runner) need "$1" "$#"; RUNNER="$2"; shift 2 ;;
-		--student-bin) need "$1" "$#"; STUDENT="$2"; shift 2 ;;
-		--baseline-bin) need "$1" "$#"; BASELINE="$2"; shift 2 ;;
+		--runner) rl_need "$1" "$#"; RUNNER="$2"; shift 2 ;;
+		--student-bin) rl_need "$1" "$#"; STUDENT="$2"; shift 2 ;;
+		--baseline-bin) rl_need "$1" "$#"; BASELINE="$2"; shift 2 ;;
 		--baseline-oracle) BASELINE_ORACLE=1; shift ;;
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
-		--oracle-fn) need "$1" "$#"; FN="$2"; shift 2 ;;
-		--seed) need "$1" "$#"; SEED="$2"; shift 2 ;;
-		--count) need "$1" "$#"; COUNT="$2"; shift 2 ;;
-		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
-		--length-oracle-fn) need "$1" "$#"; LEN_FN="$2"; shift 2 ;;
-		--length-bin) need "$1" "$#"; LEN_BIN="$2"; shift 2 ;;
-		--length-base) need "$1" "$#"; LEN_BASE="$2"; shift 2 ;;
-		--length-cases) need "$1" "$#"; LEN_CASES="$2"; shift 2 ;;
-		--gate-exponent) need "$1" "$#"; GATE_EXPONENT="$2"; shift 2 ;;
-		--gate-slowdown) need "$1" "$#"; GATE_SLOWDOWN="$2"; shift 2 ;;
-		--gate-memory) need "$1" "$#"; GATE_MEMORY="$2"; shift 2 ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-asan-bin) need "$1" "$#"; GATE_ASAN_BIN="$2"; shift 2 ;;
-		--gate-count) need "$1" "$#"; GATE_COUNT="$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--oracle-fn) rl_need "$1" "$#"; FN="$2"; shift 2 ;;
+		--seed) rl_need "$1" "$#"; SEED="$2"; shift 2 ;;
+		--count) rl_need "$1" "$#"; COUNT="$2"; shift 2 ;;
+		--label) rl_need "$1" "$#"; LABEL="$2"; shift 2 ;;
+		--length-oracle-fn) rl_need "$1" "$#"; LEN_FN="$2"; shift 2 ;;
+		--length-bin) rl_need "$1" "$#"; LEN_BIN="$2"; shift 2 ;;
+		--length-base) rl_need "$1" "$#"; LEN_BASE="$2"; shift 2 ;;
+		--length-cases) rl_need "$1" "$#"; LEN_CASES="$2"; shift 2 ;;
+		--gate-exponent) rl_need "$1" "$#"; GATE_EXPONENT="$2"; shift 2 ;;
+		--gate-slowdown) rl_need "$1" "$#"; GATE_SLOWDOWN="$2"; shift 2 ;;
+		--gate-memory) rl_need "$1" "$#"; GATE_MEMORY="$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-asan-bin) rl_need "$1" "$#"; GATE_ASAN_BIN="$2"; shift 2 ;;
+		--gate-count) rl_need "$1" "$#"; GATE_COUNT="$2"; shift 2 ;;
+		--gate-stdin) rl_need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
-		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
 		*) echo "perf_test.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -197,7 +191,7 @@ case "$LEN_BASE:$LEN_CASES" in
 	*[!0-9:]* | :* | *:) echo "perf_test.sh: --length-base and --length-cases take whole numbers" >&2; exit 2 ;;
 esac
 
-T=$(mktemp -d)
+T=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$T"'
 
 # One measurement: echoes "<wall_ms> <cpu_ms> <rss_kb> <exit> <limit_s>
@@ -210,9 +204,10 @@ rl_traps 'rm -rf "$T"'
 # subshell, so the caller cannot read RL_TMO itself. No time left to start at
 # all is the exit field "start". A run the ceiling stopped (perf_run's
 # "ceiling") used less than its own limit: it is a "timeout" whose limit is
-# the ceiling, clamped -- what was left of the test, as rl_classify reads
-# exit_status's "ceiling Q" -- never "did not finish within 25s
-# (PERF_TIMEOUT)", which it did not use.
+# the ceiling -- clamped (1), what was left of the test, as rl_classify reads
+# exit_status's "ceiling Q"; or, run by hand with no test limit (no
+# RL_DEADLINE), "cap", rl_tmo's ten times PERF_TIMEOUT -- never "did not
+# finish within 25s (PERF_TIMEOUT)", which it did not use.
 measure() {
 	_corpus="$1"; shift
 	if ! rl_tmo "${PERF_TIMEOUT:-25}"; then
@@ -223,8 +218,9 @@ measure() {
 	}
 	echo "$_out" | sed -n \
 		's/^ms=\([0-9]*\) cpums=\([0-9]*\) rss=\([0-9]*\) exit=\([a-z0-9]*\)$/\1 \2 \3 \4/p' |
-		awk -v t="$RL_TMO" -v c="$RL_CLAMPED" -v ceil="${RL_CEIL:-$RL_TMO}" '
-			$4 == "ceiling" { $4 = "timeout"; print $0, ceil, 1; next }
+		awk -v t="$RL_TMO" -v c="$RL_CLAMPED" -v ceil="${RL_CEIL:-$RL_TMO}" \
+			-v why="${RL_DEADLINE:+1}" '
+			$4 == "ceiling" { $4 = "timeout"; print $0, ceil, (why == 1 ? 1 : "cap"); next }
 			{ print $0, t, c }'
 }
 
@@ -250,13 +246,14 @@ not_measured() {
 	exit 0
 }
 
-# limit_note LIMIT CLAMPED -- what the limit a run got was.
+# limit_note LIMIT CLAMPED -- what the limit a run got was: CLAMPED is
+# measure()'s sixth field, 1, "cap" or 0.
 limit_note() {
-	if [ "$2" = 1 ]; then
-		echo "${1}s (what was left of $RL_OVERRUN_MARK, TEST_TIMEOUT=${TEST_TIMEOUT:-?}s)"
-	else
-		echo "${1}s (PERF_TIMEOUT)"
-	fi
+	case "$2" in
+		1) echo "${1}s (what was left of $RL_OVERRUN_MARK, TEST_TIMEOUT=${TEST_TIMEOUT:-?}s)" ;;
+		cap) echo "${1}s (ten times PERF_TIMEOUT: the most wall time a run is given, its waits for a CPU included)" ;;
+		*) echo "${1}s (PERF_TIMEOUT)" ;;
+	esac
 }
 
 # out_of_time WHAT -- no time was left to start WHAT.
@@ -280,6 +277,15 @@ out_of_time() {
 # work itself, and averaging just mixes the clean sample back together with the
 # dirty ones.
 PERF_REPEATS="${PERF_REPEATS:-3}"
+# From the environment, so checked: at 0 measure_best returned nothing and
+# the run died on the shell's "parameter not set". A leading zero is refused
+# too, as the shell's arithmetic would read it as octal.
+case "$PERF_REPEATS" in
+	'' | *[!0-9]* | 0*)
+		echo "perf_test.sh: PERF_REPEATS is how many times each size is measured, a whole" >&2
+		echo "  number from 1 up with no leading zero; it is '$PERF_REPEATS'." >&2
+		exit 2 ;;
+esac
 
 # ...but only while a sample is SHORT. What the repeats guard against is a
 # millisecond-scale sample that one scheduling accident doubled; the cost
@@ -334,10 +340,20 @@ measure_best() {
 #
 # A false SKIP here is cheap in a way it would not be for a correctness layer:
 # this layer is informative, so the worst case is a report arriving one fix
-# later than it could have.
+# later than it could have. That holds for a red fixture and never for a gate
+# that cannot run (the differ's exit 2 or more: a missing program, an EXPECTED
+# that is not there): no fix of the student's opens that one, so it is said
+# and the layer measures, as every runner's gate does (rl_gate).
+#
+# Each stage that ran and passed is remembered (G_OUT, G_DIFF, G_ASAN), and
+# the banner below names those and only those: it called all three green
+# whatever was wired, the sanitizer run included where there was none.
 # ---------------------------------------------------------------------------
 # NO_SKIP=1 forces measurement even while correctness is red (see rust_diff.sh).
 GATES_FORCED=0
+G_OUT=0
+G_DIFF=0
+G_ASAN=0
 
 skip_gate() {
 	if [ "${NO_SKIP:-0}" = "1" ]; then
@@ -355,6 +371,7 @@ skip_gate() {
 	echo "  answer is right and the memory access is safe. There is nothing here"
 	echo "  you could act on yet, so this layer stays quiet and will start"
 	echo "  measuring as soon as that test is green."
+	echo "  ($(rl_noskip_cmd) runs it anyway.)"
 	exit 0
 }
 
@@ -399,10 +416,15 @@ if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
 			$GATE_PASS >/dev/null 2>&1
 	_gate_rc=$?
 	rl_split_off
-	if [ "$_gate_rc" -ne 0 ] && [ -n "$GATE_LABEL" ]; then
-		skip_gate "$GATE_LABEL, the exercise's own output fixture, is not passing yet."
-	elif [ "$_gate_rc" -ne 0 ]; then
-		skip_gate "the exercise's own output fixture is not passing yet."
+	if [ "$_gate_rc" -ge 2 ]; then
+		echo "perf_test: the output gate could not be evaluated (exit $_gate_rc),"
+		echo "  so this layer is running anyway rather than going quiet."
+	elif [ "$_gate_rc" -eq 1 ] && [ -n "$GATE_LABEL" ]; then
+		skip_gate "$GATE_LABEL, the $(rl_noun)'s own output fixture, is not passing yet."
+	elif [ "$_gate_rc" -eq 1 ]; then
+		skip_gate "the $(rl_noun)'s own output fixture is not passing yet."
+	else
+		G_OUT=1
 	fi
 fi
 
@@ -414,25 +436,30 @@ fi
 # and exited non-zero (rust_diff.sh), and the program is that layer's own
 # replay harness, so no subject lets it. This allowed it once (V290), and a
 # toy that echoed its input and exited 3 was announced "all green" here.
-if "$ORACLE" "$FN" "$SEED" "$GATE_COUNT" > "$T/gate_corpus" 2>/dev/null; then
-	if [ -s "$T/gate_corpus" ]; then
-		rl_tmo "${PERF_TIMEOUT:-25}" || out_of_time "the $GATE_COUNT-case correctness sample"
-		rl_run "$STUDENT" < "$T/gate_corpus" > "$T/gate_out" 2>/dev/null
-		rl_classify "$?"
-		if [ "$RL_CAUSE" = timeout ]; then
-			skip_gate "the $GATE_COUNT-case correctness sample did not finish within ${RL_TMO}s."
-		elif [ "$RL_CAUSE" = "exit" ]; then
-			skip_gate "the $GATE_COUNT-case correctness sample $RL_WHY rather than 0, which the differential layer requires too."
-		elif [ "$RL_CAUSE" != ok ]; then
-			skip_gate "the $GATE_COUNT-case correctness sample $RL_WHY."
-		elif ! cmp -s "$T/gate_corpus" "$T/gate_out"; then
-			skip_gate "the differential layer still diverges from the reference."
-		fi
-	fi
+# A sample the reference cannot write is the harness's defect, as at the
+# floor below (skip_corpus): it skipped this stage with nothing said, and the
+# banner called the sample green.
+if ! "$ORACLE" "$FN" "$SEED" "$GATE_COUNT" > "$T/gate_corpus" 2>"$T/oerr" ||
+	! corpus_ok "$T/gate_corpus"; then
+	skip_corpus
+fi
+rl_tmo "${PERF_TIMEOUT:-25}" || out_of_time "the $GATE_COUNT-case correctness sample"
+rl_run "$STUDENT" < "$T/gate_corpus" > "$T/gate_out" 2>/dev/null
+rl_classify "$?"
+if [ "$RL_CAUSE" = timeout ]; then
+	skip_gate "the $GATE_COUNT-case correctness sample did not finish within ${RL_TMO}s."
+elif [ "$RL_CAUSE" = "exit" ]; then
+	skip_gate "the $GATE_COUNT-case correctness sample $RL_WHY rather than 0, which the differential layer requires too."
+elif [ "$RL_CAUSE" != ok ]; then
+	skip_gate "the $GATE_COUNT-case correctness sample $RL_WHY."
+elif ! cmp -s "$T/gate_corpus" "$T/gate_out"; then
+	skip_gate "the differential layer still diverges from the reference."
+else
+	G_DIFF=1
 fi
 
 # --- stage 3: is it memory-safe over that same corpus? ---
-if [ -n "$GATE_ASAN_BIN" ] && [ -s "$T/gate_corpus" ]; then
+if [ -n "$GATE_ASAN_BIN" ]; then
 	rl_tmo "${PERF_TIMEOUT:-25}" || out_of_time "the sanitizer run of the correctness sample"
 	# The sanitizers' options, set once for every runner (rl_sanitizers,
 	# tools/runner_lib.sh), the caller's keys last so they win. No symbolizer:
@@ -443,6 +470,8 @@ if [ -n "$GATE_ASAN_BIN" ] && [ -s "$T/gate_corpus" ]; then
 		rl_run "$GATE_ASAN_BIN" < "$T/gate_corpus" > /dev/null 2>&1
 	); then
 		skip_gate "the ASan/UBSan build reports a memory or UB error, or did not finish."
+	else
+		G_ASAN=1
 	fi
 fi
 
@@ -451,14 +480,9 @@ fi
 # this layer, and past a green one -- or one NO_SKIP=1 forced open -- a
 # stand-in is a failure, told in the compiler's words rather than as a
 # report about a program that does not exist.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "perf_test.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check perf_test "$STUDENT" fail "${LABEL:-the program}"
 # The length harness is built from the same files, so it is a stand-in when
 # they do not build -- and when they do, it is still a binary of its own that
@@ -473,16 +497,34 @@ if [ "$GATES_FORCED" = 1 ]; then
 	echo "  than passed. The numbers below are real measurements of code that does"
 	echo "  not yet do the right thing, which makes them a curiosity and not"
 	echo "  something to act on. Fix the red layer first."
-else
+elif [ "$G_OUT$G_DIFF$G_ASAN" = 111 ]; then
 	echo "  Correctness first: the output fixture, and a $GATE_COUNT-case sample of the"
 	echo "  differential corpus with and without the sanitizers, are all green, so"
 	echo "  cost is now worth looking at."
+else
+	# Only the checks that ran and passed are called green; each of the rest
+	# is named with why it did not run.
+	echo "  Correctness first. Green before anything was measured:"
+	[ "$G_OUT" = 0 ] || echo "    - the output fixture"
+	[ "$G_DIFF" = 0 ] || echo "    - a $GATE_COUNT-case sample of the differential corpus"
+	[ "$G_ASAN" = 0 ] || echo "    - that sample under the sanitizers"
+	echo "  Not checked by this layer:"
+	if [ "$G_OUT" = 1 ]; then :
+	elif [ -n "$GATE_DIFFER" ]; then
+		echo "    - the output fixture (its gate could not be evaluated, above)"
+	else
+		echo "    - the output fixture (no output gate is wired to this layer)"
+	fi
+	[ "$G_DIFF" = 1 ] || echo "    - the differential corpus"
+	[ "$G_ASAN" = 1 ] || echo "    - the sanitizers (no sanitizer build is wired to this layer)"
+	echo "  What is measured below is known to be right only as far as the first"
+	echo "  list goes."
 fi
 echo ""
 echo "  NOTE: this layer REPORTS cost so you can think about it. Its own lines,"
 echo "        at the complete level, are three: time over the case count growing"
 echo "        at n^$GATE_EXPONENT or steeper (measured twice); and, against the reference,"
-echo "        ${GATE_SLOWDOWN}x its time or ${GATE_MEMORY}x its peak memory. Beyond those, it"
+echo "        ${GATE_SLOWDOWN}x its CPU time or ${GATE_MEMORY}x its peak memory. Beyond those, it"
 echo "        fails only on a measured run that crashes or exits non-zero. Being"
 echo "        several times slower than a reference is fine, and a run too slow"
 echo "        to finish is reported."
@@ -696,9 +738,10 @@ else
 	# short, so this is how the cost of many calls adds up -- not how one call
 	# grows with a longer input: a cubic sort over arrays of a dozen ints is
 	# linear in how many arrays it is handed (finding 044). The longest line
-	# is printed so the reader knows how small "small" is.
+	# is printed so the reader knows how small "small" is, in bytes: under
+	# LC_ALL=C, since gawk's length() counts characters under the test locale.
 	echo "                 n is the number of CASES, each one call on one input"
-	echo "                 (the longest is $(awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }' "$T/corpus.$N3") bytes of corpus line). It is not how one"
+	echo "                 (the longest is $(LC_ALL=C awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }' "$T/corpus.$N3") bytes of corpus line). It is not how one"
 	echo "                 call grows with a longer input$(if [ -n "$LEN_FN" ]; then echo ": the length series"; else echo "."; fi)"
 	[ -z "$LEN_FN" ] || echo "                 below measures that."
 	if [ "$MONOTONE" = 0 ]; then
@@ -731,17 +774,22 @@ else
 		echo "  n^$EXPONENT is over the gate ($GATE_EXPONENT). Measuring again before"
 		echo "  calling it a failure — a verdict this expensive should not rest on"
 		echo "  one reading of a shared machine."
-		# Each judged as the first reading's were (ended): a run that
-		# crashed or exited non-zero now is no sample either.
-		# shellcheck disable=SC2046
-		set -- $(measure_best "$T/corpus.$N1" "$STUDENT")
-		ended "$N1 cases" "$4" "$STUDENT"; R0=$2
-		# shellcheck disable=SC2046
-		set -- $(measure_best "$T/corpus.$N2" "$STUDENT")
-		ended "$N2 cases" "$4" "$STUDENT"; R1=$2
-		# shellcheck disable=SC2046
-		set -- $(measure_best "$T/corpus.$N3" "$STUDENT")
-		ended "$N3 cases" "$4" "$STUDENT"; R2=$2
+		# Each judged as the first reading's were (measure_sizes): a run
+		# that crashed or exited non-zero now is no sample either, and
+		# neither is one its limit stopped or that had no time to start.
+		# Their CPU time, cut short or 0, was fitted, and growth over the
+		# gate read "did not reproduce" here, under NO_SKIP=1 too.
+		i=0
+		for n in $N1 $N2 $N3; do
+			# shellcheck disable=SC2046
+			set -- $(measure_best "$T/corpus.$n" "$STUDENT")
+			[ "$4" != start ] || out_of_time "the second reading's $n-case run"
+			[ "$4" != timeout ] ||
+				not_measured "the second reading's $n-case run did not finish within $(limit_note "$5" "$6"), so the growth over the gate was not measured again."
+			ended "$n cases" "$4" "$STUDENT"
+			eval "R$i=\$2"
+			i=$((i + 1))
+		done
 		EXPONENT2=$(fit_exponent "$R0" "$R1" "$R2")
 		echo "  second reading: ${R0}ms, ${R1}ms, ${R2}ms of CPU — n^$EXPONENT2"
 		if [ "$EXPONENT2" != "na" ] && is_monotone "$R0" "$R1" "$R2" &&
@@ -931,34 +979,47 @@ if [ "$4" = start ]; then
 	echo "                 figures above stand on their own."
 	exit $RC
 fi
+# One its limit stopped is no baseline either: its time is the limit's and
+# its peak memory the moment it was stopped, and both were divided and
+# gated on.
+if [ "$4" = timeout ]; then
+	echo ""
+	echo "  reference    : not timed — it did not finish within $(limit_note "$5" "$6")."
+	echo "                 The scaling figures above stand on their own."
+	exit $RC
+fi
 # The reference is ours: a run of it that did not end normally is no
 # baseline, and a ratio over it would be a number about our wiring (V286).
 case "$4" in
-	0 | timeout) ;;
+	0) ;;
 	*)
 		echo "perf_test.sh: the reference's run over $N3 cases ended with '$4', so there" >&2
 		echo "  is no baseline to compare with: $REF_SAID" >&2
 		exit 2 ;;
 esac
-BMS=$1; BRSS=$3
+# The ratio is of CPU time, the clock the exponent is fitted on (perf_run.c,
+# BOTH clocks): wall time also counts every moment a run waited for a core,
+# so a correct program a busy machine delayed was gated as slower than a
+# reference that ran on a quiet one. Wall time is shown, never divided.
+BMS=$1; BCPU=$2; BRSS=$3
 echo ""
-printf '  reference    : %s ms, %s KiB peak\n' "$BMS" "$BRSS"
+printf '  reference    : %s ms (%s ms of CPU), %s KiB peak\n' "$BMS" "$BCPU" "$BRSS"
 
 # Dividing by a near-zero baseline produces a number that means nothing. Below
 # this floor the timer's own resolution and process startup dominate what the
 # reference actually did, so say that rather than print a ratio (or a bare "na",
 # which reads like a bug and was how this surfaced).
-if [ "${BMS:-0}" -lt "${PERF_MIN_BASELINE_MS:-20}" ]; then
-	echo "                 too fast to time at this size — the reference finishes in"
-	echo "                 under ${PERF_MIN_BASELINE_MS:-20}ms, where process startup and timer"
+if [ "${BCPU:-0}" -lt "${PERF_MIN_BASELINE_MS:-20}" ]; then
+	echo "                 too fast to time at this size — the reference spends"
+	echo "                 under ${PERF_MIN_BASELINE_MS:-20}ms of CPU, where process startup and timer"
 	echo "                 resolution dominate. No ratio is reported, because dividing"
 	echo "                 by that number would not mean anything. The scaling figures"
 	echo "                 above are unaffected."
 	exit $RC
 fi
-SLOW=$(awk -v s="$MS2" -v b="$BMS" 'BEGIN { if (b <= 0) print "na"; else printf "%.1f", s / b }')
+SLOW=$(awk -v s="$CPU2" -v b="$BCPU" 'BEGIN { if (b <= 0) print "na"; else printf "%.1f", s / b }')
 MEM=$(awk -v s="$RSS2" -v b="$BRSS" 'BEGIN { if (b <= 0) print "na"; else printf "%.1f", s / b }')
-echo "  vs reference : ${SLOW}x time, ${MEM}x peak memory"
+echo "  vs reference : ${SLOW}x CPU time, ${MEM}x peak memory"
 # Both timings include their harness: reading the corpus, splitting fields,
 # hex-decoding — and on the student's side, PRINTING the result, which the
 # reference deliberately does not do. Measured, those overheads dominate: a
@@ -967,6 +1028,10 @@ echo "  vs reference : ${SLOW}x time, ${MEM}x peak memory"
 # because it writes and the reference does not. Neither number says anything
 # about the function. Only a gap far larger than any harness difference could
 # explain is worth acting on, so that is the only band this interprets.
+# Those figures were wall time; re-read on CPU time (2026-11-04, quiet and
+# with every core twice oversubscribed), each stand-in landed in the same
+# band on both clocks: writing to /dev/null is system time, which CPU time
+# counts.
 awk -v s="$SLOW" 'BEGIN {
 	if (s == "na") exit
 	if (s < 20) {

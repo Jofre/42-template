@@ -13,6 +13,10 @@
 # libbfd, libctf and libopcodes, named as bare sonames with no RUNPATH. So the
 # fetched libraries go on the loader's path here, for the same reason clang.sh
 # does it for clang.
+#
+# conventions: no-require -- runs at each call of a pinned binutils tool,
+# and without dirname the line below cannot open pinned.sh and the shell
+# stops at once: a probe on every run would buy nothing.
 set -u
 . "$(dirname "$0")/pinned.sh"
 [ $# -ge 1 ] || { echo "binutils.sh: which tool?" >&2; exit 2; }

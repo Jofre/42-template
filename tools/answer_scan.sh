@@ -3,15 +3,18 @@
 #
 # From the repo root, on a tree WITH answers:
 #   sh tools/answer_scan.sh
-# The file names the subject contract on standard input declares:
-#   sh tools/answer_scan.sh --declared < BUILD.bazel
+# The file names the subject contracts of BUILD files declare (one BUILD
+# file on standard input when none is named):
+#   sh tools/answer_scan.sh --declared [BUILD...]
 # The checkout this file lives in, which is how the maintainer's test
 # //tools/tests:answer_scan runs it (below):
 #   answer_scan.sh --worktree
 #
 # --declared is the one reader of those lists: the template build's last
-# check pipes the INDEX's BUILD files through it, so the two gates cannot
-# disagree about which names the subject gives.
+# check hands it the INDEX's BUILD files, so the two gates cannot disagree
+# about which names the subject gives. It reads a contract through
+# tools/units.awk, found beside it: the one reader of a contract's text
+# outside Bazel.
 #
 # AGENTS.md §0: answers live under deliverable/ and generators/, and nowhere
 # else -- not in a test, a fixture, a clue, a diagnostic script or a doc. The
@@ -73,7 +76,9 @@
 #          to the student. A name is not reported when the SUBJECT gives it --
 #          it appears in a module's tests/ code or data (a test, a fixture, an
 #          expected output, a prototype.h), or is a `_`-bounded part of a name
-#          there, or the subject contract declares it, or it is a path the
+#          there, or the subject contract declares it (a library's
+#          <function>.c included, where one of its file patterns, Libft's
+#          ft_*.c, takes it), or it is a path the
 #          contract's `provided` puts the grader's files at -- nor when a STUB
 #          keeps it:
 #          an include guard, anything in a file stub_check.sh accepts as it
@@ -105,8 +110,8 @@
 # and not yet staged, or a throwaway tree holding other answers -- is no such
 # file: its answer is in the index, and is read from there (and said so).
 #
-# Maintainer-only files are not scanned: TODO.md and HISTORY.md never leave the
-# private repo.
+# Maintainer-only files are not scanned: TODO.md, the folder todo/ beside it
+# and HISTORY.md never leave the private repo.
 #
 # WHERE IT RUNS. The template build ran it, and nothing else did: an
 # answer's identifiers copied out of the zone on main, in nine places, once,
@@ -132,7 +137,7 @@ require() {
 		exit 2
 	done
 }
-require awk cat dirname find git grep mkdir mktemp mv readlink rm sed sort tr wc
+require awk cat dirname find git grep mkdir mktemp mv readlink rm sed setsid sort tr wc
 
 # A test's scratch files go under TEST_TMPDIR, which Bazel empties, and not
 # in the machine's /tmp, the TMPDIR Bazel sets when the shell that ran it set
@@ -143,20 +148,26 @@ MODE=scan
 FROM_SELF=0
 case "${1:-}" in
 	"") ;;
-	--declared) MODE=declared ;;
+	--declared) MODE=declared; shift ;;
 	--worktree) FROM_SELF=1 ;;
 	*) echo "answer_scan.sh: unknown argument '$1' (--declared, or --worktree)" >&2; exit 2 ;;
 esac
 
-# The bare file names a project's subject contract declares: the `files` and
-# `optional` lists of every exercise() entry in its subject() call
-# (tools/subject.bzl) -- and, for a BUILD file older than the contract, the
-# `required` and `optional` lists of a c_files() call. A string with a slash
-# or a wildcard is a path or a glob's argument, not a name.
-CFILES='
+# The bare file names a project's subject contract declares: each unit's
+# `files` and `optional` lists, as tools/units.awk reads them (its file
+# rows). A string with a slash or a wildcard is a path or a glob's argument,
+# not a name.
+#
+# C_FILES_CALL reads the `required` and `optional` lists of a c_files()
+# call, which BUILD files held before the contract and c_files() takes no
+# longer (tools/defs_files.bzl). Only --declared reads with it, for one case:
+# verifying a template index from before subject(). A scan never meets such
+# a file -- it reads the BUILD files of its own tree, which Bazel would refuse
+# with one -- so it reads the contract alone.
+C_FILES_CALL='
 { sub(/#.*/, "") }
-!inc && /(^|[^A-Za-z_0-9])(c_files|exercise)[ \t]*\(/ {
-	inc = 1; depth = 0; s = $0; sub(/.*(c_files|exercise)[ \t]*/, "", s)
+!inc && /(^|[^A-Za-z_0-9])c_files[ \t]*\(/ {
+	inc = 1; depth = 0; s = $0; sub(/.*c_files[ \t]*/, "", s)
 }
 inc {
 	if (s == "") s = $0
@@ -168,7 +179,7 @@ inc {
 		}
 		if (match(s, /^[A-Za-z_][A-Za-z_0-9]*/)) {
 			w = substr(s, 1, RLENGTH); s = substr(s, RLENGTH + 1)
-			if (depth == 1 && ld == 0) want = (w == "required" || w == "optional" || w == "files")
+			if (depth == 1 && ld == 0) want = (w == "required" || w == "optional")
 			continue
 		}
 		c = substr(s, 1, 1); s = substr(s, 2)
@@ -180,9 +191,58 @@ inc {
 	}
 	s = ""
 }'
+# tools/units.awk: beside this script first (the template build runs
+# SOURCE's copies of both from one folder, and the selftest runs this from
+# the runfiles' tools/), then the workspace's, once WS is known (below).
+UNITS_AWK="$(CDPATH='' cd "$(dirname "$0")" && pwd)/units.awk"
+# contract_files BUILD LIST... -- the strings of those lists of BUILD's
+# subject() contract (files, optional; provided: its destinations), one a
+# line, as tools/units.awk reads them. Nothing for a file with no contract.
+# False, with units.awk's own words on stderr, for one it cannot read.
+# A files or optional list it reads only in part (joined with + to a name
+# or a call it does not follow, as one rush's is) gives the names it did
+# read, and true, with a line on stderr naming the BUILD file, the unit and
+# the list: a name only the unread part gives is then not given, so a
+# mention of it outside the zone is reported as an answer's, and the line
+# says why. Refusing it instead would end every scan at that rush. A
+# provided dict read in part is dropped without a word (Reloaded's PUTCHAR,
+# in the scan below).
+contract_files() {
+	_cf_rows=$(LC_ALL=C awk -v rows=files -f "$UNITS_AWK" "$1")
+	case $? in
+		0 | 1) ;;
+		*)
+			echo "answer_scan.sh: tools/units.awk cannot read the subject() contract of $1 (above)" >&2
+			return 2 ;;
+	esac
+	_cf_b=$1
+	shift
+	printf '%s\n' "$_cf_rows" | awk -F'\t' -v lists=" $* " -v b="$_cf_b" '
+		!index(lists, " " $2 " ") { next }
+		$3 != "" { print $3; next }
+		$2 != "provided" {
+			printf "answer_scan.sh: %s: %s\047s %s is read in part (tools/units.awk): a name only its unread part gives is not given\n", b, $1, $2 > "/dev/stderr"
+		}'
+}
 if [ "$MODE" = declared ]; then
-	awk "$CFILES"
-	exit
+	[ -f "$UNITS_AWK" ] || {
+		echo "answer_scan.sh: --declared: no units.awk beside this script, the reader of a subject() contract" >&2
+		exit 2
+	}
+	# One BUILD file on standard input, as `--declared < BUILD.bazel`.
+	if [ $# -eq 0 ]; then
+		_dt=$(mktemp) || exit 2
+		cat > "$_dt"
+		set -- "$_dt"
+	fi
+	_drc=0
+	for _db in "$@"; do
+		_dn=$(contract_files "$_db" files optional) || _drc=2
+		printf '%s\n' "$_dn" | awk '$0 != "" && !/[\/*]/'
+		awk "$C_FILES_CALL" < "$_db"
+	done
+	[ -z "${_dt:-}" ] || rm -f "$_dt"
+	exit "$_drc"
 fi
 
 if [ "$FROM_SELF" = 1 ]; then
@@ -204,7 +264,7 @@ if [ "$FROM_SELF" = 1 ]; then
 		exit 2
 	}
 else
-	WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+	WS="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
 fi
 
 # stub_check.sh is the authority on what a stub keeps, so the names class asks
@@ -212,7 +272,7 @@ fi
 # the selftest runs this on a fixture repo that has no tools/. Then the
 # workspace's: `bazel run` starts this from bazel-bin/tools/, and stub_check.sh
 # is not there.
-STUB_CHECK="$(cd "$(dirname "$0")" && pwd)/stub_check.sh"
+STUB_CHECK="$(CDPATH='' cd "$(dirname "$0")" && pwd)/stub_check.sh"
 [ -f "$STUB_CHECK" ] || STUB_CHECK="$WS/tools/stub_check.sh"
 [ -f "$STUB_CHECK" ] || {
 	echo "answer_scan.sh: no stub_check.sh beside this script or in $WS/tools -- it decides what a stub keeps" >&2
@@ -223,6 +283,14 @@ STUB_CHECK="$(cd "$(dirname "$0")" && pwd)/stub_check.sh"
 # copy as well as from here.
 case "$STUB_CHECK" in /*) ;; *) STUB_CHECK=$(pwd)/$STUB_CHECK ;; esac
 
+# tools/units.awk, as stub_check.sh is found: beside this script (above),
+# then the workspace's. After stub_check.sh, whose refusal names it first.
+[ -f "$UNITS_AWK" ] || UNITS_AWK="$WS/tools/units.awk"
+[ -f "$UNITS_AWK" ] || {
+	echo "answer_scan.sh: no units.awk beside this script or in $WS/tools -- it reads the subject contracts" >&2
+	exit 2
+}
+
 cd "$WS" || exit 2
 
 # Names the harness's own prose uses as plain examples, one per line with the
@@ -232,10 +300,27 @@ COMMON_NAMES='
 is_whitespace symbols_test.sh names it as the stock example of a helper that must be static
 '
 
-TMP=$(mktemp -d)
+TMP=$(mktemp -d) || exit 2
+# A signal that stops the scan while a generator of the tree runs (a test's
+# limit, the template build's bound on the scan, a ^C) ends that generator
+# and every process it started, and names it (below, where the generators
+# run). Each runs in a session of its own, so its pid is its process
+# group's, and the group is killed whole: killing the generator's shell
+# alone left the child it waited on running after the scan was gone. Its
+# pid too, for a generator stopped before it left this group.
+_as_gen=""
+_as_pid=""
+as_stop() {  # as_stop STATUS -- stopped by a signal: end the running generator's group, name it, exit STATUS
+	if [ -n "$_as_pid" ]; then
+		kill -s KILL -- "-$_as_pid" "$_as_pid" 2> /dev/null
+		echo "answer_scan.sh: stopped while $_as_gen ran; the scan did not finish" >&2
+	fi
+	exit "$1"
+}
 trap 'rm -rf "$TMP"' EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
+trap 'as_stop 143' TERM
+trap 'as_stop 130' INT
+trap 'as_stop 129' HUP
 
 # ------------------------------------------------------------------ answers
 : > "$TMP/shell"   # normalized line <TAB> source
@@ -350,6 +435,36 @@ CKEEP='function ckeep(r) {
 # by both sides.
 NORM='{ l = $0; gsub(/["'"'"']/, "", l); gsub(/\$\{?[A-Za-z_][A-Za-z_0-9]*\}?/, "$V", l); gsub(/[ \t]+/, " ", l); sub(/^ /, "", l); sub(/ $/, "", l) }'
 
+# A C line with its comments dropped and its literals emptied, as awk: code(s)
+# reads it character by character, keeping in st whether a block comment or a
+# literal is still open, so a /* that sits in a string, a '}' char literal or a
+# comment over several lines is told apart from code. A regex pass cannot tell
+# them apart. Shared by the C-run reader and CDEFS (below); st starts empty in
+# each file.
+CLEX='
+function code(s,   out, i, c, n) {
+	out = ""; n = length(s)
+	for (i = 1; i <= n; i++) {
+		c = substr(s, i, 1)
+		if (st == "/*") {
+			if (c == "*" && substr(s, i + 1, 1) == "/") { st = ""; i++ }
+			continue
+		}
+		if (st != "") {
+			if (c == "\\") i++
+			else if (c == st) { out = out c; st = "" }
+			continue
+		}
+		if (c == "/" && substr(s, i + 1, 1) == "*") { st = "/*"; i++; out = out " "; continue }
+		if (c == "/" && substr(s, i + 1, 1) == "/") break
+		if (c == "\"" || c == "\047") st = c
+		out = out c
+	}
+	if (st != "/*") st = ""
+	return out
+}
+'
+
 while IFS= read -r g; do
 	zat "$g"
 	awk -v src="$g" "$NORM"'
@@ -357,11 +472,31 @@ while IFS= read -r g; do
 		{ print l "\t" src }' < "$_zat" >> "$TMP/shell" || unread "$g"
 	# What the generator writes is the turn-in itself. Run it in a scratch
 	# directory; a generator that needs a fixture it cannot find just produces
-	# less, which is fine -- its own lines were read above.
+	# less, which is fine -- its own lines were read above. It is the tree's
+	# own code, and one that never ended hung the scan with nothing naming
+	# it. This file is a test's runner, so it sets no limit of its own
+	# (tools/conventions.sh, "Student code runs under the time budget"): the
+	# test's limit stops it there, and the template build bounds the whole
+	# scan where it runs it. The generator runs in the background of a
+	# `wait`, which a signal interrupts, so whatever stops the scan ends that
+	# generator too and names it (as_stop): a test runner may forward its
+	# TERM to this process alone. It runs in a session of its own (setsid),
+	# whose process group as_stop kills whole, the children it waits on
+	# included. setsid and not `set -m`: dash turns job control off where no
+	# terminal is, as under a test. So a signal sent to the scan's group
+	# reaches the generator only through as_stop, and a KILL to the scan,
+	# which no trap sees, leaves it running. setsid forks only for a group's
+	# leader, which a job of this shell, with no job control, never is; -w
+	# keeps the wait whole even then. The cd is in the sh it starts, so
+	# setsid, sh and the generator are one pid, the one $! holds.
 	d="$TMP/run"; rm -rf "$d"; mkdir -p "$d"
 	case "$_zat" in /*) _zg=$_zat ;; *) _zg=$WS/$_zat ;; esac
+	_as_gen=$g
 	# conventions: harness tool -- no test's input: a generator of the tree under scan, run once in a scratch folder only to read what it writes
-	( cd "$d" && sh "$_zg" ) > /dev/null 2>&1 < /dev/null
+	setsid -w sh -c 'cd "$1" && exec sh "$2"' answer_scan.sh "$d" "$_zg" > /dev/null 2>&1 < /dev/null &
+	_as_pid=$!
+	wait "$_as_pid"
+	_as_pid=""
 	find "$d" -type f 2> /dev/null | while IFS= read -r f; do
 		grep -Iq . "$f" 2> /dev/null || continue
 		awk -v src="$g (its output)" "$NORM"'
@@ -380,15 +515,12 @@ done < "$TMP/dsh"
 
 while IFS= read -r c; do
 	zat "$c"
-	awk -v src="$c" "$CKEEP"'
+	awk -v src="$c" "$CKEEP$CLEX"'
 		# Body lines only: depth >= 1 before the line is read. Comments and
-		# string contents do not move the depth.
+		# literals do not move the depth: braces are counted on code(raw).
 		{
 			raw = $0
-			line = raw
-			gsub(/"[^"]*"/, "\"\"", line)
-			sub(/\/\/.*$/, "", line)
-			gsub(/\/\*[^*]*\*\//, "", line)
+			line = code(raw)
 			if (depth >= 1) {
 				l = raw
 				gsub(/[ \t]+/, " ", l); sub(/^ /, "", l); sub(/ $/, "", l)
@@ -441,32 +573,13 @@ sort -u -o "$TMP/defs" "$TMP/defs"
 
 # ------------------------------------------------------------------ names
 # What a C file defines, as kind <TAB> name <TAB> file. Comments are dropped and
-# literals emptied first, character by character: a regex pass cannot tell a
-# `/*` that opens a comment from one inside a string, and a macro whose value
-# holds one hid every definition after it. An include guard is not reported,
+# literals emptied first, character by character (code(), in CLEX above): a
+# regex pass cannot tell a `/*` that opens a comment from one inside a string,
+# and a macro whose value holds one hid every definition after it. The C-run
+# reader had the same blind spot, a '}' char literal ending every later body's
+# comparison. An include guard is not reported,
 # because every stub keeps it.
-CDEFS='
-function code(s,   out, i, c, n) {
-	out = ""; n = length(s)
-	for (i = 1; i <= n; i++) {
-		c = substr(s, i, 1)
-		if (st == "/*") {
-			if (c == "*" && substr(s, i + 1, 1) == "/") { st = ""; i++ }
-			continue
-		}
-		if (st != "") {
-			if (c == "\\") i++
-			else if (c == st) { out = out c; st = "" }
-			continue
-		}
-		if (c == "/" && substr(s, i + 1, 1) == "*") { st = "/*"; i++; out = out " "; continue }
-		if (c == "/" && substr(s, i + 1, 1) == "/") break
-		if (c == "\"" || c == "\047") st = c
-		out = out c
-	}
-	if (st != "/*") st = ""
-	return out
-}
+CDEFS="$CLEX"'
 # A name reserved to the implementation -- a _ and then an uppercase letter or
 # another _: _GNU_SOURCE, _DEFAULT_SOURCE, __attribute__ -- belongs to the C
 # library and the compiler, so it says nothing of whose answer defined it, and
@@ -536,9 +649,12 @@ zone_list "$TMP/zone" '*/deliverable/*'
 while IFS= read -r f; do
 	# A file stub_check accepts as it stands ships as it stands; one it could
 	# not read (exit 2) is one nothing here has read either. Exit 2 is also a
-	# file it read and refused, empty or with no 42 header, so its own words
-	# go out with the refusal: "could not be read" over a file read whole sent
-	# the reader looking for a permission problem.
+	# file it read and refused, empty, with no 42 header, or with one whose
+	# border ends in a carriage return, so its own words go out with the
+	# refusal: "could not be read" over a file read whole sent the reader
+	# looking for a permission problem. A CRLF stub was exit 1 until
+	# stub_check read lines without their \r, and was scanned as an answer;
+	# it ends the run now, as every file the template build would refuse does.
 	case "$f" in
 		*.c|*.h)
 			_sc=0
@@ -600,13 +716,17 @@ SPLIT='{
 		}
 	}
 }'
-git ls-files -z -- '*/tests/*' ':(exclude)tools/*' > "$TMP/tests.z"
-tr '\0' '\n' < "$TMP/tests.z" | while IFS= read -r t; do
+# Both listings through zone_list, as every other here: neither status was
+# read, and a git that failed there left the names a subject gives unknown,
+# so the scan went on and called the tree clean.
+zone_list "$TMP/tests" '*/tests/*' ':(exclude)tools/*'
+while IFS= read -r t; do
 	case "${t##*/}" in *clues*|*.md) continue ;; esac
 	[ -f "$t" ] && awk "$SPLIT" < "$t" 2> /dev/null
-done > "$TMP/given"
-git ls-files -z -- '*BUILD.bazel' '*/BUILD' 'BUILD' | tr '\0' '\n' | while IFS= read -r b; do
-	awk "$CFILES" < "$b"
+done < "$TMP/tests" > "$TMP/given"
+zone_list "$TMP/builds" '*BUILD.bazel' '*/BUILD' 'BUILD'
+while IFS= read -r b; do
+	{ contract_files "$b" files optional || : > "$TMP/unread"; } | awk '!/[\/*]/'
 	awk '{ sub(/#.*/, "") }
 		{
 			while (match($0, /artifact[ \t]*=[ \t]*"[^"]*"/)) {
@@ -614,21 +734,47 @@ git ls-files -z -- '*BUILD.bazel' '*/BUILD' 'BUILD' | tr '\0' '\n' | while IFS= 
 				sub(/^[^"]*"/, "", m); sub(/"$/, "", m); print m
 			}
 		}' < "$b"
-	# Where an exercise() entry's `provided` puts the grader's files: each
-	# entry's destination, the path the subject gives them ("srcs/ft_strcmp.c").
-	# A dict a BUILD file names once and passes by name (Reloaded's PUTCHAR)
-	# is not read; its files are under tests/, whose contents are given.
-	awk '{ sub(/#.*/, "") }
-		!ino && /provided[ \t]*=[ \t]*\{/ { ino = 1; sub(/.*provided[ \t]*=[ \t]*\{/, "") }
-		ino {
-			l = $0
-			while (match(l, /"[^"]*"[ \t]*:[ \t]*"[^"]*"/)) {
-				m = substr(l, RSTART, RLENGTH); l = substr(l, RSTART + RLENGTH)
-				sub(/.*:[ \t]*"/, "", m); sub(/"$/, "", m); print m
+	# Where a unit's `provided` puts the grader's files: each entry's
+	# destination, the path the subject gives them ("srcs/ft_strcmp.c"), as
+	# tools/units.awk reads them. It reads no string from a dict a BUILD file
+	# names once and passes by name (Reloaded's PUTCHAR); its files are under
+	# tests/, whose contents are given. A contract it cannot read was said
+	# by the call above.
+	contract_files "$b" provided 2> /dev/null || : > "$TMP/unread"
+	# A library's file for each function its contract names, where one of
+	# its file patterns takes it: Libft's "ft_*.c" with ft_strnstr among its
+	# functions gives ft_strnstr.c, a name the subject fixes, not the answer.
+	# Without this, a name the harness's prose rightly uses was a hit as soon
+	# as the student's own ft_strnstr.c stopped being a stub.
+	_pats=$(contract_files "$b" files optional 2> /dev/null | awk '/[*]/ && !/\//')
+	# A pattern is matched as a glob of * and ? (awk, so the shell never
+	# expands it against the files where the scan runs).
+	[ -z "$_pats" ] || LC_ALL=C awk -f "$UNITS_AWK" "$b" 2> /dev/null |
+		LC_ALL=C awk -F'\t' -v pats="$_pats" '
+			BEGIN {
+				n = split(pats, P, "\n")
+				for (i = 1; i <= n; i++) {
+					r = ""
+					for (j = 1; j <= length(P[i]); j++) {
+						c = substr(P[i], j, 1)
+						if (c == "*") r = r ".*"
+						else if (c == "?") r = r "."
+						else if (c ~ /[A-Za-z0-9_-]/) r = r c
+						else r = r "[" c "]"
+					}
+					R[i] = "^" r "$"
+				}
 			}
-			if (l ~ /\}/) ino = 0
-		}' < "$b"
-done | awk "$SPLIT" >> "$TMP/given"
+			$2 == "function" {
+				for (i = 1; i <= n; i++)
+					if (($1 ".c") ~ R[i]) { print $1 ".c"; break }
+			}'
+
+done < "$TMP/builds" | awk "$SPLIT" >> "$TMP/given"
+if [ -e "$TMP/unread" ]; then
+	echo "answer_scan.sh: a subject() contract could not be read (above), so the names the subjects give are unknown -- nothing was scanned" >&2
+	exit 2
+fi
 printf '%s\n' "$COMMON_NAMES" | awk 'NF { print $1 }' >> "$TMP/given"
 sort -u -o "$TMP/given" "$TMP/given"
 
@@ -676,13 +822,19 @@ if [ ! -s "$TMP/shell" ] && [ ! -s "$TMP/c" ] && [ ! -s "$TMP/defs" ]; then
 fi
 
 # ------------------------------------------------------------------ targets
-git ls-files -z -- . \
+# Through zone_list, which refuses a git that failed: a listing it never
+# checked left the loop nothing to read, and that was called clean. And a
+# scan that read no file at all searched nothing, so it says so (exit 2),
+# never OK.
+zone_list "$TMP/targets" . \
 	':(exclude)*/deliverable/*' ':(exclude)*/generators/*' \
-	':(exclude)TODO.md' ':(exclude)HISTORY.md' > "$TMP/targets.z"
+	':(exclude)TODO.md' ':(exclude)todo/' ':(exclude)HISTORY.md'
 
-tr '\0' '\n' < "$TMP/targets.z" | while IFS= read -r t; do
+_nread=0
+while IFS= read -r t; do
 	[ -f "$t" ] || continue
 	grep -Iq . -- "$t" 2> /dev/null || continue
+	_nread=$((_nread + 1))
 	# By redirection, as every read here: an operand shaped like an awk
 	# assignment (a root file named `x=y.txt`) is taken for one, and awk then
 	# reads its standard input -- this loop's list of files, which it would
@@ -732,7 +884,11 @@ tr '\0' '\n' < "$TMP/targets.z" | while IFS= read -r t; do
 				}
 			}
 		}' < "$t"
-done > "$TMP/hits"
+done < "$TMP/targets" > "$TMP/hits"
+if [ "$_nread" -eq 0 ]; then
+	echo "answer_scan.sh: no file outside the zone was read, so nothing was searched." >&2
+	exit 2
+fi
 
 if [ -s "$TMP/hits" ]; then
 	cat "$TMP/hits"

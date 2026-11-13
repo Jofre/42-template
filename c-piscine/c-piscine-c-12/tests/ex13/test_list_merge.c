@@ -1,6 +1,8 @@
 #include "ft_list.h"
 #include <stdio.h>
 
+void	ft_list_merge(t_list **begin_list1, t_list *begin_list2);
+
 static t_list	*build(t_list *nodes, char **data, int n)
 {
 	int	i;

@@ -157,7 +157,7 @@ c_program(
         # directory is not here: every file given is valid, so a directory is
         # outside this subject at every level. Both cases make one run, so
         # both say it is no error, and its status gets one robust twin,
-        # ex00_empty_exit (_emit_cases, ONE TWIN PER RUN).
+        # ex00_empty_exit (_exit_twin, ONE TWIN PER RUN).
         {
             "name": "empty",
             "invalid_input": False,
@@ -1005,8 +1005,6 @@ C10_GATES = {
             ":ex%s_bin" % num,
             "//oracle:oracle",
             "//tools:file_check.sh",
-            "//tools:exit_status",
-            "//tools:runner_lib.sh",
         ] + C10_GATES[num][1],
     )
     for num, fn, count, extra, _gate in C10_FILE_CORPORA

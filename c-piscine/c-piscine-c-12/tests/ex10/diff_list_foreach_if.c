@@ -96,8 +96,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		tab = dio_csv_ints(f[0], &n);
 		ref = (int)strtol(f[1], NULL, 10);
 		begin = build_int(tab, n);

@@ -1,17 +1,22 @@
 //! c-04 references: putnbr, atoi, putnbr_base, atoi_base.
 //!
+//! ex02's ft_putnbr is C 00 ex07's function, so it has one corpus, C 00's
+//! c00_putnbr (common.rs's int corpus), and no arm here: o_putnbr below is
+//! the one reference for an int's decimal text, which that arm prints.
+//!
 //! Line formats (see oracle/README.md):
-//!   c04_putnbr       <n>\t<printed-decimal>            (printed bytes, RAW ASCII)
-//!   c04_atoi         <hexstr>\t<int>                    (libc-atoi cross-checkable)
+//!   c04_atoi         <hexstr>\t<int>                    (the subject's sign run: no libc cross-check)
 //!   c04_putnbr_base  <n>\t<hexbase>\t<printed-bytes>   (printed bytes, RAW, no tab/newline)
 //!   c04_atoi_base    <hexstr>\t<hexbase>\t<int>
 //!   c04_putnbr_base_readings, c04_atoi_base_readings  (the same)
 //!
 //! Encoding rules honoured: byte-strings as lowercase hex, ints as decimal.
-//! putnbr / putnbr_base emit their PRINTED output raw because it holds no NUL,
-//! tab or newline by construction (a base never holds whitespace), so the raw
-//! bytes never disturb the line structure and the reader harness — which lets
-//! the student's function write() directly — matches byte-for-byte.
+//! putnbr_base emits its PRINTED output raw because it holds no NUL, tab or
+//! newline by construction (no base these corpora draw holds whitespace,
+//! which ex04's list of invalid bases does not name: see base_valid_display
+//! and safe_pool), so the raw bytes never disturb the line structure and the
+//! reader harness — which lets the student's function write() directly —
+//! matches byte-for-byte.
 //!
 //! BASE SYMBOLS ABOVE 0x7f, AND CONTROL BYTES, ARE VALID (finding 061). C 04's
 //! lists of invalid bases (p.12, p.14) are headed "examples", so basic asserts
@@ -32,19 +37,17 @@
 //! agrees on, bytes above 0x7f among them where they decide nothing: in a
 //! base invalid by a rule the lists state, or in a string ft_atoi_base reads.
 
-use crate::common::{bench_lines, long_text, sink, to_hex, unhex, widest_hex, Rng};
+use crate::common::{bench_lines, head_then_drawn, is_space, long_text, sink, to_hex, unhex, widest_hex, Rng, ISSPACE};
 use std::io::{self, Write};
-
-/// The isspace(3) bytes atoi / atoi_base skip and reject inside a base.
-const WS: [u8; 6] = [b' ', b'\t', b'\n', 0x0b, 0x0c, b'\r'];
-
-fn is_ws(b: u8) -> bool {
-    WS.contains(&b)
-}
 
 // ------------------------------------------------------------- oracles
 
-/// ft_putnbr: the decimal text a correct impl write()s for `n` (handles INT_MIN).
+/// ft_putnbr: the decimal text a correct impl write()s for `n`, with a
+/// leading '-' for a negative, over the whole 32-bit range: Rust's own i32
+/// formatting handles INT_MIN, whose magnitude does not fit in i32. The one
+/// reference for an int's decimal text: C 00's c00_putnbr prints it, the
+/// corpus C 00 ex07 and this module's ex02 replay, and Libft's ft_putnbr_fd
+/// and ft_itoa read it.
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 pub(crate) fn o_putnbr(n: i32) -> Vec<u8> {
     format!("{}", n).into_bytes()
@@ -62,8 +65,22 @@ pub(crate) fn o_putnbr(n: i32) -> Vec<u8> {
 /// result fits i32 and no overflow-UB is ever exercised.
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 fn o_atoi(s: &[u8]) -> i32 {
+    let (mut i, sign) = skip_ws_and_signs(s);
+    let mut val: i64 = 0;
+    while i < s.len() && s[i].is_ascii_digit() {
+        val = val * 10 + (s[i] - b'0') as i64;
+        i += 1;
+    }
+    (sign * val) as i32
+}
+
+/// The prefix C 04's ft_atoi and ft_atoi_base both read before the digits
+/// (and C 07's ft_convert_base, whose nbr follows ft_atoi_base's rules):
+/// isspace(3) bytes, then a run of '+' and '-', negative for an odd count of
+/// '-'. Returns the index of the first byte past it and the sign (1 or -1).
+pub(crate) fn skip_ws_and_signs(s: &[u8]) -> (usize, i64) {
     let mut i = 0usize;
-    while i < s.len() && is_ws(s[i]) {
+    while i < s.len() && is_space(s[i]) {
         i += 1;
     }
     let mut sign: i64 = 1;
@@ -73,19 +90,15 @@ fn o_atoi(s: &[u8]) -> i32 {
         }
         i += 1;
     }
-    let mut val: i64 = 0;
-    while i < s.len() && s[i].is_ascii_digit() {
-        val = val * 10 + (s[i] - b'0') as i64;
-        i += 1;
-    }
-    (sign * val) as i32
+    (i, sign)
 }
 
 /// Is `base` usable for DISPLAYING a number? c-04 ex04's subject
 /// (`ft_putnbr_base`) lists exactly three ways a base can be invalid: it is
 /// "empty or has only one character", it "contains duplicate characters", or it
-/// "contains '+' or '-'". Whitespace is NOT among them.
-fn base_valid_display(base: &[u8]) -> bool {
+/// "contains '+' or '-'". Whitespace is NOT among them. C 07's base_to is
+/// held to it too (c07.rs, o_convert_base, says why).
+pub(crate) fn base_valid_display(base: &[u8]) -> bool {
     if base.len() < 2 {
         return false;
     }
@@ -113,11 +126,12 @@ fn base_valid_display(base: &[u8]) -> bool {
 /// than wrong in effect -- `safe_pool()` was 0x21..=0x7e then, and it still
 /// holds no whitespace, so no generated case ever did -- but a reference that
 /// disagrees with the subject is a false red waiting for the corpus to widen.
-fn base_valid_parse(base: &[u8]) -> bool {
+/// C 07's base_from is read as this reads, so it is held to the same rule.
+pub(crate) fn base_valid_parse(base: &[u8]) -> bool {
     if !base_valid_display(base) {
         return false;
     }
-    !base.iter().any(|&c| is_ws(c))
+    !base.iter().any(|&c| is_space(c))
 }
 
 /// Position of byte `c` in `base` = its digit value, else None.
@@ -125,9 +139,10 @@ fn digit_in_base(c: u8, base: &[u8]) -> Option<usize> {
     base.iter().position(|&x| x == c)
 }
 
-/// Encode non-negative magnitude `m` in `base` (MSB first); 0 -> "base[0]".
-fn encode_base(mut m: i64, base: &[u8]) -> Vec<u8> {
-    let b = base.len() as i64;
+/// Encode the magnitude `m` in `base` (MSB first); 0 -> "base[0]". C 07's
+/// ft_convert_base writes its result's magnitude with it too.
+pub(crate) fn encode_base(mut m: u64, base: &[u8]) -> Vec<u8> {
+    let b = base.len() as u64;
     if m == 0 || b <= 1 {
         return vec![base[0]];
     }
@@ -153,7 +168,7 @@ fn o_putnbr_base(nbr: i32, base: &[u8]) -> Option<Vec<u8>> {
         out.push(b'-');
         m = -m;
     }
-    out.extend_from_slice(&encode_base(m, base));
+    out.extend_from_slice(&encode_base(m as u64, base));
     Some(out)
 }
 
@@ -166,18 +181,16 @@ fn o_atoi_base(s: &[u8], base: &[u8]) -> i32 {
     if !base_valid_parse(base) {
         return 0;
     }
+    parse_base(s, base) as i32
+}
+
+/// What ft_atoi_base reads from `s` in a base valid for parsing, before
+/// its cast to int: the prefix (skip_ws_and_signs), then digits (value =
+/// index in base), stopping at the first byte not in the base. C 07's
+/// ft_convert_base reads its nbr the same way, as its subject asks.
+pub(crate) fn parse_base(s: &[u8], base: &[u8]) -> i64 {
     let b = base.len() as i64;
-    let mut i = 0usize;
-    while i < s.len() && is_ws(s[i]) {
-        i += 1;
-    }
-    let mut sign: i64 = 1;
-    while i < s.len() && (s[i] == b'+' || s[i] == b'-') {
-        if s[i] == b'-' {
-            sign = -sign;
-        }
-        i += 1;
-    }
+    let (mut i, sign) = skip_ws_and_signs(s);
     let mut val: i64 = 0;
     while i < s.len() {
         match digit_in_base(s[i], base) {
@@ -188,12 +201,13 @@ fn o_atoi_base(s: &[u8], base: &[u8]) -> i32 {
             None => break,
         }
     }
-    (sign * val) as i32
+    sign * val
 }
 
 /// A base the other reading refuses: it holds a byte above 0x7f, or a control
 /// byte (whitespace among them, which a read base may not hold under either).
-fn other_reading_refuses(base: &[u8]) -> bool {
+/// C 07's readings part on the same bytes, in either of its bases.
+pub(crate) fn other_reading_refuses(base: &[u8]) -> bool {
     base.iter().any(|&c| c >= 0x80 || c < 0x20 || c == 0x7f)
 }
 
@@ -221,7 +235,7 @@ fn atoi_base_readings_agree(s: &[u8], base: &[u8]) -> bool {
 /// corpus line, and leaves every base drawn from here valid for PARSING too.
 fn safe_pool() -> Vec<u8> {
     (0x01u8..=0xff)
-        .filter(|&c| c != b'+' && c != b'-' && !is_ws(c))
+        .filter(|&c| c != b'+' && c != b'-' && !is_space(c))
         .collect()
 }
 
@@ -319,7 +333,7 @@ fn atoi_structured() -> Vec<Vec<u8>> {
         v.push(s.to_vec());
     }
     // all isspace bytes then a signed number
-    let mut ws = WS.to_vec();
+    let mut ws = ISSPACE.to_vec();
     ws.extend_from_slice(b"-123");
     v.push(ws);
     // Capacity cases (finding 041): every string above and every random one
@@ -339,7 +353,7 @@ fn atoi_structured() -> Vec<Vec<u8>> {
 /// (2051 of them, so the number is negated) then `after_signs`, and 5000
 /// `zero`s then `after_zeros`.
 fn long_runs(after_ws: &[u8], after_signs: &[u8], after_zeros: &[u8], zero: u8) -> Vec<Vec<u8>> {
-    let mut a: Vec<u8> = (0..5000).map(|i| WS[i % WS.len()]).collect();
+    let mut a: Vec<u8> = (0..5000).map(|i| ISSPACE[i % ISSPACE.len()]).collect();
     a.extend_from_slice(after_ws);
     let mut b: Vec<u8> = (0..4101).map(|i| if i % 2 == 0 { b'-' } else { b'+' }).collect();
     b.extend_from_slice(after_signs);
@@ -360,67 +374,35 @@ fn wide_bases() -> (Vec<u8>, Vec<u8>) {
     (valid, long)
 }
 
-fn gen_putnbr(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
-    let structured: Vec<i32> = vec![
-        0, 7, 42, 10, 100, 1000000000, -7, -42, -100, -1000000000,
-        2147483647, 2147483646, -2147483647, i32::MIN, 1, -1, 9, -9, 99, -99,
-    ];
-    let mut done = 0usize;
-    let mut idx = 0usize;
-    while done < count {
-        let n = if idx < structured.len() {
-            let v = structured[idx];
-            idx += 1;
-            v
-        } else {
-            rng.i32val()
-        };
-        let _ = w.write_all(format!("{}\t", n).as_bytes());
-        let _ = w.write_all(&o_putnbr(n));
-        let _ = w.write_all(b"\n");
-        done += 1;
-    }
-}
-
 fn gen_atoi<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let structured = atoi_structured();
-    let mut done = 0usize;
-    let mut idx = 0usize;
-    while done < count {
-        let s: Vec<u8> = if idx < structured.len() {
-            let v = structured[idx].clone();
-            idx += 1;
-            v
-        } else {
-            let mut s = Vec::new();
-            for _ in 0..rng.below(5) {
-                s.push(WS[rng.below(6)]);
+    let draw = || {
+        let mut s = Vec::new();
+        for _ in 0..rng.below(5) {
+            s.push(ISSPACE[rng.below(6)]);
+        }
+        match rng.below(3) {
+            0 => {}
+            1 => s.push(b'+'),
+            _ => s.push(b'-'),
+        }
+        if rng.below(6) != 0 {
+            for _ in 0..rng.below(3) {
+                s.push(b'0');
             }
-            match rng.below(3) {
-                0 => {}
-                1 => s.push(b'+'),
-                _ => s.push(b'-'),
+            let m = rand_magnitude(&mut rng);
+            s.extend_from_slice(format!("{}", m).as_bytes());
+        }
+        if rng.below(2) == 0 {
+            s.push(rand_nondigit(&mut rng));
+            for _ in 0..rng.below(4) {
+                s.push(rand_nonnul(&mut rng));
             }
-            if rng.below(6) != 0 {
-                for _ in 0..rng.below(3) {
-                    s.push(b'0');
-                }
-                let m = rand_magnitude(&mut rng);
-                s.extend_from_slice(format!("{}", m).as_bytes());
-            }
-            if rng.below(2) == 0 {
-                s.push(rand_nondigit(&mut rng));
-                for _ in 0..rng.below(4) {
-                    s.push(rand_nonnul(&mut rng));
-                }
-            }
-            s
-        };
+        }
+        s
+    };
+    for s in head_then_drawn(atoi_structured(), count, draw, |_| true) {
         let _ = writeln!(w, "{}\t{}", to_hex(&s), o_atoi(&s));
-        done += 1;
     }
 }
 
@@ -466,52 +448,42 @@ fn putnbr_base_corpus<W: Write>(w: &mut W, seed: u64, count: usize, part: bool) 
     let mut rng = Rng::new(seed);
     let wide = safe_pool();
     let printable = printable_pool();
-    let structured = putnbr_base_structured();
-    let mut done = 0usize;
-    let mut idx = 0usize;
-    while done < count {
-        let (n, base): (i32, Vec<u8>) = if idx < structured.len() {
-            let (n, b) = structured[idx].clone();
-            idx += 1;
-            (n, b)
-        } else {
-            let n = rng.i32val();
-            let pool: &[u8] = if part { &wide } else { pick_pool(&mut rng, &wide, &printable) };
-            let base = if rng.below(10) == 0 {
-                // an invalid base of a documented kind (empty / len1 / dup / +/-)
-                match rng.below(5) {
-                    0 => Vec::new(),
-                    1 => vec![pool[rng.below(pool.len())]],
-                    2 => {
-                        let mut b = rand_valid_base(&mut rng, &pool, 2, 7);
-                        b.push(b[0]); // duplicate -> invalid
-                        b
-                    }
-                    3 => {
-                        let mut b = rand_valid_base(&mut rng, &pool, 2, 7);
-                        b.push(b'+');
-                        b
-                    }
-                    _ => {
-                        let mut b = rand_valid_base(&mut rng, &pool, 2, 7);
-                        b.push(b'-');
-                        b
-                    }
+    let draw = || -> (i32, Vec<u8>) {
+        let n = rng.i32val();
+        let pool: &[u8] = if part { &wide } else { pick_pool(&mut rng, &wide, &printable) };
+        let base = if rng.below(10) == 0 {
+            // an invalid base of a documented kind (empty / len1 / dup / +/-)
+            match rng.below(5) {
+                0 => Vec::new(),
+                1 => vec![pool[rng.below(pool.len())]],
+                2 => {
+                    let mut b = rand_valid_base(&mut rng, &pool, 2, 7);
+                    b.push(b[0]); // duplicate -> invalid
+                    b
                 }
-            } else {
-                rand_valid_base(&mut rng, &pool, 2, 20) // len 2..=20
-            };
-            (n, base)
+                3 => {
+                    let mut b = rand_valid_base(&mut rng, &pool, 2, 7);
+                    b.push(b'+');
+                    b
+                }
+                _ => {
+                    let mut b = rand_valid_base(&mut rng, &pool, 2, 7);
+                    b.push(b'-');
+                    b
+                }
+            }
+        } else {
+            rand_valid_base(&mut rng, &pool, 2, 20) // len 2..=20
         };
-        if putnbr_base_readings_agree(n, &base) == part {
-            continue;
-        }
+        (n, base)
+    };
+    let keep = |(n, base): &(i32, Vec<u8>)| putnbr_base_readings_agree(*n, base) != part;
+    for (n, base) in head_then_drawn(putnbr_base_structured(), count, draw, keep) {
         let _ = w.write_all(format!("{}\t{}\t", n, to_hex(&base)).as_bytes());
         if let Some(o) = o_putnbr_base(n, &base) {
             let _ = w.write_all(&o);
         }
         let _ = w.write_all(b"\n");
-        done += 1;
     }
 }
 
@@ -586,69 +558,58 @@ fn atoi_base_corpus<W: Write>(w: &mut W, seed: u64, count: usize, part: bool) {
     let mut rng = Rng::new(seed);
     let wide = safe_pool();
     let printable = printable_pool();
-    let structured = atoi_base_structured();
-    let mut done = 0usize;
-    let mut idx = 0usize;
-    while done < count {
-        let (s, base): (Vec<u8>, Vec<u8>) = if idx < structured.len() {
-            let (s, b) = structured[idx].clone();
-            idx += 1;
-            (s, b)
-        } else {
-            let pool: &[u8] = if part { &wide } else { pick_pool(&mut rng, &wide, &printable) };
-            let mut base = rand_valid_base(&mut rng, pool, 2, 20);
-            let corrupt = rng.below(12) == 0;
-            if corrupt {
-                match rng.below(6) {
-                    0 => base.clear(),
-                    1 => base.truncate(1),
-                    2 => base.push(base[0]),
-                    3 => base.push(b'+'),
-                    4 => base.push(b'-'),
-                    _ => base.push(WS[rng.below(6)]),
-                }
+    let draw = || -> (Vec<u8>, Vec<u8>) {
+        let pool: &[u8] = if part { &wide } else { pick_pool(&mut rng, &wide, &printable) };
+        let mut base = rand_valid_base(&mut rng, pool, 2, 20);
+        let corrupt = rng.below(12) == 0;
+        if corrupt {
+            match rng.below(6) {
+                0 => base.clear(),
+                1 => base.truncate(1),
+                2 => base.push(base[0]),
+                3 => base.push(b'+'),
+                4 => base.push(b'-'),
+                _ => base.push(ISSPACE[rng.below(6)]),
             }
-            let mut s = Vec::new();
-            for _ in 0..rng.below(5) {
-                s.push(WS[rng.below(6)]);
-            }
-            let mut neg = false;
-            for _ in 0..rng.below(5) {
-                if rng.below(2) == 0 {
-                    s.push(b'+');
-                } else {
-                    s.push(b'-');
-                    neg = !neg;
-                }
-            }
-            let _ = neg; // value is recomputed by o_atoi_base from the bytes
-            if base.len() >= 2 && rng.below(6) != 0 {
-                for _ in 0..rng.below(3) {
-                    s.push(base[0]);
-                }
-                let m = rand_magnitude(&mut rng);
-                s.extend_from_slice(&encode_base(m, &base));
-            }
-            if rng.below(2) == 0 {
-                s.push(rand_not_in_base(&mut rng, &base));
-                for _ in 0..rng.below(4) {
-                    s.push(rand_nonnul(&mut rng));
-                }
-            }
-            (s, base)
-        };
-        if atoi_base_readings_agree(&s, &base) == part {
-            continue;
         }
+        let mut s = Vec::new();
+        for _ in 0..rng.below(5) {
+            s.push(ISSPACE[rng.below(6)]);
+        }
+        let mut neg = false;
+        for _ in 0..rng.below(5) {
+            if rng.below(2) == 0 {
+                s.push(b'+');
+            } else {
+                s.push(b'-');
+                neg = !neg;
+            }
+        }
+        let _ = neg; // value is recomputed by o_atoi_base from the bytes
+        if base.len() >= 2 && rng.below(6) != 0 {
+            for _ in 0..rng.below(3) {
+                s.push(base[0]);
+            }
+            let m = rand_magnitude(&mut rng);
+            s.extend_from_slice(&encode_base(m as u64, &base));
+        }
+        if rng.below(2) == 0 {
+            s.push(rand_not_in_base(&mut rng, &base));
+            for _ in 0..rng.below(4) {
+                s.push(rand_nonnul(&mut rng));
+            }
+        }
+        (s, base)
+    };
+    let keep = |(s, base): &(Vec<u8>, Vec<u8>)| atoi_base_readings_agree(s, base) != part;
+    for (s, base) in head_then_drawn(atoi_base_structured(), count, draw, keep) {
         let _ = writeln!(w, "{}\t{}\t{}", to_hex(&s), to_hex(&base), o_atoi_base(&s, &base));
-        done += 1;
     }
 }
 
 /// Dispatch: returns true if `name` belongs to this module.
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
-        "c04_putnbr" => gen_putnbr(seed, count),
         "c04_atoi" => gen_atoi(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c04_putnbr_base" => putnbr_base_corpus(&mut io::BufWriter::new(io::stdout()), seed, count, false),
         "c04_atoi_base" => atoi_base_corpus(&mut io::BufWriter::new(io::stdout()), seed, count, false),
@@ -722,7 +683,7 @@ pub fn check() -> usize {
         }
     }
 
-    // ---- atoi (single-sign / libc semantics) ----
+    // ---- atoi (the subject's sign-run rule) ----
     let at: &[(&[u8], i32)] = &[
         (b"42", 42),
         (b"7", 7),
@@ -876,14 +837,14 @@ pub fn check() -> usize {
         // a leading '-' negates a non-negative magnitude's encoding
         let m = (rng.next_u64() % 2147483648) as i64; // [0, INT_MAX]
         let mut signed = vec![b'-'];
-        signed.extend_from_slice(&encode_base(m, &base));
+        signed.extend_from_slice(&encode_base(m as u64, &base));
         if o_atoi_base(&signed, &base) != -(m as i32) {
             eprintln!("CHECK FAIL c04 atoi_base sign m={}", m);
             fails += 1;
         }
         // an even count of '-' stays positive
         let mut two = vec![b'-', b'-'];
-        two.extend_from_slice(&encode_base(m, &base));
+        two.extend_from_slice(&encode_base(m as u64, &base));
         if o_atoi_base(&two, &base) != m as i32 {
             eprintln!("CHECK FAIL c04 atoi_base double-sign m={}", m);
             fails += 1;
@@ -900,7 +861,7 @@ pub fn check() -> usize {
     for _ in 0..5000 {
         let base = rand_valid_base(&mut rng, &pool, 2, 11);
         let m = (rng.next_u64() % 1_000_000) as i64;
-        let mut s = encode_base(m, &base);
+        let mut s = encode_base(m as u64, &base);
         s.push(rand_not_in_base(&mut rng, &base));
         s.extend_from_slice(b"9zZ!");
         if o_atoi_base(&s, &base) != m as i32 {
@@ -981,13 +942,12 @@ pub fn check() -> usize {
 
 /// Replay a corpus and compute the reference answers; see common::bench_lines.
 pub fn bench(name: &str) -> bool {
-    if !matches!(name, "c04_putnbr" | "c04_atoi" | "c04_putnbr_base" | "c04_atoi_base") {
+    if !matches!(name, "c04_atoi" | "c04_putnbr_base" | "c04_atoi_base") {
         return false;
     }
     for l in bench_lines() {
         let f: Vec<&str> = l.split('\t').collect();
         match name {
-            "c04_putnbr" => { if let Ok(n) = f[0].parse::<i32>() { sink(o_putnbr(n)); } }
             "c04_atoi" => sink(o_atoi(&unhex(f[0]))),
             "c04_putnbr_base" => {
                 if f.len() >= 2 { if let Ok(n) = f[0].parse::<i32>() { sink(o_putnbr_base(n, &unhex(f[1]))); } }

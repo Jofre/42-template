@@ -1,4 +1,4 @@
-load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_levels", "c_make", "c_program", "corpus_memory", "exercise", "hand_test", "runner_quotes", "stderr_ignored", "subject")
+load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_levels", "c_make", "c_program", "corpus_memory", "hand_test", "oracle_fixtures", "runner_quotes", "stderr_ignored", "subject", "unit")
 
 # c-piscine-bsq — the C Piscine's final project.
 #
@@ -11,6 +11,11 @@ load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_levels", "c_make", "c_program",
 # allowed wherever the team puts it -- srcs/ and includes/ included: the
 # Makefile says where (finding 172).
 #
+# There is no exercise to number, so the contract names one unit instead
+# (units = {...}), after the program it builds: every target here is
+# bsq_<what>, its files are under tests/bsq/, and the suite :bsq runs them
+# all.
+#
 # Graded by both: "This project will be checked and graded by a program called
 # Moulinette", and the chapter it says so in is "Submission and
 # peer-evaluation" ("evaluated during the defence"). A group project: "Each
@@ -21,16 +26,15 @@ load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_levels", "c_make", "c_program",
 # "all the necessary files". So anything that is not a .c or a .h FAILS -- a
 # `bsq` binary left by a hand-run of make is the usual one -- and so does a
 # .c the Makefile never compiles, which is not necessary: the program's build
-# writes the list `make -Bn` gives (c_program below), and ex00_files reads it
+# writes the list `make -Bn` gives (c_program below), and bsq_files reads it
 # (finding 164). While make cannot plan a build, or the Makefile compiles
 # nothing yet, no .c is judged that way.
 subject(
     grader = "both",
     group = True,
-    exercises = {
-        "00": exercise(
+    units = {
+        "bsq": unit(
             page = 4,
-            dir = None,
             files = ["Makefile"],
             optional = ["**/*.c", "**/*.h"],
             allowed = ["open", "close", "read", "write", "malloc", "free", "exit"],
@@ -61,9 +65,9 @@ subject(
 # recipe: "Your program must compile using cc with the following flags" binds
 # the build that compiles the program, and the subject says a Makefile is
 # that build, so every compile command it runs is held to it at basic. The
-# Norm's "no *.c, no *.o" is not in the subject: ex00_build_wildcards, strict.
+# Norm's "no *.c, no *.o" is not in the subject: bsq_build_wildcards, strict.
 c_make(
-    num = "00",
+    unit = "bsq",
     artifact = "bsq",
     relink = True,
     rules = [],
@@ -91,7 +95,7 @@ c_make(
 #   * bytes >= 0x80 among the three characters (isprint above 0x7f is
 #     locale-dependent);
 #
-#   TESTED AT STRICT, under ONE reading, in ex00_readings (bottom of this
+#   TESTED AT STRICT, under ONE reading, in bsq_readings (bottom of this
 #   file), and never in a basic case or the main corpus, which hold only what
 #   every reading agrees on:
 #   * the count written "09", "+9", " 9" or "9 ";
@@ -116,7 +120,7 @@ c_make(
 #     stderr, and by the Run contract (docs/reference.md) a status is judged
 #     only at robust: a case with an invalid map is marked "invalid_input" and
 #     its status is judged at no level; every other case gets a robust twin,
-#     ex00_<case>_exit, which fails a non-zero return.
+#     bsq_<case>_exit, which fails a non-zero return.
 #
 # A nonexistent path, a directory and an unreadable file ARE settled, and a
 # corpus of file CONTENTS cannot express them, so they are argv cases. The
@@ -131,19 +135,19 @@ c_make(
 # filename, so how the program is split is the team's decision, and the only
 # statement of it is their Makefile. Everything that has to LINK asks
 # `make -Bn` instead -- their file list and their -I directories, our flags.
-# allocfail: ex00_program_allocfail, at robust, replays subject_example with one
+# allocfail: bsq_program_allocfail, at robust, replays subject_example with one
 # of the program's own malloc() calls refused per run, and asks only what every
 # reading of the sentence allocfail_rule quotes agrees on: it ends by itself,
 # within its time, with bounded output. No message and no status are asserted.
 # No 42 grader refuses a program an allocation, so this is the repo's rigour
 # (WP-92). No leak target: this subject states no freeing rule.
 c_program(
-    num = "00",
+    unit = "bsq",
     name = "bsq",
     makefile = True,
     # Every case below, run with //oracle's reference program in the team's
-    # place (`oracle run bsq`, ex00_reference_cases, complete): the maps and
-    # outputs are the reference's (bsq_fixtures, held by ex00_oracle_fixtures),
+    # place (`oracle run bsq`, bsq_reference_cases, complete): the maps and
+    # outputs are the reference's (bsq_fixtures, held by bsq_oracle_fixtures),
     # and this holds which map each case hands the program to which output it
     # expects -- a case whose arguments, standard input or expected file
     # drifted apart fails there, on any tree.
@@ -151,7 +155,7 @@ c_program(
     # The subject authorises malloc and free (the contract's allowed line, which
     # c_program reads), so the leak layer and the allocation sweep are worth
     # having: the example as a named file, and the example map on standard
-    # input (ex00_stdin_map_program_allocfail), a transport the named-file case
+    # input (bsq_stdin_map_program_allocfail), a transport the named-file case
     # does not exercise.
     allocfail = [
         "subject_example",
@@ -165,15 +169,15 @@ c_program(
         # two cannot drift from the reference the diff layer uses.
         {
             "name": "subject_example",
-            "args": ["$(location tests/ex00/fixtures/subject.map)"],
-            "fixtures": ["tests/ex00/fixtures/subject.map"],
+            "args": ["$(location tests/bsq/fixtures/subject.map)"],
+            "fixtures": ["tests/bsq/fixtures/subject.map"],
             "expected": "subject.txt",
             "clues": "clues.tsv",
         },
         {
             "name": "one_cell",
-            "args": ["$(location tests/ex00/fixtures/one.map)"],
-            "fixtures": ["tests/ex00/fixtures/one.map"],
+            "args": ["$(location tests/bsq/fixtures/one.map)"],
+            "fixtures": ["tests/bsq/fixtures/one.map"],
             "expected": "one.txt",
             "clues": "clues.tsv",
         },
@@ -181,8 +185,8 @@ c_program(
         # "map error" when it finds no square fails here and only here.
         {
             "name": "no_empty_cell",
-            "args": ["$(location tests/ex00/fixtures/nosquare.map)"],
-            "fixtures": ["tests/ex00/fixtures/nosquare.map"],
+            "args": ["$(location tests/bsq/fixtures/nosquare.map)"],
+            "fixtures": ["tests/bsq/fixtures/nosquare.map"],
             "expected": "nosquare.txt",
             "clues": "clues.tsv",
         },
@@ -191,30 +195,30 @@ c_program(
         {
             "name": "dup_chars",
             "invalid_input": True,
-            "args": ["$(location tests/ex00/fixtures/dupchars.map)"],
-            "fixtures": ["tests/ex00/fixtures/dupchars.map"],
+            "args": ["$(location tests/bsq/fixtures/dupchars.map)"],
+            "fixtures": ["tests/bsq/fixtures/dupchars.map"],
             "expected": "maperror.txt",
             "clues": "clues.tsv",
         },
         {
             "name": "ragged_line",
             "invalid_input": True,
-            "args": ["$(location tests/ex00/fixtures/ragged.map)"],
-            "fixtures": ["tests/ex00/fixtures/ragged.map"],
+            "args": ["$(location tests/bsq/fixtures/ragged.map)"],
+            "fixtures": ["tests/bsq/fixtures/ragged.map"],
             "expected": "maperror.txt",
             "clues": "clues.tsv",
         },
         {
             "name": "undeclared_char",
             "invalid_input": True,
-            "args": ["$(location tests/ex00/fixtures/undeclared.map)"],
-            "fixtures": ["tests/ex00/fixtures/undeclared.map"],
+            "args": ["$(location tests/bsq/fixtures/undeclared.map)"],
+            "fixtures": ["tests/bsq/fixtures/undeclared.map"],
             "expected": "maperror.txt",
             "clues": "clues.tsv",
         },
         # THE RULES THE SUBJECT STATES, one per case, each certain under every
         # reading. Every file here is written by the reference
-        # (bsq_fixtures; ex00_oracle_fixtures below holds them to it): an
+        # (bsq_fixtures; bsq_oracle_fixtures below holds them to it): an
         # invalid map is a record of the corpus's error head, a valid one a
         # map the reference solves, so a case and the corpus cannot say two
         # things about one rule. Each has hints of its own that ask about its
@@ -225,8 +229,8 @@ c_program(
         {
             "name": "count_zero",
             "invalid_input": True,
-            "args": ["$(location tests/ex00/fixtures/count_zero.map)"],
-            "fixtures": ["tests/ex00/fixtures/count_zero.map"],
+            "args": ["$(location tests/bsq/fixtures/count_zero.map)"],
+            "fixtures": ["tests/bsq/fixtures/count_zero.map"],
             "expected": "maperror.txt",
             "clues": "clues.tsv",
         },
@@ -235,8 +239,8 @@ c_program(
         {
             "name": "count_short",
             "invalid_input": True,
-            "args": ["$(location tests/ex00/fixtures/count_short.map)"],
-            "fixtures": ["tests/ex00/fixtures/count_short.map"],
+            "args": ["$(location tests/bsq/fixtures/count_short.map)"],
+            "fixtures": ["tests/bsq/fixtures/count_short.map"],
             "expected": "maperror.txt",
             "clues": "clues.tsv",
         },
@@ -245,8 +249,8 @@ c_program(
         {
             "name": "nonprintable_char",
             "invalid_input": True,
-            "args": ["$(location tests/ex00/fixtures/nonprintable.map)"],
-            "fixtures": ["tests/ex00/fixtures/nonprintable.map"],
+            "args": ["$(location tests/bsq/fixtures/nonprintable.map)"],
+            "fixtures": ["tests/bsq/fixtures/nonprintable.map"],
             "expected": "maperror.txt",
             "clues": "clues.tsv",
         },
@@ -255,8 +259,8 @@ c_program(
         {
             "name": "zero_width",
             "invalid_input": True,
-            "args": ["$(location tests/ex00/fixtures/zero_width.map)"],
-            "fixtures": ["tests/ex00/fixtures/zero_width.map"],
+            "args": ["$(location tests/bsq/fixtures/zero_width.map)"],
+            "fixtures": ["tests/bsq/fixtures/zero_width.map"],
             "expected": "maperror.txt",
             "clues": "clues.tsv",
         },
@@ -265,15 +269,15 @@ c_program(
         # empty character, and '1', '2', '3' under a count of 4 ("4123").
         {
             "name": "space_char",
-            "args": ["$(location tests/ex00/fixtures/space_char.map)"],
-            "fixtures": ["tests/ex00/fixtures/space_char.map"],
+            "args": ["$(location tests/bsq/fixtures/space_char.map)"],
+            "fixtures": ["tests/bsq/fixtures/space_char.map"],
             "expected": "space_char.txt",
             "clues": "clues.tsv",
         },
         {
             "name": "digit_chars",
-            "args": ["$(location tests/ex00/fixtures/digit_chars.map)"],
-            "fixtures": ["tests/ex00/fixtures/digit_chars.map"],
+            "args": ["$(location tests/bsq/fixtures/digit_chars.map)"],
+            "fixtures": ["tests/bsq/fixtures/digit_chars.map"],
             "expected": "digit_chars.txt",
             "clues": "clues.tsv",
         },
@@ -282,19 +286,19 @@ c_program(
         # rule applied the other way round draws the other one.
         {
             "name": "tie_top_first",
-            "args": ["$(location tests/ex00/fixtures/tie_top_first.map)"],
-            "fixtures": ["tests/ex00/fixtures/tie_top_first.map"],
+            "args": ["$(location tests/bsq/fixtures/tie_top_first.map)"],
+            "fixtures": ["tests/bsq/fixtures/tie_top_first.map"],
             "expected": "tie_top_first.txt",
             "clues": "clues.tsv",
         },
         # OPEN, so what every reading agrees on (the list at the top): a map
         # whose last row has no newline is "map error", or the solved map with
         # every row ending in one. An unterminated row, a crash or a hang
-        # fails either way; which verdict is ex00_readings' question.
+        # fails either way; which verdict is bsq_readings' question.
         {
             "name": "no_final_newline",
-            "args": ["$(location tests/ex00/fixtures/no_final_newline.map)"],
-            "fixtures": ["tests/ex00/fixtures/no_final_newline.map"],
+            "args": ["$(location tests/bsq/fixtures/no_final_newline.map)"],
+            "fixtures": ["tests/bsq/fixtures/no_final_newline.map"],
             "any_of": ["no_final_newline.txt", "maperror.txt"],
             "clues": "clues.tsv",
         },
@@ -303,11 +307,11 @@ c_program(
         # biggest square covers under any reading that solves the map, so a
         # program that crashes on it, stops halfway through the map, or
         # prints that cell as another character fails either way; which
-        # verdict is ex00_readings' question.
+        # verdict is bsq_readings' question.
         {
             "name": "full_in_body",
-            "args": ["$(location tests/ex00/fixtures/full_in_body.map)"],
-            "fixtures": ["tests/ex00/fixtures/full_in_body.map"],
+            "args": ["$(location tests/bsq/fixtures/full_in_body.map)"],
+            "fixtures": ["tests/bsq/fixtures/full_in_body.map"],
             "any_of": ["full_in_body.txt", "maperror.txt"],
             "clues": "clues.tsv",
         },
@@ -321,12 +325,12 @@ c_program(
             "name": "two_maps",
             "invalid_input": True,
             "args": [
-                "$(location tests/ex00/fixtures/subject.map)",
-                "$(location tests/ex00/fixtures/dupchars.map)",
+                "$(location tests/bsq/fixtures/subject.map)",
+                "$(location tests/bsq/fixtures/dupchars.map)",
             ],
             "fixtures": [
-                "tests/ex00/fixtures/subject.map",
-                "tests/ex00/fixtures/dupchars.map",
+                "tests/bsq/fixtures/subject.map",
+                "tests/bsq/fixtures/dupchars.map",
             ],
             "expected": "two.txt",
             "clues": "clues.tsv",
@@ -343,33 +347,33 @@ c_program(
         # and missing_then_map, and on no other output target.
         {
             "name": "missing_alone",
-            "missing_file": "no_such_file_ex00",
+            "missing_file": "no_such_file_bsq",
             "invalid_input": True,
-            "args": ["no_such_file_ex00"],
+            "args": ["no_such_file_bsq"],
             "expected": "maperror.txt",
             "clues": "clues.tsv",
         },
         {
             "name": "map_then_missing",
-            "missing_file": "no_such_file_ex00",
+            "missing_file": "no_such_file_bsq",
             "invalid_input": True,
             "args": [
-                "$(location tests/ex00/fixtures/subject.map)",
-                "no_such_file_ex00",
+                "$(location tests/bsq/fixtures/subject.map)",
+                "no_such_file_bsq",
             ],
-            "fixtures": ["tests/ex00/fixtures/subject.map"],
+            "fixtures": ["tests/bsq/fixtures/subject.map"],
             "expected": "two.txt",
             "clues": "clues.tsv",
         },
         {
             "name": "missing_then_map",
-            "missing_file": "no_such_file_ex00",
+            "missing_file": "no_such_file_bsq",
             "invalid_input": True,
             "args": [
-                "no_such_file_ex00",
-                "$(location tests/ex00/fixtures/one.map)",
+                "no_such_file_bsq",
+                "$(location tests/bsq/fixtures/one.map)",
             ],
-            "fixtures": ["tests/ex00/fixtures/one.map"],
+            "fixtures": ["tests/bsq/fixtures/one.map"],
             "expected": "errthenmap.txt",
             "clues": "clues.tsv",
         },
@@ -377,12 +381,12 @@ c_program(
             "name": "error_then_map",
             "invalid_input": True,
             "args": [
-                "$(location tests/ex00/fixtures/ragged.map)",
-                "$(location tests/ex00/fixtures/one.map)",
+                "$(location tests/bsq/fixtures/ragged.map)",
+                "$(location tests/bsq/fixtures/one.map)",
             ],
             "fixtures": [
-                "tests/ex00/fixtures/ragged.map",
-                "tests/ex00/fixtures/one.map",
+                "tests/bsq/fixtures/ragged.map",
+                "tests/bsq/fixtures/one.map",
             ],
             "expected": "errthenmap.txt",
             "clues": "clues.tsv",
@@ -395,8 +399,8 @@ c_program(
         # tall.txt): 20 rows of 23, the square 4 a side at row 7, column 17.
         {
             "name": "tall_map",
-            "args": ["$(location tests/ex00/fixtures/tall.map)"],
-            "fixtures": ["tests/ex00/fixtures/tall.map"],
+            "args": ["$(location tests/bsq/fixtures/tall.map)"],
+            "fixtures": ["tests/bsq/fixtures/tall.map"],
             "expected": "tall.txt",
             "clues": "clues.tsv",
         },
@@ -404,14 +408,14 @@ c_program(
         # invalid one, since "map error" is owed whichever way a map arrives.
         {
             "name": "stdin_map",
-            "stdin": "tests/ex00/fixtures/subject.map",
+            "stdin": "tests/bsq/fixtures/subject.map",
             "expected": "subject.txt",
             "clues": "clues.tsv",
         },
         {
             "name": "stdin_invalid",
             "invalid_input": True,
-            "stdin": "tests/ex00/fixtures/ragged.map",
+            "stdin": "tests/bsq/fixtures/ragged.map",
             "expected": "maperror.txt",
             "clues": "clues.tsv",
         },
@@ -423,7 +427,7 @@ c_program(
 # output tests do and requires the row that fits a case to be among them
 # (finding 155), so the file is visible to it.
 exports_files(
-    ["tests/ex00/clues.tsv"],
+    ["tests/bsq/clues.tsv"],
     visibility = ["//tools/tests:__pkg__"],
 )
 
@@ -440,11 +444,11 @@ c_levels()
 # map, so these are real checks and they are allowed to be red.
 #
 # hand_test(), so each gets what every macro-emitted test gets from _test():
-# its exercise's tag, which puts it in :exNN (the old lvl_tags() gave none,
+# its unit's tag, which puts it in :bsq (the old lvl_tags() gave none,
 # and these were missing from their suite: finding 070), and the level ladder
 # of its layer, read from _LAYER_LEVEL rather than written here.
 #
-# Each target gates on the exercise's own subject-example fixture: while that
+# Each target gates on the project's own subject-example fixture: while that
 # is red, replaying hundreds of generated maps says the same thing hundreds of
 # times less usefully. The gate fails OPEN and NO_SKIP=1 forces it. It is
 # that case's run -- the program handed the example's map -- and not the
@@ -457,24 +461,24 @@ c_levels()
 # The output test that gate is, by name (`waits` on each target behind it,
 # and --gate-label, which its SKIP line names): two cases print subject.txt,
 # the example as an argument and on stdin, so the gate's program and file
-# alone do not say which (tools/defs.bzl, _waits_for). Its red log lists
+# alone do not say which (tools/defs_contract.bzl, _waits_for). Its red log lists
 # every target that waits for it.
-BSQ_WAITS = "ex00_subject_example_output"
+BSQ_WAITS = "bsq_subject_example_output"
 
 BSQ_GATE = [
     "--gate-differ",
     "$(location //tools:diff_output.sh)",
     "--gate-bin",
-    "$(location :ex00_bin)",
+    "$(location :bsq_bin)",
     "--gate-expected",
-    "$(location tests/ex00/subject.txt)",
+    "$(location tests/bsq/subject.txt)",
     "--gate-arg",
-    "$(location tests/ex00/fixtures/subject.map)",
+    "$(location tests/bsq/fixtures/subject.map)",
     "--gate-label",
     BSQ_WAITS,
 ]
 
-# What standard error is held to, a choice at every call (tools/defs.bzl's
+# What standard error is held to, a choice at every call (tools/defs_test.bzl's
 # _RUNNER_CHOICES), and the Run contract's: ignored, unless the subject
 # requires something of it. BSQ's puts "map error" on standard output.
 BSQ_STDERR = stderr_ignored(
@@ -483,24 +487,21 @@ BSQ_STDERR = stderr_ignored(
 
 # The subject's sentences the faults quote (bsq_check.sh's --quotes, whose
 # header lists its keys), written once, here. Each target that passes it lists
-# :ex00_bsq_quotes in its data.
+# :bsq_quotes in its data.
 BSQ_QUOTES = runner_quotes(
-    name = "ex00_bsq_quotes",
+    name = "bsq_quotes",
     quotes = {
         "tie": "BSQ, p.4: \"In the case that more than one solution exists, we will choose to represent the square that is closest to the top of the map, then the one that is most to the left.\"",
         "error": "BSQ, p.5: \"In case of an invalid file or map, your program should display map error on the standard output followed by a newline. Your program will then move on to the next available file, if any.\"",
     },
 )
 
-# :ex00_bin is NOT here: every target below already lists it, and Bazel rejects
+# :bsq_bin is NOT here: every target below already lists it, and Bazel rejects
 # a label that appears twice in one `data` attribute.
 BSQ_GATE_DATA = [
     "//tools:diff_output.sh",
-    # How the gate's run ended, from waitpid(); diff_output.sh refuses to run
-    # without it (tools/exit_status.c).
-    "//tools:exit_status",
-    "tests/ex00/subject.txt",
-    "tests/ex00/fixtures/subject.map",
+    "tests/bsq/subject.txt",
+    "tests/bsq/fixtures/subject.map",
 ]
 
 # ONE GENERATOR, THREE TRANSPORTS: every target below replays bsq_mixed,
@@ -518,13 +519,13 @@ BSQ_GATE_DATA = [
 # each edge, space and digits and a backslash as map characters, a density
 # ladder, and every error slug of the reference, each isolating its rule.
 hand_test(
-    name = "ex00_bsq_diff",
+    name = "bsq_diff",
     layer = "diff",
     size = "medium",
     srcs = ["//tools:bsq_check.sh"],
     args = [
         "--bin",
-        "$(location :ex00_bin)",
+        "$(location :bsq_bin)",
         "--oracle",
         "$(location //oracle:oracle)",
         "--fn",
@@ -533,24 +534,23 @@ hand_test(
         "120",
     ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
     data = [
-        ":ex00_bin",
-        ":ex00_bsq_quotes",
+        ":bsq_bin",
+        ":bsq_quotes",
         "//oracle:oracle",
         "//tools:bsq_check.sh",
-        "//tools:runner_lib.sh",
     ] + BSQ_GATE_DATA,
     waits = BSQ_WAITS,
 )
 
 # The same generator, each map arriving on stdin with no argv.
 hand_test(
-    name = "ex00_bsq_stdin",
+    name = "bsq_stdin",
     layer = "diff",
     size = "medium",
     srcs = ["//tools:bsq_check.sh"],
     args = [
         "--bin",
-        "$(location :ex00_bin)",
+        "$(location :bsq_bin)",
         "--oracle",
         "$(location //oracle:oracle)",
         "--fn",
@@ -561,11 +561,10 @@ hand_test(
         "stdin",
     ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
     data = [
-        ":ex00_bin",
-        ":ex00_bsq_quotes",
+        ":bsq_bin",
+        ":bsq_quotes",
         "//oracle:oracle",
         "//tools:bsq_check.sh",
-        "//tools:runner_lib.sh",
     ] + BSQ_GATE_DATA,
     waits = BSQ_WAITS,
 )
@@ -576,13 +575,13 @@ hand_test(
 # corpus sliced into groups of three is all-valid or all-invalid groups, which
 # is the trap rush01's generator documents.
 hand_test(
-    name = "ex00_bsq_multi",
+    name = "bsq_multi",
     layer = "diff",
     size = "medium",
     srcs = ["//tools:bsq_check.sh"],
     args = [
         "--bin",
-        "$(location :ex00_bin)",
+        "$(location :bsq_bin)",
         "--oracle",
         "$(location //oracle:oracle)",
         "--fn",
@@ -595,11 +594,10 @@ hand_test(
         "3",
     ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
     data = [
-        ":ex00_bin",
-        ":ex00_bsq_quotes",
+        ":bsq_bin",
+        ":bsq_quotes",
         "//oracle:oracle",
         "//tools:bsq_check.sh",
-        "//tools:runner_lib.sh",
     ] + BSQ_GATE_DATA,
     waits = BSQ_WAITS,
 )
@@ -607,37 +605,36 @@ hand_test(
 # ---------------------------------------------------------------------------
 # THE READINGS, at strict. What the subject leaves open (the list at the top)
 # gets ONE reading here, stated only in the hints this target prints (the
-# rows of tests/ex00/clues.tsv keyed to "readings", its --case).
+# rows of tests/bsq/clues.tsv keyed to "readings", its --case).
 #
 # Each record isolates its reading: the rest of the map is consistent with it
 # (a count of 9 sits over nine rows), so only the open form can decide the
 # verdict. A program that takes the other reading fails this target alone,
 # and nothing at basic. Suffix _readings: layer diff, strict.
 hand_test(
-    name = "ex00_readings",
+    name = "bsq_readings",
     layer = "diff",
     size = "small",
     srcs = ["//tools:bsq_check.sh"],
     args = [
         "--bin",
-        "$(location :ex00_bin)",
+        "$(location :bsq_bin)",
         "--oracle",
         "$(location //oracle:oracle)",
         "--fn",
         "bsq_readings",
         "--readings",
         "--clues",
-        "$(location tests/ex00/clues.tsv)",
+        "$(location tests/bsq/clues.tsv)",
         "--case",
         "readings",
     ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
     data = [
-        ":ex00_bin",
-        ":ex00_bsq_quotes",
+        ":bsq_bin",
+        ":bsq_quotes",
         "//oracle:oracle",
         "//tools:bsq_check.sh",
-        "//tools:runner_lib.sh",
-        "tests/ex00/clues.tsv",
+        "tests/bsq/clues.tsv",
     ] + BSQ_GATE_DATA,
     waits = BSQ_WAITS,
 )
@@ -645,41 +642,25 @@ hand_test(
 # ---------------------------------------------------------------------------
 # THE NAMED CASES' FILES ARE THE REFERENCE'S. Every map and expected output the
 # cases above read is written by `oracle bsq_fixtures`, and this fails when a
-# file under tests/ex00/ differs from what it writes -- a reference that
+# file under tests/bsq/ differs from what it writes -- a reference that
 # changed, or a fixture edited by hand -- or when a map or an output is there
-# that it does not write at all (--owns: every tests/ex00/*.txt and
+# that it does not write at all (--owns: every tests/bsq/*.txt and
 # fixtures/*.map is the reference's, so a case added with hand-typed files
 # fails here until the reference writes them; one reading a file there that
 # neither pattern matches stops this module loading, in c_levels()' audit).
 # It runs nothing of yours, so it sits with the reference's own checks (layer
 # oracle, complete). After a change to the reference:
 #
-#     bazel run //c-piscine/c-piscine-bsq:ex00_oracle_fixtures -- --write
-hand_test(
-    name = "ex00_oracle_fixtures",
-    layer = "oracle",
-    size = "small",
-    srcs = ["//tools:oracle_fixtures.sh"],
-    args = [
-        "--oracle",
-        "$(location //oracle:oracle)",
-        "--fn",
-        "bsq_fixtures",
-        "--in-dir-of",
-        "$(location tests/ex00/maperror.txt)",
-        # The same patterns as the data below: what is staged is what is owned.
-        "--owns",
+#     bazel run //c-piscine/c-piscine-bsq:bsq_oracle_fixtures -- --write
+oracle_fixtures(
+    name = "bsq_oracle_fixtures",
+    fn = "bsq_fixtures",
+    dir = "tests/bsq/",
+    in_dir_of = "maperror.txt",
+    owns = [
         "*.txt",
-        "--owns",
         "fixtures/*.map",
     ],
-    data = [
-        "//oracle:oracle",
-        "//tools:oracle_fixtures.sh",
-    ] + glob([
-        "tests/ex00/*.txt",
-        "tests/ex00/fixtures/*.map",
-    ]),
 )
 
 # MAPS FAR BIGGER THAN ANY CAPACITY A PROGRAM MIGHT PICK (finding 041). Every
@@ -698,7 +679,7 @@ hand_test(
 #             by one of them, and no square is bigger than one cell, so
 #             finding it costs any program a constant per cell whatever its
 #             method. Every correct program finishes these.
-#   bsq_big   STRICT (the _bsq_big suffix's level, tools/defs.bzl). A million
+#   bsq_big   STRICT (the _big suffix's level, tools/defs.bzl). A million
 #             cells whose biggest square is past 64 a side, ten thousand
 #             lines of a hundred, and a million cells with three obstacles,
 #             whose biggest square is 652 a side: maps where the method
@@ -737,7 +718,7 @@ BSQ_FIXED = {
 }
 
 [hand_test(
-    name = "ex00_%s%s" % (fn, "_stdin" if mode == "stdin" else ""),
+    name = "%s%s" % (fn, "_stdin" if mode == "stdin" else ""),
     layer = "output",
     # strict for the big maps, as their suffix says (_SUFFIX_LAYER)
     level = 2 if fn == "bsq_big" else None,
@@ -745,17 +726,16 @@ BSQ_FIXED = {
     srcs = ["//tools:bsq_check.sh"],
     args = [
         "--bin",
-        "$(location :ex00_bin)",
+        "$(location :bsq_bin)",
     ] + BSQ_FIXED[fn] + [
         "--mode",
         mode,
     ] + BSQ_GATE + BSQ_STDERR + BSQ_QUOTES,
     data = [
-        ":ex00_bin",
-        ":ex00_bsq_quotes",
+        ":bsq_bin",
+        ":bsq_quotes",
         "//oracle:oracle",
         "//tools:bsq_check.sh",
-        "//tools:runner_lib.sh",
     ] + BSQ_GATE_DATA,
     waits = BSQ_WAITS,
 ) for fn in ["bsq_long", "bsq_big"] for mode in ["argv", "stdin"]]
@@ -769,24 +749,24 @@ BSQ_FIXED = {
 # (<stem>_diff_asan, robust) and 25 of its runs under memcheck (<stem>_valgrind,
 # strict: the subject allows malloc):
 #
-#   ex00_bsq        ex00_bsq_diff's maps, valid and invalid, one per run as an
+#   bsq             bsq_diff's maps, valid and invalid, one per run as an
 #                   argument
-#   ex00_bsq_stdin  ex00_bsq_stdin's, on standard input
-#   ex00_bsq_multi  ex00_bsq_multi's, three per run: where one map's
-#                   leftovers meet the next map's reading
-#   ex00_readings   ex00_readings' maps, the forms the subject leaves open (a
+#   bsq_stdin       bsq_stdin's, on standard input
+#   bsq_multi       bsq_multi's, three per run: where one map's leftovers
+#                   meet the next map's reading
+#   bsq_readings    bsq_readings' maps, the forms the subject leaves open (a
 #                   count written "+9" or " 9", a last row with no newline,
 #                   a row holding the full character): input no other corpus
 #                   holds
-#   ex00_bsq_long, ex00_bsq_long_stdin  the long maps, as an argument and
-#                   on stdin: one read() of a 70000 cell line is where a
-#                   buffer sized for the usual map overflows
-#   ex00_bsq_big, ex00_bsq_big_stdin  the big maps, the same two ways. No
-#                   memcheck arm (no_valgrind).
+#   bsq_long, bsq_long_stdin  the long maps, as an argument and on stdin:
+#                   one read() of a 70000 cell line is where a buffer sized
+#                   for the usual map overflows
+#   bsq_big, bsq_big_stdin  the big maps, the same two ways. No memcheck arm
+#                   (no_valgrind).
 #
 # Memory and how each run ended are judged, never the map -- so a twin makes
 # no stderr choice, standard error being where the checker reports (tools/
-# defs.bzl, _RUNNER_CHOICES). c_levels()' audit holds each plain replay above
+# defs_test.bzl, _RUNNER_CHOICES). c_levels()' audit holds each plain replay above
 # to these twins, corpus by corpus. Gated like
 # the corpus targets: a memory report about a program whose own example is
 # still red describes code about to change.
@@ -802,21 +782,21 @@ BSQ_FIXED = {
         count,
     ] + extra + BSQ_GATE,
     data = [
-        ":ex00_bin",
+        ":bsq_bin",
         "//oracle:oracle",
     ] + BSQ_GATE_DATA,
     waits = BSQ_WAITS,
 ) for stem, fn, count, extra in [
-    ("ex00_bsq", "bsq_mixed", "120", []),
-    ("ex00_bsq_stdin", "bsq_mixed", "60", ["--mode", "stdin"]),
-    ("ex00_bsq_multi", "bsq_mixed", "40", ["--mode", "multi", "--group", "3"]),
+    ("bsq", "bsq_mixed", "120", []),
+    ("bsq_stdin", "bsq_mixed", "60", ["--mode", "stdin"]),
+    ("bsq_multi", "bsq_mixed", "40", ["--mode", "multi", "--group", "3"]),
 ]]
 
 # The readings corpus is a fixed list that reads no --count. --readings is
 # passed although no reading is judged under a checker: it is how bsq_check.sh
 # accepts a record tagged with an open form at all.
 corpus_memory(
-    stem = "ex00_readings",
+    stem = "bsq_readings",
     runner = "//tools:bsq_check.sh",
     args = [
         "--oracle",
@@ -826,7 +806,7 @@ corpus_memory(
         "--readings",
     ] + BSQ_GATE,
     data = [
-        ":ex00_bin",
+        ":bsq_bin",
         "//oracle:oracle",
     ] + BSQ_GATE_DATA,
     waits = BSQ_WAITS,
@@ -834,20 +814,20 @@ corpus_memory(
 )
 
 [corpus_memory(
-    stem = "ex00_%s%s" % (fn, "_stdin" if mode == "stdin" else ""),
+    stem = "%s%s" % (fn, "_stdin" if mode == "stdin" else ""),
     runner = "//tools:bsq_check.sh",
     args = BSQ_FIXED[fn] + [
         "--mode",
         mode,
     ] + BSQ_GATE,
     data = [
-        ":ex00_bin",
+        ":bsq_bin",
         "//oracle:oracle",
     ] + BSQ_GATE_DATA,
     waits = BSQ_WAITS,
     size = "large",
     no_valgrind = None if fn == "bsq_long" else (
         "a million cells at memcheck's 20-50x is minutes for a correct program, " +
-        "and every other corpus of this exercise has a memcheck sample"
+        "and every other corpus of this project has a memcheck sample"
     ),
 ) for fn in ["bsq_long", "bsq_big"] for mode in ["argv", "stdin"]]

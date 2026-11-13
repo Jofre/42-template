@@ -128,7 +128,7 @@ subject(
 # hold it together. Every arm of a case reads the same file -- output, exit
 # twin, ASan, valgrind, the allocfail sweep, the reference's run -- and so do
 # the sweeps' gates (--gate-arg-file tests/ex00/subject.argv): the subject
-# case's own run, which c_levels()' audit holds every gate to (tools/defs.bzl,
+# case's own run, which c_levels()' audit holds every gate to (tools/defs_module.bzl,
 # _gate_problems). The cases used to embed quotes in `args` instead, with a
 # target of their own to prove Bazel kept them (ex00_argv_guard), which a
 # file needs no more.
@@ -163,7 +163,7 @@ SUBJECT_ARGV = "tests/ex00/subject.argv"
 
 # The subject case's output test, which every gate below runs and names in
 # its SKIP line (--gate-label); c_levels()' audit holds the name to the
-# gate's program and file (tools/defs.bzl, _waits_for).
+# gate's program and file (tools/defs_contract.bzl, _waits_for).
 SUBJECT_OUTPUT = "ex00_subject_output"
 
 # Each case has a valgrind arm, because the subject authorises malloc and free
@@ -319,7 +319,7 @@ c_program(
 # before either budget: the runner has its own 10s per-run timeout and gives up
 # after 3 of them.
 #
-# What standard error is held to, a choice at every call (tools/defs.bzl's
+# What standard error is held to, a choice at every call (tools/defs_test.bzl's
 # _RUNNER_CHOICES), and the Run contract's: ignored, unless the subject
 # requires something of it, and Rush 01's requires nothing of it. An "Error"
 # that went to standard error instead of standard output is still named as
@@ -422,8 +422,6 @@ hand_test(
         SUBJECT_ARGV,
         "//oracle:oracle",
         "//tools:diff_output.sh",
-        "//tools:exit_status",
-        "//tools:runner_lib.sh",
     ],
 )
 
@@ -475,8 +473,6 @@ hand_test(
         "tests/ex00/subject.txt",
         SUBJECT_ARGV,
         "//tools:diff_output.sh",
-        "//tools:exit_status",
-        "//tools:runner_lib.sh",
     ],
 )
 
@@ -568,8 +564,6 @@ hand_test(
         SUBJECT_ARGV,
         "//oracle:oracle",
         "//tools:diff_output.sh",
-        "//tools:exit_status",
-        "//tools:runner_lib.sh",
     ],
 )
 

@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+t_btree	*btree_create_node(void *item);
+
 int	main(void)
 {
 	char	*item;

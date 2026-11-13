@@ -19,7 +19,8 @@
 //!
 //!   oracle shell01_groups <user>
 //!       prints g1,g2,... (no newline); exit 1, printing nothing, if the user
-//!       does not exist.
+//!       does not exist. The names are the database's own bytes, as `id`
+//!       prints them, UTF-8 or not, and so is the login it is given.
 //!   oracle shell01_multigroup [<except>]
 //!       prints the login of the first user in the user database (getpwent's
 //!       order), other than <except>, who is in two groups or more: a user
@@ -136,9 +137,9 @@
 //!       that digit alone: whether a padded string is one of the subject's
 //!       numbers is open, so none is asked.
 
-use crate::common::Rng;
+use crate::common::{write_stdout, Rng};
 use std::ffi::{CStr, CString};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::raw::{c_char, c_int};
 use std::os::unix::ffi::OsStrExt;
 use std::process::exit;
@@ -180,21 +181,28 @@ extern "C" {
 /// glibc's LC_COLLATE.
 const LC_COLLATE: c_int = 3;
 
-fn group_name(gid: Gid) -> String {
+/// A name from the user database, as its bytes: never through UTF-8, which
+/// would print a byte that is not UTF-8 (a Latin-1 group name, say) as
+/// U+FFFD where `id` prints the byte.
+fn name_bytes(c: &CStr) -> Vec<u8> {
+    c.to_bytes().to_vec()
+}
+
+fn group_name(gid: Gid) -> Vec<u8> {
     // SAFETY: getgrgid returns NULL or a pointer to static storage that stays
     // valid until the next getgr* call; the name is copied out before that.
     unsafe {
         let g = getgrgid(gid);
         if g.is_null() || (*g).gr_name.is_null() {
-            return gid.to_string();
+            return gid.to_string().into_bytes();
         }
-        CStr::from_ptr((*g).gr_name).to_string_lossy().into_owned()
+        name_bytes(CStr::from_ptr((*g).gr_name))
     }
 }
 
 /// The group names of `user`, in the order `id -Gn user` prints them, or None
 /// if the user does not exist.
-fn groups_of(user: &str) -> Option<Vec<String>> {
+fn groups_of(user: &[u8]) -> Option<Vec<Vec<u8>>> {
     let cuser = CString::new(user).ok()?;
     // SAFETY: getpwnam returns NULL or static storage; pw_gid is copied out.
     let primary = unsafe {
@@ -227,11 +235,18 @@ fn groups_of(user: &str) -> Option<Vec<String>> {
     Some(gids.into_iter().map(group_name).collect())
 }
 
+/// The line `shell01_groups` prints: the names joined by commas.
+fn groups_line(names: &[Vec<u8>]) -> Vec<u8> {
+    names.join(&b',')
+}
+
 /// `oracle shell01_groups <user>`
-pub fn groups(user: &str) -> ! {
+pub fn groups(user: &[u8]) -> ! {
     match groups_of(user) {
         Some(names) => {
-            print!("{}", names.join(","));
+            if write_stdout(&groups_line(&names)).is_err() {
+                exit(2);
+            }
             exit(0);
         }
         None => exit(1),
@@ -244,7 +259,7 @@ pub fn groups(user: &str) -> ! {
 const MAX_USERS: usize = 10_000;
 
 /// The logins of the user database, in getpwent's order.
-fn all_logins() -> Vec<String> {
+fn all_logins() -> Vec<Vec<u8>> {
     let mut names = Vec::new();
     // SAFETY: getpwent returns NULL or static storage valid until the next
     // getpw* call; each name is copied out before the next one. The names are
@@ -258,7 +273,7 @@ fn all_logins() -> Vec<String> {
                 break;
             }
             if !(*pw).pw_name.is_null() {
-                names.push(CStr::from_ptr((*pw).pw_name).to_string_lossy().into_owned());
+                names.push(name_bytes(CStr::from_ptr((*pw).pw_name)));
             }
         }
         endpwent();
@@ -267,13 +282,15 @@ fn all_logins() -> Vec<String> {
 }
 
 /// `oracle shell01_multigroup [<except>]`
-pub fn multigroup_cmd(except: Option<&str>) -> ! {
+pub fn multigroup_cmd(except: Option<&[u8]>) -> ! {
     for name in all_logins() {
-        if Some(name.as_str()) == except {
+        if Some(name.as_slice()) == except {
             continue;
         }
         if groups_of(&name).map_or(false, |g| g.len() >= 2) {
-            print!("{}", name);
+            if write_stdout(&name).is_err() {
+                exit(2);
+            }
             exit(0);
         }
     }
@@ -795,8 +812,7 @@ pub fn chelou_cmd() -> ! {
     match chelou(&var("FT_NBR1"), &var("FT_NBR2")) {
         Some(mut line) => {
             line.push(b'\n');
-            let mut so = std::io::stdout();
-            if so.write_all(&line).and_then(|_| so.flush()).is_err() {
+            if write_stdout(&line).is_err() {
                 exit(2);
             }
             exit(0);
@@ -883,8 +899,7 @@ pub fn chelou_cases_cmd(seed: &str) -> ! {
         out.extend_from_slice(&n2);
         out.push(b'\n');
     }
-    let mut so = std::io::stdout();
-    if so.write_all(&out).and_then(|_| so.flush()).is_err() {
+    if write_stdout(&out).is_err() {
         exit(2);
     }
     exit(0);
@@ -898,19 +913,30 @@ pub fn chelou_cases_cmd(seed: &str) -> ! {
 /// Then hwaddr, rdwssap and chelou, against hand-worked tables and properties.
 pub fn check() -> usize {
     let mut fails = check_hwaddr() + check_rdwssap() + check_chelou();
-    match groups_of("root") {
-        Some(names) if names.first().map(String::as_str) == Some("root") => {}
+    match groups_of(b"root") {
+        Some(names) if names.first().map(Vec::as_slice) == Some(b"root") => {}
         other => {
             eprintln!("shell01 groups_of(root): expected root first, got {:?}", other);
             fails += 1;
         }
     }
-    if groups_of("no-such-user-42-oracle").is_some() {
+    if groups_of(b"no-such-user-42-oracle").is_some() {
         eprintln!("shell01 groups_of(unknown user): expected None");
         fails += 1;
     }
-    if !all_logins().iter().any(|n| n == "root") {
+    if !all_logins().iter().any(|n| n == b"root") {
         eprintln!("shell01 all_logins: root is not among them");
+        fails += 1;
+    }
+    // A name is printed as the database holds it, as `id` prints it: a byte
+    // that is not UTF-8 (a Latin-1 group name, say) stays that byte, never
+    // U+FFFD, which ex01's check would read as a different name.
+    if name_bytes(c"caf\xe9") != b"caf\xe9" {
+        eprintln!("shell01 name_bytes: caf\\xe9 came back as {:?}", name_bytes(c"caf\xe9"));
+        fails += 1;
+    }
+    if groups_line(&[b"caf\xe9".to_vec(), b"x".to_vec()]) != b"caf\xe9,x" {
+        eprintln!("shell01 groups_line: a name that is not UTF-8 lost its bytes in the join");
         fails += 1;
     }
     fails

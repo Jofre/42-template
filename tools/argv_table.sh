@@ -23,13 +23,16 @@
 #   argv_table.sh --bin PATH --scenarios PATH --expected PATH \
 #       [--clues PATH] [--reporter PATH] [--memory-only] [--exit-only]
 #       [--guarded-argv] [--symbolizer PATH --symbolizer-lib PATH]
-#       [--waiting FILE] [--]
+#       [--waiting FILE [--suite NAME]] [--]
 #
-#   --waiting FILE the tests that wait for this table (tools/defs.bzl's
+#   --waiting FILE the tests that wait for this table (tools/defs_contract.bzl's
 #                  _WAITING, one a line with its level): under a red verdict
 #                  they are listed, with what Bazel shows for them
 #                  (rl_waiting). c_argv_table's exNN_output hands it: the
 #                  exercise's corpus replays wait for that table.
+#   --suite NAME   with --waiting, the suite that block names for a run
+#                  that includes them: the test's unit's, in a package of
+#                  units, where an exercise's says :exNN.
 #   --             ends the options, with nothing after it: each row of the
 #                  scenarios is one run's arguments, so the program takes
 #                  none of its own here. It is there for the replays' gate
@@ -91,7 +94,7 @@ require awk cat dirname grep mktemp rm sed tail tr wc
 RL_NAME=argv_table
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "argv_table.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "argv_table.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -100,27 +103,24 @@ case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esa
 
 BIN=""; SCN=""; EXP=""; CLUES=""; REPORTER=""; SEP=" | "; EMIT=0; MEMONLY=0
 EXITONLY=0; SYMBOLIZER=""; SYMBOLIZER_LIB=""; GUARDED=0; WAITING=""
+WAIT_SUITE=""
 TAB=$(printf '\t')
-
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "argv_table.sh: $1 needs a value" >&2; exit 2; }; }
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--bin) need "$1" "$#"; BIN="$2"; shift 2 ;;
-		--scenarios) need "$1" "$#"; SCN="$2"; shift 2 ;;
-		--expected) need "$1" "$#"; EXP="$2"; shift 2 ;;
-		--clues) need "$1" "$#"; CLUES="$2"; shift 2 ;;
-		--reporter) need "$1" "$#"; REPORTER="$2"; shift 2 ;;
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
+		--scenarios) rl_need "$1" "$#"; SCN="$2"; shift 2 ;;
+		--expected) rl_need "$1" "$#"; EXP="$2"; shift 2 ;;
+		--clues) rl_need "$1" "$#"; CLUES="$2"; shift 2 ;;
+		--reporter) rl_need "$1" "$#"; REPORTER="$2"; shift 2 ;;
 		--emit) EMIT=1; shift ;;
 		--memory-only) MEMONLY=1; shift ;;
 		--exit-only) EXITONLY=1; shift ;;
 		--guarded-argv) GUARDED=1; shift ;;
-		--symbolizer) need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
-		--symbolizer-lib) need "$1" "$#"; SYMBOLIZER_LIB="$2"; shift 2 ;;
-		--waiting) need "$1" "$#"; WAITING="$2"; shift 2 ;;
+		--symbolizer) rl_need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
+		--symbolizer-lib) rl_need "$1" "$#"; SYMBOLIZER_LIB="$2"; shift 2 ;;
+		--waiting) rl_need "$1" "$#"; WAITING="$2"; shift 2 ;;
+		--suite) rl_need "$1" "$#"; WAIT_SUITE="$2"; shift 2 ;;
 		--)
 			shift
 			if [ $# -gt 0 ]; then
@@ -135,6 +135,15 @@ done
 	echo "argv_table.sh: no --waiting file at $WAITING" >&2
 	exit 2
 }
+[ -z "$WAIT_SUITE" ] || [ -n "$WAITING" ] || {
+	echo "argv_table.sh: --suite needs --waiting: it names the suite the list of waiting tests points at" >&2
+	exit 2
+}
+case "$WAIT_SUITE" in
+	[!a-z]* | *[!a-z0-9_]*)
+		echo "argv_table.sh: --suite takes a suite's name: a lowercase letter, then lowercase letters, digits or _" >&2
+		exit 2 ;;
+esac
 # --emit: print the "label<TAB>joined-output" stream (used to GENERATE the expected
 # table from a trusted reference program). Otherwise --expected is required.
 if [ -z "$BIN" ] || [ -z "$SCN" ] || { [ "$EMIT" -eq 0 ] && [ "$MEMONLY" -eq 0 ] && [ "$EXITONLY" -eq 0 ] && [ -z "$EXP" ]; }; then
@@ -153,14 +162,9 @@ fi
 # build said instead, and fail. The memory-only arm steps aside the way
 # asan_run.sh does -- the output table beside it tells the story -- unless
 # NO_SKIP=1.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "argv_table.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 if [ "$MEMONLY" -eq 1 ]; then
 	standin_check argv_table "$BIN" skip "the program"
 else
@@ -204,24 +208,24 @@ TMO="${ARGV_TIMEOUT:-5}"
 # How many scenarios there are, for a sweep that stops early to say so.
 SCN_TOTAL=$(grep -cvE '^(#|$)' "$SCN" 2> /dev/null)
 
-ACTUAL=$(mktemp)
-RAW=$(mktemp)
+ACTUAL=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+RAW=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
 # ERR holds ONE run's stderr (truncated by each run); ERRLOG accumulates the
 # interesting ones across scenarios; DIED accumulates one line per run that did
 # not finish cleanly. Cleaned by a trap because the script now has several exit
 # paths (the --emit refusal, the reporter's verdict, an interrupted Bazel run)
 # and the old "rm before each exit" left files behind on every path that was
 # added after it.
-ERR=$(mktemp)
-ERRLOG=$(mktemp)
-DIED=$(mktemp)
+ERR=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+ERRLOG=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+DIED=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
 # One line per run that RETURNED a non-zero status (not a signal): a note in
 # the table's modes, the verdict under --exit-only.
-NONZERO=$(mktemp)
+NONZERO=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
 # Where rl_sanitizers writes the symbolizer's wrapper.
-SYMDIR=$(mktemp -d)
+SYMDIR=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 # Under a red verdict, the tests that wait for this table (--waiting).
-rl_traps 'rl_waiting $? "$WAITING"; rm -f "$ACTUAL" "$RAW" "$ERR" "$ERRLOG" "$DIED" "$NONZERO"; rm -rf "$SYMDIR"'
+rl_traps 'rl_waiting $? "$WAITING" "$WAIT_SUITE"; rm -f "$ACTUAL" "$RAW" "$ERR" "$ERRLOG" "$DIED" "$NONZERO"; rm -rf "$SYMDIR"'
 # The sanitizers' options and the pinned symbolizer, set once for every
 # sanitizer runner (tools/runner_lib.sh). Harmless for the plain program, whose
 # runs no sanitizer watches.

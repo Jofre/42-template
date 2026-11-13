@@ -1,6 +1,8 @@
 #include "ft_list.h"
 #include <stdio.h>
 
+t_list	*ft_list_at(t_list *begin_list, unsigned int nbr);
+
 /* Prints "<label>\t<value>" so tools/diff_output.sh (run with --labeled) can
  * show each case in its own column. A returned node is rendered as its data
  * cast to (char *), exactly as the original test did; a node that does not

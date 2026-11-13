@@ -1,0 +1,434 @@
+load("//tools:defs.bzl", "c_cycles", "c_diff", "c_function", "c_levels", "c_library", "c_mem_check", "c_perf", "c_readme", "subject", "unit")
+load("//tools:names_file.bzl", "names_file")
+load("//tools/tests:analysed.bzl", "analysed")
+
+# Its programs are the data of //tools/tests:macro_fixtures_test.
+package(default_visibility = ["//tools/tests:__pkg__"])
+
+# A TOY LIBRARY IN A BROKEN STATE, DECLARED AS NAMED UNITS: its subject()
+# contract divided into units, as ../named_lib's is. The library is the unit
+# libtoy14, its functions toy_left and toy_right units of their own; its
+# Makefile is written and one of its sources, toy_right.c, does not compile.
+# The contract also lists a README.md the turn-in does not hold, and the
+# turn-in holds a main.c the contract does not list. Invented, like the rest
+# of ../ (see its BUILD file), every file under deliverable/ a stub, main.c
+# too.
+#
+# What //tools/tests:macro_fixtures_test checks here, on every run:
+#
+#   * the package loads, the README the contract lists missing and a file
+#     it does not list there: c_levels()' audit passed on every test below,
+#     each named and tagged after its unit, as in ../named_lib;
+#   * the tests and suites emitted are the ones layers.expected lists:
+#     the library's own, libtoy14_* (c_readme's two among them), and each
+#     function's, toy_left_* and toy_right_*, with one suite per unit
+#     (:libtoy14, :toy_left, :toy_right);
+#   * each function has exactly its own tests, read from the unit= tags the
+#     macros gave them (unit_tests), and :unit_strays lists no test or
+#     program of a function that reads another unit's files, runs another
+#     unit's program or waits for another unit's output test;
+#   * the files layer lists the turn-in from the root of deliverable/, the
+#     stray main.c among its sources (:libtoy14_files_names);
+#   * every function's program is a stand-in in the compiler's words,
+#     toy_left's too, whose own file compiles: the archive both link holds
+#     toy_right.c (is_standin);
+#   * the calls under REFUSALS, WATCHED below are refused, each naming the
+#     call it was written as: the library's own, an argument left out, at
+#     odds with another or refused whatever its value, and a function's -- called above c_library,
+#     with an fn that names another function, handed the library's
+#     sources, or handed a prototype of its own. c_levels() names the two
+#     folders under tests/ no macro reads; :contract_problems holds every
+#     message.
+#
+# Measured by hand on 2026-10-23 with
+#
+#     bazel test $(bazel query 'tests(//tools/tests/macro_fixtures/named_lib_broken:*)')
+#
+# (tagged manual, as every fixture test is): 20 tests, 12 red -- nine on
+# toy_right.c, which neither compiles nor parses: libtoy14_build,
+# _compile_clang, _compile_gcc, _forbidden, _prototype, _symbols, _norm,
+# and both functions' _output; and three on what the contract and the
+# turn-in disagree about: libtoy14_files, naming README.md missing and
+# main.c not asked for, and libtoy14_readme and _readme_wording, finding no
+# README.md. The functions' _ilp32 and
+# _memcheck SKIP on their _output, libtoy14_norm_notice on norminette's
+# stop, and libtoy14_build_exit and _build_rules on libtoy14_build.
+# Re-measure after changing a macro or a runner.
+subject(
+    grader = "defense",
+    group = False,
+    units = {
+        "libtoy14": unit(
+            page = 1,
+            files = [
+                "Makefile",
+                "README.md",
+            ],
+            optional = ["toy_*.c", "inc/*.h"],
+            allowed = [],
+            functions = {
+                "toy_left": [],
+                "toy_right": [],
+            },
+        ),
+    },
+)
+
+# Where each refused call below collects what it would have failed the
+# load with (REFUSALS, WATCHED), the first of them above the library's
+# own c_library.
+_REFUSED = {k: [] for k in [
+    "before-library",
+    "escaped",
+    "fn-differs",
+    "hdrs",
+    "includes",
+    "levels",
+    "library-wide",
+    "names-unchosen",
+    "no-prototype",
+    "prototype-c-diff",
+    "prototype-c-function",
+    "prototype-c-mem-check",
+    "prototype-c-perf",
+    "reading-escaped",
+]}
+
+# A function's call above its library's c_library: there is no
+# :libtoy14_lib yet for its programs to link.
+c_perf(
+    unit = "toy_left",
+    oracle_fn = "c05_iter_factorial",
+    refusals = _REFUSED["before-library"],
+)
+
+c_library(
+    unit = "libtoy14",
+    artifact = "libtoy14.a",
+    prototype_names = "none: the toy subject prints no parameter names",
+    globals = "none: the toy subject says nothing of variables",
+    function_lists = "none: the toy subject gives no function a list of its own",
+    restrict_rule = "none: the toy subject says nothing of restrict",
+    declares_reading = "none: the toy subject's header is read by its members' tests alone",
+    helpers_rule = "none: the toy subject says nothing of helpers",
+    make = {
+        "not_checked": {
+            "recipe": "the toy subject says nothing about how its library compiles",
+            "wildcards": "the toy subject does not bind the Norm",
+        },
+    },
+)
+
+c_function(
+    unit = "toy_left",
+    test = "test_toy_left.c",
+)
+
+c_function(
+    unit = "toy_right",
+    test = "test_toy_right.c",
+)
+
+# The README the contract lists, and the turn-in does not hold: every test
+# of it is red, and the package loads.
+c_readme(
+    unit = "libtoy14",
+    file = "README.md",
+    ai_section = "Sources",
+    ai_words = ["AI"],
+    quotes = {k: "Toy, p.1: \"A toy sentence.\"" for k in ["ai", "file", "first-line", "language", "sections"]},
+    sections = ["Description", "Usage", "Sources"],
+    sentences = ["Made by"],
+)
+
+# REFUSALS, WATCHED, as ../'s are (see A REFUSAL, WATCHED in its BUILD
+# file): each call below would have failed the load, what it would have
+# failed with is collected in a list instead, nothing is emitted, and
+# :contract_problems holds the messages for macro_fixtures_test. Each names
+# the call as it was written, a function by its own unit and the library's
+# folder as tests/libtoy14/, never as an exercise's.
+c_function(
+    unit = "toy_left",
+    test = "test_toy_left.c",
+    escaped_values = True,
+    refusals = _REFUSED["escaped"],
+)
+
+c_function(
+    unit = "toy_left",
+    test = "test_toy_left.c",
+    readings = [{"name": "wide", "main": "test_toy_left.c", "escaped_values": True}],
+    refusals = _REFUSED["reading-escaped"],
+)
+
+# A function's call whose fn names another function: a function unit's
+# tests are its own, and fn is the unit.
+c_diff(
+    unit = "toy_left",
+    fn = "toy_right",
+    harness = "diff_toy.c",
+    oracle_fn = "c05_iter_factorial",
+    refusals = _REFUSED["fn-differs"],
+)
+
+# A function's call handed the library's sources: they are c_library's,
+# whatever the list, and an empty one is refused too.
+c_cycles(
+    unit = "toy_left",
+    oracle_fn = "c05_iter_factorial",
+    harness = "diff_toy.c",
+    srcs = [],
+    refusals = _REFUSED["library-wide"],
+)
+
+# A function's harness is held to the library's libtoy14_prototype: each
+# macro that takes `prototype` refuses it on a function, c_function's False
+# as much as a test named to the others.
+c_function(
+    unit = "toy_left",
+    test = "test_toy_left.c",
+    prototype = False,
+    refusals = _REFUSED["prototype-c-function"],
+)
+
+c_mem_check(
+    unit = "toy_left",
+    probe = "mem_toy.c",
+    prototype = "none: a function saying its probe is held to nothing",
+    refusals = _REFUSED["prototype-c-mem-check"],
+)
+
+c_diff(
+    unit = "toy_left",
+    harness = "diff_toy.c",
+    oracle_fn = "c05_iter_factorial",
+    prototype = "libtoy14_prototype",
+    refusals = _REFUSED["prototype-c-diff"],
+)
+
+c_perf(
+    unit = "toy_left",
+    oracle_fn = "c05_iter_factorial",
+    prototype = "libtoy14_prototype",
+    refusals = _REFUSED["prototype-c-perf"],
+)
+
+# The library's arguments, as above, but one: prototype_names left out, and
+# a sentence for restrict_rule where prototype = False says there is no
+# prototype.h for it to judge.
+c_library(
+    unit = "libtoy14",
+    artifact = "libtoy14.a",
+    prototype_names = None,
+    globals = "none: the toy subject says nothing of variables",
+    function_lists = "none: the toy subject gives no function a list of its own",
+    restrict_rule = "none: the toy subject says nothing of restrict",
+    declares_reading = "none: the toy subject's header is read by its members' tests alone",
+    helpers_rule = "none: the toy subject says nothing of helpers",
+    make = {
+        "not_checked": {
+            "recipe": "the toy subject says nothing about how its library compiles",
+            "wildcards": "the toy subject does not bind the Norm",
+        },
+    },
+    refusals = _REFUSED["names-unchosen"],
+)
+
+c_library(
+    unit = "libtoy14",
+    prototype = False,
+    artifact = "libtoy14.a",
+    prototype_names = "none: the toy subject prints no parameter names",
+    globals = "none: the toy subject says nothing of variables",
+    function_lists = "none: the toy subject gives no function a list of its own",
+    restrict_rule = "Toy, p.1: \"A toy sentence.\"",
+    declares_reading = "none: the toy subject's header is read by its members' tests alone",
+    helpers_rule = "none: the toy subject says nothing of helpers",
+    make = {
+        "not_checked": {
+            "recipe": "the toy subject says nothing about how its library compiles",
+            "wildcards": "the toy subject does not bind the Norm",
+        },
+    },
+    refusals = _REFUSED["no-prototype"],
+)
+
+# The library's arguments, as above, with one c_library refuses whatever
+# its value: hdrs, then includes. Every header the library turns in is
+# read from the contract's files, and its include path is the Makefile's.
+c_library(
+    unit = "libtoy14",
+    artifact = "libtoy14.a",
+    hdrs = ["toy_extra.h"],
+    prototype_names = "none: the toy subject prints no parameter names",
+    globals = "none: the toy subject says nothing of variables",
+    function_lists = "none: the toy subject gives no function a list of its own",
+    restrict_rule = "none: the toy subject says nothing of restrict",
+    declares_reading = "none: the toy subject's header is read by its members' tests alone",
+    helpers_rule = "none: the toy subject says nothing of helpers",
+    make = {
+        "not_checked": {
+            "recipe": "the toy subject says nothing about how its library compiles",
+            "wildcards": "the toy subject does not bind the Norm",
+        },
+    },
+    refusals = _REFUSED["hdrs"],
+)
+
+c_library(
+    unit = "libtoy14",
+    artifact = "libtoy14.a",
+    includes = ["inc"],
+    prototype_names = "none: the toy subject prints no parameter names",
+    globals = "none: the toy subject says nothing of variables",
+    function_lists = "none: the toy subject gives no function a list of its own",
+    restrict_rule = "none: the toy subject says nothing of restrict",
+    declares_reading = "none: the toy subject's header is read by its members' tests alone",
+    helpers_rule = "none: the toy subject says nothing of helpers",
+    make = {
+        "not_checked": {
+            "recipe": "the toy subject says nothing about how its library compiles",
+            "wildcards": "the toy subject does not bind the Norm",
+        },
+    },
+    refusals = _REFUSED["includes"],
+)
+
+# Two folders under tests/ that no macro reads, each a file in a folder of
+# its own: tests/stray/, which holds only a folder, and tests/libtoy14/old/,
+# under the library's own folder, where its functions' are not. c_levels()
+# collects what it would have failed with, and goes on.
+c_levels(refusals = _REFUSED["levels"])
+
+names_file(
+    name = "contract_problems",
+    names = sorted([
+        "named_lib_broken-refused-%s: %s" % (k, " | ".join(v) or "OK")
+        for k, v in _REFUSED.items()
+        if k != "levels"
+    ] + [
+        "named_lib_broken-refused-levels-%d: %s" % (i, m)
+        for i, m in enumerate(sorted(_REFUSED["levels"]))
+    ]),
+)
+
+# What c_levels() and the macros emitted, as data: ../named_lib's :layers,
+# which says what each word is.
+names_file(
+    name = "layers",
+    names = sorted([
+        "%s %s @%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s by:%s kind:%s" % (
+            r["name"],
+            r["srcs"][0].split(":")[-1],
+            [t for t in ["lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"] if t in r["tags"]][0][4:],
+            # The word after the flag (args is a tuple here: no .index).
+            "".join([" fn:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--oracle-fn"]),
+            "".join([" count:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--count"]),
+            "".join([
+                " bin:" + r["args"][i + 1][len("$(location "):-1] + "".join([
+                    " built:" + h.split("/")[-1]
+                    for h in existing_rule(r["args"][i + 1][len("$(location :"):-1])["harness"]
+                ]) + "".join([
+                    " reader:" + r["args"][j + 1][:-1].split("/")[-1]
+                    for j in range(len(r["args"]) - 1)
+                    if r["args"][j] == "--harness-src"
+                ])
+                for i in range(len(r["args"]) - 1)
+                if r["args"][i] == "--student-bin" and not r["args"][i + 1].endswith(("_diffbin)", "_diffbin_asan)"))
+            ]),
+            " any-of" if "--expected-alt" in r["args"] else "",
+            " survive" if "--survive" in r["args"] else "",
+            " stray" if "--stray" in r["args"] else "",
+            " outside" if "--outside" in r["args"] else "",
+            " reading" if [i for i in range(len(r["args"]) - 1) if r["args"][i] == "--exit-source" and r["args"][i + 1] == "reading"] else "",
+            " argv-file" if "--argv-file" in r["args"] else "",
+            " cwd" if "--run-as" in r["args"] else "",
+            " ran" if "--show-run" in r["args"] else "",
+            " case" if "--case" in r["args"] else "",
+            " clues" if "--clues" in r["args"] else "",
+            " stable" if "--stable" in r["args"] else "",
+            " sanitized" if "--sanitized" in r["args"] else "",
+            " sanitize" if "--sanitize" in r["args"] or "--gate-sanitize" in r["args"] else "",
+            " memcheck" if "--sample" in r["args"] else "",
+            " gated" if "--gate-expected" in r["args"] else "",
+            " gate-stdin" if "--gate-stdin" in r["args"] else "",
+            "".join([" gate-label:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--gate-label"]),
+            "".join([" suite:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--suite"]),
+            (" raised:" + (r["env"] or {})["RL_RAISED"]) if "RL_RAISED" in (r["env"] or {}) else "",
+            (" make-includes" if "--inc-file" in r["args"] else "") +
+            "".join([
+                " " + t
+                for t in r["tags"]
+                if t.startswith("unit=") or (t[:2] == "ex" and t[2:].isdigit())
+            ]),
+            (r["env"] or {}).get("RL_GRADER", "none"),
+            (r["env"] or {}).get("RL_UNIT_KIND", "none"),
+        )
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+    ] + [
+        "%s suite %s" % (r["name"], " ".join(r["tags"]))
+        for r in existing_rules().values()
+        if r["kind"] == "test_suite"
+    ]),
+)
+
+# WHAT A FUNCTION'S TESTS POINT AT, as ../named_lib's :unit_strays: every
+# test of a function unit, and every program named after one, reads its
+# files under tests/<function>/ alone, names no program of another unit and
+# waits for no output test but its own -- macro_fixtures_test wants no
+# line. The library's -I list (:libtoy14_make_bin_includes.txt) is the whole
+# library's, and every function's layers that compile the sources read it.
+_UNITS = ["libtoy14", "toy_left", "toy_right"]
+
+names_file(
+    name = "unit_strays",
+    names = sorted([
+        "%s %s" % (r["name"], x)
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+        for m in [t[len("unit="):] for t in r["tags"] if t.startswith("unit=")]
+        if m != "libtoy14"
+        for a in r["args"]
+        if a.startswith("$(location ")
+        for x in [a[len("$(location "):-1]]
+        if x != ":libtoy14_make_bin_includes.txt" and [
+            u
+            for u in _UNITS
+            if u != m and (x.startswith(":%s_" % u) or x.startswith("tests/%s/" % u))
+        ]
+    ] + [
+        "%s --gate-label %s" % (r["name"], r["args"][i + 1])
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+        for m in [t[len("unit="):] for t in r["tags"] if t.startswith("unit=")]
+        if m != "libtoy14"
+        for i in range(len(r["args"]) - 1)
+        if r["args"][i] == "--gate-label" and not r["args"][i + 1].startswith(m + "_")
+    ] + [
+        "%s %s" % (r["name"], h)
+        for r in existing_rules().values()
+        if r["kind"] == "student_binary"
+        for m in _UNITS
+        if m != "libtoy14" and r["name"].startswith(m + "_")
+        for h in r["harness"]
+        if [u for u in _UNITS if u != m and "tests/%s/" % u in h]
+    ]),
+)
+
+exports_files(["layers.expected"])
+
+# EVERY TOY ANALYSED: each manual target above, its test_suite included,
+# as a dependency of this target, which //tools/tests:macro_fixtures_test
+# depends on, so a toy naming a label no package declares, or one a macro
+# no longer accepts, fails that test's build instead of waiting for
+# someone to name it by hand. It builds nothing of them
+# (tools/tests/analysed.bzl). The last call of the file, so that it sees
+# every test above it. c_levels()' own :manual suite is named by hand: its
+# finalizer declares it once the file has been read, and existing_rules()
+# here cannot see it yet.
+analysed(
+    name = "toys_analysed",
+    testonly = True,
+    deps = sorted([":" + r for r, a in existing_rules().items() if "manual" in (a.get("tags") or [])] + [":manual"]),
+)

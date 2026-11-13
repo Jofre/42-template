@@ -17,8 +17,7 @@ int	main(void)
 
 	while (dio_line(line, sizeof(line)))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		printf("%s\t", f[0]);
 		fflush(stdout);
 		ft_is_negative(atoi(f[0]));

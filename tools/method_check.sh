@@ -98,7 +98,7 @@ require awk dirname grep mktemp rm sed
 RL_NAME=method_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "method_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "method_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -123,15 +123,10 @@ GATE_DIFFER=""
 GATE_BIN=""
 GATE_EXPECTED=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "method_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--expect)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				recursive | iterative) EXPECT="$2" ;;
 				*) echo "method_check.sh: --expect is recursive or iterative, not '$2'" >&2; exit 2 ;;
@@ -142,29 +137,29 @@ while [ $# -gt 0 ]; do
 			if [ -n "$MODE" ]; then MODE=both; else MODE=fixed; fi
 			shift ;;
 		--max-bytes)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				'' | *[!0-9]* | 0 | 1) echo "method_check.sh: --max-bytes is a number of bytes above 1, not '$2'" >&2; exit 2 ;;
 			esac
 			MAX="$2"; shift 2 ;;
-		--rule) need "$1" "$#"; RULE="$2"; shift 2 ;;
-		--harness) need "$1" "$#"; HARNESS="$2"; shift 2 ;;
-		--shim) need "$1" "$#"; SHIM="$2"; shift 2 ;;
-		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--grader-src) need "$1" "$#"; rl_list_add GSRCS "$2"; shift 2 ;;
-		--inc) need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
-		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
-		--cc-under) need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
-		--ld) need "$1" "$#"; LD="$2"; shift 2 ;;
-		--ld-lib) need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--rule) rl_need "$1" "$#"; RULE="$2"; shift 2 ;;
+		--harness) rl_need "$1" "$#"; HARNESS="$2"; shift 2 ;;
+		--shim) rl_need "$1" "$#"; SHIM="$2"; shift 2 ;;
+		--src) rl_need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--grader-src) rl_need "$1" "$#"; rl_list_add GSRCS "$2"; shift 2 ;;
+		--inc) rl_need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--inc-file) rl_need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--cc-under) rl_need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
+		--ld) rl_need "$1" "$#"; LD="$2"; shift 2 ;;
+		--ld-lib) rl_need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add RL_GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add RL_GATE_PASS --labeled; shift ;;
-		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
 		*) echo "method_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -190,6 +185,15 @@ if [ "$MODE" = expect ]; then
 	[ -n "$LD" ] || { echo "method_check.sh: --expect needs --ld PATH, the pinned ld.bfd it links its probe with" >&2; exit 2; }
 else
 	[ -z "$LD" ] || { echo "method_check.sh: --ld goes with --expect: --fixed-array links nothing" >&2; exit 2; }
+	# And everything else only --expect reads: given here it would be
+	# ignored, and a gate read as one that waits on nothing.
+	for _mo in "--harness=$HARNESS" "--shim=$SHIM" "--grader-src=$GSRCS" "--ld-lib=$LD_LIBS" \
+		"--gate-differ=$GATE_DIFFER$GATE_BIN$GATE_EXPECTED$RL_GATE_PASS$RL_GATE_NAME"; do
+		[ -z "${_mo#*=}" ] || {
+			echo "method_check.sh: ${_mo%%=*} goes with --expect: --fixed-array only compiles" >&2
+			exit 2
+		}
+	done
 fi
 rl_cc_pin "$CC" "$CC_LIBS" "$CC_UNDER"
 
@@ -203,8 +207,9 @@ RL_LDFLAG=""
 [ "$MODE" != expect ] || rl_ld_pin "$CC" "$LD" "$LD_LIBS" "$WORK/ld"
 
 # The call site's sentence, indented under the verdict.
+# A function's is quoted by its library's BUILD file (rl_entry).
 say_rule() {
-	echo "  The subject, as this exercise's BUILD file quotes it:"
+	echo "  The subject, as this $(rl_entry)'s BUILD file quotes it:"
 	sed 's/^/    /' "$RULE"
 }
 
@@ -374,7 +379,7 @@ if [ "$BUILD_OK" -eq 1 ]; then
 fi
 rl_split_off
 if [ "$BUILD_OK" -ne 1 ]; then
-	echo "method_check: FAIL — the turned-in file did not build with this exercise's test"
+	echo "method_check: FAIL — the turned-in file did not build with this $(rl_noun)'s test"
 	echo "  program and the method layer's recorder, so how it runs was not seen."
 	echo "  The compile and output layers say the same in their own words; read"
 	echo "  theirs first."
@@ -392,12 +397,18 @@ rl_tmo || { rl_overrun "the instrumented run"; exit 1; }
 	rl_run "$WORK/probe" < /dev/null > /dev/null 2> "$WORK/run.err"
 )
 rl_classify "$?"
+# A run that could not be started, or was stopped from outside, says nothing
+# of the method: exit 2 (rl_unjudged), never a FAIL. Before the report is
+# read, and whatever it holds: a run cut short may have reported only some
+# of its processes, and "done" from those is not the whole run's.
+rl_unjudged "the instrumented run"
 
 # One line per process that reported (tools/method_shim.c appends): a test
 # program that forks has several. A re-entry anywhere is decisive -- the
 # process it happened in ended there, and its parent's "done" says nothing of
 # it; otherwise a recorder that ran out of room; otherwise "done", with the
-# busiest process's counts: a child starts with a copy of its parent's, so a
+# most starts and the greatest depth any one process reported, which need not
+# be the same process: a child starts with a copy of its parent's counts, so a
 # sum would count the parent's twice.
 WHAT=""
 STARTS=0
@@ -426,7 +437,12 @@ fi
 procs_note() {
 	[ "${PROCS:-0}" -gt 1 ] || return 0
 	echo "  (The test program ran as $PROCS processes, each reporting; the counts"
-	echo "  are one process's: the one that re-entered, or else the busiest.)"
+	if [ "$WHAT" = reentered ]; then
+		echo "  are those of the process that re-entered.)"
+	else
+		echo "  are the most starts and the greatest depth any one process reached,"
+		echo "  not necessarily the same process.)"
+	fi
 }
 case "$WHAT" in
 	reentered | "done") ;;
@@ -436,7 +452,7 @@ case "$WHAT" in
 		exit 2 ;;
 	*)
 		if [ "$RL_CAUSE" = timeout ]; then
-			rl_overrun "the instrumented run of this exercise's test program"
+			rl_overrun "the instrumented run of this $(rl_noun)'s test program"
 			exit 1
 		fi
 		echo "method_check: FAIL — the instrumented run $RL_WHY"
@@ -459,13 +475,13 @@ fi
 if [ "$EXPECT" = recursive ] && [ "$WHAT" = reentered ]; then
 	echo "method_check: OK — recursive: a function of the turned-in file was entered again"
 	echo "  while it was still running (at function start $STARTS of the run, $DEEPEST deep),"
-	echo "  on this exercise's own test program."
+	echo "  on this $(rl_noun)'s own test program."
 	procs_note
 	say_rule
 	exit 0
 fi
 if [ "$EXPECT" = iterative ] && [ "$WHAT" = "done" ]; then
-	echo "method_check: OK — iterative: over the whole run of this exercise's own test"
+	echo "method_check: OK — iterative: over the whole run of this $(rl_noun)'s own test"
 	echo "  program, $STARTS function start(s) in the turned-in file, at most $DEEPEST running"
 	echo "  at once, and none was entered again while it was still running."
 	procs_note
@@ -473,7 +489,7 @@ if [ "$EXPECT" = iterative ] && [ "$WHAT" = "done" ]; then
 	exit 0
 fi
 if [ "$EXPECT" = recursive ]; then
-	echo "method_check: FAIL — not recursive: over the whole run of this exercise's own"
+	echo "method_check: FAIL — not recursive: over the whole run of this $(rl_noun)'s own"
 	echo "  test program, $STARTS function start(s) in the turned-in file, at most $DEEPEST"
 	echo "  running at once, and none was entered again while it was still running:"
 	echo "  nothing in the file calls itself, directly or through another of its"

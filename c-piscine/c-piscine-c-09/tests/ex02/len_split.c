@@ -8,11 +8,13 @@
  *
  * It CHECKS its own result against those words, because nothing else compares
  * these long outputs: one string per word, the same bytes, in order, and the
- * NULL that ends the array right after the last. It splits nothing itself.
+ * NULL that ends the array right after the last; the walk never reads more
+ * entries than there are words, plus that NULL. It splits nothing itself.
  * The first wrong one is exit 3, and the series reports that length as wrong
  * rather than timing it. Every string the result holds, and the array, are
- * freed, as a caller of ft_split must. Nothing is printed; perf_run discards
- * stdout.
+ * freed, as a caller of ft_split must -- the strings up to where the walk
+ * stopped, so a wrong result with no NULL is still exit 3 and never a crash
+ * in the harness. Nothing is printed; perf_run discards stdout.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,20 +22,30 @@
 
 char	**ft_split(char *str, char *charset);
 
-static int	same_words(char **got, char *want)
+/* Whether got holds exactly the words of want, comma-joined, then NULL; *n
+ * says how many entries of got were read before the walk stopped. */
+static int	same_words(char **got, char *want, size_t *n)
 {
 	char	*w;
-	int		i;
+	size_t	i;
 
 	i = 0;
 	w = strtok(want, ",");
 	while (w != NULL)
 	{
-		if (got[i] == NULL || strcmp(got[i], w) != 0)
+		if (got[i] == NULL)
+		{
+			*n = i;
 			return (0);
-		i++;
+		}
+		if (strcmp(got[i++], w) != 0)
+		{
+			*n = i;
+			return (0);
+		}
 		w = strtok(NULL, ",");
 	}
+	*n = i;
 	return (got[i] == NULL);
 }
 
@@ -44,7 +56,8 @@ int	main(void)
 	ssize_t	got;
 	char	*tab;
 	char	**words;
-	int		i;
+	size_t	n;
+	size_t	i;
 	int		ok;
 
 	line = NULL;
@@ -60,9 +73,9 @@ int	main(void)
 		words = ft_split(line, "_-");
 		if (words == NULL)
 			return (3);
-		ok = same_words(words, tab + 1);
+		ok = same_words(words, tab + 1, &n);
 		i = 0;
-		while (words[i] != NULL)
+		while (i < n)
 			free(words[i++]);
 		free(words);
 		if (!ok)

@@ -6,12 +6,12 @@
 //!                side/top/left -1) in a seeded interleave, for every transport
 //!   bsq_readings same shape; the ONE reading this repo takes of the sentences
 //!                the subject leaves open (see WHAT THIS REFERENCE REFUSES TO
-//!                DECIDE), for the strict ex00_readings target only
+//!                DECIDE), for the strict bsq_readings target only
 //! and one that is not a corpus:
-//!   bsq_fixtures <path under tests/ex00/>\t<escaped bytes>: every map and
+//!   bsq_fixtures <path under tests/bsq/>\t<escaped bytes>: every map and
 //!                expected output the named cases in
 //!                c-piscine/c-piscine-bsq/BUILD.bazel run, which
-//!                ex00_oracle_fixtures holds the files there to
+//!                bsq_oracle_fixtures holds the files there to
 //!                (tools/oracle_fixtures.sh), so they cannot drift from this file
 //!
 //! Both blobs are WHOLE FILES carried on one corpus line, escaped by
@@ -841,7 +841,7 @@ fn ok_case_as(slug: &str, m: &MapSpec, file: Vec<u8>) -> Case {
 /// THE READINGS (bsq_readings): the sentences the subject leaves open, each
 /// under the ONE reading this repo takes (the header's list, and
 /// c-piscine/c-piscine-bsq/BUILD.bazel). Never mixed into the settled arms:
-/// a program taking the other reading fails only ex00_readings, at strict.
+/// a program taking the other reading fails only bsq_readings, at strict.
 ///
 ///   the count   decimal digits only, positive, fitting an int: a leading zero
 ///               is valid ("09"); a '+', or a space before or after the digits,
@@ -899,9 +899,9 @@ fn err_file(slug: &str, nth: usize) -> Vec<u8> {
 }
 
 /// THE NAMED FIXTURES (bsq_fixtures): every file the named cases in
-/// c-piscine/c-piscine-bsq/BUILD.bazel read, as (path under tests/ex00/,
-/// bytes). ex00_oracle_fixtures fails when a file there differs from this, and
-/// `bazel run //c-piscine/c-piscine-bsq:ex00_oracle_fixtures -- --write`
+/// c-piscine/c-piscine-bsq/BUILD.bazel read, as (path under tests/bsq/,
+/// bytes). bsq_oracle_fixtures fails when a file there differs from this, and
+/// `bazel run //c-piscine/c-piscine-bsq:bsq_oracle_fixtures -- --write`
 /// rewrites them. An invalid map is an error-head record, a valid one a map
 /// this file builds, and every expected output is rendered here.
 fn fixtures() -> Vec<(String, Vec<u8>)> {

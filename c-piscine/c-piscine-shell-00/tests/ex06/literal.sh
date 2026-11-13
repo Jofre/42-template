@@ -27,14 +27,7 @@ ck_require "git_ignore.sh exists" test -f "$D"
 ck_sh_parses "$D"
 
 # The repository's own rules and nothing else, as in check.sh.
-GIT_CONFIG_NOSYSTEM=1
-HOME=$(mktemp -d)
-XDG_CONFIG_HOME="$HOME/.config"
-export GIT_CONFIG_NOSYSTEM HOME XDG_CONFIG_HOME
-# Nor where the repository is, or which configuration it takes, from what a
-# run outside Bazel's cleared environment would inherit.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
-unset GIT_CONFIG_GLOBAL GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+ck_git_sandbox
 
 # build/ is ignored as a whole and holds two files, one of them in a
 # subdirectory of its own; beside it, names whose byte order (an uppercase
@@ -43,9 +36,7 @@ unset GIT_CONFIG_GLOBAL GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 repo=$(mktemp -d)
 (
 	cd "$repo" || exit 1
-	git init -q . || exit 1
-	git config user.email tester@example.com
-	git config user.name tester
+	ck_git_init . || exit 1
 	printf '*.log\n.DS_Store\nbuild/\n' > .gitignore
 	mkdir -p build/deep
 	for f in build/deep/b.o alpha.log .DS_Store build/a.o Zeta.log; do
@@ -53,7 +44,7 @@ repo=$(mktemp -d)
 	done
 	git add .gitignore || exit 1
 	git commit -q -m fixture || exit 1
-) > /dev/null 2>&1 || { ck "fixture repository created" false; ck_report; }
+) > /dev/null 2>&1 || { rm -rf "$repo" "$HOME"; ck_broken "the git fixture repository could not be built"; }
 
 raw=$(mktemp)
 ck_run -C "$repo" "$raw" sh "$D"

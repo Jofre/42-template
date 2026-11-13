@@ -3,32 +3,48 @@
 Each setting stays in the file its readers already read -- .submit-level,
 .submit-remotes, .vscode/settings.json, .bazelrc.local -- so `42 config` is
 another way into those files, never a second copy of a value. It runs no Bazel
-command, the one command of 42 that does not (AGENTS.md, section 4): it has to
-work when Bazel does not, and starting a server to read a file would cost far
-more memory than the file.
+command, one of the two commands of 42 that do not (AGENTS.md, section 4): it
+has to work when Bazel does not, and starting a server to read a file would
+cost far more memory than the file.
 
 Three kinds of setting, and every list says which a row is:
   42, this checkout     what 42's own tools read: your identity, your level,
-                        where each project is pushed;
+                        where each project is pushed (titled "and your user
+                        file" while one of them may live there too);
   Bazel, this checkout  the Bazel flags this checkout's .bazelrc.local may
                         override (Bazel reads it after .bazelrc);
   machine, read-only    where Bazel keeps its state on this machine, and how
                         big it may grow: shown, never set here, because
                         `sh tools/setup.sh` and .bazelrc choose them.
+
+A setting may also live in your user file, which every checkout of yours
+reads (userconfig.py says where it is), once every one of its readers
+reads that file too, or is handed its value by 42 as a flag and stops when
+run without it (level: tools/submit.sh's --gate-level, workspace.level_source):
+the user file is then a layer they all resolve, never a second copy. SCOPES is
+the order, a checkout's own value first. An
+environment variable every reader honours (SUBMIT_GATE) wins over both, and
+one that only some readers honour (LOGIN42) is a note. `42 config list`
+shows every layer that is set, the one in use on the setting's line.
 """
 
 import difflib
 import os
 import re
 import subprocess
-import textwrap
 
 import bazel
 import report
+import userconfig
 import workspace
-from workspace import LEVELS, UsageError
+from workspace import LEVELS, WIDTH, UsageError, where, wrap
 
-WIDTH = 80
+# Where a setting may live, the one that wins first: this checkout's own file
+# for it, then your user file. `42 config` resolves it through Setting.layers;
+# workspace.level_source writes the same order out for level, since workspace
+# cannot import config, and test_config.GlobalLevel holds the two together.
+SCOPES = ("local", "global")
+
 SYSTEM_RC = "/etc/bazel.bazelrc"
 LOCAL_RC = ".bazelrc.local"
 
@@ -89,8 +105,9 @@ def rc_lines(path):
     return lines
 
 
-def rc_value(ws, environ, commands, flag, value=r"(\S+)", files=None):
-    """(value, file, line number) of the line Bazel takes `flag` from, or None.
+def rc_settings(ws, environ, commands, flag, value=r"(\S+)", files=None):
+    """Every (value, file, line number) that sets `flag`: the one Bazel takes first, then
+    the rest in the order Bazel would take them, each if the ones before it were gone.
 
     `commands` go from the least specific to the most, as ("common", "build"):
     Bazel applies the rc files command by command, every common line before
@@ -102,30 +119,33 @@ def rc_value(ws, environ, commands, flag, value=r"(\S+)", files=None):
     """
     line_rx = re.compile(r"\s*(%s)\s" % "|".join(commands))
     flag_rx = re.compile(r"(?:^|\s)--%s(?:=|\s+)%s" % (re.escape(flag), value))
-    last = {}
+    hits = []
     for path in rc_files(ws, environ) if files is None else files:
         for n, line in enumerate(rc_lines(path), 1):
             m = line_rx.match(line)
             if not m:
                 continue
             for f in flag_rx.finditer(line):
-                last[m.group(1)] = (f.group(1).strip('"\''), path, n)
-    for command in reversed(commands):
-        if command in last:
-            return last[command]
-    return None
+                hits.append((commands.index(m.group(1)), len(hits), (f.group(1).strip('"\''), path, n)))
+    return [hit for _, _, hit in sorted(hits, reverse=True)]
 
 
-def where(ws, environ, path, n=None):
-    """A file as a person finds it: from the checkout, from ~, or whole."""
+def rc_value(ws, environ, commands, flag, value=r"(\S+)", files=None):
+    """(value, file, line number) of the line Bazel takes `flag` from, or None."""
+    hits = rc_settings(ws, environ, commands, flag, value, files)
+    return hits[0] if hits else None
+
+
+def rc_scope(ws, environ, path):
+    """Which of Bazel's rc files path is, as a list tags a value it sets."""
     home = environ.get("HOME")
-    if path.startswith(ws + os.sep):
-        shown = path[len(ws) + 1:]
-    elif home and path.startswith(home.rstrip(os.sep) + os.sep):
-        shown = "~/" + path[len(home.rstrip(os.sep)) + 1:]
-    else:
-        shown = path
-    return "%s, line %d" % (shown, n) if n else shown
+    if path == os.path.join(ws, ".bazelrc"):
+        return "checked in"
+    if path == os.path.join(ws, LOCAL_RC):
+        return "local"
+    if home and path == os.path.join(home, ".bazelrc"):
+        return "home"
+    return "system"
 
 
 def host_cpus_value(text):
@@ -148,12 +168,21 @@ def host_cpus_value(text):
 # The settings
 
 class Found:
-    """A setting's value and where it came from."""
+    """A setting's value, where it came from, and the scope that set it."""
 
-    def __init__(self, value, source, user=True):
+    def __init__(self, value, source, user=True, scope=None):
         self.value = printable(value)
         self.source = printable(source)
         self.user = user  # set by someone here, not a default or the checked-in .bazelrc
+        self.scope = scope  # its tag in a list: local, global, environment, default, home, ...
+
+    def tag(self):
+        """Where it came from, as every list and get shows it: (scope: where)."""
+        text = ": ".join(t for t in (self.scope, self.source) if t)
+        return "(%s)" % text if text else ""
+
+    def same(self, other):
+        return other is not None and (self.value, self.source, self.scope) == (other.value, other.source, other.scope)
 
 
 def printable(text):
@@ -161,25 +190,98 @@ def printable(text):
     return text.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
 
 
+def user_doc(cx):
+    """The user file as read, once per command (a write forgets it): every layer reads this one."""
+    doc = getattr(cx, "user_file", None)
+    if doc is None:
+        doc = cx.user_file = userconfig.load(cx.env)
+    return doc
+
+
+def user_error(cx, doc):
+    """A user file 42 will not read, as a message: the file, the line, why, and the fix."""
+    e = doc.error
+    return "%s: %s" % (where(cx.ws, cx.env, doc.path, e.n), e.why)
+
+
 class Setting:
     group = "42"
+    scopes = ("local",)  # the SCOPES it may be set in; ("local", "global") opts it in
     unsettable = None  # why `unset` is refused, if it is
     readonly = None  # why `set` is refused, if it is
+    # Why no reader of it reads your user file, when "global" is not in scopes.
+    local_only = "no reader of it reads your user file"
+    # The commands that stop, when "global" is in scopes, while your user file
+    # cannot be read and nothing nearer sets it: it would decide their value.
+    stops = None
 
     def __init__(self, name):
         self.name = name
 
     def get(self, cx):
-        """A Found, or None when it is not set and has no default."""
+        """This checkout's Found, its default when nothing here sets it; None when it has none."""
         raise NotImplementedError
 
     def check(self, cx, raw):
         """The value to store, or a UsageError saying why not."""
         return raw
 
-    def notes(self, cx):
-        """What else decides this setting: an environment variable, a file read later."""
+    def check_value(self, raw):
+        """The value to store in your user file, or a UsageError saying why not. From raw
+        alone: every checkout reads that file, so no one checkout's files can decide it. A
+        setting whose scopes hold "global" says it."""
+        raise NotImplementedError
+
+    def environment(self, cx):
+        """A Found for each environment variable set for it, the one that wins first. Only a
+        variable every reader of the setting honours is one; notes() says any other."""
         return []
+
+    def scoped(self, cx, scope):
+        """The Found one scope gives it, or None: this checkout's (its default included), or
+        your user file's."""
+        if scope == "local":
+            return self.get(cx)
+        return global_found(cx, self)
+
+    def layers(self, cx):
+        """Every Found set for it, the one its readers use first, then the rest in the order
+        they would win: the environment, then each of SCOPES it may be set in."""
+        out = self.environment(cx)
+        for scope in SCOPES:
+            if scope in self.scopes:
+                found = self.scoped(cx, scope)
+                if found is not None and found.user:
+                    out.append(found)
+        return out
+
+    def default(self, cx):
+        """The Found it has when nothing sets it, or None."""
+        found = self.get(cx)
+        return found if found is not None and not found.user else None
+
+    def resolve(self, cx):
+        """The Found its readers use: the first of its layers, else its default, else None."""
+        layers = self.layers(cx)
+        return layers[0] if layers else self.default(cx)
+
+    def notes(self, cx):
+        """What else decides this setting: an environment variable not every reader honours."""
+        return []
+
+
+def global_found(cx, s):
+    """Your user file's Found for s, or None: not set there, or a file 42 will not read."""
+    doc = user_doc(cx)
+    if s.name not in doc.entries:
+        return None
+    value, n = doc.entries[s.name]
+    source = where(cx.ws, cx.env, doc.path, n)
+    try:
+        s.check_value(value)
+    except UsageError as e:
+        source += ", which 42 refuses: %s" % " ".join(str(e).split())
+    return Found(value, source, scope="global")
 
 
 class Login(Setting):
@@ -191,10 +293,11 @@ class Login(Setting):
     store = ".vscode/settings.json (42header.username) and this checkout's git user.name"
     unsettable = "`42 submit` and the file headers need it: set another value instead."
     required = "`42 submit` and the file headers need it: `42 init` sets it."
+    local_only = "VS Code's 42header extension reads only .vscode/settings.json"
 
     def get(self, cx):
         v = workspace.read_identity(cx.ws, bazel.child_env(cx.env)).get(self.key)
-        return Found(v, ".vscode/settings.json") if v else None
+        return Found(v, ".vscode/settings.json", scope="local") if v else None
 
     def check(self, cx, raw):
         r = identity(cx, "check", self.kind, raw)
@@ -246,6 +349,11 @@ class Level(Setting):
     help = ("The level `42 test` runs and `42 submit` gates on, when no --level "
             "is given: %s." % ", ".join(LEVELS))
     store = ".submit-level"
+    # `42 test`, `42 submit`, `42 watch`, `42 clues` and a bare `42 norm` read it in
+    # workspace.level_source; tools/submit.sh gets it from `42 submit` as
+    # --gate-level, and stops when run without one.
+    scopes = ("local", "global")
+    stops = "`42 test`, `42 submit`, `42 watch`, `42 clues` and a bare `42 norm`"
 
     def path(self, cx):
         return os.path.join(cx.ws, ".submit-level")
@@ -256,11 +364,24 @@ class Level(Setting):
                 v = re.sub(r"[ \t\n\r]", "", f.read())
             if v:
                 if v not in LEVELS:
-                    return Found(v, ".submit-level, which is not a level: `42 test` refuses it")
-                return Found(v, ".submit-level")
-        return Found("basic", "default", user=False)
+                    return Found(v, ".submit-level, which is not a level: `42 test` refuses it", scope="local")
+                return Found(v, ".submit-level", scope="local")
+        return Found("basic", "", user=False, scope="default")
+
+    def environment(self, cx):
+        # `42 test` (workspace.resolve_level) and tools/submit.sh both take
+        # SUBMIT_GATE over the file, and both read an empty one as unset.
+        v = cx.env.get("SUBMIT_GATE")
+        if not v:
+            return []
+        if v not in LEVELS:
+            return [Found(v, "SUBMIT_GATE, which is not a level: `42 test` refuses it", scope="environment")]
+        return [Found(v, "SUBMIT_GATE", scope="environment")]
 
     def check(self, cx, raw):
+        return self.check_value(raw)
+
+    def check_value(self, raw):
         if raw not in LEVELS:
             close = difflib.get_close_matches(raw, LEVELS, n=1)
             raise refused("%r is not a level. The levels are %s.%s" % (
@@ -277,12 +398,6 @@ class Level(Setting):
             pass
         except OSError as e:
             raise Failed("could not remove %s: %s" % (self.path(cx), e.strerror))
-
-    def notes(self, cx):
-        v = cx.env.get("SUBMIT_GATE")
-        if v:
-            return ["SUBMIT_GATE=%s is set in your environment, and wins over this." % v]
-        return []
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +444,7 @@ def key_names(key, mod):
 class Remote(Setting):
     store = ".submit-remotes"
     unsettable = None
+    local_only = "tools/submit.sh reads only .submit-remotes"
 
     def __init__(self, mod, mods):
         self.mod = mod
@@ -358,10 +474,10 @@ class Remote(Setting):
         n, url = rows[0]
         if len(rows) > 1:
             return Found(url, ".submit-remotes, line %d, and %d more lines: `42 submit` refuses "
-                         "a project with two URLs" % (n, len(rows) - 1))
+                         "a project with two URLs" % (n, len(rows) - 1), scope="local")
         if url in ("", "REPLACE_ME"):
             return None  # `42 submit` skips it: no URL yet
-        return Found(url, ".submit-remotes, line %d" % n)
+        return Found(url, ".submit-remotes, line %d" % n, scope="local")
 
     def check(self, cx, raw):
         url = check_url(raw)
@@ -421,9 +537,36 @@ def check_url(raw):
 class BazelSetting(Setting):
     group = "bazel"
     store = LOCAL_RC
+    local_only = ("Bazel reads its rc files and never your user file: ~/.bazelrc is Bazel's "
+                  "own file for every checkout of yours")
     # flags: (command, flag, value pattern) for each line this setting writes.
     # views: (commands, flag, value pattern with its group) for each value
     # Bazel takes, its commands from the least specific to the most.
+
+    def shown(self, value):
+        """A value as a list shows it."""
+        return value
+
+    def layers(self, cx):
+        """Every rc line that sets its value, the one Bazel takes first (as get() says it, with
+        all get() adds), then the rest in the order Bazel would take them: Bazel's own order,
+        not SCOPES, since 42 decides none of it."""
+        won = self.get(cx)
+        hits = rc_settings(cx.ws, cx.env, *self.views[0])
+        checked_in = os.path.join(cx.ws, ".bazelrc")
+        rest = [Found(self.shown(v), where(cx.ws, cx.env, path, n), user=path != checked_in,
+                      scope=rc_scope(cx.ws, cx.env, path)) for v, path, n in hits[1:]]
+        return ([won] if hits or won.user else []) + rest
+
+    def scoped(self, cx, scope):
+        """This checkout's: the line of its .bazelrc.local or .bazelrc that Bazel takes first,
+        else Bazel's default when no rc file sets it; never ~/.bazelrc's or the system's, which
+        are no file of this checkout's."""
+        for f in self.layers(cx):
+            if f.scope in ("local", "checked in"):
+                return f
+        found = self.get(cx)
+        return found if found is not None and found.scope == "Bazel's default" else None
 
     def marker(self):
         return "# set by `42 config set %s`" % self.name
@@ -483,15 +626,18 @@ class BazelSetting(Setting):
         write_file(path, self.rewrite(cx, [], "removed"))
 
     def notes(self, cx):
+        # Which rc file wins over which is in the layers a list shows, for
+        # the first view; a second one (bazel.cpus's tests at once) is said
+        # here.
         out = []
         local = os.path.join(cx.ws, LOCAL_RC)
-        for commands, flag, value in self.views:
+        for commands, flag, value in self.views[1:]:
             if rc_value(cx.ws, cx.env, commands, flag, value, files=[local]) is None:
                 continue
             won = rc_value(cx.ws, cx.env, commands, flag, value)
             if won and won[1] != local:
-                out.append("%s sets it too, and Bazel takes it over this checkout's %s." % (
-                    where(cx.ws, cx.env, won[1], won[2]), LOCAL_RC))
+                out.append("%s sets --%s too, and Bazel takes it over this checkout's %s." % (
+                    where(cx.ws, cx.env, won[1], won[2]), flag, LOCAL_RC))
         return out + ["%s sets it beside other flags: 42 config leaves that line as it is." % w
                       for w in self.mixed(cx)]
 
@@ -520,16 +666,19 @@ class Cpus(BazelSetting):
         checked_in = os.path.join(cx.ws, ".bazelrc")
         user = any(f is not None and f[1] != checked_in for f in (cpu, jobs))
         if cpu is None:
-            value, source = str(host_cpus()), "Bazel's default: every CPU"
+            value, source, scope = str(host_cpus()), "every CPU", "Bazel's default"
         else:
             value, source = cpu[0], where(cx.ws, cx.env, cpu[1], cpu[2])
-        shown = value
-        num = host_cpus_value(value)
-        if num is not None and value != str(num):
-            shown = "%s (%d on this machine)" % (value, num)
+            scope = rc_scope(cx.ws, cx.env, cpu[1])
         if jobs and jobs[0] != value:
             source += "; tests at once: %s, from %s" % (jobs[0], where(cx.ws, cx.env, jobs[1], jobs[2]))
-        return Found(shown, source, user=user)
+        return Found(self.shown(value), source, user=user, scope=scope)
+
+    def shown(self, value):
+        num = host_cpus_value(value)
+        if num is not None and value != str(num):
+            return "%s (%d on this machine)" % (value, num)
+        return value
 
     def check(self, cx, raw):
         n = host_cpus()
@@ -557,9 +706,10 @@ class IdleSecs(BazelSetting):
     def get(self, cx):
         found = rc_value(cx.ws, cx.env, *self.views[0])
         if found is None:
-            return Found("10800", "Bazel's default", user=False)
+            return Found("10800", "", user=False, scope="Bazel's default")
         value, path, n = found
-        return Found(value, where(cx.ws, cx.env, path, n), user=path != os.path.join(cx.ws, ".bazelrc"))
+        return Found(value, where(cx.ws, cx.env, path, n), user=path != os.path.join(cx.ws, ".bazelrc"),
+                     scope=rc_scope(cx.ws, cx.env, path))
 
     def check(self, cx, raw):
         if whole_number(raw, 60, INT_MAX) is None:
@@ -577,6 +727,7 @@ class IdleSecs(BazelSetting):
 
 class Machine(Setting):
     group = "machine"
+    local_only = "42 reads it from what sets up Bazel on this machine, and sets none of it"
 
     def __init__(self, name, help_, read, readonly):
         Setting.__init__(self, name)
@@ -588,6 +739,14 @@ class Machine(Setting):
     def get(self, cx):
         return self.read(cx)
 
+    def layers(self, cx):
+        """As a Bazel setting's: every rc line that sets it, the one Bazel takes first."""
+        view = getattr(self.read, "view", None)
+        if view is None:
+            return []
+        hits = rc_settings(cx.ws, cx.env, *view)
+        return [found_at(cx, hit) for hit in hits]
+
 
 def read_root(cx):
     root = report.state_root(cx.ws, cx.env)
@@ -596,7 +755,15 @@ def read_root(cx):
                        cwd=cx.ws, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                        universal_newlines=True, check=False)
     f = r.stdout.strip()
-    return Found(root, where(cx.ws, cx.env, f) if f else "tools/bazel's choice for this machine", user=False)
+    if f:
+        return Found(root, where(cx.ws, cx.env, f), user=False, scope=rc_scope(cx.ws, cx.env, f))
+    return Found(root, "tools/bazel's choice for this machine", user=False)
+
+
+def found_at(cx, hit):
+    """A machine setting's Found from one rc line: never a setting of yours, since it is read-only."""
+    value, path, n = hit
+    return Found(value, where(cx.ws, cx.env, path, n), user=False, scope=rc_scope(cx.ws, cx.env, path))
 
 
 def read_rc(commands, flag, missing, value=r"(\S+)"):
@@ -604,7 +771,8 @@ def read_rc(commands, flag, missing, value=r"(\S+)"):
         found = rc_value(cx.ws, cx.env, commands, flag, value)
         if found is None:
             return Found(missing, "no rc file sets it", user=False)
-        return Found(found[0], where(cx.ws, cx.env, found[1], found[2]), user=False)
+        return found_at(cx, found)
+    read.view = (commands, flag, value)
     return read
 
 
@@ -656,6 +824,14 @@ def find(cx, name):
         name, " Did you mean %s?" % " or ".join(close) if close else ""))
 
 
+def known(cx, name):
+    """The setting find() gives name, or None where find() refuses it."""
+    try:
+        return find(cx, name)
+    except UsageError:
+        return None
+
+
 def refused(text):
     """A UsageError whose lines fit WIDTH once main() puts "42: " before the first."""
     return UsageError(wrap(text, 4))
@@ -670,14 +846,6 @@ def write_file(path, text):
         raise Failed("could not write %s: %s" % (path, e.strerror))
 
 
-def wrap(text, indent, width=WIDTH):
-    """text on lines of at most `width`, every line after the first indented; a `command`
-    is never split across two."""
-    kept = re.sub(r"`[^`]*`", lambda m: m.group(0).replace(" ", "\0"), text)
-    return textwrap.fill(kept, width - indent, break_on_hyphens=False,
-                         break_long_words=False).replace("\0", " ").replace("\n", "\n" + " " * indent)
-
-
 # ---------------------------------------------------------------------------
 # What 42 prints
 
@@ -690,49 +858,180 @@ GROUPS = (
 NAME_COL = 25  # where a value starts: two blanks, the longest name, one more
 
 
-def row(s, found):
+def titles(table):
+    """GROUPS, the title of a group that holds a setting your user file may hold saying so."""
+    out = []
+    for group, title in GROUPS:
+        if any(s.group == group and "global" in s.scopes for s in table):
+            title = title.replace("this checkout", "this checkout and your user file", 1)
+        out.append((group, title))
+    return out
+
+
+def cut(value, room):
+    """(value within room columns, whether it was cut): cut in the middle if it has to be."""
+    if len(value) <= room:
+        return value, False
+    keep = room - 3
+    return value[:keep // 2] + "..." + value[-(keep - keep // 2):], True
+
+
+def row(name, found):
     """(text, shortened): one setting as list shows it, every line within WIDTH.
 
-    Name, value and source on one line when they fit; else the source on a
-    line of its own under the value; else, for a value too wide for that,
+    Name, value and where it came from on one line when they fit; else where
+    on a line of its own under the value; else, for a value too wide for that,
     the value on a line of its own too, cut in the middle if it has to be.
     """
     value = found.value if found else "(not set)"
-    source = "(%s)" % found.source if found and found.source else ""
-    head = "  %-*s " % (NAME_COL - 3, s.name)
+    source = found.tag() if found else ""
+    head = "  %-*s " % (NAME_COL - 3, name)
     if len(head) == NAME_COL and len(head + value + "  " + source) <= WIDTH:
         return (head + value + "  " + source).rstrip(), False
     if len(head) == NAME_COL and len(head + value) <= WIDTH:
         return head + value + ("\n" + " " * NAME_COL + wrap(source, NAME_COL) if source else ""), False
-    room = WIDTH - 6
-    short = len(value) > room
-    if short:
-        keep = room - 3
-        value = value[:keep // 2] + "..." + value[-(keep - keep // 2):]
-    return "  %s\n      %s%s" % (s.name, value, "\n      " + wrap(source, 6) if source else ""), short
+    value, short = cut(value, WIDTH - 6)
+    return "  %s\n      %s%s" % (name, value, "\n      " + wrap(source, 6) if source else ""), short
 
 
-def cmd_list(cx, every):
+def layer_line(word, found, indent, room=None):
+    """(text, shortened): another layer of a setting under its line, `not used: VALUE  (tag)`
+    or `in use: VALUE  (tag)`; its value cut to room when room is given."""
+    value, short = cut(found.value, room) if room else (found.value, False)
+    return " " * indent + wrap("%s: %s  %s" % (word, value, found.tag()), indent), short
+
+
+def note_line(note, indent):
+    return " " * indent + wrap("note: " + note.replace("\n", " "), indent)
+
+
+def user_file_notes(cx, table):
+    """What a list says of your user file below every group: a line 42 will not read, or
+    the names in it no setting reads there."""
+    doc = user_doc(cx)
+    out = ["note: " + n for n in userconfig.notes(cx.env)]
+    if doc.error:
+        out.append("note: %s Nothing is read from it until that is fixed.%s" % (
+            user_error(cx, doc), "".join(" " + stopped(cx, s) for s in table if stopped(cx, s))))
+    else:
+        read = {s.name for s in table if "global" in s.scopes}
+        unread = [name for name in doc.entries if name not in read]
+        if unread:
+            out.append("%s holds %d name%s no setting reads there: `42 config list --global` shows %s." % (
+                where(cx.ws, cx.env, doc.path), len(unread), "" if len(unread) == 1 else "s",
+                "it" if len(unread) == 1 else "them"))
+    return [wrap(text, 0) for text in out]
+
+
+def stopped(cx, s):
+    """What stops while your user file cannot be read, for s, or None: nothing does, or
+    something nearer sets s."""
+    if s.stops and "global" in s.scopes and user_doc(cx).error and not s.layers(cx):
+        return "%s stop until it is fixed, since nothing nearer sets %s." % (s.stops, s.name)
+    return None
+
+
+def global_notes(cx, s):
+    """What get says of your user file for one setting."""
+    doc = user_doc(cx)
+    if "global" in s.scopes:
+        if doc.error:
+            return ["%s Nothing is read from it until that is fixed.%s" % (
+                user_error(cx, doc), " " + stopped(cx, s) if stopped(cx, s) else "")]
+        return []
+    if s.name in doc.entries:
+        return ["%s sets it too, and nothing reads it there: %s." % (
+            where(cx.ws, cx.env, doc.path, doc.entries[s.name][1]), s.local_only)]
+    return []
+
+
+def in_scope(s, scope, verb):
+    """Refuse a scope the setting cannot live in, saying where it lives and why."""
+    value = {"get": "", "unset": "", "set": " URL" if isinstance(s, Remote) else " VALUE"}[verb]
+    if scope == "global" and "global" not in s.scopes:
+        raise refused("%s lives in this checkout only: %s. `42 config %s %s%s` %s." % (
+            s.name, s.local_only, verb, s.name, value,
+            "sets it there" if verb == "set" else "shows it"))
+    if scope == "local" and "local" not in s.scopes:
+        raise refused("%s lives in your user file only: `42 config %s --global %s%s`." % (
+            s.name, verb, s.name, value))
+
+
+def user_path(cx):
+    """Your user file's path, as a person finds it; Failed when there is none here."""
+    doc = user_doc(cx)
+    if doc.path is None:
+        raise Failed(wrap(doc.why + ".", 4))
+    if doc.error:
+        raise Failed(wrap(user_error(cx, doc), 4))
+    return where(cx.ws, cx.env, doc.path)
+
+
+def store(cx, name, value):
+    """name set to value in your user file (None removes it), or Failed: a file 42 will not
+    rewrite, or could not."""
+    try:
+        userconfig.store(cx.env, name, value, outside=(cx.ws,))
+    except userconfig.Bad as e:
+        path = userconfig.path(cx.env)
+        raise Failed(wrap("%s: %s" % (where(cx.ws, cx.env, path, e.n), e.why) if e.n else e.why, 4))
+    except userconfig.Unwritable as e:
+        raise Failed(wrap(str(e), 4))
+    except OSError as e:
+        # e.filename may be the temporary file it was writing, which is gone.
+        raise Failed(wrap("could not write %s: %s" % (
+            where(cx.ws, cx.env, userconfig.path(cx.env)), e.strerror), 4))
+    finally:
+        cx.user_file = None
+
+
+def check_writable(cx):
+    """Failed when a write of your user file would be refused: what a dry run checks."""
+    try:
+        userconfig.writable(cx.env, outside=(cx.ws,))
+    except userconfig.Unwritable as e:
+        raise Failed(wrap(str(e), 4))
+
+
+def cmd_list(cx, every, scope=None):
+    if scope == "global":
+        return list_global(cx, every)
     out = []
     shortened = False
-    for group, title in GROUPS:
+    table = settings(cx)
+    for group, title in titles(table):
         lines = []
-        for s in settings(cx):
-            if s.group != group:
+        for s in table:
+            if s.group != group or scope and scope not in s.scopes:
                 continue
-            found = s.get(cx)
+            if scope:
+                found, others = s.scoped(cx, scope), []
+            else:
+                layers = s.layers(cx)
+                found, others = (layers[0], layers[1:]) if layers else (s.default(cx), [])
             # A setting with no default is shown missing: `42 submit` refuses
             # to run without it, and calling it a default sent nobody to init.
             needed = found is None and getattr(s, "required", None)
-            if not every and not needed and (found is None or not found.user):
+            if not every and not needed and not any(f.user for f in [found] + others if f):
                 continue
-            text, short = row(s, found)
+            text, short = row(s.name, found)
             shortened = shortened or short
             lines.append(text)
+            for f in others:
+                text, short = layer_line("not used", f, 6, WIDTH - 6 - len("not used: "))
+                shortened = shortened or short
+                lines.append(text)
+            won = s.resolve(cx) if scope else None
+            if won is not None and (found is None or not found.same(won)):
+                text, short = layer_line("in use", won, 6, WIDTH - 6 - len("in use: "))
+                shortened = shortened or short
+                lines.append(text)
             for note in s.notes(cx) + ([needed] if needed else []):
-                lines.append("      " + wrap("note: " + note.replace("\n", " "), 6))
+                lines.append(note_line(note, 6))
         if lines:
             out.append("%s:\n%s" % (wrap(title, 0), "\n".join(lines)))
+    if not scope:
+        out += user_file_notes(cx, table)
     if not every:
         out.append("`42 config list --all` shows every setting, defaults too.")
     if shortened:
@@ -741,70 +1040,186 @@ def cmd_list(cx, every):
     return 0
 
 
-def cmd_get(cx, name):
-    s = find(cx, name)
-    found = s.get(cx)
-    if found is None:
-        cx.out.err("42: %s is not set. `42 config set %s %s` sets it." % (
-            s.name, s.name, "URL" if isinstance(s, Remote) else "VALUE"))
-        return 1
-    cx.out.say(found.value)
-    cx.out.say("  (%s)" % found.source)
-    for note in s.notes(cx):
-        cx.out.say("  " + wrap("note: " + note.replace("\n", " "), 2))
+def list_global(cx, every):
+    """`42 config list --global`: your user file, every name in it, and what reads each."""
+    shown = user_path(cx)
+    doc = user_doc(cx)
+    table = settings(cx)
+    lines, shortened = [], False
+    for name, (value, n) in doc.entries.items():
+        s = known(cx, name)
+        text, short = row(name, Found(value, "line %d" % n))
+        shortened = shortened or short
+        lines.append(text)
+        note = None
+        if s is None:
+            close = difflib.get_close_matches(name, [t.name for t in table], n=1)
+            note = "no setting of this 42 has that name: it is kept as it is.%s" % (
+                " Did you mean %s?" % close[0] if close else "")
+        elif "global" not in s.scopes:
+            note = "%s lives in this checkout only, and nothing reads it here: %s." % (s.name, s.local_only)
+        else:
+            try:
+                s.check_value(value)
+            except UsageError as e:
+                note = "42 refuses it: %s" % " ".join(str(e).split())
+            won = s.resolve(cx)
+            if won is not None and won.scope != "global":
+                text, short = layer_line("in use", won, 6, WIDTH - 6 - len("in use: "))
+                shortened = shortened or short
+                lines.append(text)
+        if note:
+            lines.append(note_line(note, 6))
+    if every:
+        lines += [row(s.name, None)[0] for s in table if "global" in s.scopes and s.name not in doc.entries]
+    title = "Your user file, which every checkout of yours reads (%s)" % shown
+    if lines:
+        out = [wrap(title + ":", 0) + "\n" + "\n".join(lines)]
+    else:
+        out = [wrap(title + ": nothing set in it yet.", 0)]
+    out += [wrap("note: " + n, 0) for n in userconfig.notes(cx.env)]
+    if not every:
+        out.append("`42 config list --global --all` shows every setting it may hold.")
+    if shortened:
+        out.append("A value shortened with ... is printed whole by `42 config get --global NAME`.")
+    cx.out.say("\n\n".join(out))
     return 0
 
 
-def cmd_set(cx, name, raw, dry):
+def cmd_get(cx, name, scope=None):
+    s = find(cx, name)
+    in_scope(s, scope, "get")
+    if scope == "global":
+        user_path(cx)
+    if scope:
+        found, others = s.scoped(cx, scope), []
+    else:
+        layers = s.layers(cx)
+        found, others = (layers[0], layers[1:]) if layers else (s.default(cx), [])
+    if found is None:
+        if scope == "global":
+            cx.out.err(wrap("42: %s is not set in your user file, %s. `42 config set --global %s %s` sets it." % (
+                s.name, user_path(cx), s.name, "URL" if isinstance(s, Remote) else "VALUE"), 4))
+        else:
+            cx.out.err(wrap("42: %s is not set%s. `42 config set %s %s` sets it." % (
+                s.name, " in this checkout" if scope else "", s.name, "URL" if isinstance(s, Remote) else "VALUE"), 4))
+        won = s.resolve(cx) if scope else None
+        if won is not None:
+            cx.out.err(layer_line("in use", won, 2)[0])
+        return 1
+    cx.out.say(found.value)
+    cx.out.say("  " + wrap(found.tag(), 2))
+    for f in others:
+        cx.out.say(layer_line("not used", f, 2)[0])
+    won = s.resolve(cx) if scope else None
+    if won is not None and not found.same(won):
+        cx.out.say(layer_line("in use", won, 2)[0])
+    for note in s.notes(cx) + global_notes(cx, s):
+        cx.out.say(note_line(note, 2))
+    return 0
+
+
+def cmd_set(cx, name, raw, dry, scope=None):
     s = find(cx, name)
     if s.readonly:
         raise refused("%s is read-only here: %s" % (s.name, s.readonly))
-    value = s.check(cx, raw)
-    old = s.get(cx)
-    change = "%s: %s -> %s" % (s.name, old.value if old else "(not set)", value)
+    scope = scope or "local"
+    in_scope(s, scope, "set")
+    if scope == "global":
+        written = user_path(cx)
+        value = s.check_value(raw)
+        try:
+            userconfig.render(value)
+        except userconfig.Bad as e:
+            raise refused("%s: %s" % (s.name, e.why))
+        old = s.scoped(cx, "global")
+    else:
+        written = s.store
+        value = s.check(cx, raw)
+        old = s.get(cx)
+    change = "%s%s: %s -> %s" % (s.name, " (global)" if scope == "global" else "",
+                                 old.value if old else "(not set)", value)
     if dry:
+        if scope == "global":
+            check_writable(cx)
         cx.out.say(change)
-        cx.out.say("  " + wrap("--dry-run: nothing written; without it, %s is written." % s.store, 2))
+        cx.out.say("  " + wrap("--dry-run: nothing written; without it, %s is written." % written, 2))
         return 0
-    s.write(cx, value)
+    if scope == "global":
+        store(cx, s.name, value)
+    else:
+        s.write(cx, value)
     cx.out.say(change)
-    cx.out.say("  " + wrap("written to %s" % s.store, 2))
+    cx.out.say("  " + wrap("written to %s" % written, 2))
     said = getattr(s, "after", lambda cx: [])(cx)
     if isinstance(s, BazelSetting):
         said.append("%s belongs to this checkout: every Bazel command run in it reads "
                     "it, a dev container's on the same folder too." % LOCAL_RC)
+    won = s.resolve(cx)
+    if won is not None and won.scope != scope:
+        said.append("note: in use instead: %s  %s, which wins over it." % (won.value, won.tag()))
     for line in said + ["note: " + n for n in s.notes(cx)]:
         cx.out.say(wrap(line.replace("\n", " "), 0))
     return 0
 
 
-def cmd_unset(cx, name, dry):
+def cmd_unset(cx, name, dry, scope=None):
+    if scope == "global":
+        return unset_global(cx, name, dry)
     s = find(cx, name)
     if s.readonly:
         raise refused("%s is read-only here: %s" % (s.name, s.readonly))
+    in_scope(s, "local", "unset")
     if s.unsettable:
         raise refused("%s cannot be unset: %s" % (s.name, s.unsettable))
     old = s.get(cx)
     if old is None or not old.user:
-        cx.out.say("%s is not set here: nothing to unset." % s.name)
+        said = "%s is not set here: nothing to unset." % s.name
+        held = s.scoped(cx, "global") if "global" in s.scopes else None
+        if held is not None:
+            said += " Its value %s comes from %s: `42 config unset --global %s` removes it there." % (
+                held.value, held.source, s.name)
+        cx.out.say(wrap(said, 0))
         return 0
     if dry:
         cx.out.say("%s: %s -> unset" % (s.name, old.value))
         cx.out.say("  " + wrap("--dry-run: nothing written; without it, %s is written." % s.store, 2))
         return 0
     s.unset(cx)
-    now = s.get(cx)
-    cx.out.say("%s: %s -> %s" % (s.name, old.value, "%s (%s)" % (now.value, now.source) if now else "(not set)"))
+    now = s.resolve(cx)
+    cx.out.say("%s: %s -> %s" % (s.name, old.value, "%s %s" % (now.value, now.tag()) if now else "(not set)"))
     cx.out.say("  " + wrap("written to %s" % s.store, 2))
-    for n in s.notes(cx):
+    for n in s.notes(cx) + global_notes(cx, s):
         cx.out.say(wrap("note: " + n.replace("\n", " "), 0))
     return 0
 
 
-USAGE = "[list [--all] | get NAME | set NAME VALUE | unset NAME]"
+def unset_global(cx, name, dry):
+    """`42 config unset --global NAME`: any name your user file holds, one this 42 knows or not,
+    since removing it breaks no reader of this version."""
+    written = user_path(cx)
+    doc = user_doc(cx)
+    s = known(cx, name)
+    key = s.name if s is not None and s.name in doc.entries else name
+    if key not in doc.entries:
+        if s is None:
+            find(cx, name)  # a name nothing knows: its refusal, and Did you mean
+        cx.out.say("%s is not set in your user file: nothing to unset." % s.name)
+        return 0
+    value = doc.entries[key][0]
+    if dry:
+        check_writable(cx)
+        cx.out.say("%s (global): %s -> unset" % (key, value))
+        cx.out.say("  " + wrap("--dry-run: nothing written; without it, %s is written." % written, 2))
+        return 0
+    store(cx, key, None)
+    now = s.resolve(cx) if s is not None and "global" in s.scopes else None
+    cx.out.say("%s (global): %s -> %s" % (key, value, "%s %s" % (now.value, now.tag()) if now else "(not set)"))
+    cx.out.say("  " + wrap("written to %s" % written, 2))
+    return 0
 
 
-def run(cx, words, every, dry):
+def run(cx, words, every, dry, scope=None):
     """`42 config WORDS`: exit 0 done, 1 not set or not written, 2 a request it refused."""
     verb, args = (words[0], words[1:]) if words else ("list", [])
     want = {"list": 0, "get": 1, "set": 2, "unset": 1}
@@ -815,24 +1230,28 @@ def run(cx, words, every, dry):
             verb, {0: "no name", 1: "a setting's name", 2: "a setting's name and its value"}[want[verb]]))
     if every and verb != "list":
         raise refused("--all goes with 42 config list. `42 config --help` says how to call it.")
+    m = re.match(r"(global|local)\.(.+)", args[0]) if args else None
+    if m and not (verb == "unset" and scope == "global"):
+        raise refused("no setting %r: the scope is a flag, as in `42 config %s --%s %s%s`." % (
+            args[0], verb, m.group(1), m.group(2), " VALUE" if verb == "set" else ""))
     try:
         if verb == "list":
-            return cmd_list(cx, every)
+            return cmd_list(cx, every, scope)
         if verb == "get":
-            return cmd_get(cx, args[0])
+            return cmd_get(cx, args[0], scope)
         if verb == "set":
-            return cmd_set(cx, args[0], args[1], dry)
-        return cmd_unset(cx, args[0], dry)
+            return cmd_set(cx, args[0], args[1], dry, scope)
+        return cmd_unset(cx, args[0], dry, scope)
     except Failed as e:
         cx.out.err("42: %s" % e)
         return 1
 
 
 def help_text(cx):
-    """What `42 help config` adds below the usage: every setting, by kind."""
+    """What `42 help config` adds below the usage: every setting, by kind, and the scopes."""
     out = []
     table = settings(cx)
-    for group, title in GROUPS:
+    for group, title in titles(table):
         out.append("\n  %s:" % title)
         seen_remote = False
         for s in table:
@@ -848,10 +1267,25 @@ def help_text(cx):
             else:
                 name, text = s.name, s.help
             if s.group != "machine":
-                text += " Stored in %s." % s.store
+                if "local" in s.scopes:
+                    text += " Stored in %s" % s.store
+                    text += ", or in your user file (--global)." if "global" in s.scopes else "."
+                else:
+                    text += " Stored in your user file only (--global)."
             out.append("    %s\n        %s" % (name, wrap(text, 8)))
-    out.append("\n  `set` checks the value before it writes, and says what it was;\n"
-               "  --dry-run checks it and writes nothing. `unset` puts a setting back to\n"
-               "  its default (login and email have none). Exit 1: not set, or a file\n"
-               "  that could not be written. It runs no Bazel command.")
+    takes = [s.name for s in table if "global" in s.scopes]
+    out.append("\n  " + wrap(
+        "Where: `set` and `unset` change this checkout's own file for a setting, or with "
+        "--global your user file, %s, which every checkout of yours reads. A checkout's own "
+        "value wins over your user file's, and an environment variable every reader honours "
+        "wins over both. `list` and `get` show every value that is set, the one in use on the "
+        "setting's line; --local or --global shows that scope's alone. %s" % (
+            userconfig.WHERE, "Your user file may hold %s." % ", ".join(takes) if takes
+            else "No setting may live in your user file yet."), 2))
+    out.append("\n  " + wrap(
+        "`set` checks the value before it writes, and says what it was; --dry-run checks it "
+        "and writes nothing. `unset` removes this checkout's value, and what is in use is "
+        "then your user file's or the default (login and email have none); `unset --global` "
+        "removes your user file's. Exit 1: not set, or a file that could not be written. It "
+        "runs no Bazel command.", 2))
     return "\n".join(out)

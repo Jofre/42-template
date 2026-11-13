@@ -27,7 +27,7 @@ printf "  CHECK: %s, this harness's reading at strict: \"reverse alphabetical or
 ck_require "r_dwssap.sh exists" test -f "$D"
 ck_sh_parses "$D"
 
-ORACLE=${ORACLE:?this check needs //oracle: declare the exercise with oracle = True}
+ck_oracle
 
 if ! ck_redirected; then
 	ck_skipped "the order on the fixture: ${CK_REDIRECT_BROKEN:-no fixture passwd is declared for this exercise}"

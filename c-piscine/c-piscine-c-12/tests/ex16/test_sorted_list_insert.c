@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+void	ft_sorted_list_insert(t_list **begin_list, void *data, int (*cmp)());
+
 /* The comparator handed to the function: libc strcmp, which a test is free to
  * use. The fixture never prints what it returns, only what the function did
  * with it. */

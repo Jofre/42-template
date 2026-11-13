@@ -20,7 +20,10 @@
 //! at any length, 70000 among them.
 
 use crate::c04::o_putnbr;
-use crate::common::{bench_lines, long_text, rand_body, sink, to_hex, unhex, widest_hex, Rng};
+use crate::common::{
+    bench_lines, int_cases, int_corners_missing, int_head_len, long_text, rand_body, sink, to_hex, unhex, widest_hex,
+    Rng,
+};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -72,13 +75,6 @@ fn str_cases(seed: u64, count: usize) -> Vec<Vec<u8>> {
     out
 }
 
-/// putnbr's head: zero, one digit and its negative, the powers of ten and
-/// their negatives, both ends of int and their neighbours (C 04's rows).
-const PUTNBR_HEAD: [i32; 20] = [
-    0, 7, 42, 10, 100, 1000000000, -7, -42, -100, -1000000000, 2147483647, 2147483646, -2147483647, i32::MIN,
-    1, -1, 9, -9, 99, -99,
-];
-
 fn corpus<W: Write>(w: &mut W, name: &str, seed: u64, count: usize) -> bool {
     match name {
         "libft_putstr_fd" | "libft_putendl_fd" => {
@@ -88,9 +84,8 @@ fn corpus<W: Write>(w: &mut W, name: &str, seed: u64, count: usize) -> bool {
             }
         }
         "libft_putnbr_fd" => {
-            let mut rng = Rng::new(seed);
-            for k in 0..count {
-                let n = if k < PUTNBR_HEAD.len() { PUTNBR_HEAD[k] } else { rng.i32val() };
+            // the int corpus C 00's ft_putnbr reads, cut at `count`
+            for n in int_cases(&mut Rng::new(seed), count, true) {
                 let _ = writeln!(w, "{}\t{}", n, to_hex(&o_putnbr_fd(n)));
             }
         }
@@ -198,6 +193,9 @@ pub fn check() -> usize {
     // ---- the corpora, read back ----
     let count = 200usize;
     for name in ARMS {
+        // putnbr's corpus opens on the shared int head, the same at every
+        // seed and longer than 200 lines: it is read whole, with a tail.
+        let count = if name == "libft_putnbr_fd" { int_head_len() + count } else { count };
         let a = written(name, 1, count);
         if a != written(name, 1, count) {
             fail(format!("{}: the same seed gave another corpus", name));
@@ -250,10 +248,12 @@ pub fn check() -> usize {
                 fail(format!("{}: no byte above 0x7f", name));
             }
         } else {
-            for want in [0, i32::MIN, i32::MAX, -1] {
-                if !lines.iter().any(|l| l.split('\t').next() == Some(want.to_string().as_str())) {
-                    fail(format!("{}: no case of {}", name, want));
-                }
+            // 0, +/-1, both ends of int and every power of ten and its
+            // neighbours, of both signs (common::int_corners_missing)
+            let ns: Vec<i32> = lines.iter().filter_map(|l| l.split('\t').next()?.parse().ok()).collect();
+            let missing = int_corners_missing(&ns);
+            if !missing.is_empty() {
+                fail(format!("{}: no case of {:?}", name, missing));
             }
         }
     }

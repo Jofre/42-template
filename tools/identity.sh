@@ -65,7 +65,7 @@ require() {
 }
 require awk cat cmp dirname git grep head mkdir mktemp od rm sed tr
 
-WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+WS="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
 SETTINGS="$WS/.vscode/settings.json"
 
 usage() {

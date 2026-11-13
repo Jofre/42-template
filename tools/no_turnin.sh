@@ -9,7 +9,7 @@
 # and the runner exited 2 as though the harness were broken. None of those says
 # the one thing that is true: nothing was turned in there.
 #
-# tools/defs.bzl's _test() emits this in the layer's place, under the same name,
+# tools/defs_test.bzl's _test() emits this in the layer's place, under the same name,
 # tags and level, whenever the glob that finds the layer's files comes back
 # empty. It fails -- exit 1, the verdict: a grader finds nothing there either --
 # and says where the files were looked for.

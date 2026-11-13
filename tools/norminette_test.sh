@@ -95,6 +95,20 @@ while [ $# -gt 0 ]; do
 		*) break ;;
 	esac
 done
+
+# What this test tests, in the words below: RL_UNIT_KIND, which
+# tools/defs_test.bzl's _test() hands a test of a contract of units, or
+# "exercise" (tools/runner_lib.sh's rl_noun, which this script does not
+# source).
+case "${RL_UNIT_KIND:-}" in
+	"") NOUN=exercise ;;
+	exercise | library | function | project | part) NOUN=$RL_UNIT_KIND ;;
+	*)
+		echo "norminette_test.sh: RL_UNIT_KIND is '$RL_UNIT_KIND', and a unit's kind is" >&2
+		echo "  exercise, library, function, project or part (tools/subject.bzl): the harness is broken." >&2
+		exit 2 ;;
+esac
+
 case "$NORM" in
 	""|/*) ;;
 	*) NORM="$PWD/$NORM" ;;
@@ -135,7 +149,7 @@ for _a in "$@"; do
 	esac
 done
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "norminette_test.sh: cannot create a scratch directory" >&2; exit 2; }
 trap 'rm -rf "$WORK"' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
@@ -144,7 +158,7 @@ trap 'exit 130' INT
 # tools/pins.tsv. A student comparing this log with a norminette of their own
 # needs the version that produced THIS verdict, and a number typed into a
 # message is a number that can go stale. Matched anywhere in the output, not
-# on line 1: tools/env_drift.sh records a norminette that prints a banner
+# on line 1: tools/env_drift.py records a norminette that prints a banner
 # before anything else.
 VERSION=$("$NORM" -v 2> /dev/null | sed -n 's/^norminette \([0-9][^ ,]*\).*/\1/p' | head -n 1)
 
@@ -274,7 +288,7 @@ if [ "$NOTICES_ONLY" -eq 1 ]; then
 		echo ""
 		echo "norminette_test: SKIP — norminette stopped at a file it could not parse,"
 		echo "                 so no file was looked at for Notices. The plain norm"
-		echo "                 target of this exercise reports that file."
+		echo "                 target of this $NOUN reports that file."
 		exit 0
 	fi
 	echo ""

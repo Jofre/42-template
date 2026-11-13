@@ -51,7 +51,7 @@
 //!     corpus cannot make malloc fail.
 //!   * ANY ARM FOR ex05 (ft_show_tab). See the note at the foot of this file.
 
-use crate::common::{rand_body, to_hex, unhex, Rng};
+use crate::common::{many_strs, rand_body, to_hex, unhex, Rng};
 
 /// The rendering the harness must produce for `av`.
 ///
@@ -113,13 +113,6 @@ fn corners() -> Vec<Vec<Vec<u8>>> {
     ]
 }
 
-/// `n` strings "s0" to "s<n-1>", every seventh of them empty.
-fn many_strs(n: usize) -> Vec<Vec<u8>> {
-    (0..n)
-        .map(|i| if i % 7 == 6 { Vec::new() } else { format!("s{}", i).into_bytes() })
-        .collect()
-}
-
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     if name != "c08_strs_to_tab" {
         return false;
@@ -175,7 +168,10 @@ pub fn check() -> usize {
         fails += 1;
     }
 
-    // Sizes are LENGTHS, counted independently of Vec::len: walk to the end.
+    // A round trip of the format: each rendering is split back into its
+    // size/alias/hex fields, and each field is read against its source
+    // string. The size field is o_render's s.len(), so this proves the
+    // format, not the length by a count of its own.
     let mut rng = Rng::new(31);
     for _ in 0..300 {
         let n = rng.below(5);

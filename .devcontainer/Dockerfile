@@ -11,13 +11,18 @@ ENV LC_ALL=en_US.UTF-8
 # WHICH PACKAGES CARRY A VERSION, and which deliberately do not.
 #
 # tools/pins.tsv calls itself "the single statement of which tool versions this
-# repo expects" and names THIS FILE as the pin site for ar, gdb and lldb-12.
+# repo expects" and names THIS FILE as a pin site: the only one for gdb and
+# lldb-12, beside MODULE.bazel's fetched .debs for gcc-10, clang-12,
+# binutils (ar, nm, ...), make and valgrind, and beside
+# tools/requirements.txt for norminette's pip install (further down).
 # It said so while every package here was installed unversioned, so the audit
 # and the image disagreed: pins.tsv recorded clang 12.0.1-19ubuntu3 and the
 # image installed whatever jammy served on the day it was built.
 #
-# So every package pins.tsv names this file as the pin site of is pinned here,
-# with the version pins.tsv records. pins.tsv also records rows it marks NOT
+# So every package pins.tsv names this file as a pin site of is pinned here,
+# with the version pins.tsv records; where MODULE.bazel also fetches it,
+# at the revision MODULE.bazel fetches (tools/conventions.sh holds the two
+# together; g++-10 goes with gcc-10). pins.tsv also records rows it marks NOT
 # PINNED, observed only: glibc, perl, and the shell piscine's tools (the note
 # below says why those stay unversioned for now). The rest are not pinned, on
 # purpose -- an editor's language server, a pager and a manual-page reader
@@ -28,7 +33,8 @@ ENV LC_ALL=en_US.UTF-8
 # "Version '<x>' for '<pkg>' was not found". That failure is the point: the
 # alternative is a silent upgrade of the compiler the whole suite is calibrated
 # against. Fix it by running `bazel run //tools:env_drift` on a CAMPUS box,
-# taking the version it reports, and editing this file and tools/pins.tsv
+# taking the version it reports, and editing this file, tools/pins.tsv and,
+# for a package MODULE.bazel fetches too, its deb_archive URLs and sha256
 # together -- which is the same procedure pins.tsv's own header describes.
 #
 # NOT PINNED, AND WHY IT IS NOT AN OVERSIGHT: the shell piscine's tools --
@@ -149,7 +155,8 @@ RUN DEB="libbsd-dev_${LIBBSD_DEV_VERSION}_amd64.deb" \
 # code that passed today -- or accepting code the campus box rejects. 3.3.58 is
 # what the campus audit matched. This copy is for running norminette BY HAND in
 # the shell; the Bazel norm layer takes its own pinned copy (see MODULE.bazel)
-# and never this one.
+# and never this one. Both are tools/requirements.txt's version, and
+# tools/conventions.sh holds the two together: re-pin them as one.
 RUN pip3 install --no-cache-dir norminette==3.3.58
 
 # Reading the subjects. Every project's subject is a PDF kept beside it (on a fresh

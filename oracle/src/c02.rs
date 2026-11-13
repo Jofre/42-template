@@ -53,6 +53,18 @@ fn is_printable(s: &[u8]) -> bool {
     s.iter().all(|&b| (0x20..=0x7e).contains(&b))
 }
 
+/// The five str_is_* arms, each with its reference and the pool its passing
+/// strings are drawn from (pass_pool). gen(), check() and bench() all read
+/// this one table, so an arm's pool is never paired with another class's
+/// predicate, and bench times the arm's own predicate.
+const PREDS: [(&str, fn(&[u8]) -> bool, u8); 5] = [
+    ("c02_str_is_alpha", is_alpha, 0),
+    ("c02_str_is_numeric", is_numeric, 1),
+    ("c02_str_is_lowercase", is_lowercase, 2),
+    ("c02_str_is_uppercase", is_uppercase, 3),
+    ("c02_str_is_printable", is_printable, 4),
+];
+
 /// ft_strupcase: a..z -> A..Z in place, everything else untouched.
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 fn o_strupcase(s: &[u8]) -> Vec<u8> {
@@ -127,6 +139,10 @@ fn capitalize_readings_agree(s: &[u8]) -> bool {
 /// ft_strcapitalize's corpora: `bodies`, less (diff layer) or only (its
 /// readings) the strings the readings part on, drawn on until there are
 /// `count`. A readings corpus draws every string from all the bytes.
+///
+/// Its count policy is not bodies': the corpus is cut to exactly `count`
+/// strings, head and tail alike, so a count below the head's size drops head
+/// cases, the capacity strings among them. No target asks for that few.
 fn capitalize_corpus(seed: u64, count: usize, part: bool) -> Vec<Vec<u8>> {
     let mut rng = Rng::new(seed);
     let mut out: Vec<Vec<u8>> = bodies(&mut rng, count)
@@ -195,6 +211,12 @@ fn o_putstr_np(s: &[u8]) -> Vec<u8> {
 // ---------------------------------------------------------- generators
 /// Structured + boundary + seeded-random single strings for the copy/case
 /// families (no interior NUL). Bias toward short bodies; cover ascii + high.
+///
+/// The count policy, which each caller's doc says it keeps or not: the head,
+/// 17 hand-chosen strings and the 2 capacity ones, comes back whole whatever
+/// the count, and the random tail tops it up to `count`. So this returns
+/// max(count, 19) strings, and gen_strcpy, gen_case and gen_putstr_np, which
+/// print every one, print at least 19 lines.
 fn bodies(rng: &mut Rng, count: usize) -> Vec<Vec<u8>> {
     let mut out: Vec<Vec<u8>> = Vec::new();
     out.push(vec![]);
@@ -276,6 +298,7 @@ fn pred_bodies(rng: &mut Rng, count: usize, pass: &[u8]) -> Vec<Vec<u8>> {
     out
 }
 
+/// The bytes a string of class `kind` (PREDS' third field) is made of.
 fn pass_pool(kind: u8) -> Vec<u8> {
     match kind {
         0 => (b'A'..=b'Z').chain(b'a'..=b'z').collect(),           // alpha
@@ -286,6 +309,7 @@ fn pass_pool(kind: u8) -> Vec<u8> {
     }
 }
 
+/// Every string `bodies` returns, so at least its 19-string head.
 fn gen_strcpy<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let bs = bodies(&mut rng, count);
@@ -295,6 +319,10 @@ fn gen_strcpy<W: Write>(w: &mut W, seed: u64, count: usize) {
     }
 }
 
+/// Exactly `count` lines: 24 corner rows, then the two capacity rows, then
+/// rows over `bodies`, each stopping at `count`. So a count below 26 drops
+/// the capacity cases (below 25, both of them), where `with_long`
+/// (common.rs), which c03 uses, keeps its own at any count. No target asks for that few.
 fn gen_strncpy<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let mut emitted = 0usize;
@@ -342,6 +370,7 @@ fn gen_pred<W: Write>(w: &mut W, seed: u64, count: usize, kind: u8, pred: fn(&[u
     }
 }
 
+/// Every string `bodies` returns, so at least its 19-string head.
 fn gen_case<W: Write>(w: &mut W, seed: u64, count: usize, xform: fn(&[u8]) -> Vec<u8>) {
     let mut rng = Rng::new(seed);
     let bs = bodies(&mut rng, count);
@@ -351,6 +380,10 @@ fn gen_case<W: Write>(w: &mut W, seed: u64, count: usize, xform: fn(&[u8]) -> Ve
     }
 }
 
+/// Exactly `count` lines: 12 corner rows, then the two capacity rows, then a
+/// random tail, each stopping at `count`, so a count below 14 drops capacity
+/// cases (below 13, both of them). No target asks for that few. Libft's
+/// ft_strlcpy layers read this arm too, and its own self-check reads it back.
 pub(crate) fn gen_strlcpy<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let mut done = 0usize;
@@ -407,6 +440,7 @@ pub(crate) fn gen_strlcpy<W: Write>(w: &mut W, seed: u64, count: usize) {
     }
 }
 
+/// Every string `bodies` returns, so at least its 19-string head.
 fn gen_putstr_np<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let bs = bodies(&mut rng, count);
@@ -501,9 +535,8 @@ fn big_block(n: usize) -> Vec<u8> {
     (0..n).map(|i| ((i * 7 + i / 251) % 256) as u8).collect()
 }
 
-fn gen_print_memory(seed: u64, count: usize) {
+fn gen_print_memory<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     // The corners first, so shrinking `count` never drops them: size 0 (the
     // subject says nothing is displayed), sizes either side of a row boundary,
     // and a block of bytes that sit either side of the printable range.
@@ -549,21 +582,20 @@ fn gen_print_memory(seed: u64, count: usize) {
 
 /// Dispatch: returns true if `name` belongs to this module.
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
+    if let Some(&(_, pred, kind)) = PREDS.iter().find(|p| p.0 == name) {
+        gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, kind, pred);
+        return true;
+    }
     match name {
         "c02_strcpy" => gen_strcpy(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c02_strncpy" => gen_strncpy(&mut io::BufWriter::new(io::stdout()), seed, count),
-        "c02_str_is_alpha" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 0, is_alpha),
-        "c02_str_is_numeric" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 1, is_numeric),
-        "c02_str_is_lowercase" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 2, is_lowercase),
-        "c02_str_is_uppercase" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 3, is_uppercase),
-        "c02_str_is_printable" => gen_pred(&mut io::BufWriter::new(io::stdout()), seed, count, 4, is_printable),
         "c02_strupcase" => gen_case(&mut io::BufWriter::new(io::stdout()), seed, count, o_strupcase),
         "c02_strlowcase" => gen_case(&mut io::BufWriter::new(io::stdout()), seed, count, o_strlowcase),
         "c02_strcapitalize" => gen_capitalize(&mut io::BufWriter::new(io::stdout()), seed, count, false),
         "c02_strcapitalize_readings" => gen_capitalize(&mut io::BufWriter::new(io::stdout()), seed, count, true),
         "c02_strlcpy" => gen_strlcpy(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c02_putstr_non_printable" => gen_putstr_np(&mut io::BufWriter::new(io::stdout()), seed, count),
-        "c02_print_memory" => gen_print_memory(seed, count),
+        "c02_print_memory" => gen_print_memory(&mut io::BufWriter::new(io::stdout()), seed, count),
         _ => return false,
     }
     true
@@ -662,9 +694,9 @@ pub fn check() -> usize {
         let strncpy = head(&|w| gen_strncpy(w, 1, 200));
         want!(widest_hex(&strncpy, 0) > past, "strncpy corpus holds no src past 4096 bytes");
         want!(largest_dec(&strncpy, 1) > past as i64, "strncpy corpus holds no n past 4096");
-        for (kind, pred) in [(0u8, is_alpha as fn(&[u8]) -> bool), (1, is_numeric), (2, is_lowercase), (3, is_uppercase), (4, is_printable)] {
+        for (name, pred, kind) in PREDS {
             let c = head(&|w| gen_pred(w, 1, 200, kind, pred));
-            want!(widest_hex(&c, 0) > past, format!("str_is_* corpus {} holds no string past 4096 bytes", kind));
+            want!(widest_hex(&c, 0) > past, format!("{} corpus holds no string past 4096 bytes", name));
         }
         for (what, xform) in [("strupcase", o_strupcase as fn(&[u8]) -> Vec<u8>), ("strlowcase", o_strlowcase)] {
             let c = head(&|w| gen_case(w, 1, 200, xform));
@@ -677,6 +709,27 @@ pub fn check() -> usize {
         want!(largest_dec(&strlcpy, 1) > past as i64, "strlcpy corpus holds no size past 4096");
         let np = head(&|w| gen_putstr_np(w, 1, 200));
         want!(widest_hex(&np, 0) > past, "putstr_non_printable corpus holds no string past 4096 bytes");
+        let pm = head(&|w| gen_print_memory(w, 1, 200));
+        want!(widest_hex(&pm, 0) > past, "print_memory corpus holds no block past 4096 bytes");
+        want!(largest_dec(&pm, 1) > past as i64, "print_memory corpus holds no size past 4096");
+    }
+
+    // ---- bench does each str_is_* arm's own work ----
+    // `oracle bench` is the baseline the perf layer times the student's
+    // function against, so on every line of the corpus it must compute that
+    // line's answer, not some other scan of the string.
+    for (name, pred, kind) in PREDS {
+        let mut c = Vec::new();
+        gen_pred(&mut c, 1, 200, kind, pred);
+        let wrong = c.split(|&b| b == b'\n').filter(|l| !l.is_empty()).find(|l| {
+            let f: Vec<&[u8]> = l.split(|&b| b == b'\t').collect();
+            let s = unhex(std::str::from_utf8(f[0]).unwrap_or(""));
+            bench_pred(name).map(|p| p(&s)) != Some(f.get(1) == Some(&&b"1"[..]))
+        });
+        if let Some(l) = wrong {
+            eprintln!("CHECK FAIL c02 bench {} disagrees with its corpus on {:?}", name, String::from_utf8_lossy(l));
+            fails += 1;
+        }
     }
 
     // ---- strncpy hand cases (NUL-padding to n) ----
@@ -792,10 +845,18 @@ pub fn check() -> usize {
     fails
 }
 
+/// The work `oracle bench` does on a str_is_* line: the arm's own predicate,
+/// from PREDS. None for any other arm. It used to be one scan for all five
+/// ("no byte is NUL"), which is none of them and never stops early, so the
+/// perf layer timed C 02 ex02-ex06 against work that was not the reference.
+fn bench_pred(name: &str) -> Option<fn(&[u8]) -> bool> {
+    PREDS.iter().find(|p| p.0 == name).map(|p| p.1)
+}
+
 /// Replay a corpus and compute the reference answers; see common::bench_lines.
 pub fn bench(name: &str) -> bool {
-    if !matches!(name, "c02_strcpy" | "c02_strncpy" | "c02_str_is_alpha" | "c02_str_is_numeric"
-        | "c02_str_is_lowercase" | "c02_str_is_uppercase" | "c02_str_is_printable"
+    let pred = bench_pred(name);
+    if pred.is_none() && !matches!(name, "c02_strcpy" | "c02_strncpy"
         | "c02_strupcase" | "c02_strlowcase" | "c02_strcapitalize" | "c02_strlcpy"
         | "c02_putstr_non_printable") { return false; }
     for l in bench_lines() {
@@ -809,7 +870,12 @@ pub fn bench(name: &str) -> bool {
             "c02_strcapitalize" => sink(o_strcapitalize(&a)),
             "c02_strlcpy" => { if f.len() >= 2 { if let Ok(n) = f[1].parse::<usize>() { sink(o_strlcpy(&a, n)); } } }
             "c02_putstr_non_printable" => sink(o_putstr_np(&a)),
-            _ => sink(a.iter().all(|&c| c != 0)),
+            // The str_is_* arms, the only names the guard admits without an
+            // arm of their own above, so no name falls to another arm's work.
+            _ => match pred {
+                Some(p) => sink(p(&a)),
+                None => unreachable!("c02::bench admitted {} without an arm", name),
+            },
         }
     }
     true

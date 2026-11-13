@@ -66,7 +66,7 @@ require awk cat cp dirname grep mktemp mv rm sort
 RL_NAME=fetched_needed
 case $0 in */*) RL_LIB=${0%/*}/../runner_lib.sh ;; *) RL_LIB=../runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "fetched_needed.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "fetched_needed.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 
@@ -76,7 +76,6 @@ DOC=""
 WORK=$(mktemp -d) || { echo "fetched_needed.sh: mktemp failed" >&2; exit 2; }
 rl_traps 'rm -rf "$WORK"'
 
-need() { [ "$2" -ge 2 ] || { echo "fetched_needed.sh: $1 needs a value" >&2; exit 2; }; }
 # vis WORD -- a soname or a path, as every log shows bytes.
 vis() { printf '%s' "$1" | rl_vis arg; }
 
@@ -85,18 +84,18 @@ vis() { printf '%s' "$1" | rl_vis arg; }
 n=0
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--objdump) need "$1" "$#"; OBJDUMP=$2; shift 2 ;;
-		--objdump-lib) need "$1" "$#"; OBJDUMP_LIB=$2; shift 2 ;;
-		--doc) need "$1" "$#"; DOC=$2; shift 2 ;;
+		--objdump) rl_need "$1" "$#"; OBJDUMP=$2; shift 2 ;;
+		--objdump-lib) rl_need "$1" "$#"; OBJDUMP_LIB=$2; shift 2 ;;
+		--doc) rl_need "$1" "$#"; DOC=$2; shift 2 ;;
 		--tree)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			n=$((n + 1))
 			printf '%s\n' "$2" > "$WORK/t$n.name"
 			: > "$WORK/t$n.libs"
 			: > "$WORK/t$n.elfs"
 			shift 2 ;;
 		--lib | --elf)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			[ "$n" -gt 0 ] || { echo "fetched_needed.sh: $1 before any --tree" >&2; exit 2; }
 			[ -f "$2" ] || { echo "fetched_needed.sh: $1 $(vis "$2") is not a file (is it in the test's data?)" >&2; exit 2; }
 			printf '%s\n' "$2" >> "$WORK/t$n.${1#--}s"

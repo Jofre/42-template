@@ -1,2 +1,5 @@
 #!/bin/sh
+# conventions: no-require -- runs at each call of this pinned tool, and
+# without dirname the exec below cannot open binutils.sh and fails at once:
+# a probe on every run would buy nothing.
 exec sh "$(dirname "$0")/binutils.sh" objdump "$@"

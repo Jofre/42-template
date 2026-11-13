@@ -101,7 +101,9 @@ cc_toolchain_config(
         # search is what makes a bare -fuse-ld=bfd -- tools/defs.bzl's ASan
         # links and .bazelrc's Rust links both pass one, AFTER these flags, and
         # clang takes the last -- resolve to the pinned ld.bfd rather than to
-        # /usr/bin/ld.bfd, without touching either call site.
+        # /usr/bin/ld.bfd, without touching either call site. :provenance_test
+        # links with these flags as the toolchain hands them over, so a link
+        # they stop sending to the pinned linkers is red there.
         "-Btools/cc_toolchain/",
         "-Wl,-no-as-needed",
         "-Wl,-z,relro,-z,now",
@@ -237,6 +239,13 @@ toolchain(
 toolchain_provenance_test(
     name = "provenance_test",
     tags = lvl_tags("selftest"),
+)
+
+# The test's template, for the selftest's arms on which linker its link flags
+# pick (tools/tests/selftest_sections/the_compiler_pin.sh, "provenance:").
+exports_files(
+    ["provenance_test.sh"],
+    visibility = ["//tools/tests:__pkg__"],
 )
 
 # Everything //tools/tests:conventions lints in this package. Listed rather than

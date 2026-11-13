@@ -59,14 +59,14 @@ require() {
 		exit 2
 	done
 }
-require awk cat comm dirname env grep mktemp rm sed sort tr
+require awk cat comm dirname grep mktemp rm sed sort tr
 
 # The shared runner helpers -- exiting signal traps and excerpts that say what
 # they left out -- written once in tools/runner_lib.sh.
 RL_NAME=symbols_test
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "symbols_test.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "symbols_test.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -91,11 +91,11 @@ PROVIDED=""
 # campus box point them at a specific compiler, and two did not.
 #
 # SYMBOLS_CC is the hand-run default only: every test is handed the pinned
-# clang-12 (--cc), which tools/defs.bzl requires of it (_PINNED_CC_RUNNERS,
-# pinned_cc_problem), as Bazel's own toolchain builds every other object in
-# the repo with the pinned pair (//tools/cc_toolchain). It once compiled with
-# the box's `cc` by default, and c_function's inline _symbols test did so
-# until the load-time audit caught it (TO VERIFY V38).
+# clang-12 (--cc), which the macros require of it (tools/defs_toolchain.bzl's
+# _PINNED_CC_RUNNERS and pinned_cc_problem), as Bazel's own toolchain builds
+# every other object in the repo with the pinned pair (//tools/cc_toolchain).
+# It once compiled with the box's `cc` by default, and c_function's inline
+# _symbols test did so until the load-time audit caught it (TO VERIFY V38).
 CC="${SYMBOLS_CC:-cc}"
 CC_LIBS=""
 
@@ -115,50 +115,37 @@ _dir() {
 # harness and not a wrong deliverable.
 NM=""
 NM_LIBS=""
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "symbols_test.sh: $1 needs a value" >&2; exit 2; }; }
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--nm) need "$1" "$#"; NM="$2"; shift 2 ;;
+		--nm) rl_need "$1" "$#"; NM="$2"; shift 2 ;;
 		# Absolute, as --cc-lib's below: nm runs with these directories on
 		# LD_LIBRARY_PATH, where a relative one is resolved against its cwd.
 		--nm-lib)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				/*) _d=$(dirname "$2") ;;
 				*) _d=$(dirname "$PWD/$2") ;;
 			esac
 			NM_LIBS="${NM_LIBS:+$NM_LIBS:}$_d"
 			shift 2 ;;
-		# The directories the fetched compiler's own shared objects live in.
-		# A pinned clang that cannot find libclang-cpp does not fail: the loader
-		# falls back to this machine's copy and the layer reports on a compiler
-		# nobody pinned. Same flag, same reason, same shape as compile_check.sh.
-		--cc-lib)
-			need "$1" "$#"
-			# Absolute: a relative entry in LD_LIBRARY_PATH resolves against the
-			# process's cwd, which is not this script's to assume.
-			case "$2" in
-				/*) _d=$(dirname "$2") ;;
-				*) _d=$(dirname "$PWD/$2") ;;
-			esac
-			CC_LIBS="${CC_LIBS:+$CC_LIBS:}$_d"
-			shift 2 ;;
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
-		--expect) need "$1" "$#"; EXPECT="$2"; shift 2 ;;
+		# The fetched compiler's own shared objects, one per line (LISTS OF
+		# WORDS). A pinned clang that cannot find libclang-cpp does not fail:
+		# the loader falls back to this machine's copy and the layer reports on
+		# a compiler nobody pinned. rl_cc_pin, below, proves them.
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
+		--expect) rl_need "$1" "$#"; EXPECT="$2"; shift 2 ;;
 		--functions-only) FUNCTIONS_ONLY=1; shift ;;
 		--no-cross) NO_CROSS=1; shift ;;
-		--quotes) need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
+		--quotes) rl_need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
 		# A function the grader compiles in with the student's file. Repeatable.
 		# Exporting one gets its own verdict: the static-helper advice below is
 		# exactly wrong for it.
-		--provided) need "$1" "$#"; rl_list_add PROVIDED "$2"; shift 2 ;;
-		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--inc) need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
-		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
+		--provided) rl_need "$1" "$#"; rl_list_add PROVIDED "$2"; shift 2 ;;
+		--src) rl_need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--inc) rl_need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
+		--inc-file) rl_need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
 		*) echo "symbols_test.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -172,48 +159,12 @@ done
 	exit 2
 }
 
-# THE PINNED nm's OWN LIBRARIES, and why this is not the same as pinning nm.
-#
-# binutils ships FRONTENDS. This nm is 44 KB; everything it does is in libbfd,
-# which it names as a bare soname with no RPATH and no RUNPATH. Without a path
-# to the fetched copy the loader answers from /lib/x86_64-linux-gnu and the
-# "pinned" nm is the box's binutils wearing a pinned name -- and it still
-# prints the pinned version, because that string is in the frontend's own
-# .rodata. On a campus box whose binutils is NOT 2.38 the version-stamped
-# soname does not exist at all and the tool would not start.
-#
-# Exit 2, never 1: a missing directory is a wiring error, not a finding about
-# the exercise. Copied deliberately from compile_check.sh's --cc-lib rather
-# than abbreviated -- the shape is the argument.
-_ifs=$IFS
-IFS=:
-for _d in $NM_LIBS; do
-	[ -d "$_d" ] || {
-		IFS=$_ifs
-		echo "symbols_test.sh: --nm-lib directory '$_d' does not exist." >&2
-		echo "  Without it the loader would fall back to this machine's own" >&2
-		echo "  binutils libraries and the pinned nm would silently stop" >&2
-		echo "  being pinned, so this refuses to run rather than pass." >&2
-		exit 2
-	}
-done
-IFS=$_ifs
-# The path nm is proved under is the one it runs with (NM_PATH), and it is
-# not exported: the compiler's --cc-lib, below, stays out of it (V274).
-NM_PATH="$NM_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-
-# PROVE THE LOADER AGREED, rather than that the flag arrived: the libbfd nm
-# loaded, read by runner_lib.sh's rl_libs_under, under one of --nm-lib's
-# directories. The failure being guarded against is exactly one where the
-# right file is exec'd and the wrong code runs, so checking which file we
-# exec proves nothing. In a subshell, so that the scratch file goes whatever
-# it finds.
-_dbg=$(mktemp) || { echo "symbols_test.sh: cannot create a scratch file" >&2; exit 2; }
-env -u LD_DEBUG_OUTPUT LD_LIBRARY_PATH="$NM_PATH" LD_DEBUG=libs "$NM" --version > /dev/null 2> "$_dbg"
-(rl_libs_under "the pinned nm" "$_dbg" "$NM_LIBS" libbfd)
-_rc=$?
-rm -f "$_dbg"
-[ "$_rc" -eq 0 ] || exit 2
+# THE PINNED nm, proved to load its own libbfd (tools/runner_lib.sh,
+# rl_binutils_pin: THE PINNED nm's OWN LIBRARIES). The path it is proved
+# under is the one it runs with (NM_PATH), and it is not exported: the
+# compiler's --cc-lib, below, stays out of it (V274).
+rl_binutils_pin nm "$NM" "$NM_LIBS" --nm-lib libbfd
+NM_PATH=$RL_PB_PATH
 
 [ -n "$EXPECT" ] || { echo "symbols_test.sh: --expect is required" >&2; exit 2; }
 
@@ -228,34 +179,14 @@ elif [ -n "$RL_QUOTES" ]; then
 fi
 [ -n "$SRCS" ] || { echo "symbols_test.sh: at least one --src is required" >&2; exit 2; }
 
-# No compiler means no object, and no object means nm reads nothing -- which
-# used to reach the compile step and report "could not compile" with exit 1, the
-# status that says the DELIVERABLE is wrong. A missing toolchain is not the
-# student's bug. Say so, and let NO_SKIP=1 turn it red for the forced sweep.
-
-# Each --cc-lib directory must EXIST. A moved or mistyped one is the quiet
-# failure this arrangement is exposed to: the loader falls back to the default
-# search path, finds the box's libraries, and the pinned compiler silently stops
-# being pinned. Exit 2 -- the harness is misconfigured, the exercise is not
-# wrong. Copied deliberately from compile_check.sh rather than abbreviated.
-if [ -n "$CC_LIBS" ]; then
-	_ifs=$IFS
-	IFS=:
-	for _d in $CC_LIBS; do
-		[ -d "$_d" ] || {
-			IFS=$_ifs
-			echo "symbols_test.sh: --cc-lib directory '$_d' does not exist." >&2
-			echo "  Without it the loader would fall back to this machine's own" >&2
-			echo "  libraries and the pinned compiler would silently stop being" >&2
-			echo "  pinned, so this refuses to run rather than pass." >&2
-			exit 2
-		}
-	done
-	IFS=$_ifs
-	LD_LIBRARY_PATH="$CC_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-	export LD_LIBRARY_PATH
-fi
-
+# THE PINNED COMPILER, proved before the first compile (tools/runner_lib.sh,
+# rl_cc_pin): each --cc-lib directory exists and goes first on the exported
+# LD_LIBRARY_PATH, the compiler is there and starts, and the loader took its
+# libraries from those directories, with the libxml2 and ICU a libLLVM loads
+# (V321). Each failure is exit 2. This runner kept its own copy of the first
+# three, written before rl_cc_pin, and never made the last: a pinned clang on
+# this machine's libxml2 or ICU passed here while rl_cc_pin refused it.
+#
 # A COMPILER IS NOT OPTIONAL HERE. This layer compiles something and then reads
 # the result, so without a compiler it has checked nothing -- and it used to say
 # SKIP and exit 0, which is a PASS to Bazel.
@@ -271,20 +202,11 @@ fi
 # compiler is no longer a fact about the student's machine: it is a wiring
 # error. Exit 2, the code this repo reserves for "the harness is broken, the
 # exercise is not wrong" -- never exit 0.
-command -v "$CC" > /dev/null 2>&1 || {
-	echo "symbols_test: the compiler '$CC' is not executable." >&2
-	echo "  This layer compiles before it inspects, so without one it would be" >&2
-	echo "  reporting on nothing. Bazel passes the pinned clang through --cc;" >&2
-	echo "  if that is missing the target's data is wrong, which is a harness" >&2
-	echo "  fault and not a finding about this exercise." >&2
-	exit 2
-}
-# And it must START: one the loader cannot start failed the compile below,
-# and the student's file was reported as not compiling (runner_lib.sh's
-# rl_cc_starts, V241).
-rl_cc_starts "$CC"
+# And it must START (rl_cc_starts, V241): one the loader cannot start failed
+# the compile below, and the student's file was reported as not compiling.
+rl_cc_pin "$CC" "$CC_LIBS" ""
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$WORK"'
 
 # The lists are one word per line (runner_lib.sh, LISTS OF WORDS).
@@ -292,7 +214,7 @@ rl_traps 'rm -rf "$WORK"'
 # which a pattern such as */*.c allows, wrote one x.o, the second over the
 # first, so nm read one of the two files -- an asked-for name it defines
 # NOT DEFINED, or a stray global it defines unseen, by the order they came
-# in (§22 item 5). forbidden_symbols.sh numbers its objects so too.
+# in. forbidden_symbols.sh numbers its objects so too.
 n=0
 rl_split_on
 # shellcheck disable=SC2086
@@ -399,7 +321,7 @@ fi
 if [ -z "$MISSING" ] && [ -z "$EXTRA" ] && [ -z "$SUPPLIED" ] && [ "$STRAY_MAIN" -eq 0 ]; then
 	if [ -n "$CROSS" ]; then
 		echo "symbols_test: OK — exports $(tr '\n' ' ' < "$WORK/want")plus $(printf '%s' "$CROSS" | tr '\n' ' ')"
-		echo "              (the extra name(s) are defined in one of this exercise's files"
+		echo "              (the extra name(s) are defined in one of this $(rl_entry)'s files"
 		echo "               and used by another, so they have to be external, and"
 		echo "               this target lets such a name through.)"
 	else
@@ -427,7 +349,7 @@ if [ -n "$EXTRA" ]; then
 		# student meets a link error in the file that calls it.
 		_shared=$(printf '%s\n' "$EXTRA" | grep -xF -f "$WORK/cross" || true)
 		if [ -n "$_shared" ]; then
-			echo "  Another of this exercise's files calls these, so 'static' alone would"
+			echo "  Another of this $(rl_entry)'s files calls these, so 'static' alone would"
 			echo "  stop that call from linking:"
 			printf '%s\n' "$_shared" | sed 's/^/    /'
 		fi
@@ -443,7 +365,7 @@ if [ -n "$EXTRA" ]; then
 			rl_quote helpers | sed 's/^/    /'
 		fi
 	else
-		echo "  (A helper that ANOTHER of this exercise's files calls is allowed to be"
+		echo "  (A helper that ANOTHER of this $(rl_entry)'s files calls is allowed to be"
 		echo "   external; it is only the ones nobody else references that must be static.)"
 	fi
 fi

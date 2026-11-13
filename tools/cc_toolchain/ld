@@ -1,3 +1,6 @@
 #!/bin/sh
+# conventions: no-require -- runs at each call of this pinned tool, and
+# without dirname the exec below cannot open binutils.sh and fails at once:
+# a probe on every run would buy nothing.
 # Plain `ld` is bfd, as on the campus box: Ubuntu points /usr/bin/ld at ld.bfd.
 exec sh "$(dirname "$0")/binutils.sh" ld.bfd "$@"

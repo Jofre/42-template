@@ -62,7 +62,7 @@ require mktemp rm
 RL_NAME=asan_run
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "asan_run.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "asan_run.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 
@@ -77,32 +77,27 @@ SYMBOLIZER=""
 SYMBOLIZER_LIB=""
 GATE_DIFFER=""; GATE_BIN=""; GATE_EXPECTED=""; GATE_ARGS=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "asan_run.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--bin) need "$1" "$#"; BIN="$2"; shift 2 ;;
-		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
-		--stdin) need "$1" "$#"; STDIN_FILE="$2"; shift 2 ;;
-		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; shift 2 ;;
-		--run-as) need "$1" "$#"; RUN_AS="$2"; shift 2 ;;
-		--cwd-file) need "$1" "$#"; CWD_FILES="$CWD_FILES
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
+		--label) rl_need "$1" "$#"; LABEL="$2"; shift 2 ;;
+		--stdin) rl_need "$1" "$#"; STDIN_FILE="$2"; shift 2 ;;
+		--argv-file) rl_need "$1" "$#"; ARGV_FILE="$2"; shift 2 ;;
+		--run-as) rl_need "$1" "$#"; RUN_AS="$2"; shift 2 ;;
+		--cwd-file) rl_need "$1" "$#"; CWD_FILES="$CWD_FILES
 $2"; shift 2 ;;
-		--show-run) need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
-		--symbolizer) need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
-		--symbolizer-lib) need "$1" "$#"; SYMBOLIZER_LIB="$2"; shift 2 ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add RL_GATE_PASS --stdin "$2"; shift 2 ;;
-		--gate-stream) need "$1" "$#"; rl_list_add RL_GATE_PASS --stream "$2"; shift 2 ;;
+		--show-run) rl_need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
+		--symbolizer) rl_need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
+		--symbolizer-lib) rl_need "$1" "$#"; SYMBOLIZER_LIB="$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-arg) rl_need "$1" "$#"; rl_list_add GATE_ARGS "$2"; shift 2 ;;
+		--gate-stdin) rl_need "$1" "$#"; rl_list_add RL_GATE_PASS --stdin "$2"; shift 2 ;;
+		--gate-stream) rl_need "$1" "$#"; rl_list_add RL_GATE_PASS --stream "$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add RL_GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add RL_GATE_PASS --labeled; shift ;;
-		--gate-label) need "$1" "$#"; RL_GATE_LABEL="$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; RL_GATE_LABEL="$2"; shift 2 ;;
 		--) shift; break ;;
 		*) echo "asan_run.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -143,19 +138,7 @@ rl_gate_whole asan_run "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_ARGS$R
 }
 # The same for the other two inputs a case can shape its run with: a run with
 # fewer arguments, or from another folder, is not the case's run.
-[ -z "$ARGV_FILE" ] || [ -r "$ARGV_FILE" ] || {
-	echo "asan_run.sh: --argv-file '$ARGV_FILE' is missing or unreadable" >&2
-	exit 2
-}
-if [ -n "$CWD_FILES" ] && [ -z "$RUN_AS" ]; then
-	echo "asan_run.sh: --cwd-file stages a file in the folder --run-as runs the program from" >&2
-	exit 2
-fi
-case "$RUN_AS" in
-	*/* | . | ..)
-		echo "asan_run.sh: --run-as takes the program's file name, not '$RUN_AS'" >&2
-		exit 2 ;;
-esac
+rl_case_check "$ARGV_FILE" "$RUN_AS" "$CWD_FILES"
 
 # Same reasoning as the --bin check: an unchecked mktemp failure leaves ERR
 # empty, the `2> "$ERR"` redirection below then fails, the program is never
@@ -203,14 +186,9 @@ rl_split_on
 # shellcheck disable=SC2086 # a list, one word per line (rl_list_add)
 rl_gate asan_run "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" $GATE_ARGS
 rl_split_off
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "asan_run.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check asan_run "$BIN" skip "${LABEL:-the program}"
 
 # An inner timeout, well under Bazel's, so an infinite loop is reported as one
@@ -222,24 +200,15 @@ standin_check asan_run "$BIN" skip "${LABEL:-the program}"
 # and reported the program "memory-clean" without ever having executed it.
 # The run the case describes (see the header): its argument file after the
 # arguments after --, and its own folder when it has one.
-if [ -n "$ARGV_FILE" ]; then
-	_aw=$(rl_argv_words "$ARGV_FILE") || { echo "asan_run.sh: cannot read --argv-file '$ARGV_FILE'" >&2; exit 2; }
-	eval "set -- \"\$@\" $_aw"
-fi
-RUN_BIN=$BIN
-_ran_prog=$SHOW_RUN
-_ran_in=$STDIN_FILE
-_ran_specs=""
 if [ -n "$RUN_AS" ]; then
 	RUN_WORK=$(mktemp -d) || { echo "asan_run.sh: cannot create a run folder" >&2; exit 2; }
-	RUN_DIR="$RUN_WORK/run"
-	rl_rundir "$RUN_DIR" "$RUN_AS" "$BIN" "$CWD_FILES" || exit 2
-	RUN_BIN="./$RUN_AS"
-	_ran_prog=$RUN_BIN
-	_ran_specs="$RUN_AS=${SHOW_RUN:-$BIN}$CWD_FILES"
-	case "$STDIN_FILE" in "" | /*) ;; *) STDIN_FILE="$PWD/$STDIN_FILE" ;; esac
 fi
-[ -z "$SHOW_RUN" ] || rl_ran "$_ran_prog" "$_ran_in" "$_ran_specs" "$@"
+rl_case_run "${RUN_WORK:-}/run" "$ARGV_FILE" "$RUN_AS" "$BIN" "$CWD_FILES" "$SHOW_RUN" "$STDIN_FILE"
+eval "set -- \"\$@\" $RL_CASE_WORDS"
+RUN_BIN=$RL_RUN_BIN
+RUN_DIR=$RL_RUN_DIR
+[ -z "$SHOW_RUN" ] || rl_ran "$RL_RAN_PROG" "$STDIN_FILE" "$RL_RAN_SPECS" "$@"
+STDIN_FILE=$RL_RUN_IN
 
 if ! rl_tmo 30; then
 	rl_overrun "${LABEL:-the program}"
@@ -247,8 +216,15 @@ if ! rl_tmo 30; then
 fi
 
 # Stdin is the case's file or /dev/null, as in tools/diff_output.sh: never
-# what this runner happened to be given.
-(cd "${RUN_DIR:-.}" && rl_run "$RUN_BIN" "$@" < "${STDIN_FILE:-/dev/null}" > /dev/null 2> "$ERR")
+# what this runner happened to be given. What it writes is bounded at the
+# source (`ulimit -f`, 512-byte blocks: 4 MiB, argv_table.sh's floor): the
+# kernel stops a writer past it with SIGXFSZ, which rl_classify calls
+# runaway. With no cap a program printing without end filled the test's
+# scratch folder (1.29 GB in two seconds, measured) and was then reported
+# as too slow.
+AS_BLOCKS=$(( 4194304 / 512 + 2 ))
+(ulimit -f "$AS_BLOCKS" 2> /dev/null
+	cd "${RUN_DIR:-.}" && rl_run "$RUN_BIN" "$@" < "${STDIN_FILE:-/dev/null}" > /dev/null 2> "$ERR")
 RC=$?
 rl_classify "$RC"
 

@@ -3,11 +3,16 @@
 # The rule above rewrites CR LF to LF when a text file is committed, so Rush
 # 02's crlf.dict, whose line endings ARE its case, reached every clone with
 # LF only -- the case tested nothing and ex00_oracle_fixtures failed there,
-# while the checkout that wrote it was green. Only an exercise's fixtures/
-# folder is exempt: a file whose CRs are its case goes there, and a CR in a
-# clue, a script or an expected output beside it is an editor's, which the
-# rule above strips. //tools:conventions refuses a file the rule above would
-# rewrite (a CR LF, and no lone CR, which makes git keep the file as it is)
-# that no -text or binary rule here covers, and a CR in a harness text file
-# (a clues*.tsv, a script, a BUILD or .bzl file) even where one does.
-**/tests/ex[0-9][0-9]/fixtures/** -text
+# while the checkout that wrote it was green. Only a fixtures/ folder one
+# level below a tests/ folder is exempt: an exercise's or a unit's
+# (tests/exNN/fixtures/, tests/<unit>/fixtures/), or that of any other folder
+# there. A file whose CRs are its case goes in its exercise's or unit's, and
+# a CR in a clue, a script or an expected output beside it is an editor's,
+# which the rule above strips. A folder below one of those
+# (tests/exNN/<name>/fixtures/) is not exempt.
+# //tools:conventions refuses a file the rule above would rewrite (a CR LF,
+# and no lone CR, which makes git keep the file as it is) that no -text or
+# binary rule here covers, a CR in a harness text file (a clues*.tsv, a
+# script, a BUILD or .bzl file) even where one does, and an exercise's or a
+# unit's fixtures/ folder that no rule here covers.
+**/tests/*/fixtures/** -text

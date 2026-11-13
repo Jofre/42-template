@@ -6,26 +6,35 @@
 # would flag. A well-formed stub compiles cleanly, exactly like the norm layer.
 #
 # Usage:
-#   compile_check.sh --cc <compiler> [--cc-lib FILE]... [--inc DIR]...
+#   compile_check.sh --cc <compiler> [--cc-lib FILE]... [--cc-under FILE]
+#                    [--cc-progs FILE --cc-progs-lib FILE...] [--inc DIR]...
 #                    [--hdr FILE]... [--inc-file FILE] [--staged-hdr FILE]...
 #                    --src FILE...
 #
-#   --cc    compiler to invoke -- a name on PATH (gcc-10) or a path to a
-#           FETCHED one (the pinned clang, which is not on PATH anywhere)
-#   --cc-lib  a shared library the compiler itself needs; its DIRECTORY is put
-#           on the loader's search path (repeatable). Only a fetched compiler
-#           needs this: clang is a 100 KB driver and everything it does is in
-#           libclang-cpp and libLLVM, so without it the driver either fails to
-#           start or -- much worse -- silently loads the BOX's copies and stops
-#           being the pinned compiler at all.
+#   --cc    compiler to invoke -- a path to a FETCHED one (both campus
+#           compilers are fetched; the pinned clang is not on PATH anywhere),
+#           or by hand a name on PATH. One that is not there is a wiring
+#           fault, exit 2 (runner_lib.sh's rl_cc_pin, as every runner that
+#           compiles)
+#   --cc-lib  a shared library the compiler itself loads; its DIRECTORY is
+#           put on the loader's search path (repeatable), and the loader must
+#           have taken the library from there (rl_cc_pin). Only a fetched
+#           compiler needs this: clang is a 100 KB driver and everything it
+#           does is in libclang-cpp and libLLVM, so without it the driver
+#           either fails to start or -- much worse -- silently loads the BOX's
+#           copies and stops being the pinned compiler at all.
 #   --cc-progs  a file inside the directory holding the SUBPROGRAMS the compiler
 #           shells out to -- in practice the assembler. Passed as -B<dir>/,
 #           which is also how gcc finds a target-prefixed `x86_64-linux-gnu-as`
 #           without anything being renamed. Verified: if the compiler still
 #           resolves `as` to a bare name afterwards it would take the machine's
-#           assembler, and this refuses to run. Needs a --cc-lib naming the
-#           assembler's libbfd: the fetched `as` loads libbfd and libopcodes
-#           by bare name, and this proves the loader took them from there.
+#           assembler, and this refuses to run. Needs a --cc-progs-lib.
+#   --cc-progs-lib  a shared library the ASSEMBLER loads, not the compiler
+#           (the fetched `as` loads libbfd and libopcodes by bare name): its
+#           directory goes on the loader's path, and this proves the loader
+#           took them from there (repeatable). Apart from --cc-lib because
+#           the compiler loads none of them, and rl_cc_pin would look for
+#           each among the compiler's libraries.
 #   --cc-under  a file inside the fetched compiler's own bin directory (the
 #           driver itself will do). Asserts the compiler is really looking
 #           inside its own tree -- see the check below, which is the difference
@@ -50,10 +59,10 @@
 # THE INCLUDE PATH IS THE GRADER'S. A quoted #include is searched beside the
 # file that includes it, then in each -I directory, and the grader's compile
 # line decides the -I: `cc -Wall -Wextra -Werror -o rush01 *.c` passes none,
-# a Makefile passes what its recipes say. So tools/defs.bzl hands this the
+# a Makefile passes what its recipes say. So the macros hand this the
 # directory of every header beside the sources (--hdr, where the grader finds
-# it too), the Makefile's list (--inc-file), and a header in a subfolder only
-# as --staged-hdr. Putting every staged header's directory on -I made this
+# it too; tools/defs_contract.bzl's _inc_args), the Makefile's list
+# (--inc-file), and a header in a subfolder only as --staged-hdr. Putting every staged header's directory on -I made this
 # layer green on a turn-in the grader cannot compile -- the program built for
 # the other layers was a stand-in for the same missing header (a turn-in
 # whose header sat in includes/, as the macro fixtures' toy ex12's does).
@@ -82,7 +91,7 @@ require basename dirname env grep mktemp readlink rm
 RL_NAME=compile_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "compile_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "compile_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 
@@ -95,35 +104,21 @@ FROM_MAKE=0
 CC_LIBS=""
 CC_UNDER=""
 CC_PROGS=""
+CC_PROGS_LIBS=""
 GRADER_HDRS=""
 README=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "compile_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
-		--cc-lib)
-			need "$1" "$#"
-			# A LIBRARY, and its directory is what goes on the search path.
-			# The caller names the file rather than the directory because it is
-			# Bazel, which expands a label to a file and has no dirname; and
-			# because deriving the directory from the driver cannot work --
-			# "clang-12/.." walks through a file and resolves to nothing.
-			#
-			# Absolute, since a relative entry in LD_LIBRARY_PATH is resolved
-			# against the process's cwd, which is not this script's to assume.
-			case "$2" in
-				/*) _d=$(dirname "$2") ;;
-				*) _d=$(dirname "$PWD/$2") ;;
-			esac
-			CC_LIBS="${CC_LIBS:+$CC_LIBS:}$_d"
-			shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
+		# A LIBRARY, and its directory is what goes on the search path: the
+		# caller is Bazel, which expands a label to a file and has no
+		# dirname. rl_cc_pin, and rl__lib_dirs for the assembler's, take the
+		# directories, absolute.
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--cc-progs-lib) rl_need "$1" "$#"; rl_list_add CC_PROGS_LIBS "$2"; shift 2 ;;
 		--cc-progs)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			_p=$(readlink -f "$2" 2> /dev/null) || _p=""
 			[ -n "$_p" ] || _p="$2"
 			CC_PROGS=$(cd "$(dirname "$_p")" 2> /dev/null && pwd -P) || CC_PROGS=""
@@ -132,31 +127,14 @@ while [ $# -gt 0 ]; do
 				exit 2
 			}
 			shift 2 ;;
-		--cc-under)
-			# Resolve the FILE, then take its directory. Both compilers work
-			# out where they really live -- through "..", and through the
-			# symlink Bazel stages a runfile as -- before printing anything, so
-			# the comparison only works with both sides resolved the same way.
-			# Two earlier attempts compared a path the compiler never prints:
-			# string surgery on the relative path leaves a "_main/.." in it, and
-			# resolving the DIRECTORY stops at the runfiles tree, whose
-			# directories are real even though the files in them are links.
-			need "$1" "$#"
-			_u=$(readlink -f "$2" 2> /dev/null) || _u=""
-			[ -n "$_u" ] || _u="$2"
-			CC_UNDER=$(cd "$(dirname "$_u")" 2> /dev/null && pwd -P) || CC_UNDER=""
-			[ -n "$CC_UNDER" ] || {
-				echo "compile_check.sh: --cc-under '$2' has no directory" >&2
-				exit 2
-			}
-			shift 2 ;;
-		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--hdr) need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--inc) need "$1" "$#"; rl_list_add INCS "-I$2"; shift 2 ;;
-		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2" MAKE_INCS; FROM_MAKE=1; shift 2 ;;
-		--staged-hdr) need "$1" "$#"; rl_list_add STAGED "$2"; shift 2 ;;
-		--grader-hdr) need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; rl_list_add GRADER_HDRS "$2"; shift 2 ;;
-		--readme) need "$1" "$#"; README="$2"; shift 2 ;;
+		--cc-under) rl_need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
+		--src) rl_need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--hdr) rl_need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--inc) rl_need "$1" "$#"; rl_list_add INCS "-I$2"; shift 2 ;;
+		--inc-file) rl_need "$1" "$#"; rl_inc_file INCS "$2" MAKE_INCS; FROM_MAKE=1; shift 2 ;;
+		--staged-hdr) rl_need "$1" "$#"; rl_list_add STAGED "$2"; shift 2 ;;
+		--grader-hdr) rl_need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; rl_list_add GRADER_HDRS "$2"; shift 2 ;;
+		--readme) rl_need "$1" "$#"; README="$2"; shift 2 ;;
 		*) echo "compile_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -167,38 +145,36 @@ done
 # bare soname with no RUNPATH: with no directory of theirs on the loader's
 # path it runs on the box's copies where the box has binutils 2.38, and does
 # not start where it has another (TO VERIFY V228).
-[ -z "$CC_PROGS" ] || [ -n "$CC_LIBS" ] || {
-	echo "compile_check.sh: --cc-progs needs its --cc-lib: the pinned assembler loads" >&2
-	echo "  libbfd and libopcodes by bare name, and without their directory the" >&2
-	echo "  loader takes this machine's." >&2
+[ -z "$CC_PROGS" ] || [ -n "$CC_PROGS_LIBS" ] || {
+	echo "compile_check.sh: --cc-progs needs its --cc-progs-lib: the pinned assembler" >&2
+	echo "  loads libbfd and libopcodes by bare name, and without their directory" >&2
+	echo "  the loader takes this machine's." >&2
 	exit 2
 }
 
-# The matched compiler is present on the 42 box and in a devcontainer rebuilt from
-# the current Dockerfile. If it is missing (an old image not yet rebuilt), skip
-# loudly rather than reporting a false failure for the whole suite.
-# Each one must EXIST. A mistyped or moved libdir is the quiet failure this
-# whole arrangement is exposed to: the loader simply falls back to the default
-# search path, finds the box's libclang-cpp, and every compile passes -- with
-# the layer reporting on a compiler nobody pinned, which is the exact thing
-# fetching it was meant to prevent. There is no way to notice that from the
-# output, so it has to be noticed here. Exit 2: the harness is misconfigured,
-# the exercise is not wrong.
-if [ -n "$CC_LIBS" ]; then
-	_ifs=$IFS
-	IFS=:
-	for _d in $CC_LIBS; do
-		[ -d "$_d" ] || {
-			IFS=$_ifs
-			echo "compile_check.sh: --cc-lib directory '$_d' does not exist." >&2
-			echo "  Without it the loader would fall back to this machine's own" >&2
-			echo "  libraries and the pinned compiler would silently stop being" >&2
-			echo "  pinned, so this refuses to run rather than pass." >&2
-			exit 2
-		}
-	done
-	IFS=$_ifs
-	LD_LIBRARY_PATH="$CC_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# THE COMPILER, PROVED BEFORE IT IS USED (runner_lib.sh's rl_cc_pin, as
+# every runner that compiles): each --cc-lib directory exists and goes first
+# on the exported LD_LIBRARY_PATH, the loader took the compiler's libraries
+# from there (and the libxml2 and ICU a libLLVM loads), the compiler is there
+# and starts, and with --cc-under it searches its own tree. Each failure is
+# exit 2. This runner kept its own copy of the first half, without the
+# loader's proof, so a pinned clang on this machine's libxml2 or ICU passed
+# here; and a compiler that was not there was a SKIP, exit 0, from before
+# both campus compilers were fetched -- now a wiring fault like any other.
+rl_cc_pin "$CC" "$CC_LIBS" "$CC_UNDER"
+
+# The assembler's libraries (--cc-progs-lib), on the loader's path for every
+# compile below, where gcc's `as` finds them; that it took them from there is
+# proved after the -B check. Each directory must exist: a missing one lets
+# the loader fall back to this machine's libbfd.
+rl__lib_dirs "$CC_PROGS_LIBS" CC_PROGS_DIRS || {
+	echo "compile_check.sh: --cc-progs-lib directory '$RL_LIB_MISSING' does not exist." >&2
+	echo "  Without it the pinned assembler would load this machine's libbfd and" >&2
+	echo "  libopcodes, or not start, so this refuses to run rather than pass." >&2
+	exit 2
+}
+if [ -n "$CC_PROGS_DIRS" ]; then
+	LD_LIBRARY_PATH="$CC_PROGS_DIRS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 	export LD_LIBRARY_PATH
 fi
 
@@ -206,28 +182,6 @@ fi
 # path 60 characters long, and "compile_check: ../+deb_archive+clang_12_ubuntu/
 # usr/lib/llvm-12/bin/clang-12 OK" tells a student nothing they wanted to know.
 CC_NAME=${CC##*/}
-
-# A path resolves as a file; a bare name resolves on PATH. `command -v` answers
-# both, which is what lets one runner drive a fetched compiler and a host one.
-if ! command -v "$CC" >/dev/null 2>&1; then
-	# NO_SKIP=1: an absent toolchain is a failure, not a quiet pass. Without this
-	# guard the skip was invisible in exactly the run meant to expose it: compile
-	# is a LEVEL 1 layer inside the submit gate at every level, so on an image
-	# predating the clang-12/gcc-10 pinning, `bazel test //... --test_env=NO_SKIP=1`
-	# — the command whose whole purpose is to tell "quiet because clean" from
-	# "quiet because it never ran" — reported a green compile layer for every C
-	# exercise in the repo, with nothing ever handed to a compiler.
-	[ "${NO_SKIP:-0}" != "1" ] || {
-		echo "NO_SKIP set: '$CC' is not installed, and this layer must not report a silent pass."
-		exit 1
-	}
-	echo "compile_check: '$CC_NAME' not found — SKIP (rebuild the devcontainer to match the 42 box)" >&2
-	exit 0
-fi
-# Found, and it must START: one the loader cannot start failed every proof
-# below as something else, or passed one by accident (runner_lib.sh's
-# rl_cc_starts, V241).
-rl_cc_starts "$CC"
 
 # The assembler, for the compilers that use an external one. -B puts a directory
 # at the FRONT of the subprogram search, and gcc accepts the target-prefixed
@@ -265,38 +219,7 @@ if [ -n "$CC_PROGS" ]; then
 	esac
 fi
 
-# Is the fetched compiler actually using the fetched compiler?
-#
-# Starting is not the same as being pinned. gcc looks for cc1 in the tree it
-# resolves its own path to, and a GCC_EXEC_PREFIX from outside moves that tree
-# to the box's -- same driver, different compiler, no diagnostic (a cc1 missing
-# from its own tree is a loud "cannot execute 'cc1'" instead, V297). clang does
-# the equivalent with its resource directory. Both print where they will look,
-# and both name their own root when the fetch is complete, so one question
-# answers it for either:
-# does the compiler's own directory appear in its search path?
-#
-# Only asked when the caller says which directory that is. A compiler installed
-# on the box and named by an absolute path is not required to list /usr/bin
-# among its search dirs, and failing that would be a false alarm about a
-# perfectly ordinary setup.
-if [ -n "$CC_UNDER" ]; then
-	# Its standard output alone, its status read (rl_cc_searches): an error
-	# that names the directory is no search path.
-	if ! rl_cc_searches "$CC" "$CC_UNDER"; then
-		echo "compile_check.sh: '$CC_NAME' is not searching its own tree." >&2
-		echo "" >&2
-		echo "  Expected to find: $CC_UNDER" >&2
-		echo "  in its -print-search-dirs, and it is not there. The compiler" >&2
-		echo "  starts, compiles, and reports the pinned version -- while using" >&2
-		echo "  this machine's cc1 or resource headers, because part of the" >&2
-		echo "  fetched tree was not staged. Nothing in the output would say so," >&2
-		echo "  so this refuses to run instead of passing." >&2
-		exit 2
-	fi
-fi
-
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$WORK"'
 
 # And is the pinned assembler running on the pinned libraries? Asked of the
@@ -318,7 +241,7 @@ if [ -n "$CC_PROGS" ]; then
 		rl_excerpt "$WORK/nothing.err" 10 assembler-probe.txt >&2
 		exit 2
 	fi
-	rl_libs_under "the pinned assembler" "$WORK/nothing.debug" "$CC_LIBS" libbfd libopcodes
+	rl_libs_under "the pinned assembler" "$WORK/nothing.debug" "$CC_PROGS_DIRS" libbfd libopcodes
 fi
 
 rc=0

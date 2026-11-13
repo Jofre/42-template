@@ -8,6 +8,12 @@ This page is how to use them.
 module's folder does what the first one below does
 ([The `42` command](#the-42-command)), and [bazel.md](bazel.md) pairs each
 `42` command with its Bazel form.
+**A part** is what a project whose subject names no turn-in folder is
+divided into instead of exercises: BSQ's one program, Libft's library and
+each of its functions ([reference.md](reference.md#target-names) calls each
+a unit). Where a name on this page reads `exNN_<what>` or `tests/exNN/`, a
+part's own name takes the place of `exNN`: `ft_strlen_output`,
+`tests/ft_strlen/`.
 
 ---
 
@@ -46,10 +52,11 @@ are not the same kind of problem:
   macro ones (c-08 ex01 and ex02, Reloaded ex22) at `forbidden` as well, since
   with no macro `EVEN(...)` or `ABS(...)` is a call to a function nobody
   authorised — are never blamed on you. A module's `deliverable_files` (a file
-  outside every exercise folder) is listed here under its own name, whatever
+  outside every exercise folder, or, where the root is divided into parts, a
+  file no part names) is listed here under its own name, whatever
   else is written: a stub leaves nothing there. A rule of a library as a
-  whole (`ex00_norm`, `ex00_files`) is run by its own label here too, never
-  by `:ex00`, which runs the whole library's suite.
+  whole (`libft_norm`, `libft_files`) is run by its own label here too, never
+  by `:libft`, which runs every one of the library's own tests.
 - **YOUR NEXT EXERCISE** — the first exercise with a red `output` target at
   `basic` (a rush's `_defense`, `_survive` or `_sweep` too). On a stub
   that is what unwritten looks like, and it is the work. On a file you have
@@ -58,22 +65,30 @@ are not the same kind of problem:
   cases only where the test prints one: a Makefile's build (`_build`) and a
   shell exercise's script, among others, print none, and for those it says
   only that the log says why. Only the first is named; the rest are
-  counted. In a library whose subject gives each function a box of its own
-  (its contract lists them, `exercise(functions = {...})`), the unit is the
-  function: its reds read `ex00 ft_strlen`, the command named runs that
-  function's suite (`42 test <project> ft_strlen`), and it is called written
-  only when that function's own body is more than a stub — another function
-  written in the same file says nothing about it. The heading then reads
-  **YOUR NEXT FUNCTION**. The library's own tests, which belong to no
-  function (`ex00_build`, `ex00_readme`), come before its functions. Each
-  reads one file of the turn-in (the Makefile for `ex00_build`, `README.md`
-  for `ex00_readme`), and it is that file `stub_check` is asked about, never
-  the rest of the folder: a stub README stays not written, whatever function
-  you have written. A file that is missing, or empty, is not written either,
-  and is said to be missing or empty, not a stub. They are named and run by
-  their own labels
-  (`bazel test //<project>:ex00_readme`), never by `:ex00`, which runs the
-  whole library.
+  counted. In a library whose subject gives each function a box of its own,
+  the unit is the function: its reds read `ft_strlen`, the command named
+  runs that function's suite (`42 test <project> ft_strlen`), and it is
+  called written only when that function's own body is more than a stub —
+  another function written in the same file says nothing about it. The
+  heading then reads **YOUR NEXT FUNCTION**. The library's own tests, which
+  belong to no function (`libft_build`, `libft_readme`), come before its
+  functions. Each reads one file of the turn-in (the Makefile for
+  `libft_build`, `README.md` for `libft_readme`), and it is that file
+  `stub_check` is asked about, never the rest of the folder: a stub README
+  stays not written, whatever function you have written. A file that is
+  missing, or empty, is not written either, and is said to be missing or
+  empty, not a stub. They are named and run by their own labels
+  (`bazel test //<project>:libft_readme`), never by `:libft`, which runs
+  every one of the library's own tests.
+  In a project whose subject divides it into parts instead of exercises
+  (its contract's `units = {...}`), each red is filed under the part its
+  target is named after: a library (`<library>_build`), one of its functions
+  (`<function>_output`), the project as a whole where it is its only part,
+  or one of several parts it turns in together at the root, as a mandatory
+  part and a bonus. The heading then reads **YOUR NEXT LIBRARY**, **YOUR
+  NEXT FUNCTION**, **YOUR NEXT PROJECT** or **YOUR NEXT PART**, a part is
+  named by its name alone (`42 test <project> <name>`), and the table's last
+  column reads **RED PARTS**.
 - **RAN OUT OF TIME** — a test Bazel stopped at its time limit. The runners
   stop a program themselves a few seconds before that and say so (see "When
   a test did not finish" below), so this one said nothing, and no cause is
@@ -83,7 +98,7 @@ are not the same kind of problem:
 - **ALSO RED** — the output is right and a target above `basic` disagrees. Worth
   reading, not urgent. Which layer a target is, and at which level it sits, is
   read from the tables `c_levels()`' audit holds every test to
-  (`tools/defs.bzl`), so a triage never files a red at another level than
+  (`tools/defs_levels.bzl`), so a triage never files a red at another level than
   [reference.md](reference.md#target-names) gives it. A target raised above its
   layer is named as it is (`ex04_reverse_output` reads `reverse_output`, never
   `output`): its row among the raised targets says why it sits there.
@@ -96,9 +111,9 @@ between them are green, a range such as `ex00-ex02` only where every exercise
 in it is red. Seven lines instead of three hundred, and that is the part that
 stops a full run reading as hopeless.
 
-For the whole picture, one line per exercise with its red layers counted
-(`output x5 build`, not six separate targets), run over the whole repo, which
-needs memory to spare:
+For the whole picture, one line per exercise, or per part, with its red layers
+counted (`output x5 build`, not six separate targets), run over the whole repo,
+which needs memory to spare:
 
 ```sh
 bazel test //... 2>&1 | sh tools/first_red.sh --all
@@ -120,6 +135,14 @@ prints what the compiler or the linker said. Every test that runs it then
 **FAILS** on its own, with those words in its log under
 `YOUR CODE DID NOT BUILD`, and no hints of the exercise (none of them is about
 a build). Every other exercise runs as usual.
+
+The build step asks a `Makefile` what it compiles with `make -n`, which still
+runs every recipe line that calls `$(MAKE)`. A rule that ends up calling make
+on itself again and again is stopped once the makes it starts are 40
+processes deep, whether or not they print their directories, and its program
+is a stand-in that says so. A `make` that only runs too long, past two
+minutes, fails the build step instead: a busy machine can do that, and so can
+a Makefile that makes make wait, in a `$(shell ...)` say.
 
 When there was **nothing to compile** — no `.c` file, no `Makefile`, or a
 `Makefile` whose default goal compiles no source, which is what the stub
@@ -233,26 +256,30 @@ printed as a NOTE and does not block the push.
 ## How your code is built
 
 Every layer builds your code itself, with Bazel, from what is in the
-exercise's turn-in directory -- `deliverable/exNN/`, or `deliverable/` itself
-where the subject names no turn-in directory, as BSQ's does: every `.c` there
-is compiled, and every `.h` beside them is staged for the compiler and checked
-by `norm`, whatever you named them. A function exercise is linked with the
-test's own `main()` from `tests/exNN/`; a program is linked on its own, as
-yours. Only files directly in that directory are read, not a subfolder, unless
-the subject lets your files sit in subfolders: BSQ and Rush 02 (every `.c` and
-`.h`, wherever your Makefile says) and Rush 01's headers. What the grader brings
--- C 08's `ft_stock_str.h`, Reloaded's `ft_putchar.c`, C 09 ex01's `srcs/` --
-comes from `tests/`, never from your folder. Which is which, for every
-exercise, is the project's subject contract ([reference.md](reference.md#the-subject-contract)).
+turn-in directory -- an exercise's `deliverable/exNN/`, or `deliverable/`
+itself where the subject names no turn-in directory, as BSQ's and Libft's
+do: every `.c` there is compiled, and every `.h` beside them is staged for
+the compiler and checked by `norm`, whatever you named them. A function is
+linked with the test's own `main()` from its folder under `tests/`
+(`tests/exNN/`, or a library function's own, `tests/ft_strlen/`); a program
+is linked on its own, as yours. Only files directly in that directory are
+read, not a subfolder, unless the subject lets your files sit in
+subfolders: BSQ and Rush 02 (every `.c` and `.h`, wherever your Makefile
+says) and Rush 01's headers. What the grader brings -- C 08's
+`ft_stock_str.h`, Reloaded's `ft_putchar.c`, C 09 ex01's `srcs/` -- comes
+from `tests/`, never from your folder. Which is which, for every exercise
+and part, is the project's subject contract
+([reference.md](reference.md#the-subject-contract)).
 
 Your `Makefile` is not what builds the program the tests run. It is graded on
 its own, by `exNN_build`. So if `make` builds your folder and a layer says it
 does not compile, or the other way round, compare which files each one sees.
 BSQ and Rush 02 go one step further: they ask your Makefile which `.c` files
 make up the program and which `-I` directories it passes, then compile those
-with the harness's own flags (see [rushes.md](rushes.md)).
+with the harness's own flags (see
+[Rush 02's README](../c-piscine/c-piscine-rush-02/README.md)).
 
-Two kinds of file are compiled with yours from outside `deliverable/exNN/`:
+Two kinds of file are compiled with yours from outside your turn-in directory:
 
 - **A file the subject says the grader supplies** — Piscine Reloaded's
   `ft_putchar.c`, C 08's `ft_stock_str.h`, C 12 ex08's `ft_list.h` ("we will use
@@ -300,8 +327,8 @@ space or a stray NUL is therefore visible, and a legend under the table names
 the marks its shown rows hold. A few test programs print a value that cannot
 travel raw — Rush 00 prints a whole rectangle as one value, C 02 ex01 and ex10
 and C 03 ex05 a buffer's bytes, NULs included — and they write it in these same marks, with one
-more, `\n` for a line break inside that value; those cells are shown as the
-program wrote them, so `/\\\n` is a slash, one backslash and a line break.
+more, `\n` for a line break inside that value (most of them through one header,
+`tools/notation.h`); those cells are shown as the program wrote them, so `/\\\n` is a slash, one backslash and a line break.
 The tables, argument lines and excerpts the runners in `tools/` print use
 these marks, and the legend under each names the marks that what it shows
 holds, never a fixed list; a module's own check script
@@ -369,8 +396,8 @@ corpus says how many of its cases wrote to standard error and shows the
 first. A debug line left in is what that note is for.
 
 **A generated corpus waits for the subject's example.** Each layer that
-replays one (`exNN_argv_diff`, `exNN_file_diff`, BSQ's `ex00_bsq_*`, Rush
-01's `ex00_sweep`, Rush 02's settled replays) says SKIP, naming the test it
+replays one (`exNN_argv_diff`, `exNN_file_diff`, BSQ's corpora, Rush 01's
+`ex00_sweep`, Rush 02's settled replays) says SKIP, naming the test it
 waits for, until the exercise's own output test passes -- the one a stub
 fails, which already shows what is wrong with a table and hints -- since
 hundreds of generated cases over the same program would only say it again.
@@ -381,7 +408,7 @@ Which test each one waits for is a table in
 [reference.md](reference.md#which-layers-wait-for-which).
 
 **A generated case can be run again.** The layers that replay a generated
-corpus (`exNN_argv_diff`, `exNN_file_diff`, BSQ's `ex00_bsq_*`, Rush 01's
+corpus (`exNN_argv_diff`, `exNN_file_diff`, BSQ's corpora, Rush 01's
 `ex00_sweep`, Rush 02's corpus) print each failing case with its input and
 what came out, and the command line that runs the case again; all but Rush
 01's sweep also print what was expected. The input it ran on — a map, a
@@ -413,10 +440,10 @@ of a program has its own `_asan` and `_valgrind` arm, but the inputs only a
 corpus holds — a long number, a map past twenty rows, a file past one buffer,
 a vector with no solution, a map read after another in the same run — reach
 code those cases never run. So every corpus target of a program has twins
-named after it, which replay the same inputs the same way: `ex00_bsq_stdin`'s
-are `ex00_bsq_stdin_diff_asan`, on the ASan/UBSan build of your program, and,
+named after it, which replay the same inputs the same way: BSQ's `bsq_stdin`
+has `bsq_stdin_diff_asan`, on the ASan/UBSan build of your program, and,
 where the subject allows `malloc` (Rush 01, Rush 02, BSQ, C 10 ex02 and
-ex03), `ex00_bsq_stdin_valgrind`, which runs 25 of its cases, spread over the
+ex03), `bsq_stdin_valgrind`, which runs 25 of its cases, spread over the
 whole corpus, under memcheck. They judge memory and how each run ended, never
 the output — that is the plain replay's finding — and a case that went wrong
 is printed with its input, the command line that runs it again, and the
@@ -442,27 +469,27 @@ fires on **any** failure, so passing cases never reveals more of those; it only
 removes them, all at once, when the exercise goes green. A program's case is a
 test of its own, so a hint there is keyed to the case's name: it fires on that
 case and no other, and on every failure of it. So is a program's target that
-replays a corpus (BSQ's and Rush 01's `ex00_readings`, Rush 01's
-`ex00_sweep`), keyed by its name after `ex00_`. A hint keyed to `valgrind` is
-about memory: it fires in a memcheck test (`_valgrind`), never when an output
-is wrong, and comes first there; the hints keyed to nothing (or, for a
-program, to the case) follow it under a heading saying they were written for
-the output test, and a hint keyed to another case does not show. An exercise that is a Makefile alone has no cases: its `_build` tests
-end any failure with its hints, every one of them keyed to nothing. The
-footer says which of these you are looking at. Either way, to see
-everything now:
+replays a corpus (BSQ's `bsq_readings`, Rush 01's `ex00_readings` and
+`ex00_sweep`), keyed by its name after `bsq_` or `ex00_`. A hint keyed to
+`valgrind` is about memory: it fires in a memcheck test (`_valgrind`), never
+when an output is wrong, and comes first there; the hints keyed to nothing (or,
+for a program, to the case) follow it under a heading saying they were written
+for the output test, and a hint keyed to another case does not show. An
+exercise that is a Makefile alone has no cases: its `_build` tests end any
+failure with its hints, every one of them keyed to nothing. The footer says
+which of these you are looking at. Either way, to see everything now:
 
 ```sh
 bazel test //c-piscine/c-piscine-c-03:ex00_output --test_env=CLUE_MODE=all
 bazel test //c-piscine/c-piscine-c-03:ex00_output --test_env=CLUE_MODE=5
 ```
 
-The full curated hint set for an exercise is `tests/exNN/clues.tsv` -- for a
-program, every case's rows in one file, each keyed to the cases it is about
--- plus, outside the programs, any `clues_*.tsv` beside it where one test
-carries hints of its own. Reading them is fair game — no test in this repo
-contains an answer. Every layer that prints hints reads that file the same
-way, `CLUE_MODE` included.
+The full curated hint set for an exercise is `tests/exNN/clues.tsv`, and
+for a part `tests/<part>/clues.tsv` -- for a program, every case's rows in
+one file, each keyed to the cases it is about -- plus, outside the programs,
+any `clues_*.tsv` beside it where one test carries hints of its own. Reading
+them is fair game — no test in this repo contains an answer. Every layer that
+prints hints reads that file the same way, `CLUE_MODE` included.
 
 ### When a test did not finish
 
@@ -625,10 +652,10 @@ could not take apart, and `*_output` is the report to read first.
 
 `--test_tag_filters` chooses which tests RUN, not what is built: `bazel test`
 still builds every target its patterns name (everything under a `/...`, every
-test of a suite such as `:exNN`, the ones the filter drops included), unless
-`--build_tests_only` is given, and nothing here gives it. A level suite such as
-`//<module>:basic` names only its own level's tests, so it never builds a
-harness further up the ladder. Where a target the filter dropped is built and
+test of a suite such as `:exNN` or `:bsq`, the ones the filter drops included),
+unless `--build_tests_only` is given, and nothing here gives it. A level suite
+such as `//<module>:basic` names only its own level's tests, so it never builds
+a harness further up the ladder. Where a target the filter dropped is built and
 fails, the only sign is an `ERROR:` line above "All tests passed but there were
 other errors during the build.": no test line names it. And a harness that
 does not compile is normally a stand-in rather than a build error (below). So
@@ -647,9 +674,11 @@ normally a stand-in rather than a build error (see [above](#code-that-does-not-b
 Without it, a file of the harness that does not compile fails the build only
 when no file of the student's reaches it (the builder asks the preprocessor
 which headers it read); one that includes a turn-in header is a stand-in,
-because a header that does not declare what the subject says fails there
-first. With it, every file of the HARNESS that does not compile fails the
-build again, as it should. Every publish of the template runs it, on the stubs. This is not hypothetical: a `t_list *head` used in one c-12 diff
+because what that header holds (a structure written otherwise, a name it
+lacks) can fail there first. A harness declares the functions it calls
+itself, so a header holding only what its subject asks breaks none
+(`//tools:conventions`). With it, every file of the HARNESS that does not
+compile fails the build again, as it should. Every publish of the template runs it, on the stubs. This is not hypothetical: a `t_list *head` used in one c-12 diff
 harness and never declared survived a full `lvl_strict` sweep, which never ran
 it: that harness is a level-3 target.
 
@@ -669,9 +698,12 @@ bazel test //c-piscine/c-piscine-c-05:strict
 bazel test //c-piscine/c-piscine-c-05/...
 ```
 
-`//<module>:exNN` is the one to live in while writing an exercise. It exists
-because `ex00_*` is not a Bazel target pattern — you could run one layer or a
-whole module, and nothing in between.
+`//<module>:exNN` is the one to live in while writing an exercise, and
+`//<module>:<part>` while writing a part: `:bsq`, or one of Libft's
+functions, `:ft_strlen`, and `:libft` for the library's own tests (its
+build, its Norm, its files), which never include its functions'. They exist
+because `ex00_*` is not a Bazel target pattern — you could run one layer or
+a whole module, and nothing in between.
 
 Ask for the suite rather than `--test_tag_filters`: a tag filter also filters
 targets you name explicitly, so naming one target and one tag can quietly select
@@ -689,16 +721,21 @@ maintainers'.
 
 **Where you are decides what runs.** In a module's folder, `42 test` runs that
 module; in an exercise's folder (`deliverable/exNN` or `tests/exNN`), that
-exercise; at the root it asks which. Words narrow it, in any order: a module
-(`c-05`), an exercise (`ex03`), a layer (`norm`, `valgrind`), as in
-`42 test ex03 valgrind`. In a library, whose one exercise holds many functions,
-a function's name (`ft_strlen`) is a word too, and so is its folder of tests
-(`tests/ex00/ft_strlen`): it runs that function's tests alone. Named with no
-project in scope, it is the one project that has it. The level is `--level`, else `SUBMIT_GATE`, else
-`.submit-level` (which `42 config set level` writes), else `basic`, which is
-how `//tools:submit`'s gate chooses it, and `42 test` selects the same tests that gate does: a module that is
-green under `42 test` is one submit will not block. A layer named runs whatever
-its level, as naming one target does.
+exercise; in a part's folder of tests (`tests/bsq`, `tests/ft_strlen`), that
+part; at the root it asks which. A project that turns in at `deliverable/`
+itself has no folder of yours per part, so there its `deliverable/` stands
+for the whole project. Words narrow it, in any order: a module (`c-05`), an
+exercise (`ex03`) or a part (`ft_strlen`), a layer (`norm`, `valgrind`), as
+in `42 test ex03 valgrind` or `42 test libft ft_strlen`. A part's name, with
+no project in scope, names the one project that has it. The level is
+`--level`, else `SUBMIT_GATE`, else `.submit-level` (which
+`42 config set level` writes), else your user file
+(`42 config set --global level`), else `basic`, which is how
+`//tools:submit`'s gate chooses it, and `42 test` selects the same tests that
+gate does: a module that is green under `42 test` is one submit will not
+block. A layer named runs whatever its level, as naming one target does.
+`42 units` lists what a project is divided into, the words that name a part
+of it, each with its command.
 
 **`42 clues`** asks the tests that failed for all of their hints, and
 `42 clues 5` for five ([Reading a failure](#reading-a-failure) explains how
@@ -710,9 +747,10 @@ still busy after two minutes, or stopped with Ctrl-C) gets `42 test`'s
 words for it, and no hint.
 
 **`42 watch`** runs the tests again each time you save a file they read: the
-exercise's turn-in folder, or the module's, and a shell exercise's
-generator. It never moves on to another exercise and never shows more hints
-than `42 test` would. `q` quits. What it can and cannot see:
+exercise's turn-in folder, or the module's (a part's is the module's
+`deliverable/`), and a shell exercise's generator. It never moves on to
+another exercise or part and never shows more hints than `42 test` would.
+`q` quits. What it can and cannot see:
 
 - It polls, once a second, because some checkouts tell inotify nothing (a
   Windows folder mounted into the dev container is one). A file changed and
@@ -750,8 +788,49 @@ setting with where its value comes from, and `42 config --help` what each
 one does. `set` checks a value before it writes it. Each setting stays in the
 file its readers read (`.submit-level`, `.submit-remotes`,
 `.vscode/settings.json`, `.bazelrc.local`), so editing that file by hand still
-works. It is the one command that runs no Bazel: it has to work when Bazel
-does not.
+works. It runs no Bazel, because it has to work when Bazel does not.
+
+**`42 units`** lists what a project is divided into, the way its subject
+divides it: its exercises, each with the folder it is turned in from; or,
+where the subject names no turn-in folder, its parts -- a library and each
+of its functions, a project's one program, or the parts it turns in
+together at the root, as a mandatory part and a bonus. `mandatory` marks
+what the subject puts in its mandatory part, and a function is in the part
+of the one it is listed under: `42 submit --written-only` pushes nothing
+while one marked so has nothing written yet. Each row of the list ends with
+the `42 test` command that runs that row's tests alone, and the last line
+names the one that runs the project's tests at your level. In a project's
+folder it lists that project; anywhere else, name one (`42 units c-05`). It
+reads the project's `BUILD.bazel` as text, through `tools/units.awk`, and
+runs no Bazel: like `42 config`, it works before Bazel has run, and where
+Bazel cannot.
+
+A setting can be set in more than one place, and `list` shows each one. The
+value in use is on the setting's line, tagged with where it comes from
+(`(local: .submit-level)`, `(environment: SUBMIT_GATE)`); every other place
+that sets it follows on a line of its own, marked `not used:`. `get` prints
+the value in use alone on its first line, for a script to read, and the rest
+under it. The order is the one most tools keep: an environment variable that
+every reader of the setting honours, then this checkout's file, then your
+**user file**, then the default. Bazel's own settings keep Bazel's order, in
+which `~/.bazelrc` wins over `.bazelrc.local`, and `list` shows each rc line
+that sets one in that order.
+
+Your user file is `~/.config/42/config.yaml`, or
+`$XDG_CONFIG_HOME/42/config.yaml` when that is an absolute path, and every
+checkout of yours reads it. `set` and `unset` change this checkout's own file
+for a setting, or with `--global` your user file; `list` and `get` show every
+place a setting is set, and `--local` or `--global` shows that scope's alone.
+Only `level` may live there yet: `set --global` of any other setting says where it lives instead, and
+why. The file holds one `name: value` per line, a small part of YAML that `42`
+reads itself, and `42` refuses what YAML would read as something else (an
+unquoted `no` is false, `0755` a number) with its line and how to write it.
+Where that file would decide your level, `42 test`, `42 submit`, `42 watch`,
+`42 clues` and a bare `42 norm` stop until it is fixed rather than run at
+`basic`. `set` and `unset` change only the
+setting's own line and keep the rest as you wrote it, comments too. A dev
+container keeps the file inside the container, so rebuilding it loses the file
+([environment.md](environment.md#dev-container)).
 
 ## The two cost layers
 
@@ -760,7 +839,7 @@ is correct. **`cycles` never fails on what it measures**: a budget only changes
 the sentence printed, and a run too long to profile is reported too. **`perf`
 has three lines of its own**, each drawn by this repo at `complete` — the time
 over the number of cases growing at n^2.6 or steeper, confirmed by a second
-measurement; and, against the reference, 5000 times its time or 200 times its
+measurement; and, against the reference, 5000 times its CPU time or 200 times its
 peak memory. Either layer also fails when a measured run crashes, as every
 layer does (a signal fails at every level), and `perf` when one exits with a
 status other than 0: a run that stopped early is no sample of the work, and
@@ -794,7 +873,10 @@ says a good implementation manages about 4.5 instructions per byte, and 17.5 is
 about four times that. The unit is counted from the corpus the test just ran —
 every input byte the function must read at least once, or every byte it must
 write — so it is the same whatever technique you chose, and cannot drift from
-what was measured.
+what was measured. Where the work has no such floor, a target counts per call
+(C 05's `ft_sqrt`, `ft_is_prime` and `ft_find_next_prime`) and has no budget: a
+budget would be read against one technique's figure, and the report says to
+read the figure against your own runs instead.
 
 **The allocator is shown apart.** A function that calls `malloc()` is charged
 for it, and the runner prints the figure with the allocator and without it, and
@@ -805,7 +887,10 @@ choice; the budget is read against the figure without them.
 where you stand; source code would tell you the answer, which no test here may
 do. They are measured at `-O2` on correct answers, and a target where the cost
 per unit follows the technique — a lookup, a sort — has none, because a budget
-would recommend the technique it was measured from.
+would recommend the technique it was measured from. A `write()` budget, for the
+same reason, is set only on a function that writes the bytes it was handed, as
+they are: where the output is not the input, it would recommend one way of
+handing that output to `write()`, and `c_cycles` refuses it.
 
 Why the layer exists, from two real files in this repo — the same function, both
 fully correct, both green on every other layer:
@@ -866,6 +951,15 @@ Which they are, and why each is left out, is
 does not select them: Bazel ignores `manual` as a tag to include, so
 `--test_tag_filters=manual` runs the ordinary tests instead. As a tag to
 exclude it does work: `-manual` drops a manual target even one you name.
+
+A target you `bazel run` is no test, and `bazel test` does not run it.
+`//tools:conventions`, the house-style check (`42 conventions`), is one:
+named alone, `bazel test //tools:conventions` builds it and stops with "No
+test targets were found, yet testing was requested"; named beside a test,
+it is built, not run, and left out of the summary without a word. The same
+rules as a test are `//tools/tests:conventions`, which `bazel test //...`
+runs over the files each package declares in `conventions_srcs`. When you name the targets you mean to test, compare the summary's
+"Executed N out of M" with how many you named.
 
 ## Shell modules work differently
 
@@ -945,18 +1039,26 @@ outlive the machine it was earned on.
 - ex01 (`print_groups.sh`) joins a user's groups with commas, and a list of
   one group has no comma: the check drives a user in two groups or more when
   the machine has one (the dev container's `student` is), and otherwise says
-  `cannot observe the comma join`.
+  `cannot observe the comma join`. A machine with no name for the current
+  user (`id -un` prints nothing: a uid with no `/etc/passwd` entry, as a
+  container can run under) has no user whose groups can be asked for, and
+  the check says `no name for the current user` and runs nothing past
+  finding the file, its execute bit and whether `sh` parses it.
 - ex07 (`r_dwssap.sh`) reads `/etc/passwd`, and a laptop's has no comment
   line and too few logins for the subject's 7..15 window. So every run but
   the last reads an invented file instead,
   `c-piscine/c-piscine-shell-01/tests/ex07/passwd`, handed to the program
-  when it opens `/etc/passwd`; the last run is on the machine's own file.
-  The log says which file each run read. Where that cannot be arranged (the
-  library that does it did not load), the steps only the invented file shows
-  are skipped, by name. A program that reads the file other than by opening
-  it by exactly that name (through `getent`, or as `/etc//passwd`, or as
-  `passwd` from `/etc`) is not handed the invented one, and its runs are
-  judged against a file it never read; the subject's is `cat /etc/passwd`.
+  when it opens `/etc/passwd`; the last run is on the machine's own file,
+  and is a `[SKIP]` where that file keeps fewer than two logins. A reference
+  that cannot read the machine's file at all is not a skip: the check stops
+  as a broken harness (`BROKEN HARNESS`, exit 2), since nothing was learned
+  about the turn-in. The log says which file each run read. Where that
+  cannot be arranged (the library that does it did not load), the steps
+  only the invented file shows are skipped, by name. A program that reads
+  the file other than by opening it by exactly that name (through `getent`,
+  or as `/etc//passwd`, or as `passwd` from `/etc`) is not handed the
+  invented one, and its runs are judged against a file it never read; the
+  subject's is `cat /etc/passwd`.
   When the names such a run printed are this machine's own logins, the log
   says so under the line that failed them, and asks which file it read.
   The invented file's names sort one way by bytes and another by the
@@ -1004,20 +1106,20 @@ for the reading it holds, and for a C function `exNN_<name>_output` (C 07's
 `ex11_element_output`, Reloaded's `ex26_returns_one_output`), at the level its
 BUILD file gives it. Where a generated corpus is what tells the readings
 apart, the `diff` layer's corpus holds only the cases they agree on, and the
-others run as `exNN_readings`, at `strict` (C 02's `ex09_readings`, BSQ's and
-Rush 01's `ex00_readings`) -- or at `robust`, where the subject's words do not
-reach those cases at all, so that what the reference does with them is a
-convention of this repo's, not a reading (C 11's `ex06_readings` and C 06's
-`ex03_high_bytes_argv_diff`: the order of a byte above `0x7f` under "ASCII
-order"). A correct
-answer under either reading is never red at `basic`, and no `basic` hint names
-a reading: only the target that holds one states it, in its own hint and its
-row in reference.md, as this harness's reading and never the subject's
-(AGENTS.md §2). The exercises that have
-one, and what each level reads, are listed in reference.md: the shell ones
+others run as `exNN_readings`, at `strict` (C 02's `ex09_readings`, BSQ's
+`bsq_readings`, Rush 01's `ex00_readings`) -- or at `robust`, where the
+subject's words do not reach those cases at all, so that what the reference
+does with them is a convention of this repo's, not a reading (C 11's
+`ex06_readings` and C 06's `ex03_high_bytes_argv_diff`: the order of a byte
+above `0x7f` under "ASCII order"). A correct answer under either reading is
+never red at `basic`, and no `basic` hint names a reading: only the target that
+holds one states it, in its own hint and its row in reference.md, as this
+harness's reading and never the subject's (AGENTS.md §2). The exercises that
+have one, and what each level reads, are listed in reference.md: the shell ones
 under [Shell turn-ins](reference.md#shell-turn-ins), the C ones among the
 [targets raised above their layer](reference.md#targets-raised-above-their-layer)
-and the corpora's in the [target names](reference.md#target-names)' `_readings` row.
+and the corpora's in the [target names](reference.md#target-names)' `_readings`
+row.
 
 **The lint.** `exNN_norm` only asks whether `/bin/sh` can parse the
 generator. shellcheck reads it in `exNN_lint`, at `robust`, and where the
@@ -1046,6 +1148,6 @@ is a guess about it.
 each case the subject leaves open is a `main` of its own over the same files
 (`tests/exNN/<main>`), run as `exNN_<name>_output` at the level its case
 names -- `strict` to `complete`, never `basic`. Only the output layer runs a
-reading. Each one is in `tools/defs.bzl`'s `_RAISED`, with a row in
+reading. Each one is in `tools/defs_levels.bzl`'s `_RAISED`, with a row in
 [reference.md](reference.md#targets-raised-above-their-layer) saying which
 reading it takes (C 07 ex04's `ex04_base_to_space_output` is one).

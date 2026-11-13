@@ -24,8 +24,10 @@
 #   --student-bin   the harness binary that replays that corpus
 #   --seed          corpus seed (default 1); same seed, same corpus
 #   --count         how many cases to generate
-#   --clues         clues.tsv to draw hints from when a case fails
-#   --crash-only    report only crashes, not value mismatches
+#   --clues         a diff_clues.txt legend, printed whole under the hint
+#                   heading when a case fails
+#   --crash-only    report only crashes, and a replay that ended before its
+#                   last case, not value mismatches
 #   --harness-src   the harness's source, whose "Line:" comment says what the
 #                   corpus columns are
 #   --symbolizer    the pinned llvm-symbolizer, and --symbolizer-lib a library
@@ -58,12 +60,11 @@ require awk cat cmp grep head mktemp rm sed tr wc
 RL_NAME=rust_diff
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "rust_diff.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "rust_diff.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
 # purpose: //tools:conventions holds every other one to rl_run.
-# conventions: harness tool GATE_DIFFER -- tools/diff_output.sh, the output gate, which keeps this test's budget (RL_DEADLINE)
 # conventions: harness tool ORACLE -- the Rust reference (//oracle), which writes the corpus
 
 ORACLE=""
@@ -83,30 +84,26 @@ GATE_PASS=""
 GATE_LABEL=""
 # How many bytes of one corpus line a report shows: rl_excerpt's width.
 SHOW_W=${RL_EXCERPT_WIDTH:-300}
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "rust_diff.sh: $1 needs a value" >&2; exit 2; }; }
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
-		--oracle-fn) need "$1" "$#"; FN="$2"; shift 2 ;;
-		--seed) need "$1" "$#"; SEED="$2"; shift 2 ;;
-		--count) need "$1" "$#"; COUNT="$2"; shift 2 ;;
-		--student-bin) need "$1" "$#"; STUDENT="$2"; shift 2 ;;
-		--clues) need "$1" "$#"; CLUES="$2"; shift 2 ;;
-		--harness-src) need "$1" "$#"; HARNESS_SRC="$2"; shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--oracle-fn) rl_need "$1" "$#"; FN="$2"; shift 2 ;;
+		--seed) rl_need "$1" "$#"; SEED="$2"; shift 2 ;;
+		--count) rl_need "$1" "$#"; COUNT="$2"; shift 2 ;;
+		--student-bin) rl_need "$1" "$#"; STUDENT="$2"; shift 2 ;;
+		--clues) rl_need "$1" "$#"; CLUES="$2"; shift 2 ;;
+		--harness-src) rl_need "$1" "$#"; HARNESS_SRC="$2"; shift 2 ;;
 		--crash-only) CRASH_ONLY=1; shift ;;
-		--symbolizer) need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
-		--symbolizer-lib) need "$1" "$#"; SYMBOLIZER_LIB="$2"; shift 2 ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
+		--symbolizer) rl_need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
+		--symbolizer-lib) rl_need "$1" "$#"; SYMBOLIZER_LIB="$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-stdin) rl_need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
-		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
 		*) echo "rust_diff: unknown arg $1" >&2; exit 2 ;;
 	esac
 done
@@ -140,68 +137,27 @@ fi
 # NO_SKIP=1 forces every gated layer to run anyway. A gate that suppresses a
 # layer is indistinguishable, in a green suite, from a layer that has nothing to
 # say — so there has to be a way to ask "does this actually still check
-# something?". Use it before trusting an all-green run:
-#     bazel test //... --test_env=NO_SKIP=1
-if [ "${NO_SKIP:-0}" = "1" ]; then
-	GATE_DIFFER=""
-fi
-
-if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
-	# WHY THE STATUS IS CAPTURED RATHER THAN TESTED WITH `if !`.
-	#
-	# `if ! <gate>` treats EVERY non-zero the same, and the differ has two
-	# meanings for non-zero: 1 is "the student's fixture is red", which is what
-	# this gate is for, and 2 is "the differ could not run at all" -- a missing
-	# tool, an unreadable expected file, a wiring mistake. Conflating them meant
-	# a BROKEN gate silenced the layer it guards and printed a false sentence
-	# while doing it.
-	#
-	# Demonstrated: a program whose fixture PASSES but which leaks 64 bytes was
-	# reported as "SKIP -- this exercise's own output fixture is not passing
-	# yet", exit 0, burying a real leak. At scale, the entire perf layer went
-	# 77/77 green under a PATH shim missing `mv`, because diff_output.sh
-	# requires it and exits 2.
-	#
-	# So: skip on 1, and on 2-or-more say so and RUN ANYWAY. A gate that cannot
-	# answer must never be the reason a layer stayed quiet.
-	rl_split_on
-	# shellcheck disable=SC2086
-	sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
-			$GATE_PASS >/dev/null 2>&1
-	_gate_rc=$?
-	rl_split_off
-	if [ "$_gate_rc" -ge 2 ]; then
-		echo "rust_diff: the output gate could not be evaluated (exit $_gate_rc),"
-		echo "           so this layer is running anyway rather than going quiet."
-	elif [ "$_gate_rc" -eq 1 ]; then
-		if [ -n "$GATE_LABEL" ]; then
-			echo "rust_diff: SKIP — $GATE_LABEL, this exercise's own output fixture, is not passing yet."
-		else
-			echo "rust_diff: SKIP — this exercise's own output fixture is not passing yet."
-		fi
-		echo ""
-		echo "  That fixture is the one worth reading: a labelled table, cases ordered"
-		echo "  from trivial to subtle, and hints attached. This layer replays $COUNT"
-		echo "  generated cases and reports raw divergences — the same failure, told"
-		echo "  far less usefully. Get the *_output layer green and this one starts"
-		echo "  checking the inputs you did not think of."
-		exit 0
-	fi
-fi
+# something?", and the SKIP prints the command that asks it of this test.
+# The gate is tools/runner_lib.sh's rl_gate, as every runner's is (its WHY THE
+# STATUS IS CAPTURED says what a copy of it here once got wrong); the paragraph
+# under its SKIP is this layer's own.
+RL_GATE_PASS=$GATE_PASS
+RL_GATE_NAME=$GATE_LABEL
+RL_GATE_WHY="  That fixture is the one worth reading: a labelled table, cases ordered
+  from trivial to subtle, and hints attached. This layer replays $COUNT
+  generated cases and reports raw divergences — the same failure, told
+  far less usefully. Get the *_output layer green and this one starts
+  checking the inputs you did not think of."
+rl_gate rust_diff "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED"
 
 # A PROGRAM THAT DID NOT BUILD is a stand-in script that says why (see
 # tools/standin.sh). Checked after the gate: a red gate has already skipped
 # this layer, and past a green one -- or one NO_SKIP=1 forced open -- a
 # stand-in is a failure, told in the compiler's words rather than as a
 # report about a program that does not exist.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "rust_diff.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check rust_diff "$STUDENT" fail "the program this layer replays"
 
 # --clues here is a diff_clues.txt, not a clues.tsv: a LEGEND, printed whole by
@@ -272,7 +228,7 @@ print_columns() {
 	fi
 }
 
-T=$(mktemp -d)
+T=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$T"'
 
 # Harmless for a normally-built binary; for an ASan/UBSan build they make any
@@ -281,26 +237,22 @@ rl_traps 'rm -rf "$T"'
 # keys, and why never one from PATH).
 rl_sanitizers "$T/sym" "$SYMBOLIZER" "$SYMBOLIZER_LIB"
 
+# A reference that fails is the harness failing: exit 2, nothing was checked
+# (it was 1, the code for a wrong program, and so was the floor below).
 if ! "$ORACLE" "$FN" "$SEED" "$COUNT" > "$T/exp" 2> "$T/oerr"; then
 	echo "rust_diff: reference failed to generate cases (fn=$FN)"
-	cat "$T/oerr" >&2
-	exit 1
+	rl_excerpt "$T/oerr" 10 oracle-stderr.txt >&2
+	exit 2
 fi
 
 # A corpus that came out empty (or absurdly short) means the reference emitted
 # nothing — an unknown fn name the dispatcher swallowed, a count that parsed as
 # 0, a generator that returned early. Without this guard the two empty files
 # compare equal and the layer reports "OK (0 cases)": a green test that checked
-# nothing at all. Fail loudly instead — a differential layer that silently tests
-# nothing is worse than no layer.
+# nothing at all. A differential layer that silently tests nothing is worse
+# than no layer, so this refuses (rl_corpus_floor, exit 2).
+rl_corpus_floor "$T/exp" "${MIN_DIFF_CASES:-16}" "fn=$FN (asked for $COUNT at seed $SEED)" "$T/oerr"
 NCASES=$(wc -l < "$T/exp" | tr -d ' ')
-if [ "$NCASES" -lt "${MIN_DIFF_CASES:-16}" ]; then
-	echo "rust_diff: FAIL — the reference produced only $NCASES case(s) for fn=$FN"
-	echo "           (asked for $COUNT at seed $SEED). This layer tests nothing in"
-	echo "           that state, so it reports failure rather than a false green."
-	[ -s "$T/oerr" ] && { echo "  reference stderr:"; rl_excerpt "$T/oerr" 5 reference-stderr.txt; }
-	exit 1
-fi
 
 # THE STUDENT RUNS, bounded twice.
 #
@@ -340,6 +292,8 @@ not_started() {
 		echo "rust_diff.sh: the harness $RL_WHY" >&2
 		exit 2
 	fi
+	# Nor does one stopped from outside (rl_unjudged).
+	rl_unjudged "the replay (fn=$FN, seed=$SEED)"
 	# Nor does one that met a corpus line it cannot hold. It stops itself,
 	# saying so (tools/diffio.h, DIO_HARNESS_ERROR), rather than read half a
 	# line as a case; what the student's function did never came into it.
@@ -410,7 +364,7 @@ reproducer() {  # reproducer DONE TOTAL [died]
 	if [ "${3:-}" = died ]; then
 		echo "  It had answered $1 case(s) when it died, and it writes its answers"
 		echo "  through a buffer, which died with it: the case it died in is case"
-		echo "  $(($1 + 1)) or one after it, possibly thousands after. This exercise's"
+		echo "  $(($1 + 1)) or one after it, possibly thousands after. This $(rl_noun)'s"
 		echo "  _diff_asan target replays the same corpus on a build that names the case."
 		echo "  The first inputs it had not answered, each one complete input line,"
 		echo "  written as a shell word that gives back its exact bytes, so that"
@@ -429,11 +383,12 @@ reproducer() {  # reproducer DONE TOTAL [died]
 
 # died_case -- true when the harness said which corpus case it died on, and
 # DIED_CASE is that case. A harness built on tools/diffio.h writes the number
-# into the file run_student names in DIO_CASE_FILE as it dies: under ASan from
-# the sanitizer's death callback (finding 051), and in the plain build from a
-# signal handler (V46), where the report used to say only that the case was
-# "at or after" the first unanswered one, possibly thousands short of it. A
-# number outside the corpus is no case.
+# into the file run_student names in DIO_CASE_FILE as it dies: from the
+# sanitizer's death callback for a death ASan reports (finding 051), and
+# from a signal handler for the rest, every death of the plain build (V46),
+# where the report used to say only that the case was "at or after" the
+# first unanswered one, possibly thousands short of it. A number outside
+# the corpus is no case.
 died_case() {
 	DIED_CASE=
 	[ -s "$T/died" ] && DIED_CASE=$(LC_ALL=C tr -cd '0-9' < "$T/died")
@@ -455,6 +410,25 @@ show_died_case() {
 	esac
 }
 
+# crash_where -- which case a --crash-only run that did not end with 0 was
+# on. The instrumented harness says so itself (tools/diffio.h's death
+# callback): its buffered stdout died with it, so the count of answers
+# received is only a lower bound, and the report used to show no input at
+# all (finding 051). Without that, where its answers stopped arriving; and a
+# harness that answered every case before it ended says that instead of a
+# heading with no case under it.
+crash_where() {
+	if died_case; then
+		show_died_case
+	elif [ "$NDONE" -ge "$NCASES" ]; then
+		echo "  It had answered all $NCASES cases when it ended."
+	else
+		echo "  The harness did not say which case it was on, so here is where its"
+		echo "  answers stopped arriving:"
+		reproducer "$NDONE" "$NCASES"
+	fi
+}
+
 # Whether everything the run DID answer matched: said only when checked. The
 # COMPLETE lines on both sides: a run cut short can leave half a line after its
 # last newline, and that half is not an answer that differs.
@@ -474,8 +448,24 @@ if [ "$CRASH_ONLY" -eq 1 ]; then
 	rl_classify "$rc"
 	not_started
 	NDONE=$(wc -l < "$T/act" | tr -d ' ')
+	# AN END WITH 0 IS A PASS ONLY OVER EVERY CASE. A harness prints one line
+	# a case (tools/diffio.h's readers, Rush 00's diff_rush.c), so fewer lines
+	# than cases is a run that stopped early: an exit(0) in the function ends
+	# the harness where it is called, and every case after it never reached
+	# this build. It said "OK -- no sanitizer error over N fuzz cases" then,
+	# N the reference's count, having checked one. More lines than
+	# cases is a function printing lines of its own: a value, which is the
+	# diff layer's to judge, never this one's.
+	if [ "$rc" -eq 0 ] && [ "$NDONE" -lt "$NCASES" ]; then
+		echo "rust_diff: FAIL — the harness ended with exit 0 having answered $NDONE of $NCASES cases (fn=$FN, seed=$SEED),"
+		echo "  so case $((NDONE + 1)) of $NCASES and every case after it were never answered, and nothing"
+		echo "  says they reached this sanitizer build. A call that ends the program --"
+		echo "  exit() in your function -- stops the harness where it is made, with exit 0."
+		reproducer "$NDONE" "$NCASES"
+		exit 1
+	fi
 	if [ "$rc" -eq 0 ]; then
-		echo "rust_diff: OK — no sanitizer error over $(wc -l < "$T/exp" | tr -d ' ') fuzz cases (fn=$FN, seed=$SEED)"
+		echo "rust_diff: OK — no sanitizer error over $NCASES fuzz cases (fn=$FN, seed=$SEED)"
 		exit 0
 	fi
 	if [ "$RL_CAUSE" = timeout ]; then
@@ -492,20 +482,36 @@ if [ "$CRASH_ONLY" -eq 1 ]; then
 	fi
 	# How it ended, in the sanitizer's words when its report is there
 	# (rl_sanitized): SIGABRT's own named every cause but that one (V50).
-	rl_sanitized "$T/serr" || :
-	echo "rust_diff: FAIL — memory/UB error on a fuzz input (the harness $RL_WHY; fn=$FN, seed=$SEED)"
-	# WHICH CASE. The instrumented harness says so itself (tools/diffio.h's
-	# death callback): its buffered stdout died with it, so the count of
-	# answers received is only a lower bound, and the report used to show no
-	# input at all (finding 051).
-	echo ""
-	if died_case; then
-		show_died_case
-	else
-		echo "  The harness did not say which case it was on, so here is where its"
-		echo "  answers stopped arriving:"
-		reproducer "$NDONE" "$NCASES"
+	#
+	# AN END WITH NO REPORT IS NO MEMORY ERROR. rl_sanitized's answer was
+	# thrown away here (`|| :`), so a harness that returned 3 -- a function
+	# that called exit(3) -- was headlined a memory/UB error, and got the
+	# paragraph about a READ or a WRITE outside a block, above a report
+	# section with no report in it. It is still red, since the harness did
+	# not end with 0, but what it says is what happened.
+	if ! rl_sanitized "$T/serr"; then
+		echo "rust_diff: FAIL — the harness $RL_WHY with no sanitizer report (fn=$FN, seed=$SEED)"
+		echo "  The sanitizers reported nothing, so no memory error was seen. A run of"
+		echo "  this replay ends with 0 once it has answered every case, and this one"
+		echo "  ended otherwise. A call that ends the program -- exit() or abort() in"
+		echo "  your function, or an assert() that failed -- stops the harness where it"
+		echo "  is made, with that call's own ending."
+		echo ""
+		crash_where
+		echo ""
+		if [ -s "$T/serr" ]; then
+			echo "  What it wrote to standard error:"
+			rl_excerpt "$T/serr" 10 harness-stderr.txt "  "
+		else
+			echo "  It wrote nothing to standard error."
+		fi
+		print_columns
+		rl_legend "$CLUES"
+		exit 1
 	fi
+	echo "rust_diff: FAIL — memory/UB error on a fuzz input (the harness $RL_WHY; fn=$FN, seed=$SEED)"
+	echo ""
+	crash_where
 	echo ""
 	# What the report is, from its own first line (rl_sanitizer_kind): the
 	# paragraph below explained an access outside a block, READ or WRITE,
@@ -608,7 +614,7 @@ if [ "$RL_CAUSE" = runaway ]; then
 	exit 1
 fi
 
-if [ "$RL_CAUSE" = signal ] || [ "$RL_CAUSE" = stopped ]; then
+if [ "$RL_CAUSE" = signal ]; then
 	echo "rust_diff: FAIL — the student harness $RL_WHY"
 	echo "           (fn=$FN, seed=$SEED)"
 	echo ""

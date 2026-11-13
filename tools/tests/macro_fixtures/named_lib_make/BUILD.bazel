@@ -1,0 +1,238 @@
+load("//tools:defs.bzl", "c_function", "c_levels", "c_library", "subject", "unit")
+load("//tools:names_file.bzl", "names_file")
+load("//tools/tests:analysed.bzl", "analysed")
+
+# Its programs are the data of //tools/tests:macro_fixtures_test.
+package(default_visibility = ["//tools/tests:__pkg__"])
+
+# A TOY LIBRARY WHOSE MAKEFILE IS WRITTEN, DECLARED AS NAMED UNITS: its
+# subject() contract divided into units, as ../named_lib's is. The
+# library is the unit libtoy13, turned in at the root of deliverable/, and
+# its functions toy_up and toy_down are units of their own. Each function's
+# program is built from what `make -Bn` says the Makefile compiles, -I inc
+# and all: the header each source includes by name is in inc/, which only
+# the Makefile's -I reaches. Its recipes only echo, as a stub's may.
+# Invented, like the rest of ../ (see its BUILD file), every file under
+# deliverable/ a stub.
+#
+# What //tools/tests:macro_fixtures_test checks here, on every run:
+#
+#   * the package loads: c_levels()' audit passed on every test below, each
+#     named and tagged after its unit, as in ../named_lib;
+#   * the tests and suites emitted are the ones layers.expected lists:
+#     the library's own, libtoy13_*, and each function's, toy_up_* and
+#     toy_down_*, with one suite per unit (:libtoy13, :toy_down, :toy_up);
+#   * each function has exactly its own tests, read from the unit= tags the
+#     macros gave them (unit_tests), and :unit_strays lists no test or
+#     program of a function that reads another unit's files, runs another
+#     unit's program or waits for another unit's output test;
+#   * the Makefile's -I list, :libtoy13_make_bin_includes.txt, is inc/, and
+#     reaches every layer that compiles the sources itself (" make-includes"),
+#     toy_up's method layer included;
+#   * on each of those layers' -I lists, tools/ comes after the Makefile's
+#     list (:include_order), so a turn-in header named like one of tools/'s
+#     headers is found first;
+#   * each function's program is a real one, built from the Makefile's plan,
+#     and runs its own main (is_program).
+#
+# Measured by hand on 2026-10-22 with
+#
+#     bazel test $(bazel query 'tests(//tools/tests/macro_fixtures/named_lib_make:*)')
+#
+# (tagged manual, as every fixture test is): 19 tests, 1 red --
+# libtoy13_build, its recipes only echoing, so it builds no libtoy13.a
+# (libtoy13_build_exit and _build_rules SKIPping on that). Every other
+# test is green: the compile, forbidden, prototype and symbols layers find
+# inc/toy13.h through the Makefile's -I, and the functions' programs are
+# built from its plan. Re-measure after changing a macro or a runner.
+subject(
+    grader = "defense",
+    group = False,
+    units = {
+        "libtoy13": unit(
+            page = 1,
+            files = ["Makefile"],
+            optional = ["toy_*.c", "inc/*.h"],
+            allowed = [],
+            functions = {
+                "toy_down": [],
+                "toy_up": [],
+            },
+        ),
+    },
+)
+
+c_library(
+    unit = "libtoy13",
+    artifact = "libtoy13.a",
+    prototype_names = "none: the toy subject prints no parameter names",
+    globals = "none: the toy subject says nothing of variables",
+    function_lists = "none: the toy subject gives no function a list of its own",
+    restrict_rule = "none: the toy subject says nothing of restrict",
+    declares_reading = "none: the toy subject's header is read by its members' tests alone",
+    helpers_rule = "none: the toy subject says nothing of helpers",
+    make = {
+        "not_checked": {
+            "recipe": "the toy subject says nothing about how its library compiles",
+            "wildcards": "the toy subject does not bind the Norm",
+        },
+    },
+)
+
+# toy_up carries a method layer, which compiles the sources itself and so
+# reads the Makefile's -I as well: without it, inc/toy13.h is not found.
+c_function(
+    unit = "toy_up",
+    test = "test_toy_up.c",
+    method = "iterative",
+    method_rule = "the toy subject, p.1: \"Create an iterative function.\"",
+)
+
+c_function(
+    unit = "toy_down",
+    test = "test_toy_down.c",
+)
+
+c_levels()
+
+# What c_levels() and the macros emitted, as data: ../named_lib's :layers,
+# which says what each word is.
+names_file(
+    name = "layers",
+    names = sorted([
+        "%s %s @%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s by:%s kind:%s" % (
+            r["name"],
+            r["srcs"][0].split(":")[-1],
+            [t for t in ["lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"] if t in r["tags"]][0][4:],
+            # The word after the flag (args is a tuple here: no .index).
+            "".join([" fn:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--oracle-fn"]),
+            "".join([" count:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--count"]),
+            "".join([
+                " bin:" + r["args"][i + 1][len("$(location "):-1] + "".join([
+                    " built:" + h.split("/")[-1]
+                    for h in existing_rule(r["args"][i + 1][len("$(location :"):-1])["harness"]
+                ]) + "".join([
+                    " reader:" + r["args"][j + 1][:-1].split("/")[-1]
+                    for j in range(len(r["args"]) - 1)
+                    if r["args"][j] == "--harness-src"
+                ])
+                for i in range(len(r["args"]) - 1)
+                if r["args"][i] == "--student-bin" and not r["args"][i + 1].endswith(("_diffbin)", "_diffbin_asan)"))
+            ]),
+            " any-of" if "--expected-alt" in r["args"] else "",
+            " survive" if "--survive" in r["args"] else "",
+            " stray" if "--stray" in r["args"] else "",
+            " outside" if "--outside" in r["args"] else "",
+            " reading" if [i for i in range(len(r["args"]) - 1) if r["args"][i] == "--exit-source" and r["args"][i + 1] == "reading"] else "",
+            " argv-file" if "--argv-file" in r["args"] else "",
+            " cwd" if "--run-as" in r["args"] else "",
+            " ran" if "--show-run" in r["args"] else "",
+            " case" if "--case" in r["args"] else "",
+            " clues" if "--clues" in r["args"] else "",
+            " stable" if "--stable" in r["args"] else "",
+            " sanitized" if "--sanitized" in r["args"] else "",
+            " sanitize" if "--sanitize" in r["args"] or "--gate-sanitize" in r["args"] else "",
+            " memcheck" if "--sample" in r["args"] else "",
+            " gated" if "--gate-expected" in r["args"] else "",
+            " gate-stdin" if "--gate-stdin" in r["args"] else "",
+            "".join([" gate-label:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--gate-label"]),
+            "".join([" suite:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--suite"]),
+            (" raised:" + (r["env"] or {})["RL_RAISED"]) if "RL_RAISED" in (r["env"] or {}) else "",
+            (" make-includes" if "--inc-file" in r["args"] else "") +
+            "".join([
+                " " + t
+                for t in r["tags"]
+                if t.startswith("unit=") or (t[:2] == "ex" and t[2:].isdigit())
+            ]),
+            (r["env"] or {}).get("RL_GRADER", "none"),
+            (r["env"] or {}).get("RL_UNIT_KIND", "none"),
+        )
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+    ] + [
+        "%s suite %s" % (r["name"], " ".join(r["tags"]))
+        for r in existing_rules().values()
+        if r["kind"] == "test_suite"
+    ]),
+)
+
+# WHAT A FUNCTION'S TESTS POINT AT, as ../named_lib's :unit_strays: every
+# test of a function unit, and every program named after one, reads its
+# files under tests/<function>/ alone, names no program of another unit and
+# waits for no output test but its own -- macro_fixtures_test wants no
+# line. The library's -I list (:libtoy13_make_bin_includes.txt) is the whole
+# library's, and every function's layers that compile the sources read it.
+_UNITS = ["libtoy13", "toy_down", "toy_up"]
+
+names_file(
+    name = "unit_strays",
+    names = sorted([
+        "%s %s" % (r["name"], x)
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+        for m in [t[len("unit="):] for t in r["tags"] if t.startswith("unit=")]
+        if m != "libtoy13"
+        for a in r["args"]
+        if a.startswith("$(location ")
+        for x in [a[len("$(location "):-1]]
+        if x != ":libtoy13_make_bin_includes.txt" and [
+            u
+            for u in _UNITS
+            if u != m and (x.startswith(":%s_" % u) or x.startswith("tests/%s/" % u))
+        ]
+    ] + [
+        "%s --gate-label %s" % (r["name"], r["args"][i + 1])
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+        for m in [t[len("unit="):] for t in r["tags"] if t.startswith("unit=")]
+        if m != "libtoy13"
+        for i in range(len(r["args"]) - 1)
+        if r["args"][i] == "--gate-label" and not r["args"][i + 1].startswith(m + "_")
+    ] + [
+        "%s %s" % (r["name"], h)
+        for r in existing_rules().values()
+        if r["kind"] == "student_binary"
+        for m in _UNITS
+        if m != "libtoy13" and r["name"].startswith(m + "_")
+        for h in r["harness"]
+        if [u for u in _UNITS if u != m and "tests/%s/" % u in h]
+    ]),
+)
+
+# THE ORDER OF THE -I LIST every test that reads the Makefile's list builds:
+# its --inc and --inc-file flags as they come, "make" for the Makefile's
+# list, "tools" for tools/ (the notation's headers, which a fixture may
+# include) and "turnin" for a turn-in header's folder. The runners pass -I
+# in that order, so tools/ comes after the Makefile's list, and a turn-in
+# header named like one of tools/'s is found first.
+names_file(
+    name = "include_order",
+    names = sorted([
+        "%s:%s" % (r["name"], "-".join([
+            "make" if r["args"][i] == "--inc-file" else (
+                "tools" if r["args"][i + 1] == "tools" or "//tools:" in r["args"][i + 1] else "turnin"
+            )
+            for i in range(len(r["args"]) - 1)
+            if r["args"][i] in ("--inc", "--inc-file")
+        ]))
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test" and "--inc-file" in r["args"]
+    ]),
+)
+
+exports_files(["layers.expected"])
+
+# EVERY TOY ANALYSED: each manual target above, its test_suite included,
+# as a dependency of this target, which //tools/tests:macro_fixtures_test
+# depends on, so a toy naming a label no package declares, or one a macro
+# no longer accepts, fails that test's build instead of waiting for
+# someone to name it by hand. It builds nothing of them
+# (tools/tests/analysed.bzl). The last call of the file, so that it sees
+# every test above it. c_levels()' own :manual suite is named by hand: its
+# finalizer declares it once the file has been read, and existing_rules()
+# here cannot see it yet.
+analysed(
+    name = "toys_analysed",
+    testonly = True,
+    deps = sorted([":" + r for r, a in existing_rules().items() if "manual" in (a.get("tags") or [])] + [":manual"]),
+)

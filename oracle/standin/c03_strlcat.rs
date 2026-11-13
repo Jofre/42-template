@@ -7,9 +7,9 @@
 //! value. It says nothing of the bytes between the new terminator and size.
 //! So the exercise's output fixture must pass an answer that leaves them as
 //! they were and one that writes them, and the arm builds that fixture over
-//! each of these two, which differ there and only there. They are exported under names of their own, never the
-//! exercise's: the arm compiles the fixture with its call renamed to one of
-//! them (-D).
+//! each of these two, which differ there and only there. They are exported
+//! under names of their own, never the exercise's: the arm compiles the
+//! fixture with its call renamed to one of them (-D).
 //!
 //! Grader-side only, and deliberately not C: a C copy outside the turn-in
 //! folder would be the exercise's answer outside the zone (AGENTS.md section
@@ -32,8 +32,8 @@ unsafe fn len_within(s: *const u8, limit: usize) -> usize {
 /// What the page fixes, written into the first `size` bytes of `dst`: the
 /// return value, and the index the terminator went to (None when dst holds
 /// no terminator within size, where nothing is written). Raw writes, no
-/// slices: an index the optimiser cannot prove in bounds would link a panic
-/// path from core, and with it a personality routine no C link provides.
+/// slices, under the rule at tools/grader_lib.bzl's _FLAGS: no check is left
+/// that can panic.
 ///
 /// # Safety
 /// `src` is NUL-terminated and `dst` holds at least `size` bytes.

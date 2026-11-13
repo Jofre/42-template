@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+t_list	*ft_create_elem(void *data);
+
 /* Prints "<label>\t<value>" so tools/diff_output.sh (run with --labeled) can
  * show each row in its own column. Every label names the property its row
  * checks -- "next is NULL", "data is the pointer passed" -- and the value is

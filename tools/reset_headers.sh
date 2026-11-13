@@ -28,6 +28,12 @@
 # Per-folder, for natural staggered timestamps (run each module as you finish it):
 #   bazel run //tools:reset_headers -- c-piscine/c-piscine-c-00
 #   bazel run //tools:reset_headers -- c-piscine/c-piscine-c-00/deliverable/ex08
+# Paths are read from the repo root, wherever it is run from.
+#
+# Exit status: 0 when every file it found was re-stamped or had no 42 header
+# to re-stamp; 1 when a file could not be rewritten, or the no-argument run
+# found nothing at all; 2 when it refused to start (an unknown option, a named
+# path that is not there, a required command missing).
 
 set -u
 
@@ -45,7 +51,7 @@ require cat date dirname find grep mktemp rm sed sort tail
 
 # Repo root: from `bazel run` it's BUILD_WORKSPACE_DIRECTORY; run directly it's the
 # parent of tools/.
-cd "${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}" || exit 1
+cd "${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}" || exit 1
 GEN="tools/gen_header.sh"
 
 DRY=0
@@ -61,7 +67,21 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ "$#" -gt 0 ]; then
-	TARGETS="$(find "$@" -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null | sort)"
+	# A named path that is not there is refused before anything is touched.
+	# find's own complaint went to /dev/null, so a typo -- or a path relative
+	# to a module, which `bazel run` reads from the repo root -- re-stamped
+	# nothing and said "reset 0 file(s)" with status 0, beside good paths too.
+	_missing=0
+	for _t in "$@"; do
+		[ -e "$_t" ] && continue
+		echo "reset_headers.sh: no such file or folder: $_t" >&2
+		_missing=1
+	done
+	if [ "$_missing" = 1 ]; then
+		echo "  Paths are read from the repo root ($(pwd)); nothing was re-stamped." >&2
+		exit 2
+	fi
+	TARGETS="$(find "$@" -type f \( -name '*.c' -o -name '*.h' \) | sort)"
 else
 	# Every deliverable/ under every course folder, found at any depth. Not a
 	# glob of one module shape: the C-only glob this replaced silently missed
@@ -115,6 +135,10 @@ BORDER_RE='^/\* \*\{74\} \*/$'
 NOW="$(date '+%Y/%m/%d %H:%M:%S')"
 done_n=0
 skip_n=0
+# A file that has no 42 header is a skip; one this run failed to rewrite is
+# a failure, and fails the run: counted with the skips, it let init.sh say
+# "Headers re-stamped." over headers that all kept the old login.
+fail_n=0
 
 # Each file's scratch copy ($tmp) is removed on every exit, a Ctrl-C or a
 # kill included: dash runs no EXIT trap when a signal ends it, so each
@@ -133,6 +157,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 
 # One name per line, read with `read`, never expanded bare: `for f in
 # $TARGETS` split a name at its blanks, and `ft_putchar copy.c` -- the name a
@@ -154,7 +179,12 @@ while IFS= read -r f; do
 		done_n=$((done_n + 1))
 		continue
 	fi
-	tmp="$(mktemp)"
+	if ! tmp="$(mktemp)" || [ -z "$tmp" ]; then
+		echo "reset_headers.sh: mktemp failed; $f was left as it was" >&2
+		tmp=""
+		fail_n=$((fail_n + 1))
+		continue
+	fi
 	# Both timestamps default to now. With --keep-created, preserve the file's
 	# existing Created (header line 8) and move only Updated; fall back to now if it
 	# has no parseable Created. Empty login/email -> gen_header uses settings.json.
@@ -174,11 +204,11 @@ while IFS= read -r f; do
 	# then the only whole copy. It is kept and named, and the run stops there,
 	# because the next file would be cut short the same way.
 	if ! sh "$GEN" "$f" "" "" "$created" "$NOW" > "$tmp"; then
-		echo "gen_header failed: $f" >&2
-		skip_n=$((skip_n + 1))
+		echo "gen_header failed: $f; it was left as it was" >&2
+		fail_n=$((fail_n + 1))
 	elif ! tail -n +12 "$f" >> "$tmp"; then   # body, byte-for-byte
 		echo "could not copy the body of $f; it was left as it was" >&2
-		skip_n=$((skip_n + 1))
+		fail_n=$((fail_n + 1))
 	elif ! { writing=$f; cat "$tmp" > "$f"; }; then
 		echo "reset_headers.sh: could not write $f, which may now be cut short." >&2
 		echo "  Its full contents, new header and all, are in:" >&2
@@ -200,5 +230,7 @@ $TARGETS
 EOF
 
 printf 'reset %d file(s); skipped %d.' "$done_n" "$skip_n"
+[ "$fail_n" -gt 0 ] && printf ' failed %d.' "$fail_n"
 [ "$DRY" = 1 ] && printf '  (dry-run)'
 printf '\n'
+[ "$fail_n" -eq 0 ]

@@ -23,8 +23,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		v = strtol(f[0], NULL, 10);
 		e = ft_create_elem((void *)(intptr_t)v);
 		if (e == NULL)

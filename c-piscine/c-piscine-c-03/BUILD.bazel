@@ -17,7 +17,9 @@ subject(
 # //tools/tests's selftest_slow runs this c_diff's corpora over toys, through
 # the runner its targets run, reading the call from this file (V206), and
 # reads the texts the plain targets ship: so the file, its harnesses and
-# those texts are visible to it.
+# those texts are visible to it. Its selftest builds ex04's reader over a toy
+# that returns to_find, the same bytes as the match but no pointer into the
+# haystack, and requires a divergence, so that reader is too.
 exports_files(
     [
         "BUILD.bazel",
@@ -31,6 +33,7 @@ exports_files(
         "tests/ex01/diff_strncmp.c",
         "tests/ex01/diff_strncmp_readings.c",
         "tests/ex01/test_strncmp.c",
+        "tests/ex04/diff_strstr.c",
     ],
     visibility = ["//tools/tests:__pkg__"],
 )
@@ -128,7 +131,12 @@ c_diff(
 # bytes and requires both to pass every row (V283), so the two files are
 # visible to it.
 exports_files(
-    ["tests/ex05/test_strlcat.c", "tests/ex05/expected.txt"],
+    [
+        "tests/ex02/test_strcat.c",
+        "tests/ex03/test_strncat.c",
+        "tests/ex05/test_strlcat.c",
+        "tests/ex05/expected.txt",
+    ],
     visibility = ["//tools/tests:__pkg__"],
 )
 

@@ -1,0 +1,30 @@
+basic suite lvl_basic
+checker suite unit=checker
+checker_asan asan_run.sh @robust ran unit=checker by:both kind:part
+checker_build make_test.sh @basic unit=checker by:both kind:part
+checker_build_exit make_test.sh @robust unit=checker by:both kind:part
+checker_compile_clang compile_check.sh @basic make-includes unit=checker by:both kind:part
+checker_compile_gcc compile_check.sh @basic make-includes unit=checker by:both kind:part
+checker_exit diff_output.sh @robust ran case unit=checker by:both kind:part
+checker_files files_test.sh @basic extras-elsewhere unit=checker by:both kind:part
+checker_norm norminette_test.sh @basic unit=checker by:both kind:part
+checker_norm_header header_norm.sh @strict unit=checker by:both kind:part
+checker_norm_notice norminette_test.sh @strict unit=checker by:both kind:part
+checker_output diff_output.sh @basic ran case suite:checker unit=checker by:both kind:part
+complete suite lvl_complete
+deliverable_files files_test.sh @basic sibling:Makefile union by:both kind:project
+robust suite lvl_robust
+sorter suite unit=sorter
+sorter_asan asan_run.sh @robust ran unit=sorter by:both kind:part
+sorter_build make_test.sh @basic unit=sorter by:both kind:part
+sorter_build_exit make_test.sh @robust unit=sorter by:both kind:part
+sorter_build_rules make_test.sh @robust unit=sorter by:both kind:part
+sorter_compile_clang compile_check.sh @basic make-includes unit=sorter by:both kind:part
+sorter_compile_gcc compile_check.sh @basic make-includes unit=sorter by:both kind:part
+sorter_exit diff_output.sh @robust ran case unit=sorter by:both kind:part
+sorter_files files_test.sh @basic extras-elsewhere unit=sorter by:both kind:part
+sorter_norm norminette_test.sh @basic unit=sorter by:both kind:part
+sorter_norm_header header_norm.sh @strict unit=sorter by:both kind:part
+sorter_norm_notice norminette_test.sh @strict unit=sorter by:both kind:part
+sorter_output diff_output.sh @basic ran case suite:sorter unit=sorter by:both kind:part
+strict suite lvl_strict

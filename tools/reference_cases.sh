@@ -70,7 +70,7 @@ require cat chmod mkdir mktemp rm
 RL_NAME=reference_cases
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "reference_cases.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "reference_cases.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 
@@ -84,13 +84,11 @@ N=0
 WORK=$(mktemp -d) || { echo "reference_cases.sh: mktemp failed" >&2; exit 2; }
 rl_traps 'rm -rf "$WORK"'
 
-need() { [ "$2" -ge 2 ] || { echo "reference_cases.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
-		--program) need "$1" "$#"; PROGRAM="$2"; shift 2 ;;
-		--differ) need "$1" "$#"; DIFFER="$2"; shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--program) rl_need "$1" "$#"; PROGRAM="$2"; shift 2 ;;
+		--differ) rl_need "$1" "$#"; DIFFER="$2"; shift 2 ;;
 		--case-run)
 			if [ $# -lt 3 ]; then
 				echo "reference_cases.sh: --case-run needs a name and a count" >&2

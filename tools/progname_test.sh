@@ -23,8 +23,11 @@
 # $, and the explanation follows the cause. The sentence about a hardcoded "./a.out" is
 # printed only when the renamed run really printed "./a.out".
 #
-# Usage: progname_test.sh [--diff <diff>] [--exit-only] <bin>
+# Usage: progname_test.sh [--diff <diff>] [--exit-only] --bin <bin>
 #
+#   --bin        the program, by this flag and never as a plain argument:
+#                tools/probe_under.sh stands another program in for the word
+#                after it, and could not reach one handed over bare.
 #   --exit-only  judge only how each run ended: a plain non-zero return fails
 #                as well as a crash, and what was printed is not compared.
 set -u
@@ -46,7 +49,7 @@ require chmod cmp cp mktemp rm sed
 RL_NAME=progname_test
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "progname_test.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "progname_test.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -58,16 +61,15 @@ case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esa
 # reads here, and GNU and BSD do not format it identically.
 DIFF="diff"
 EXIT_ONLY=0
-
-need() { [ "$2" -ge 2 ] || { echo "progname_test.sh: $1 needs a value" >&2; exit 2; }; }
+BIN=""
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--diff) need "$1" "$#"; DIFF="$2"; shift 2 ;;
+		--diff) rl_need "$1" "$#"; DIFF="$2"; shift 2 ;;
 		--exit-only) EXIT_ONLY=1; shift ;;
-		--) shift; break ;;
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
 		-*) echo "progname_test.sh: unknown option: $1" >&2; exit 2 ;;
-		*) break ;;
+		*) echo "progname_test.sh: unexpected argument: $1 (the program is handed over as --bin PATH)" >&2; exit 2 ;;
 	esac
 done
 
@@ -82,9 +84,8 @@ case "$DIFF" in
 		;;
 esac
 
-BIN="${1:-}"
 if [ -z "$BIN" ]; then
-	echo "progname_test.sh: missing binary path" >&2
+	echo "progname_test.sh: missing --bin, the program to run" >&2
 	exit 2
 fi
 
@@ -103,17 +104,12 @@ esac
 # status arbitrary, and the report would be a table of wrong answers under
 # this exercise's hints, none of which is about a build. Say what the build
 # said instead, whole, and fail.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "progname_test.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check progname_test "$ABS" fail "the program"
 
-TMP=$(mktemp -d)
+TMP=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 # Cleanup on every exit path, not just the last line: the early `exit 2`s below
 # and any signal Bazel sends a timed-out test used to leave the directory behind.
 rl_traps 'rm -rf "$TMP"'
@@ -132,10 +128,12 @@ BLOCKS=$(( 4194304 / 512 + 2 ))
 TMO="${PROGNAME_TIMEOUT:-10}"
 
 # Copy the binary to $TMP/<name>, run it as ./<name>, and require it to print
-# exactly "./<name>\n" (its real argv[0]). Sets RC=1 on any mismatch.
+# exactly "./<name>\n" (its real argv[0]). Sets RC=1 on any mismatch. A copy
+# that fails (a scratch folder full or read-only, a --bin that is no file) is
+# this harness's fault, never the program's: exit 2.
 run_as() {
 	name="$1"
-	cp "$ABS" "$TMP/$name" || { echo "progname_test.sh: cannot copy $ABS" >&2; RC=1; return; }
+	cp "$ABS" "$TMP/$name" || { echo "progname_test.sh: cannot copy $ABS into its scratch folder" >&2; exit 2; }
 	chmod +x "$TMP/$name"
 	# stderr is kept rather than discarded, so that a failure can show it: a
 	# program that printed its name to stderr, or died saying why, explains
@@ -177,6 +175,23 @@ run_as() {
 		printf '      %s, byte for byte ($ = end of line):\n' "$1"
 		rl_vis block 25 < "$2" | sed 's/^/        /'
 	}
+	# Why a run that did not return ended, after the line that says how.
+	# MATCHED says its output was right, so only the ending shows the bug.
+	explain_ending() {
+		if [ "$ended" = timeout ]; then
+			printf '      It never finished. A program that prints its name should not\n'
+			printf '      need any measurable time at all, so look for a loop with no\n'
+			printf '      way out.\n'
+		elif [ "$sig" = 25 ]; then
+			printf '      That is SIGXFSZ: it kept printing past the output budget. The\n'
+			printf '      expected output is one line, so something is printing in a loop.\n'
+		elif [ "${1:-}" = matched ]; then
+			printf '      The program died rather than returning. The output was already\n'
+			printf '      flushed, so only how it ended shows it.\n'
+		else
+			printf '      The program died rather than returning.\n'
+		fi
+	}
 	# The unified diff through runner_lib.sh's rl_udiff, which renders every
 	# byte: printed raw, a NUL the program wrote landed in test.log as one
 	# (`file` called the log "data", grep a binary file), and without -a the
@@ -189,14 +204,20 @@ run_as() {
 		show_bytes printed "$TMP/actual.txt"
 		# The explanation follows the cause, never a fixed sentence: the one
 		# about hardcoding used to follow every mismatch, including a program
-		# that printed its own argv[0] plus one byte too many.
+		# that printed its own argv[0] plus one byte too many. A run that
+		# did not return says how it ended first: a crash or a loop before
+		# any output was told only to compare the bytes.
+		if [ "$ended" != returned ]; then
+			printf '      It %s.\n' "$RL_WHY"
+			explain_ending
+		fi
 		if [ "$name" != a.out ] && printf './a.out\n' | cmp -s - "$TMP/actual.txt"; then
 			printf '      Renamed to %s, it still printed "./a.out": the name is\n' "$name"
 			printf '      hardcoded rather than read from argv[0].\n'
 		elif [ ! -s "$TMP/actual.txt" ] && [ -s "$TMP/stderr.txt" ]; then
 			printf '      There was nothing on stdout, but it wrote to stderr. The\n'
 			printf "      subject's example reads stdout, so stdout is what counts.\n"
-		else
+		elif [ "$ended" = returned ]; then
 			printf '      Compare the two byte for byte: the view above is the one\n'
 			printf "      cat -e gives in the subject's example.\n"
 		fi
@@ -220,23 +241,15 @@ run_as() {
 		case "$ended" in
 			returned) _what="exited $status" ;;
 			"timeout") _what="was stopped after ${RL_TMO}s" ;;
-			*) _what="was killed by signal $sig" ;;
+			*) _what="was killed by $(rl_signame --short "$sig")" ;;
 		esac
 		if [ "$EXIT_ONLY" = 1 ]; then
 			printf 'FAIL: run as ./%s -> %s.\n' "$name" "$_what"
 		else
 			printf 'FAIL: run as ./%s -> printed the right line, then %s.\n' "$name" "$_what"
 		fi
-		if [ "$ended" = timeout ]; then
-			printf '      It never finished. A program that prints its name should not\n'
-			printf '      need any measurable time at all, so look for a loop with no\n'
-			printf '      way out.\n'
-		elif [ "$sig" = 25 ]; then
-			printf '      That is SIGXFSZ: it kept printing past the output budget. The\n'
-			printf '      expected output is one line, so something is printing in a loop.\n'
-		elif [ "$ended" = signal ]; then
-			printf '      The program died rather than returning. The output was already\n'
-			printf '      flushed, so only how it ended shows it.\n'
+		if [ "$ended" != returned ]; then
+			explain_ending matched
 		else
 			printf '      No sentence this harness quotes from your subject names an exit\n'
 			printf '      status. This is the robust check, which applies the C\n'

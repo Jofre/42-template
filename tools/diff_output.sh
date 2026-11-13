@@ -37,7 +37,9 @@
 # renderer's own notation -- \\ a backslash, \n a line break, \t a tab, \xHH
 # in lowercase hex any other byte outside printable ASCII, every other byte as
 # it is -- and its fixture says so with --escaped-values (c_function's
-# escaped_values; rush_variant always).
+# escaped_values; rush_variant always). tools/notation.h writes it, once, for
+# every test program that includes it (//tools:notation, on every route that
+# builds one).
 # Rendered with rl_vis_exact, those cells were escaped a second time: "/\\\n"
 # showed as "/\\\\\\n" under a legend saying \\ is one backslash. With the flag
 # they are rendered by rl_vis_noted, which leaves the notation's backslashes
@@ -132,10 +134,13 @@
 #   --show-run PROG          print the run first, as a RAN line naming the
 #                            program PROG (where Bazel keeps it), so that it
 #                            can be run again from the repository root
-#   --waiting FILE           the tests that wait for this one (tools/defs.bzl's
+#   --waiting FILE           the tests that wait for this one (tools/defs_contract.bzl's
 #                            _WAITING, one a line with its level): under a
 #                            red verdict, NO_SKIP=1 unset, they are named,
 #                            with what Bazel shows for them (rl_waiting)
+#   --suite NAME             with --waiting, the suite that block names for a
+#                            run that includes them: the test's unit's, in a
+#                            package of units, where an exercise's says :exNN
 #   --case NAME              this test is the program case NAME: when it
 #                            fails, a clues.tsv row naming NAME fires, as a
 #                            row naming a failed table row does
@@ -245,12 +250,13 @@ set -u
 # never ran and a human should look. //tools/tests:selftest's want_red insists
 # on exit 1 for exactly this reason, so the two can never be confused.
 #
-# WHY NOT PIN THEM. The same answer /bin/sh got: the question is whether the
-# USAGE is portable, not whether the binary is ours. shellcheck's SC3xxx family
-# refuses a bashism statically, //tools/tests:selftest_bash replays every arm
-# under a second shell, and //tools:conventions recomputes the list below from
-# what the script actually calls, so it cannot go stale. Pinning coreutils would
-# buy a guarantee those three already give.
+# WHY NOT PIN THEM. tools/pins.tsv says, under THE BOX'S TEXT TOOLS: the
+# question is whether the USAGE is portable, not whether the binary is ours. A
+# bashism is refused statically by shellcheck's SC3xxx family,
+# //tools/tests:selftest_bash replays every arm under a second shell, and
+# //tools:conventions recomputes the list below from what the script actually
+# calls, so it cannot go stale. None of the three reads an awk program: that
+# note says how the awk ones are kept portable.
 require() {
 	for _t in "$@"; do
 		command -v "$_t" > /dev/null 2>&1 && continue
@@ -267,7 +273,7 @@ require awk cmp grep mktemp mv rm tail tr wc
 RL_NAME=diff_output
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "diff_output.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "diff_output.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 
@@ -303,49 +309,46 @@ CWD_FILES=""
 SHOW_RUN=""
 CASE_NAME=""
 WAITING=""
-
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "diff_output.sh: $1 needs a value" >&2; exit 2; }; }
+WAIT_SUITE=""
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--bin) need "$1" "$#"; BIN="$2"; shift 2 ;;
-		--expected) need "$1" "$#"; EXPECTED="$2"; shift 2 ;;
-		--expected-alt) need "$1" "$#"; ALTS="$ALTS
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
+		--expected) rl_need "$1" "$#"; EXPECTED="$2"; shift 2 ;;
+		--expected-alt) rl_need "$1" "$#"; ALTS="$ALTS
 $2"; shift 2 ;;
 		--survive) SURVIVE=1; shift ;;
-		--absent) need "$1" "$#"; ABSENT="$ABSENT
+		--absent) rl_need "$1" "$#"; ABSENT="$ABSENT
 $2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-arg) need "$1" "$#"; GATE_ARGV="$GATE_ARGV $(printf '%s' "$2" | rl_shword)"; shift 2 ;;
-		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-arg) rl_need "$1" "$#"; GATE_ARGV="$GATE_ARGV $(printf '%s' "$2" | rl_shword)"; shift 2 ;;
+		--gate-stream) rl_need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; shift 2 ;;
+		--gate-stdin) rl_need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
-		--stream) need "$1" "$#"; STREAM="$2"; shift 2 ;;
-		--stdin) need "$1" "$#"; STDIN_FILE="$2"; shift 2 ;;
+		--stream) rl_need "$1" "$#"; STREAM="$2"; shift 2 ;;
+		--stdin) rl_need "$1" "$#"; STDIN_FILE="$2"; shift 2 ;;
 		--sanitize) SANITIZE=1; shift ;;
 		--labeled) LABELED=1; shift ;;
 		--escaped-values) ESCAPED=1; shift ;;
-		--clues) need "$1" "$#"; CLUES_FILE="$2"; shift 2 ;;
-		--exit) need "$1" "$#"; EXPECT_EXIT="$2"; shift 2 ;;
-		--exit-source) need "$1" "$#"; EXIT_SOURCE="$2"; shift 2 ;;
-		--exit-quote) need "$1" "$#"; EXIT_QUOTE="$2"; shift 2 ;;
+		--clues) rl_need "$1" "$#"; CLUES_FILE="$2"; shift 2 ;;
+		--exit) rl_need "$1" "$#"; EXPECT_EXIT="$2"; shift 2 ;;
+		--exit-source) rl_need "$1" "$#"; EXIT_SOURCE="$2"; shift 2 ;;
+		--exit-quote) rl_need "$1" "$#"; EXIT_QUOTE="$2"; shift 2 ;;
 		--exit-only) EXIT_ONLY=1; shift ;;
-		--note-exit) need "$1" "$#"; NOTE_EXIT="$2"; shift 2 ;;
-		--status-file) need "$1" "$#"; STATUS_FILE="$2"; shift 2 ;;
+		--note-exit) rl_need "$1" "$#"; NOTE_EXIT="$2"; shift 2 ;;
+		--status-file) rl_need "$1" "$#"; STATUS_FILE="$2"; shift 2 ;;
 		--harness-fixture) FIXTURE=1; shift ;;
-		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; shift 2 ;;
-		--run-as) need "$1" "$#"; RUN_AS="$2"; shift 2 ;;
-		--cwd-file) need "$1" "$#"; CWD_FILES="$CWD_FILES
+		--argv-file) rl_need "$1" "$#"; ARGV_FILE="$2"; shift 2 ;;
+		--run-as) rl_need "$1" "$#"; RUN_AS="$2"; shift 2 ;;
+		--cwd-file) rl_need "$1" "$#"; CWD_FILES="$CWD_FILES
 $2"; shift 2 ;;
-		--show-run) need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
-		--case) need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
-		--waiting) need "$1" "$#"; WAITING="$2"; shift 2 ;;
+		--show-run) rl_need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
+		--case) rl_need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
+		--waiting) rl_need "$1" "$#"; WAITING="$2"; shift 2 ;;
+		--suite) rl_need "$1" "$#"; WAIT_SUITE="$2"; shift 2 ;;
 		--) shift; break ;;
 		*) echo "diff_output.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -356,7 +359,16 @@ done
 	echo "diff_output.sh: no --waiting file at $WAITING" >&2
 	exit 2
 }
-rl_traps 'rl_waiting $? "$WAITING"'
+[ -z "$WAIT_SUITE" ] || [ -n "$WAITING" ] || {
+	echo "diff_output.sh: --suite needs --waiting: it names the suite the list of waiting tests points at" >&2
+	exit 2
+}
+case "$WAIT_SUITE" in
+	[!a-z]* | *[!a-z0-9_]*)
+		echo "diff_output.sh: --suite takes a suite's name: a lowercase letter, then lowercase letters, digits or _" >&2
+		exit 2 ;;
+esac
+rl_traps 'rl_waiting $? "$WAITING" "$WAIT_SUITE"'
 
 if [ -z "$BIN" ] || { [ -z "$EXPECTED" ] && [ "$SURVIVE" -eq 0 ]; }; then
 	echo "diff_output.sh: --bin and --expected (or --survive) are required" >&2
@@ -415,22 +427,8 @@ if [ "$EXIT_ONLY" -eq 1 ] && [ -z "$EXPECT_EXIT" ]; then
 	echo "diff_output.sh: --exit-only needs --exit: it judges the status and nothing else" >&2
 	exit 2
 fi
-# The run as the case describes it, or no run: an argument file that is not
-# there would run the program with fewer arguments, and a staged file without
-# a folder to stage it in would be run from somewhere else.
-if [ -n "$ARGV_FILE" ] && [ ! -r "$ARGV_FILE" ]; then
-	echo "diff_output.sh: --argv-file '$ARGV_FILE' is not readable" >&2
-	exit 2
-fi
-if [ -n "$CWD_FILES" ] && [ -z "$RUN_AS" ]; then
-	echo "diff_output.sh: --cwd-file stages a file in the folder --run-as runs the program from" >&2
-	exit 2
-fi
-case "$RUN_AS" in
-	*/* | . | ..)
-		echo "diff_output.sh: --run-as takes the program's file name, not '$RUN_AS'" >&2
-		exit 2 ;;
-esac
+# The run as the case describes it, or no run (rl_case_check says why).
+rl_case_check "$ARGV_FILE" "$RUN_AS" "$CWD_FILES"
 
 # A DEFAULT IS NOT A DECISION WHEN THE CASE EXPECTS AN ERROR MESSAGE.
 #
@@ -510,7 +508,7 @@ fi
 # attached: while that one is red, this one only repeats it.
 # conventions: harness tool SELF -- this runner, as a survive case's gate, which keeps this test's budget (RL_DEADLINE)
 SELF=$0
-[ -n "$GATE_LABEL" ] || GATE_LABEL="this exercise's own case"
+[ -n "$GATE_LABEL" ] || GATE_LABEL="this $(rl_noun)'s own case"
 if [ -n "$GATE_EXPECTED" ] && [ "${NO_SKIP:-0}" != "1" ]; then
 	# GATE_PASS is a list (runner_lib.sh, LISTS OF WORDS); GATE_ARGV is shell
 	# words, each written by rl_shword, for eval.
@@ -553,14 +551,9 @@ fi
 # Before the gate, a survive case over a Makefile that builds nothing was
 # red where the docs say it SKIPs while its exercise's first case is red,
 # and its asan and valgrind arms said SKIP (V281).
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "diff_output.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check diff_output "$BIN" fail "the program"
 
 # WHAT A SURVIVE CASE RAN, said before its verdict, pass or fail: it has no
@@ -598,7 +591,7 @@ TAB=$(printf '\t')
 # somebody thought of. A trap covers the ones nobody did: the awk-driven exits
 # below, and the signal Bazel sends a test that runs out of time -- which it
 # now also ENDS (rl_traps), instead of carrying on without its files.
-rl_traps 'rl_waiting $? "$WAITING"; rm -rf "$TMPD"'
+rl_traps 'rl_waiting $? "$WAITING" "$WAIT_SUITE"; rm -rf "$TMPD"'
 # How many rows the table shows: DIFF_MAX_ROWS, read where every differential
 # report reads it (tools/runner_lib.sh, rl_rows).
 rl_rows ""
@@ -615,7 +608,7 @@ rl_rows ""
 if [ "$FIXTURE" -eq 1 ] && ! grep -q -F "tools/unbuffered_stdout: stdout is unbuffered" "$BIN"; then
 	echo "diff_output.sh: --harness-fixture on '$BIN', which is not linked with" >&2
 	echo "               tools/unbuffered_stdout.c: its rows cannot be read as cases" >&2
-	echo "               that finished. Build it with defs.bzl's _output_fixture_binary," >&2
+	echo "               that finished. Build it with defs_test.bzl's _output_fixture_binary," >&2
 	echo "               or pass the file with --harness-src, or drop --harness-fixture." >&2
 	exit 2
 fi
@@ -650,25 +643,10 @@ BLOCKS=$(( CAP / 512 + 2 ))
 # argument file's (rl_argv_words); from the folder --run-as makes, holding the
 # program and each --cwd-file (rl_rundir), or from here. Printed first when
 # c_program asks (--show-run), so the report opens with what was run.
-if [ -n "$ARGV_FILE" ]; then
-	_aw=$(rl_argv_words "$ARGV_FILE") || { echo "diff_output.sh: cannot read --argv-file '$ARGV_FILE'" >&2; exit 2; }
-	eval "set -- \"\$@\" $_aw"
-fi
-RUN_BIN=$BIN
-RUN_DIR=.
-_ran_specs=""
-_ran_prog=$SHOW_RUN
-_ran_in=$STDIN_FILE
-if [ -n "$RUN_AS" ]; then
-	RUN_DIR="$TMPD/run"
-	rl_rundir "$RUN_DIR" "$RUN_AS" "$BIN" "$CWD_FILES" || exit 2
-	RUN_BIN="./$RUN_AS"
-	_ran_specs="$RUN_AS=${SHOW_RUN:-$BIN}$CWD_FILES"
-	_ran_prog=$RUN_BIN
-	# The folder is the program's working directory, so a path given to it
-	# from here would no longer resolve.
-	case "$STDIN_FILE" in "" | /*) ;; *) STDIN_FILE="$PWD/$STDIN_FILE" ;; esac
-fi
+rl_case_run "$TMPD/run" "$ARGV_FILE" "$RUN_AS" "$BIN" "$CWD_FILES" "$SHOW_RUN" "$STDIN_FILE"
+eval "set -- \"\$@\" $RL_CASE_WORDS"
+RUN_BIN=$RL_RUN_BIN
+RUN_DIR=$RL_RUN_DIR
 
 # A NAME THE CASE SAYS WILL NOT OPEN, checked: the case marks it
 # "missing_file", and a file by that name in the directory the program runs
@@ -697,7 +675,8 @@ while IFS= read -r _a; do
 done <<ABSENT_EOF
 $ABSENT
 ABSENT_EOF
-[ -z "$SHOW_RUN" ] || rl_ran "$_ran_prog" "$_ran_in" "$_ran_specs" "$@"
+[ -z "$SHOW_RUN" ] || rl_ran "$RL_RAN_PROG" "$STDIN_FILE" "$RL_RAN_SPECS" "$@"
+STDIN_FILE=$RL_RUN_IN
 
 # An inner timeout, well under Bazel's, so an infinite loop is reported as one
 # instead of surfacing as an opaque Bazel timeout. Every test using this runner
@@ -812,35 +791,29 @@ explain_ending() {
 		fi
 		return
 	fi
+	# The headline names the signal as every layer does (rl_signame); the
+	# lines under it, keyed by number, are this runner's own.
+	echo " CRASH: the program died on $(rl_signame --short "$SIG")."
 	case "$SIG" in
 		4)
-			echo " CRASH: the program died on SIGILL (illegal instruction)."
 			echo "        Most often a trap the compiler put at an operation C leaves"
 			echo "        undefined -- a signed int overflowing, an index past the end of"
 			echo "        an array -- which the program then reached. The operation is"
 			echo "        wrong on every build; this one stops at it instead of carrying on." ;;
 		6)
-			echo " CRASH: the program died on SIGABRT (abort)."
 			echo "        It was stopped on purpose: most often by the C library, which"
 			echo "        found the heap or the stack damaged (a free() of memory malloc"
 			echo "        did not hand out, a second free() of the same block, a write past"
 			echo "        the end of a buffer), or by an assert() that failed."
 			[ -s "$OTHER" ] && echo "        Its own message, below, says which." ;;
 		7)
-			echo " CRASH: the program died on SIGBUS (bus error)."
 			echo "        A memory access the hardware refused: usually a pointer that was"
 			echo "        never given a valid address." ;;
 		8)
-			echo " CRASH: the program died on SIGFPE (arithmetic error)."
 			echo "        An integer division or modulo by zero, or INT_MIN / -1." ;;
 		11)
-			echo " CRASH: the program died on SIGSEGV (invalid memory access)."
 			echo "        It read or wrote memory it does not own: a NULL or freed pointer"
 			echo "        followed, or an index past the end of an array." ;;
-		13)
-			echo " CRASH: the program died on SIGPIPE (wrote to a closed pipe)." ;;
-		*)
-			echo " CRASH: the program died on signal $SIG." ;;
 	esac
 	echo "        A crash is a failure however right the output looks."
 }
@@ -1258,18 +1231,6 @@ render_table() {
 	function cols(s,   t) { t = s; gsub(/[\200-\277]/, "", t); return length(t) }
 	function padc(s, w,   r, k) { r = s; for (k = cols(s); k < w; k++) r = r " "; return r }
 	function dash(w,    r)  { r = ""; while (length(r) < w) r = r "-"; return r }
-	# Word-wrapped to w columns, each line indented by one space.
-	function wrap(t, w,   nw, words, k, line) {
-		nw = split(t, words, " ")
-		line = ""
-		for (k = 1; k <= nw; k++) {
-			if (line != "" && length(line) + 1 + length(words[k]) > w) {
-				print " " line
-				line = words[k]
-			} else line = (line == "") ? words[k] : line " " words[k]
-		}
-		if (line != "") print " " line
-	}
 	function firstdiff(a, b,   i, n) {
 		n = (length(a) < length(b)) ? length(a) : length(b)
 		for (i = 1; i <= n; i++) if (substr(a, i, 1) != substr(b, i, 1)) return i
@@ -1507,9 +1468,8 @@ render_table() {
 		if (clipped) mk[++nmarks] = "... text cut to fit around the first difference"
 		if (pclipped) mk[++nmarks] = "... where the rest of a passing value is left out"
 		if (nmarks) {
-			legend = "In the table, " mk[1]
-			for (k = 2; k <= nmarks; k++) legend = legend ((k == nmarks) ? ", and " : ", ") mk[k]
-			wrap(legend ".", 76)
+			legend = "In the table, " rl_vis_join(mk, nmarks)
+			rl_vis_wrap(legend ".", 76, " ")
 		}
 
 		# THE VERDICT, from everything at once.

@@ -13,6 +13,10 @@
 #     ck_eq  "member size (bytes)"     "$got" "40"              # compares; shows want/got
 #     ck_report                                                  # prints RESULT, exits 0/1 (2: wiring)
 #
+# And for a check that cannot judge (exit 2, never a verdict) or builds a git
+# fixture: ck_broken "<why>", ck_git_sandbox before the first git, and
+# ck_git_init DIR inside the fixture's ( ... ) || ck_broken "<why>".
+#
 # A turn-in is never run any other way than through ck_run: it keeps the
 # script's stderr and exit status and shows them when they say something, and
 # it runs a script with /bin/sh, as the shell subjects require. A check that
@@ -27,6 +31,57 @@ _CK_N=0
 _CK_FAIL=0
 _CK_SKIP=0
 _CK_REPORTED=0
+
+# What this test tests, in the words below: RL_UNIT_KIND, which
+# tools/defs_test.bzl's _test() hands a test of a contract of units, or
+# "exercise". Read here, as tools/files_test.sh reads it: this library is
+# sourced by check scripts, and reaches tools/runner_lib.sh only in a shell
+# of its own (_ck_vis, _ck_excerpt), so rl_noun is not defined here. Read
+# before the EXIT guard below is set, so a broken kind stops the check
+# with this message alone.
+case "${RL_UNIT_KIND:-}" in
+	"") _CK_NOUN=exercise ;;
+	exercise | library | function | project | part) _CK_NOUN=$RL_UNIT_KIND ;;
+	*)
+		echo "shell_check.sh: RL_UNIT_KIND is '$RL_UNIT_KIND', and a unit's kind is" >&2
+		echo "  exercise, library, function, project or part (tools/subject.bzl): the harness is broken." >&2
+		exit 2 ;;
+esac
+
+# The commands this library takes from PATH, probed as runner_lib.sh probes
+# its own: exit 2, since a check script that runs without one never ran. A
+# predicate built on a missing tool answers wrong rather than failing --
+# `tail -c1 | od` prints nothing without tail, and ck_no_final_newline then
+# passed an output that ended in a newline. Before the EXIT guard below, so
+# this message is the only one.
+for _ck_t in awk cmp cut date env head ls mktemp od rm sort tail tr; do
+	command -v "$_ck_t" > /dev/null 2>&1 && continue
+	echo "shell_check.sh: required command '$_ck_t' is not on PATH" >&2
+	exit 2
+done
+
+# _CK_RL: tools/runner_lib.sh, which shows every byte a check shows (ck_eq's
+# values, ck_run's words and output, ck_quote's word, ck_report's key to the
+# marks), found once, here, in the check script's own shell, and a check
+# with none is stopped here: exit 2, the harness's fault and never a verdict.
+# Its helpers run inside a $(...), often the check script's own (q=$(ck_quote
+# WORD)), where an exit ends that subshell alone: a guard of ck_quote's,
+# there, stopped nothing, and the check went on to a PASS or a FAIL about an
+# empty word. Before the EXIT guard below, so this message is the only one.
+_CK_RL=""
+for _ck_l in "${SHELL_CHECK_LIB:+${SHELL_CHECK_LIB%/*}/runner_lib.sh}" \
+	"${TEST_SRCDIR:+$TEST_SRCDIR/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh}"; do
+	if [ -n "$_ck_l" ] && [ -f "$_ck_l" ]; then
+		# Absolute: a check script may cd before it reports a run.
+		_CK_RL=$(cd "${_ck_l%/*}" && pwd)/${_ck_l##*/}
+		break
+	fi
+done
+if [ -z "$_CK_RL" ]; then
+	echo "shell_check.sh: tools/runner_lib.sh is not beside it or in this test's data," >&2
+	echo "                so no check could show what it compared or ran." >&2
+	exit 2
+fi
 
 # A check.sh that forgets its final ck_report prints [FAIL] lines to the log and
 # then exits with whatever its LAST command happened to return -- usually 0. The
@@ -103,6 +158,47 @@ ck_broken() {
 	exit 2
 }
 
+# ck_git_sandbox -> git, from here on, reads no configuration but the
+# repository's own, for the fixture a check builds and for the run alike.
+# Called once, at the top level of the check script and before its first git
+# command (//tools:conventions holds that to it, as it holds the lines this
+# replaced, which three check scripts carried word for word):
+#   - not the system's or the user's (a pager, colour, signing, a log format,
+#     core.excludesFile): GIT_CONFIG_NOSYSTEM, and a HOME of its own, with
+#     XDG_CONFIG_HOME under it, since git reads $XDG_CONFIG_HOME/git/config
+#     and its default ignore file there whatever HOME says;
+#   - nor where the repository is, or which configuration it takes, from what
+#     a run outside Bazel's cleared environment inherits (GIT_DIR and the
+#     rest, GIT_CONFIG_GLOBAL, GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT): the
+#     names conventions.sh lists as GIT_INHERITED, every one of them here.
+# Exported, so the turn-in ck_run starts sees the same. The caller removes
+# "$HOME" when it is done. A HOME that cannot be made is the harness's fault:
+# ck_broken.
+ck_git_sandbox() {
+	GIT_CONFIG_NOSYSTEM=1
+	# conventions: test scratch -- a check script under shell_test.sh sources this, in TEST_TMPDIR
+	HOME=$(mktemp -d) || ck_broken "no scratch HOME could be made for git"
+	XDG_CONFIG_HOME="$HOME/.config"
+	export GIT_CONFIG_NOSYSTEM HOME XDG_CONFIG_HOME
+	unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
+	unset GIT_CONFIG_GLOBAL GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+}
+
+# ck_git_init DIR -> 0 when DIR is now a git repository with an identity of
+# its own to commit under, non-zero when any step failed. After
+# ck_git_sandbox. It returns rather than stopping, because a fixture is built
+# in a ( ... ) subshell, where ck_broken would end the subshell alone: the
+# caller ends its fixture with `) || ck_broken "<what could not be built>"`,
+# so a git that is missing or fails is the harness's fault (exit 2), never a
+# verdict on the turn-in.
+# conventions: optional git -- probed here: without it ck_git_init fails, and the check that called it ends as ck_broken
+ck_git_init() {
+	command -v git > /dev/null 2>&1 &&
+		git init -q "$1" &&
+		git -C "$1" config user.email tester@example.com &&
+		git -C "$1" config user.name tester
+}
+
 # ck_skipped "<why>" -> ONE property cannot be observed on this machine, while
 # the rest of the script can still grade everything else.
 #
@@ -128,22 +224,35 @@ ck_skipped() {
 	_CK_SKIP=$((_CK_SKIP + 1))
 	printf '  [SKIP] %s\n' "$1"
 	if [ "${NO_SKIP:-0}" = "1" ]; then
-		printf '  [FAIL] NO_SKIP=1 is set, so the skip above is a failure: nothing checked it.\n'
-		_CK_N=$((_CK_N + 1))
-		_CK_FAIL=$((_CK_FAIL + 1))
+		_ck_fail "NO_SKIP=1 is set, so the skip above is a failure: nothing checked it."
 	fi
+}
+
+# _ck_pass LABEL, _ck_fail LABEL [WHY] -> register one check, that held or did
+# not: "  [PASS] LABEL", or "  [FAIL] LABEL" with " WHY" after it when there is
+# one, and the counts ck_report reads (_CK_N, and _CK_FAIL). Every helper here
+# that judges a property writes its line through these two and never by hand,
+# nor touches the counts itself: they are what ck_report's "registered no
+# checks" floor and its RESULT line stand on, and a helper that forgot one
+# printed a verdict nothing counted. A helper added later does the same.
+_ck_pass() {
+	_CK_N=$((_CK_N + 1))
+	printf '  [PASS] %s\n' "$1"
+}
+_ck_fail() {
+	_CK_N=$((_CK_N + 1))
+	_CK_FAIL=$((_CK_FAIL + 1))
+	printf '  [FAIL] %s%s\n' "$1" "${2:+ $2}"
 }
 
 # ck "<requirement>" cmd...  -> PASS when the command succeeds (exit 0).
 ck() {
 	_lbl=$1
 	shift
-	_CK_N=$((_CK_N + 1))
 	if "$@" >/dev/null 2>&1; then
-		printf '  [PASS] %s\n' "$_lbl"
+		_ck_pass "$_lbl"
 	else
-		printf '  [FAIL] %s\n' "$_lbl"
-		_CK_FAIL=$((_CK_FAIL + 1))
+		_ck_fail "$_lbl"
 	fi
 }
 
@@ -154,13 +263,20 @@ ck() {
 # backslash doubled, a $ as \x24, and the brackets make a blank at either end
 # visible. Printed raw, "42 file " against "42 file" or a captured carriage
 # return read as two identical values beside a FAIL (finding 042's class).
+# What the marks mean is said once, under the checklist (ck_report), read
+# off the values a FAIL showed: _CK_EQ_SHOWN holds them, one per line (ck_eq's,
+# and the stamp ck_listed_at shows).
+_CK_EQ_SHOWN=""
 ck_eq() {
-	_CK_N=$((_CK_N + 1))
 	if [ "$2" = "$3" ]; then
-		printf '  [PASS] %s\n' "$1"
+		_ck_pass "$1"
 	else
-		printf '  [FAIL] %s (want [%s], got [%s])\n' "$1" "$(_ck_vis "$3")" "$(_ck_vis "$2")"
-		_CK_FAIL=$((_CK_FAIL + 1))
+		_ck_want=$(_ck_vis "$3")
+		_ck_got=$(_ck_vis "$2")
+		_ck_fail "$1" "(want [$_ck_want], got [$_ck_got])"
+		_CK_EQ_SHOWN="$_CK_EQ_SHOWN$_ck_want
+$_ck_got
+"
 	fi
 }
 
@@ -181,14 +297,12 @@ ck_eq() {
 ck_require() {
 	_ck_l=$1
 	shift
-	_CK_N=$((_CK_N + 1))
 	if "$@" > /dev/null 2>&1; then
-		printf '  [PASS] %s\n' "$_ck_l"
+		_ck_pass "$_ck_l"
 		return 0
 	fi
-	_CK_FAIL=$((_CK_FAIL + 1))
 	_CK_REPORTED=1
-	printf '  [FAIL] %s\n' "$_ck_l"
+	_ck_fail "$_ck_l"
 	_ck_last=""
 	for _ck_last do :; done
 	printf '  ------------------------------\n'
@@ -211,25 +325,30 @@ _CK_SHOWN=0
 _CK_LAST=""
 _CK_RUNS=0
 
-# _ck_word WORD -> WORD the way it would be typed back at a prompt: bare when
-# nothing in it is special to the shell, single-quoted otherwise -- and, when it
-# holds a byte outside printable ASCII, as runner_lib.sh's rl_shword writes it
-# ("$(printf '\ooo')"), which gives the same bytes back and keeps the line
-# printable: a control byte inside quotes reached the terminal as it was.
+# _ck_word WORD -> WORD the way it would be typed back at a prompt, by the
+# one rule for that, runner_lib.sh's rl_cmdline (a runner's RAN: line): bare
+# when it is only [A-Za-z0-9_./:=+,%@-], any other as rl_shword writes it --
+# single-quoted, or "$(printf '\ooo')" for a byte outside printable ASCII,
+# which gives the same bytes back and keeps the line printable. The bare case
+# is here, so a plain word costs no process; the rest goes to rl_shword, never
+# to a copy of it (this had one, a sed of its own, and two copies drift). Its
+# callers run it inside $(...), ck_run's and a check script's ck_quote, where
+# no guard could stop the check: an exit there ends that subshell alone. So
+# it needs none, as nothing else here does: runner_lib.sh was found when this
+# library was sourced, or the check stopped there (_CK_RL, at the top).
 _ck_word() {
 	case "$1" in
-		*[![:print:]]*)
-			if [ -n "$_CK_RL" ]; then
-				printf '%s' "$1" | sh -c '. "$1"; rl_shword' shell_check.sh "$_CK_RL"
-				return
-			fi
-			printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
-			;;
-		"" | *[!A-Za-z0-9_./:,+=@%-]*)
-			printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+		'' | *[!A-Za-z0-9_./:=+,%@-]*)
+			printf '%s' "$1" | sh -c '. "$1"; rl_shword' shell_check.sh "$_CK_RL"
 			;;
 		*) printf '%s' "$1" ;;
 	esac
+}
+
+# _ck_vis VALUE -> VALUE as rl_vis arg renders it (THE ONE BYTE RENDERER),
+# in a shell of its own, for the reason _ck_excerpt gives below.
+_ck_vis() {
+	printf '%s' "$1" | sh -c '. "$1"; rl_vis arg' shell_check.sh "$_CK_RL"
 }
 
 # _ck_excerpt FILE NAME [--crlf] -> FILE's first five lines under the run it
@@ -246,34 +365,7 @@ _ck_word() {
 # rl_excerpt runs in a shell of its own: this library is sourced by check
 # scripts, whose EXIT trap is the guard above, and runner_lib.sh sets traps
 # of its own when it is sourced.
-_CK_RL=""
-for _ck_l in "${SHELL_CHECK_LIB:+${SHELL_CHECK_LIB%/*}/runner_lib.sh}" \
-	"${TEST_SRCDIR:+$TEST_SRCDIR/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh}"; do
-	if [ -n "$_ck_l" ] && [ -f "$_ck_l" ]; then
-		# Absolute: a check script may cd before it reports a run.
-		_CK_RL=$(cd "${_ck_l%/*}" && pwd)/${_ck_l##*/}
-		break
-	fi
-done
-# _ck_vis VALUE -> VALUE as rl_vis arg renders it (THE ONE BYTE RENDERER), for
-# ck_eq; in a shell of its own, for the reason _ck_excerpt gives below.
-_ck_vis() {
-	if [ -z "$_CK_RL" ]; then
-		echo "shell_check.sh: tools/runner_lib.sh is not beside it or in this test's data," >&2
-		echo "                so the values ck_eq compared could not be shown." >&2
-		_CK_REPORTED=1
-		exit 2
-	fi
-	printf '%s' "$1" | sh -c '. "$1"; rl_vis arg' shell_check.sh "$_CK_RL"
-}
 _ck_excerpt() {
-	if [ -z "$_CK_RL" ]; then
-		echo "shell_check.sh: tools/runner_lib.sh is not beside it or in this test's data," >&2
-		echo "                so what the run wrote could not be shown." >&2
-		# A harness error, not a check script that forgot ck_report.
-		_CK_REPORTED=1
-		exit 2
-	fi
 	CK_SUBS=$_ck_subs LC_ALL=C awk '
 		BEGIN {
 			n = split(ENVIRON["CK_SUBS"], s, "\n")
@@ -351,7 +443,7 @@ _ck_excerpt() {
 # guessed from $?: a shell reports a death by signal N as 128+N, which is also
 # what `exit 255` returns, and the run contract grades a plain return nowhere
 # at basic. The helper sits beside this library in a test's runfiles
-# (defs.bzl's _test() puts it in every test's data); without it, how a run
+# (defs_test.bzl's _test() puts it in every test's data); without it, how a run
 # ended cannot be told, so its absence stops the check as a harness error.
 _CK_WAITER=""
 for _ck_w in "${SHELL_CHECK_LIB:+${SHELL_CHECK_LIB%/*}/exit_status}" \
@@ -393,6 +485,8 @@ ck_run() {
 	done
 	_ck_out=$1
 	shift
+	# The words of the command are written as it could be typed back
+	# (_ck_word, in $(...) below), with runner_lib.sh's rl_shword.
 	CK_ERR="$_ck_out.err"
 	_CK_RUNS=$((_CK_RUNS + 1))
 	_ck_shown=""
@@ -590,9 +684,12 @@ ck_detail() {
 }
 
 # ck_quote WORD  -> WORD as it would be typed back at a prompt: bare when
-# nothing in it is special to the shell, single-quoted otherwise. For a
-# replay line under a failure (ck_detail), so an input full of quotes and
-# backslashes can be pasted and run as it was.
+# nothing in it is special to the shell, single-quoted otherwise (_ck_word).
+# For a replay line under a failure (ck_detail), so an input full of quotes
+# and backslashes can be pasted and run as it was. Called as $(ck_quote
+# WORD), so it prints the word and never stops the check: a library with no
+# runner_lib.sh to quote with stopped it when it was sourced, before any
+# check ran, which an exit in this subshell could not do.
 ck_quote() {
 	_ck_word "$1"
 }
@@ -608,20 +705,17 @@ ck_quote() {
 # in "Syntax error". A construct only bash knows at RUN time -- ${v//a/b} --
 # parses fine, and is ck_run's stderr block to show.
 ck_sh_parses() {
-	_CK_N=$((_CK_N + 1))
 	_ck_n=${1##*/}
 	if [ ! -f "$1" ]; then
-		printf '  [FAIL] %s parses under /bin/sh (no file to read)\n' "$_ck_n"
-		_CK_FAIL=$((_CK_FAIL + 1))
+		_ck_fail "$_ck_n parses under /bin/sh" "(no file to read)"
 		return 0
 	fi
 	_ck_msg=$("$_CK_SH" -n "$1" 2>&1)
 	if [ $? -eq 0 ]; then
-		printf '  [PASS] %s parses under /bin/sh (sh -n)\n' "$_ck_n"
+		_ck_pass "$_ck_n parses under /bin/sh (sh -n)"
 		return 0
 	fi
-	_CK_FAIL=$((_CK_FAIL + 1))
-	printf '  [FAIL] %s parses under /bin/sh (sh -n)\n' "$_ck_n"
+	_ck_fail "$_ck_n parses under /bin/sh (sh -n)"
 	_ck_subs="$1	$_ck_n
 "
 	# conventions: test scratch -- a check script under shell_test.sh sources this, in TEST_TMPDIR
@@ -641,29 +735,22 @@ ck_sh_parses() {
 # SPEC property (from the subject's example), not the answer, so this reveals
 # nothing.
 _ck_lastbyte() { [ -s "$1" ] && tail -c1 "$1" | od -An -tx1 | tr -d ' \n'; }
+# _ck_ends_nl FILE, _ck_ends_bare FILE -> whether FILE is non-empty and its
+# last byte is a newline, or is not one. Called directly, never through ck,
+# which would hide what tail says of a file it cannot read.
+_ck_ends_nl() { [ "$(_ck_lastbyte "$1")" = 0a ]; }
+_ck_ends_bare() { [ -s "$1" ] && [ "$(_ck_lastbyte "$1")" != 0a ]; }
 
 # ck_no_final_newline "<requirement>" <file>  -> PASS if <file> is non-empty and its
 # last byte is NOT a newline (output ends exactly at its last visible char).
 ck_no_final_newline() {
-	_CK_N=$((_CK_N + 1))
-	if [ -s "$2" ] && [ "$(_ck_lastbyte "$2")" != "0a" ]; then
-		printf '  [PASS] %s\n' "$1"
-	else
-		printf '  [FAIL] %s\n' "$1"
-		_CK_FAIL=$((_CK_FAIL + 1))
-	fi
+	if _ck_ends_bare "$2"; then _ck_pass "$1"; else _ck_fail "$1"; fi
 }
 
 # ck_final_newline "<requirement>" <file>  -> PASS if <file> is non-empty and ends
 # with a newline (the normal terminator for line-oriented output).
 ck_final_newline() {
-	_CK_N=$((_CK_N + 1))
-	if [ "$(_ck_lastbyte "$2")" = "0a" ]; then
-		printf '  [PASS] %s\n' "$1"
-	else
-		printf '  [FAIL] %s\n' "$1"
-		_CK_FAIL=$((_CK_FAIL + 1))
-	fi
+	if _ck_ends_nl "$2"; then _ck_pass "$1"; else _ck_fail "$1"; fi
 }
 
 # ck_executable <file>  -> PASS when <file>'s owner execute bit is set, which
@@ -689,23 +776,19 @@ ck_final_newline() {
 # is not there gets no hint: the line above it already says so, and advice
 # about chmod would send the student after the wrong problem.
 ck_executable() {
-	_CK_N=$((_CK_N + 1))
 	_ck_n=${1##*/}
 	if [ ! -f "$1" ]; then
-		printf '  [FAIL] %s has its execute bit set, so ./%s runs (no file to check)\n' \
-			"$_ck_n" "$_ck_n"
-		_CK_FAIL=$((_CK_FAIL + 1))
+		_ck_fail "$_ck_n has its execute bit set, so ./$_ck_n runs" "(no file to check)"
 		return 0
 	fi
 	_ck_x=$(ls -lLd -- "$1" 2>/dev/null | cut -c4)
 	case "$_ck_x" in
 		x | s)
-			printf '  [PASS] %s has its execute bit set, so ./%s runs\n' "$_ck_n" "$_ck_n"
+			_ck_pass "$_ck_n has its execute bit set, so ./$_ck_n runs"
 			;;
 		*)
-			printf '  [FAIL] %s has its execute bit set, so ./%s runs\n' "$_ck_n" "$_ck_n"
+			_ck_fail "$_ck_n has its execute bit set, so ./$_ck_n runs"
 			printf '         hint: ./%s runs only with the x that ls -l shows; set it in the generator (man chmod)\n' "$_ck_n"
-			_CK_FAIL=$((_CK_FAIL + 1))
 			;;
 	esac
 }
@@ -802,10 +885,8 @@ ck_no_operator() {
 	_ck_l=$1
 	_ck_f=$2
 	shift 2
-	_CK_N=$((_CK_N + 1))
 	if [ ! -f "$_ck_f" ]; then
-		printf '  [FAIL] %s (no file to read)\n' "$_ck_l"
-		_CK_FAIL=$((_CK_FAIL + 1))
+		_ck_fail "$_ck_l" "(no file to read)"
 		return 0
 	fi
 	_ck_hit=""
@@ -819,22 +900,28 @@ ck_no_operator() {
 		done
 	done
 	if [ -z "$_ck_hit" ]; then
-		printf '  [PASS] %s\n' "$_ck_l"
+		_ck_pass "$_ck_l"
 	else
-		printf '  [FAIL] %s (found %s)\n' "$_ck_l" "${_ck_hit#, }"
-		_CK_FAIL=$((_CK_FAIL + 1))
+		_ck_fail "$_ck_l" "(found ${_ck_hit#, })"
 	fi
 }
 
 # ck_listed_at "<item>" "<YYYY-MM-DD HH:MM>" <MM-DD> <HH:MM>
-#   -> the timestamp an `ls -l` in the subject gives <item>, checked against the
+#   -> the timestamp an `ls -l` in a subject gives <item>, checked against the
 #   date and time `tar -tvf` prints for it. Two properties: the date is <MM-DD>
-#   of ANY year, and the time is <HH:MM> -- unless ls -l would show the year in
-#   that column instead, which it does for a date more than six months old or in
-#   the future. The Shell 00 subjects allow exactly that: "A year will be
-#   accepted instead of the time in the file's timestamp." The year itself is
-#   never judged: the subject prints none, and pinning one fails a correct
-#   archive the following January.
+#   of ANY year, and the time is <HH:MM> only where ls -l is sure to show a
+#   time rather than the year in that column. That is counted in whole days
+#   from the listed date to today (`date +%Y-%m-%d`):
+#     0 to 181 days old      the time is graded;
+#     182 or 183 days old    not graded: ls -l shows the year past six
+#                            months, about 182 days and a half, and the day
+#                            alone cannot say which side of that line the
+#                            stamp falls on, so ls -l may show either;
+#     184 days or more, or   not graded: ls -l shows the year.
+#     in the future
+#   For a subject that accepts the year in place of the time, as the call
+#   site quotes it. The year itself is never judged: the listing in a subject
+#   prints none, and pinning one fails a correct archive the following January.
 #
 # A stamp that is not a date at all is ONE failure, and nothing else. It used to
 # be read as the year 0, which is more than six months ago, so every member
@@ -843,8 +930,9 @@ ck_no_operator() {
 # that did not exist, telling the student their timestamp was old. An empty
 # archive earned seven of them. So the stamp is read before anything is judged:
 # nothing at all means the member was not found, and anything that is not a
-# real YYYY-MM-DD HH:MM is shown as it came, since the member IS there and a
-# "not in the archive" would send the student after the wrong problem.
+# real YYYY-MM-DD HH:MM is shown as it came (as rl_vis renders it, a control
+# byte as \xHH), since the member IS there and a "not in the archive" would
+# send the student after the wrong problem.
 _ck_stamp_ok() {  # _ck_stamp_ok "YYYY-MM-DD HH:MM" -> 0 when it is one
 	case "$1" in
 		[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\ [0-9][0-9]:[0-9][0-9]) ;;
@@ -861,29 +949,63 @@ _ck_stamp_ok() {  # _ck_stamp_ok "YYYY-MM-DD HH:MM" -> 0 when it is one
 }
 ck_listed_at() {
 	if ! _ck_stamp_ok "$2"; then
-		_CK_N=$((_CK_N + 1))
-		_CK_FAIL=$((_CK_FAIL + 1))
 		if [ -z "$(printf '%s' "$2" | tr -d ' \t')" ]; then
-			printf '  [FAIL] %s: no date to read -- is it in the archive under that name?\n' "$1"
+			_ck_fail "$1: no date to read -- is it in the archive under that name?"
 		else
-			printf "  [FAIL] %s: no date to read in tar's listing: got '%s', not YYYY-MM-DD HH:MM\n" \
-				"$1" "$2"
+			# Through the one renderer, as ck_eq's values: the stamp is a
+			# field of a listing, and a name in the listing, printed raw,
+			# can carry a control byte into it. Kept with ck_eq's values,
+			# so that ck_report's key names the marks it shows.
+			_ck_got=$(_ck_vis "$2")
+			_ck_fail "$1: no date to read in tar's listing: got '$_ck_got', not YYYY-MM-DD HH:MM"
+			_CK_EQ_SHOWN="$_CK_EQ_SHOWN$_ck_got
+"
 		fi
 		return 0
 	fi
+	# Today, read before anything is judged: the days below are counted from
+	# it as from any text, so a date that printed nothing was the year 0, and
+	# every stamp passed as "in the future". A today that is no date is the
+	# harness's fault, exit 2, never a verdict.
+	_ck_today=$(date +%Y-%m-%d)
+	case "$_ck_today" in
+		[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+		*)
+			echo "shell_check.sh: ck_listed_at needs today's date, and date +%Y-%m-%d printed '$(_ck_vis "$_ck_today")', not YYYY-MM-DD" >&2
+			_CK_REPORTED=1
+			exit 2 ;;
+	esac
 	_ck_d=${2% *}
 	_ck_t=${2#* }
 	ck_eq "$1: dated $3 (month-day, any year)" "${_ck_d#*-}" "$3"
-	# Leading zeros are stripped because shell arithmetic reads 08 and 09 as
-	# broken octal -- and a year such as 0999 the same way.
-	_ck_y=${_ck_d%%-*}
-	_ck_y=${_ck_y#"${_ck_y%%[!0]*}"}
-	_ck_m=${3%-*}
-	_ck_nm=$(date +%m)
-	# Months from the listed date to now.
-	_ck_age=$(( ($(date +%Y) * 12 + ${_ck_nm#0}) - (${_ck_y:-0} * 12 + ${_ck_m#0}) ))
-	if [ "$_ck_age" -ge 6 ] || [ "$_ck_age" -lt 0 ]; then
+	# Days from the listed date to today, each a count of days on the one
+	# calendar (awk: a number read from text, so 08 and a year 0999 are
+	# decimal). ls -l shows the time for a date less than six months old,
+	# about 182 days and a half, and not in the future. The day is all
+	# either date gives, so a listing 182 or 183 days old may be either
+	# side of that line by the hour, and its time is not graded either. It
+	# counted calendar months, so the answer turned on the day it ran.
+	_ck_age=$(awk -v a="$_ck_d" -v b="$_ck_today" '
+		function days(s, p, y, m) {
+			split(s, p, "-"); y = p[1] + 0; m = p[2] + 0
+			if (m <= 2) { y--; m += 12 }
+			m = int((153 * (m - 3) + 2) / 5)
+			return y * 365 + int(y / 4) - int(y / 100) + int(y / 400) + m + p[3]
+		}
+		BEGIN { print days(b) - days(a) }')
+	# Both dates are read, so only an awk that printed nothing (killed, or
+	# failed) leaves no count here.
+	case "$_ck_age" in
+		[0-9]* | -[0-9]*) ;;
+		*)
+			echo "shell_check.sh: ck_listed_at could not count the days from $_ck_d to today" >&2
+			_CK_REPORTED=1
+			exit 2 ;;
+	esac
+	if [ "$_ck_age" -lt 0 ] || [ "$_ck_age" -gt 183 ]; then
 		ck "$1: time not graded (ls -l shows the year for this date)" true
+	elif [ "$_ck_age" -gt 181 ]; then
+		ck "$1: time not graded (ls -l may show the year for a date this close to six months old)" true
 	else
 		ck_eq "$1: listed at $4" "$_ck_t" "$4"
 	fi
@@ -913,11 +1035,27 @@ ck_wording() {
 	if [ -z "$CK_WORDING" ]; then
 		_CK_REPORTED=1
 		printf '  BROKEN CHECK SCRIPT: it quotes the subject'"'"'s words for "%s", and\n' "$1"
-		printf '  this exercise'"'"'s shell_exercise call gives none: add\n'
+		printf '  this %s'"'"'s shell_exercise call gives none: add\n' "$_CK_NOUN"
 		printf '  wording = {"%s": "<the sentence, in the subject'"'"'s own words>"}\n' "$1"
 		printf '  to it (tools/defs.bzl).\n'
 		exit 2
 	fi
+}
+
+# ck_oracle  -> nothing when $ORACLE names //oracle, as the exercise's
+# shell_exercise call hands it (oracle = True); otherwise a wiring error
+# (exit 2) that says what to add to the call. A check that asks the
+# reference calls it before it first reads $ORACLE (//tools:conventions
+# holds that to it). It replaced a ${ORACLE:?...} line in each such script,
+# whose abort reached the exit guard above, which then advised adding a
+# ck_report the script had.
+ck_oracle() {
+	[ -z "${ORACLE:-}" ] || return 0
+	_CK_REPORTED=1
+	printf '  BROKEN CHECK SCRIPT: it asks //oracle, and this %s'"'"'s\n' "$_CK_NOUN"
+	printf '  shell_exercise call does not give it: add oracle = True to it\n'
+	printf '  (tools/defs.bzl).\n'
+	exit 2
 }
 
 # ck_stable "<requirement>" <file>  -> PASS when a second run of the generator,
@@ -939,20 +1077,17 @@ ck_stable() {
 	if [ -z "${SHELL_CHECK_RERUN:-}" ] || [ ! -d "$SHELL_CHECK_RERUN" ]; then
 		_CK_REPORTED=1
 		printf '  BROKEN CHECK SCRIPT: ck_stable needs a second run of the generator,\n'
-		printf '  and there is none: give this exercise'"'"'s shell_exercise call\n'
+		printf '  and there is none: give this %s'"'"'s shell_exercise call\n' "$_CK_NOUN"
 		printf '  stable = True (tools/defs.bzl), which makes it.\n'
 		exit 2
 	fi
-	_CK_N=$((_CK_N + 1))
 	_ck_b=${2##*/}
 	if [ ! -f "$SHELL_CHECK_RERUN/$_ck_b" ]; then
-		printf '  [FAIL] %s (the second run wrote no %s)\n' "$1" "$_ck_b"
-		_CK_FAIL=$((_CK_FAIL + 1))
+		_ck_fail "$1" "(the second run wrote no $_ck_b)"
 	elif cmp -s "$2" "$SHELL_CHECK_RERUN/$_ck_b"; then
-		printf '  [PASS] %s\n' "$1"
+		_ck_pass "$1"
 	else
-		printf '  [FAIL] %s (two runs of the generator wrote two different %s)\n' "$1" "$_ck_b"
-		_CK_FAIL=$((_CK_FAIL + 1))
+		_ck_fail "$1" "(two runs of the generator wrote two different $_ck_b)"
 	fi
 }
 
@@ -965,15 +1100,26 @@ ck_report() {
 	_CK_REPORTED=1
 	_ck_note=""
 	[ "$_CK_SKIP" -eq 0 ] || _ck_note=", $_CK_SKIP skipped"
+	# The key to the marks the FAIL lines of ck_eq and ck_listed_at showed
+	# (\t, \x24, ...), named by runner_lib.sh's rl_vis_legend from those
+	# values alone: nothing when they held none. In a shell of its own, as
+	# _ck_vis.
+	if [ -n "$_CK_EQ_SHOWN" ]; then
+		# conventions: test scratch -- a check script under shell_test.sh sources this, in TEST_TMPDIR
+		_ck_lf=$(mktemp) || { echo "shell_check.sh: cannot create a scratch file" >&2; exit 2; }
+		printf '%s' "$_CK_EQ_SHOWN" > "$_ck_lf"
+		sh -c '. "$1"; rl_vis_legend "$2"' shell_check.sh "$_CK_RL" "$_ck_lf"
+		rm -f "$_ck_lf"
+	fi
 	printf '  ------------------------------\n'
 	# NOTHING REGISTERED IS NOT A PASS. This branched on _CK_FAIL alone, so a
 	# check script that reached here having called no ck at all printed
 	# "RESULT: PASS (0/0 checks)" and exited 0 -- a green bought by an empty
 	# loop, a `for` over a glob that matched nothing, or an early `return` in a
-	# helper. Every sibling runner in this repo has the same floor for the same
-	# reason (rust_diff.sh's MIN_DIFF_CASES, bsq_check.sh, rush02_check.sh,
-	# argv_check.sh, file_check.sh); this library backs all 17 check scripts and
-	# had none.
+	# helper. Every differential runner in this repo has the same floor for the
+	# same reason (runner_lib.sh's rl_corpus_floor, which rust_diff.sh,
+	# bsq_check.sh, rush02_check.sh, argv_check.sh and file_check.sh call);
+	# this library backs all 17 check scripts and had none.
 	#
 	# Exit 2, not 1: nothing was checked, so this says the harness is broken
 	# rather than that the exercise is wrong -- the same code every runner here

@@ -15,7 +15,7 @@
  * results and the first missing line is the case that was running.
  *
  * WHERE, and where NOT. Only binaries whose main() is the harness's: the
- * c_function, c_libft, c_header and rush output fixtures (defs.bzl's
+ * c_function, c_libft, c_header and rush output fixtures (defs_test.bzl's
  * _output_fixture_binary, and the two runners that compile a fixture at test
  * time, header_check.sh and ilp32_test.sh, through --harness-src). Never:
  *   - a student's own program (c_program): it is graded as the student wrote

@@ -26,6 +26,42 @@
 # and nothing outside that body is: tools/first_red.sh asks it, so a library
 # with one function written is not "written" for every other function in it.
 #
+# And to ask about ONE rule of a Makefile, for a project in parts where a
+# part is built by a rule of its own (`make bonus`) from the files another
+# part shares:
+#
+#     sh tools/stub_check.sh --goal RULE MAKEFILE
+#
+# which exits 1 when the Makefile is no stub and RULE does something -- it has
+# a prerequisite, as make would expand it, or a recipe line that does more
+# than one echo -- printing the lines that make it so; 0 when the Makefile is
+# a stub (no recipe line in it does more than echo), or RULE does nothing yet
+# (no prerequisite, and recipes that only echo); 3 when the Makefile is no
+# stub and has no rule RULE; and 2 when the Makefile could not be read, or
+# RULE is no rule's name: no verdict. RULE `-` is the default goal: the rule
+# a bare `make` runs (goal_rule, below). It reads the text and never runs
+# make: tools/first_red.sh asks it on the student's own machine, and make
+# runs the $(shell ...) of a Makefile it reads. So it knows a variable's
+# value only where that is certain -- set outside every conditional, and
+# after every include or eval that could have set it too -- and where the
+# answer leans on anything else, it prints the lines it could not tell from
+# and exits 1: such a rule counts as written. So does a RULE with no recipe
+# of its own (or a :: rule of it with none) that another rule of the
+# Makefile may make (a pattern rule, a suffix rule, .DEFAULT), when that
+# rule does something. So does every RULE once the Makefile may set
+# .EXTRA_PREREQS, whose words make adds to the prerequisites of each rule it
+# is set for. What it cannot see: a rule that only an included makefile holds,
+# or that an eval writes from a value only such a file sets, or an override
+# or a .EXTRA_PREREQS one sets; make's built-in rules, so a Makefile that
+# leans on them alone has no recipe and reads as a stub; variables from the
+# environment or the command line, which read as unset; a ; in the name of the
+# folder make runs in, which $(CURDIR), $(abspath) and $(realpath) may put in
+# a rule's list, where it starts a recipe. Nor does it see a target named by
+# something it cannot expand, a pattern rule's too: while that target may be
+# RULE, it cannot tell, and says so. And what make runs beside a rule is no
+# part of RULE: the value of an exported variable, which make expands for
+# every recipe line, SHELL, and a $(shell) make runs as it reads the file.
+#
 # `--file PATH...` judges those files alone, and approves a header only at
 # its place in the workspace -- this script's own checkout, or
 # BUILD_WORKSPACE_DIRECTORY when set -- so a caller checking another tree (a
@@ -34,11 +70,17 @@
 # or `42 stubcheck`, from inside it: the checkout is found from this
 # script's place, never from the folder it is run in.
 #
-# Exit 0 = every deliverable is a stub. Exit 1 = at least one still has a body,
-# and each offending line is printed with its file and line number. Exit 2 =
-# a file it could not read, or an index git could not list: no verdict at all;
-# or a file that holds no answer and is no stub either -- an empty one, or a
-# .c or .h without its 42 header (NEITHER A STUB NOR AN ANSWER, below).
+# Exit 0 = every deliverable is a stub, and nothing was left unread. Exit 1 =
+# at least one still has a body, and each offending line is printed with its
+# file and line number (a file it refused or never read is named beside them).
+# Exit 2 = no verdict: a file it could not read, an index git could not list,
+# a workspace it could not enter, or a zone holding no file of a kind it
+# reads; or a file that holds no answer and is no stub either -- an empty one,
+# or a .c or .h without its 42 header (NEITHER A STUB NOR AN ANSWER, below);
+# or, in repo mode, a tracked file nothing here reads -- a kind it does not
+# know in the zone, a generators/ file that is no exNN.sh, a file in a third
+# place (each named, below). No body found and something left unread is
+# never 1: the template build reads 1 as "found an answer: stub it".
 #
 # NOTE TO WHOEVER EDITS THIS FILE: it SHIPS on the template, so it is bound by
 # the same rule it enforces. Describe the shape of an answer; never paste one.
@@ -88,18 +130,21 @@
 #
 # HEADERS THAT ARE NOT ANSWERS
 # ----------------------------
-# A few deliverable headers legitimately carry content. They are approved BY
-# CONTENT, not by path, and the reason is worth stating because the first
-# version of this list got it wrong: an allowlist of paths would have waved a
-# header through whether or not anyone had actually reduced it, which is the
-# same blanket exemption this whole script exists to refuse. A hash cannot be
-# satisfied by forgetting.
+# A few deliverable headers legitimately carry content. Each is approved by
+# its content AND its place: a line of APPROVED_HEADERS (below) gives the hash
+# of the file and a glob of the paths it may sit at, and a copy is approved
+# only where both match the same line. Why the path is needed as well is
+# written once, beside the list. Why the hash is: an allowlist of paths alone
+# would wave a header through whether or not anyone had actually reduced it,
+# which is the same blanket exemption this whole script exists to refuse. A
+# hash cannot be satisfied by forgetting.
 #
-# Content-addressing also behaves correctly on its own: a fourth copy of
-# ft_list.h appearing in some future module needs no edit here, while an EDITED
-# copy fails its hash, falls through to the guards-only rule below, and is
-# reported wherever it lives. The hash covers the file BELOW its 42 header, so
-# re-stamping the identity does not disturb it.
+# So a copy of ft_list.h in a module no glob covers needs a line of its own,
+# or a wider glob, with the sentence saying why it is not an answer there;
+# until then it is held to the guards-only rule (*.h, above) like any other
+# header. An EDITED copy fails its hash and is held to that rule wherever it
+# lives. The hash covers the file BELOW its 42 header, so re-stamping the
+# identity does not disturb it.
 #
 #   ft_list.h (c-12, x18), ft_btree.h (c-13, x8)
 #       42 PROVIDES these in the subject. Stubbing one would delete a definition
@@ -114,7 +159,8 @@
 # NOT APPROVED ANY MORE: rush-00's rush.h. It shipped reduced to ft_putchar's
 # prototype and a note on static helpers, but the subject's turn-in is three
 # named files and no header, so the template ships none: the note lives in
-# docs/rushes.md, where the symbols layer's rule is explained. A rush.h copied
+# c-piscine/c-piscine-rush-00/README.md, where the symbols layer's rule is
+# explained. A rush.h copied
 # from an older template now fails here, which is the point -- `git rm` it and
 # drop the include from the rush0N.c stubs.
 #
@@ -134,7 +180,8 @@
 #
 # To approve a new one, print its hash with:
 #     sh tools/stub_check.sh --hash PATH
-# and add the line here WITH the sentence saying why it is not an answer.
+# and add a line here: the hash, the glob of the paths it may sit at, and the
+# sentence saying why it is not an answer there.
 # WHY EACH ENTRY CARRIES A PATH AS WELL AS A HASH. The first version keyed on
 # content alone, and that was wrong in the one way that matters: c-09's
 # includes/ft.h, approved at the time, and c-08 ex00's ft.h held the SAME FIVE
@@ -176,7 +223,45 @@ require() {
 }
 require awk basename cat cut dirname git grep md5sum mktemp rm tr
 
-WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+WS="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
+
+# _SC_NO_CR, an awk fragment spliced FIRST into every judge that reads a
+# file's lines: body_hash, judge_c, judge_h, judge_mk, goal_rule, judge_sh
+# and judge_md. Its rule takes a trailing \r off each line before any rule
+# of the judge's own sees it (awk runs a line's rules in order), and
+# no_cr(s) does the same for a line read with `getline VAR`, which no rule
+# sees: goal_rule's continued lines. A line an editor set to CRLF saves ends
+# in \r, and every stub pattern that anchors on a line's end (`;$`,
+# `^:[ \t]*$`, `^true[ \t]*$`) missed it, so a stub was reported as an
+# answer. judge_c and judge_h were given a strip each; judge_sh and judge_mk,
+# given none, went on reporting a CRLF `:` or `true` line as one. One text,
+# spliced, so a judge cannot be the one forgotten.
+#
+# Not spliced into has_header, whose question is whether a border ends in
+# \r, nor into is_blank, which counts a \r as a blank wherever it is.
+_SC_NO_CR='
+		function no_cr(s) { sub(/\r$/, "", s); return s }
+		{ $0 = no_cr($0) }'
+
+# whole_comment(s), an awk function spliced into body_hash and judge_h: whether
+# s is a comment AND NOTHING ELSE. /^\/\*.*\*\/$/ was not that test. `.*` is
+# greedy, so it also matched
+#     /* */ int g_answer = 42; /* */
+# whose middle is code, and dropped it. Reproduced before this was written:
+# that line and no line at all produced the SAME body hash, so one approved
+# entry approved the smuggled copy of the same header too. judge_h had a test
+# of its own, a line that BEGINS with /*, so `/* x */ int f(void);` above the
+# guards passed as part of the 42 header. One text for both, so a fix to it
+# reaches both.
+#
+# Find the FIRST `*/` and require it to end the line. Then a second comment
+# further along cannot vouch for whatever sits between them.
+_SC_WHOLE_COMMENT='
+		function whole_comment(s,   i) {
+			if (s !~ /^\/\*/) return 0
+			i = index(s, "*/")
+			return (i > 0 && substr(s, i + 2) ~ /^[ \t]*$/)
+		}'
 
 # The identity of a header, ignoring its 42 header block. Leading lines that are
 # a whole C comment on one line (`/* ... */`, which is every line of the 11-line
@@ -192,22 +277,13 @@ WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
 # all 1 deliverable(s) are stubs", and `--hash ft_a=b.c` printed the empty
 # file's hash. A redirection the shell cannot open fails the command, and the
 # caller refuses.
+#
+# A leading line is dropped only if it is a comment and nothing else
+# (whole_comment, above). Each line is hashed without a trailing \r
+# (_SC_NO_CR), so a copy saved with CRLF line ends keeps the hash its
+# approval names.
 body_hash() {
-	{ awk '
-		# A leading line is dropped only if it is a comment AND NOTHING ELSE.
-		# /^\/\*.*\*\/$/ was not that test. `.*` is greedy, so it also matched
-		#     /* */ int g_answer = 42; /* */
-		# whose middle is code, and dropped it. Reproduced before this was
-		# written: that line and no line at all produced the SAME body hash, so
-		# one approved entry approved the smuggled copy of the same header too.
-		#
-		# Find the FIRST `*/` and require it to end the line. Then a second
-		# comment further along cannot vouch for whatever sits between them.
-		function whole_comment(s,   i) {
-			if (s !~ /^\/\*/) return 0
-			i = index(s, "*/")
-			return (i > 0 && substr(s, i + 2) ~ /^[ \t]*$/)
-		}
+	{ awk "$_SC_NO_CR$_SC_WHOLE_COMMENT"'
 		started { print; next }
 		!whole_comment($0) && NF { started = 1; print }
 	' | md5sum | cut -c1-32; } < "$1"
@@ -281,6 +357,24 @@ case "$scope" in
 		MODE=defines
 		DEF_NAME=$2
 		shift 2 ;;
+	# One rule of a Makefile (see the usage above): judged below, once
+	# judge_mk is defined.
+	--goal)
+		case "${2:-}" in
+			- | [A-Za-z0-9_]*) ;;
+			*)
+				echo "stub_check: --goal needs a rule's name, or - for the default goal, then a Makefile" >&2
+				exit 2 ;;
+		esac
+		case "$2" in
+			-) ;;
+			*[!A-Za-z0-9_.-]*)
+				echo "stub_check: --goal needs a rule's name, or - for the default goal, then a Makefile" >&2
+				exit 2 ;;
+		esac
+		MODE=goal
+		GOAL_NAME=$2
+		shift 2 ;;
 	# The path of every approved header, one per line. tools/answer_scan.sh
 	# asks, because an approved header is one the template ships whatever the
 	# copy in front of it holds, so its file name belongs to everyone.
@@ -301,6 +395,7 @@ esac
 bad=0
 unread=0
 refused=0
+untold=0
 checked=0
 report() { bad=$((bad + 1)); echo "  $1"; echo "$2"; }
 report_unread() { unread=$((unread + 1)); echo "  $1"; echo "$2"; }
@@ -323,7 +418,7 @@ report_refused() { refused=$((refused + 1)); echo "  $1"; echo "$2"; }
 # signature wrapped over several lines, or with its return type on a line of
 # its own, is still one name.
 judge_c() {
-	awk -v want="${3:-}" '
+	awk -v want="${3:-}" "$_SC_NO_CR"'
 		# The function a declaration at depth 0 names, or "".
 		function fname(d,   i, pre) {
 			while ((i = index(d, ";")) > 0) d = substr(d, i + 1)
@@ -362,7 +457,6 @@ judge_c() {
 			line = $0
 			gsub(/"[^"]*"/, "\"\"", line)
 			gsub(/'"'"'[^'"'"']*'"'"'/, "'"''"'", line)
-			sub(/\/\/.*$/, "", line)
 		}
 		#
 		# A comment is matched as C reads one: anything up to the first `*/`,
@@ -371,9 +465,15 @@ judge_c() {
 		# in the line, and their words were read as the declaration of the
 		# function after them (--defines named it "size"). Whole comments go
 		# first; what then still opens one runs on to the next lines.
+		#
+		# A `//` comment is cut after the whole block comments are gone and
+		# before an unclosed one is looked for, never before: cut first, the
+		# `//` of a URL in "/* see https://... */" took the closing `*/` with
+		# it, the comment ran on to the end of the file, and a written body
+		# under it passed as a stub (--defines: no such function).
 		incomment && line ~ /\*\// { sub(/^([^*]|\*+[^*\/])*\*+\//, "", line); incomment = 0 }
 		incomment { next }
-		{ gsub(/\/\*([^*]|\*+[^*\/])*\*+\//, "", line) }
+		{ gsub(/\/\*([^*]|\*+[^*\/])*\*+\//, "", line); sub(/\/\/.*$/, "", line) }
 		line ~ /\/\*/ { sub(/\/\*.*$/, "", line); incomment = 1 }
 		# A preprocessor line at depth 0 names no function, and ends whatever
 		# text came before it.
@@ -458,9 +558,10 @@ repo_path() {
 # ---------------------------------------------------------------- C headers
 #
 # Everything below the 42 header comment must be an include guard. Comments are
-# allowed only inside that leading block: a comment further down can describe a
-# whole struct layout, so "it is only a comment" is not a reason to let text
-# through here.
+# allowed only inside that leading block, each line of it a comment and nothing
+# else (whole_comment): a comment further down can describe a whole struct
+# layout, so "it is only a comment" is not a reason to let text through here,
+# and code sharing a line with a comment is code.
 judge_h() {
 	_h=$(body_hash "$2") || return 2
 	# The path is worked out only for a header whose hash an entry holds.
@@ -476,11 +577,12 @@ judge_h() {
 		case "$_hp" in $_ep) exit 9 ;; esac
 	done || _ok=1
 	[ "$_ok" -eq 0 ] || return 0
-	awk '
+	awk "$_SC_NO_CR$_SC_WHOLE_COMMENT"'
 		{ line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line) }
 		line == "" { next }
-		# The leading 42 header block, and nothing after it.
-		!seen_code && line ~ /^\/\*/ { next }
+		# The leading 42 header block, and nothing after it: a line there
+		# is skipped only when it is a comment and nothing else.
+		!seen_code && whole_comment(line) { next }
 		line ~ /^#[ \t]*ifndef[ \t]+[A-Za-z_][A-Za-z_0-9]*$/ { seen_code = 1; next }
 		line ~ /^#[ \t]*define[ \t]+[A-Za-z_][A-Za-z_0-9]*$/ { seen_code = 1; next }
 		line ~ /^#[ \t]*endif/                               { seen_code = 1; next }
@@ -492,9 +594,13 @@ judge_h() {
 #
 # A recipe line starts with a TAB. In a stub it may only announce what it would
 # do; the moment it invokes a compiler or an archiver it is the answer, because
-# for c-09 ex01, c-10 and rush-02 the Makefile IS the exercise.
+# for c-09 ex01, c-10 and rush-02 the Makefile IS the exercise. This is the
+# first reading, of TAB lines alone, and the one that prints them: a line
+# that starts with echo passes it whatever follows the echo. score() and
+# --goal give goal_rule's reading of every recipe the last word, so a
+# compiler after an echo's `;` or `&&`, or on a rule's own line, is an answer.
 judge_mk() {
-	awk '
+	awk "$_SC_NO_CR"'
 		/^\t/ {
 			r = $0
 			sub(/^\t[ \t]*/, "", r)
@@ -505,13 +611,1112 @@ judge_mk() {
 	' < "$2"
 }
 
+# goal_rule SRC GOAL [any] -- what SRC's rules for GOAL do, read from the
+# text as GNU make reads it. Exit 0 and the lines that do something, each as
+# "    N: line": a rule line whose prerequisites expand to something, or a
+# recipe line that does more than one echo (busy, below). 4 when SRC has a
+# rule for GOAL and none of its lines does anything; 3 when it has no rule
+# for GOAL. 5 when the answer depends on what this reader cannot know, with
+# the lines that made it so: --goal counts that as written. GOAL `-` is the
+# default goal, the rule a bare make runs: .DEFAULT_GOAL as it expands once
+# the whole file is read. Unless the Makefile set it, make sets it to the
+# first target, in file order, that neither starts with a `.` (unless it
+# holds a /) nor is a suffix rule's name by the suffixes .SUFFIXES named so
+# far; a rule with a `%` target gives none. Where a name may be a suffix
+# rule's, this reader cannot tell, and says so. With `any` it prints nothing,
+# and exits 1 when some recipe line in SRC, whatever its rule, does
+# something, 5 when none does but one may (this reader cannot tell), else 0.
+#
+# A variable's value is known only where it is certain: set outside every
+# conditional (the reader evaluates none, and reads both branches' rules), and
+# after the last include or eval line that could have set it as well. Any
+# expansion that touches something else -- a value a conditional, an include,
+# an eval or a shell may have set, a function, what is worked out from an
+# automatic variable -- is uncertain, and an uncertain line counts as doing
+# something: a part is never read as not written because this reader could not
+# tell. As make does, it reads a variable set with = where it is used, a
+# rule's targets and prerequisites as it reads their line, and a recipe once
+# the whole file is read; a line that starts with a TAB is a recipe only under
+# a rule. make gives an automatic variable ($@, $<, $* and the rest, and their
+# D and F forms) a value only as it runs the rule, so in a recipe this reader
+# reads one as a word an echo may print, and a substitution of one, or a name
+# built from one, through a variable that holds it too, as uncertain. It
+# reads a variable make itself defines (CC, CFLAGS) the same way in the words
+# of an echo, where the file never sets it and has no include or eval. A `;`
+# that a rule's targets or prerequisites expand to starts its recipe, so where
+# a value may hold one -- in its text, in a file the Makefile includes, in
+# what a shell prints -- a rule whose list this reader cannot expand may have
+# a recipe it cannot see. A goal with no recipe of its own, or with a :: rule
+# that has none, may be made by another rule of the Makefile (a pattern rule,
+# a suffix rule, .DEFAULT: the implicit search, below), and one that may and
+# does something makes the answer 5 too. So does any goal once the Makefile
+# may set .EXTRA_PREREQS, whose words make adds to the prerequisites of each
+# rule it is set for, every rule when it is set as any variable is: this
+# reader does not follow which. make expands a conditional, and an include,
+# export, unexport or vpath line, as it reads it, so an eval there runs then;
+# and call runs any function by the name it is given, eval and call among
+# them. A != sets a value make expands again where it is used, so once the
+# file has one, a value this reader cannot know may hold an eval the text
+# never shows.
+#
+# What it cannot see, said here so nobody reads it as make: a rule that only
+# an included makefile holds, or that an eval writes from a value only that
+# file sets (an override or a .EXTRA_PREREQS set there too); make's built-in
+# rules, so a Makefile that leans on them alone has no recipe and reads as a
+# stub; variables from the environment or the command line, which read as
+# unset (make's own, CC or MAKEFLAGS, as uncertain, but in the words of a
+# recipe line that is an echo, where one the file never sets is a word the
+# echo prints, as an automatic variable is); a ; in the name of the
+# folder make runs in, which $(CURDIR), $(abspath) and $(realpath) may put in
+# a rule's list, where it starts a recipe. A target named by something it
+# cannot expand is not seen either, nor is a pattern so named: one reference
+# may give several words, any of them a pattern. While one may be GOAL, the
+# answer is 5, as it is when make may read a line otherwise than this reader
+# (.RECIPEPREFIX, a directive on a line that may be a recipe). What make runs
+# beside a rule is no part of the rule, and is not read as one: the value of
+# an exported variable, which make expands for every recipe line it runs;
+# SHELL, which runs each one; a $(shell) in an assignment, run as make reads
+# the file. student_build.sh and make_test.sh ask make's own database instead,
+# where make runs anyway.
+goal_rule() {
+	awk -v goal="$2" -v any="${3:-}" "$_SC_NO_CR"'
+		function trim(x) { gsub(/^[ \t]+|[ \t]+$/, "", x); return x }
+		function odd_bs(x,   n) {
+			n = 0
+			while (n < length(x) && substr(x, length(x) - n, 1) == "\\") n++
+			return n % 2
+		}
+		BEGIN {
+			# The variables make sets itself: uncertain until the Makefile
+			# sets them.
+			n = split("AR ARFLAGS AS CC CHECKOUT,v CO COFLAGS COMPILE.C COMPILE.F " \
+			    "COMPILE.S COMPILE.c COMPILE.cc COMPILE.cpp COMPILE.def COMPILE.f " \
+			    "COMPILE.m COMPILE.mod COMPILE.p COMPILE.r COMPILE.s CPP CTANGLE " \
+			    "CWEAVE CXX F77 F77FLAGS FC GET LD LEX LEX.l LEX.m LINK.C LINK.F " \
+			    "LINK.S LINK.c LINK.cc LINK.cpp LINK.f LINK.m LINK.o LINK.p LINK.r " \
+			    "LINK.s LINT LINT.c M2C MAKEINFO MAKEFILES MAKE_COMMAND MAKE_HOST " \
+			    "MAKE_VERSION OBJC OUTPUT_OPTION PC PREPROCESS.F PREPROCESS.S " \
+			    "PREPROCESS.r RM SHELL SUFFIXES TANGLE TEX TEXI2DVI WEAVE YACC " \
+			    "YACC.m YACC.y .FEATURES .INCLUDE_DIRS .LIBPATTERNS .LOADED " \
+			    ".SHELLFLAGS .SHELLSTATUS .VARIABLES .RECIPEPREFIX .EXTRA_PREREQS " \
+			    "CURDIR MAKEFLAGS MFLAGS MAKELEVEL MAKEFILE_LIST MAKEOVERRIDES " \
+			    "GNUMAKEFLAGS MAKE_RESTARTS MAKE_TERMOUT MAKE_TERMERR", w, " ")
+			for (i = 1; i <= n; i++) { fl[w[i]] = "u"; at[w[i]] = 0; src[w[i]] = "" }
+			fl["MAKE"] = "s"; vv["MAKE"] = "make"; at["MAKE"] = 0
+			fl["MAKECMDGOALS"] = "s"; vv["MAKECMDGOALS"] = (goal == "-") ? "" : goal
+			at["MAKECMDGOALS"] = 0
+			fl[".DEFAULT_GOAL"] = "s"; vv[".DEFAULT_GOAL"] = ""; at[".DEFAULT_GOAL"] = 0
+			n = split("abspath addprefix addsuffix and basename call dir error eval " \
+			    "file filter filter-out findstring firstword flavor foreach guile if " \
+			    "info join lastword notdir or origin patsubst realpath shell sort " \
+			    "strip subst suffix value warning wildcard word wordlist words", w, " ")
+			for (i = 1; i <= n; i++) FUNC[w[i]] = 1
+			n = split("@ < ^ + ? * % |", w, " ")
+			for (i = 1; i <= n; i++) { AUTO[w[i]] = 1; AUTO[w[i] "D"] = 1; AUTO[w[i] "F"] = 1 }
+			# The targets that mean something to make, which no suffix
+			# rule is.
+			n = split(".PHONY .SUFFIXES .DEFAULT .PRECIOUS .INTERMEDIATE " \
+			    ".NOTINTERMEDIATE .SECONDARY .SECONDEXPANSION .DELETE_ON_ERROR " \
+			    ".IGNORE .LOW_RESOLUTION_TIME .SILENT .EXPORT_ALL_VARIABLES " \
+			    ".NOTPARALLEL .ONESHELL .POSIX .WAIT", w, " ")
+			for (i = 1; i <= n; i++) SPECIAL[w[i]] = 1
+			ctx = 0; curs = " "; ugen = 0; depth = 0
+		}
+		# A name as make files it: without the ./ in front, nor the
+		# slashes after each (.//x is x); one that was nothing more is ./.
+		function dot(x) {
+			if (x !~ /^\.\// || length(x) <= 2) return x
+			while (x ~ /^\.\// && length(x) > 2) { x = substr(x, 3); sub(/^\/+/, "", x) }
+			return (x == "") ? "./" : x
+		}
+		# A variable: n unset, r set with = (its text kept), s set with :=
+		# (its value kept), u not known here.
+		function vstate(v) {
+			if (chaos) return "u"
+			if (v in fl) return (fl[v] != "u" && ugen > at[v]) ? "u" : fl[v]
+			return ugen ? "u" : "n"
+		}
+		function setu(v, n, more) { fl[v] = "u"; at[v] = ugen; src[v] = n " " more }
+		# The lines that made v uncertain, into EC.
+		function whyvar(v,   k, w, i) {
+			if (chaos) { for (k in chaosl) EC[k] = 1; return }
+			if ((v in fl) && fl[v] == "u") {
+				k = split(src[v], w, " ")
+				for (i = 1; i <= k; i++) EC[w[i]] = 1
+				return
+			}
+			EC[ugline[(v in at) ? at[v] + 1 : 1]] = 1
+		}
+		function ecs(   k, s) { s = ""; for (k in EC) s = s " " k; return s }
+		function unsure() { EU = 1; EC[curn] = 1 }
+		# s as make expands it: m "i" as it reads a line, "r" as it runs a
+		# recipe, once the whole file is read; d how deep in variables. EU is
+		# set when anything uncertain was touched, EC holds why.
+		function ex(s, m, d,   out, j, c, k, lv, cl, cc) {
+			# Past 30 deep, or 20000 expansions for one line, it gives up.
+			if (!d) EXN = 0
+			if (d > 30 || ++EXN > 20000) { unsure(); return "" }
+			out = ""
+			while ((j = index(s, "$")) > 0) {
+				out = out substr(s, 1, j - 1)
+				c = substr(s, j + 1, 1)
+				if (c == "") { s = ""; break }
+				if (c == "$") { out = out "$"; s = substr(s, j + 2); continue }
+				if (c == "(" || c == "{") {
+					cl = (c == "(") ? ")" : "}"
+					lv = 1
+					for (k = j + 2; k <= length(s); k++) {
+						cc = substr(s, k, 1)
+						if (cc == c) lv++
+						else if (cc == cl && --lv == 0) break
+					}
+					if (lv) { unsure(); s = ""; break }
+					out = out ref(substr(s, j + 2, k - j - 2), m, d)
+					s = substr(s, k + 1)
+					continue
+				}
+				out = out value(c, m, d)
+				s = substr(s, j + 2)
+			}
+			return out s
+		}
+		# What is inside a $(...): a function, a substitution of a
+		# variable ($(V:a=b), $(V:%.c=%.o)), or a variable. make takes a
+		# name for the name of a function when any space follows it: a
+		# blank, a newline (in a define), a CR, a vertical tab or a form
+		# feed.
+		function ref(r, m, d,   fn, i, sb, v, a) {
+			if (match(r, /^[a-z-]+[ \t\n\v\f\r]/)) {
+				fn = substr(r, 1, RLENGTH - 1)
+				if (fn in FUNC) return call(fn, m)
+			}
+			# AH counts the words value() (below) gives in place of a value:
+			# what an automatic variable reads as in a recipe, and, in the
+			# words of an echo, a variable make defines that the file never
+			# sets (CC). Such a word is no value of the variable, so neither
+			# is a name built from one nor a substitution of one ($($@),
+			# $(CC:.c=.o)): either is uncertain.
+			a = AH
+			if (index(r, "$")) r = ex(r, m, d + 1)
+			if (AH != a) { unsure(); return "" }
+			sb = ""
+			if ((i = index(r, ":")) && index(substr(r, i + 1), "=")) {
+				sb = substr(r, i + 1)
+				r = substr(r, 1, i - 1)
+			}
+			v = value(r, m, d)
+			if (sb != "" && AH != a) { unsure(); return "" }
+			return (sb != "" && v != "") ? subst(v, sb) : v
+		}
+		# A function is uncertain, but for info, warning and error as make
+		# reads a line: they expand to nothing (error stops make). Once the
+		# file has an eval, or a != that may give one, a function make calls
+		# as it reads may run one.
+		function call(fn, m) {
+			if (m == "i" && evalseen) SFX = 1
+			if (m == "i" && (fn == "info" || fn == "warning" || fn == "error")) return ""
+			unsure()
+			return ""
+		}
+		function value(nm, m, d,   st, v) {
+			# .VARIABLES lists the variables of the environment too, and
+			# their names may hold a ; (maysemi).
+			if (nm == ".VARIABLES") semiseen = 1
+			# make gives an automatic variable its value as it runs the rule,
+			# and none as it reads a line. In a recipe it reads here as one
+			# word (AH, ref above), which an echo may print, and as
+			# uncertain once a target or a prerequisite may hold what sh
+			# reads, a ; or a quote (unsafe, below: autou).
+			if (nm in AUTO) {
+				if (m == "i") return ""
+				AH++
+				if (autou) { EU = 1; EC[autol] = 1 }
+				return "f"
+			}
+			if (m == "r" && (tsvany || (nm in tsvu) || reval)) {
+				EU = 1; EC[tsvany ? tsvanyl : (nm in tsvu) ? tsvu[nm] : curn] = 1
+				return ""
+			}
+			st = vstate(nm)
+			if (st == "n") return ""
+			# In the words of a recipe line that is an echo (OWNW, set by
+			# the END loop), a variable make itself defines and nothing in
+			# the file sets -- CC, CFLAGS -- is one word the echo prints
+			# (AH, ref above), as an automatic variable is: make or the
+			# environment gives it its value, never the Makefile. Not once
+			# the file has an include or an eval, either of which may set
+			# it.
+			if (OWNW && st == "u" && !chaos && !ugen && (nm in fl) && fl[nm] == "u" && src[nm] == "") {
+				AH++
+				return "f"
+			}
+			# A value this reader cannot know may hold an eval, once the file
+			# has one or a != (bang, below), and make runs it as it reads the
+			# line.
+			if (st == "u") { EU = 1; whyvar(nm); if (m == "i" && evalseen) SFX = 1; return "" }
+			if (st == "s") return vv[nm]
+			# A variable that refers to itself is an error to make.
+			if (nm in act) { unsure(); return "" }
+			act[nm] = 1
+			v = ex(vv[nm], m, d + 1)
+			delete act[nm]
+			return v
+		}
+		# The words of list with sb ("a=b", or "p%s=q%t") applied, as
+		# $(V:a=b) applies it: a word that does not match stays as it is.
+		function subst(list, sb,   i, a, b, p1, p2, w, n, k, out, st) {
+			i = index(sb, "=")
+			a = substr(sb, 1, i - 1)
+			b = substr(sb, i + 1)
+			if (!index(a, "%")) { a = "%" a; b = "%" b }
+			i = index(a, "%")
+			p1 = substr(a, 1, i - 1)
+			p2 = substr(a, i + 1)
+			n = split(list, w, /[ \t]+/)
+			out = ""
+			for (k = 1; k <= n; k++) {
+				if (w[k] == "") continue
+				if (length(w[k]) >= length(p1) + length(p2) &&
+				    substr(w[k], 1, length(p1)) == p1 &&
+				    substr(w[k], length(w[k]) - length(p2) + 1) == p2) {
+					st = substr(w[k], length(p1) + 1, length(w[k]) - length(p1) - length(p2))
+					i = index(b, "%")
+					w[k] = i ? substr(b, 1, i - 1) st substr(b, i + 1) : b
+				}
+				out = out (out == "" ? "" : " ") w[k]
+			}
+			return out
+		}
+		# x up to its first character of stops that is in no reference and
+		# no backslash quotes, as make cuts a line: SCHAR is the one found,
+		# SREST what follows it. A quoted one stays, without its backslash.
+		function scan(x, stops,   i, n, c, d, k, lv, cl, o, nb) {
+			o = ""; SCHAR = ""; SREST = ""
+			n = length(x)
+			for (i = 1; i <= n; i++) {
+				c = substr(x, i, 1)
+				if (c == "$") {
+					d = substr(x, i + 1, 1)
+					if (d == "(" || d == "{") {
+						cl = (d == "(") ? ")" : "}"
+						lv = 1
+						for (k = i + 2; k <= n; k++) {
+							c = substr(x, k, 1)
+							if (c == d) lv++
+							else if (c == cl && --lv == 0) break
+						}
+						o = o substr(x, i, k - i + 1); i = k
+						continue
+					}
+					o = o "$" d; i++
+					continue
+				}
+				if (index(stops, c)) {
+					match(o, /\\*$/); nb = RLENGTH
+					o = substr(o, 1, length(o) - nb + int(nb / 2))
+					if (nb % 2 == 0) { SCHAR = c; SREST = substr(x, i + 1); return o }
+				}
+				o = o c
+			}
+			return o
+		}
+		# The place of the first `:` outside a reference (anywhere, with
+		# plain) that no backslash quotes, or 0.
+		function colon(x, plain,   i, n, c, d, lv, cl, bs) {
+			n = length(x); bs = 0
+			for (i = 1; i <= n; i++) {
+				c = substr(x, i, 1)
+				if (c == "\\") { bs++; continue }
+				if (c == ":" && bs % 2 == 0) return i
+				bs = 0
+				if (c == "$" && !plain) {
+					d = substr(x, i + 1, 1)
+					if (d == "(" || d == "{") {
+						cl = (d == "(") ? ")" : "}"
+						lv = 1
+						for (i += 2; i <= n; i++) {
+							c = substr(x, i, 1)
+							if (c == d) lv++
+							else if (c == cl && --lv == 0) break
+						}
+					} else i++
+				}
+			}
+			return 0
+		}
+		# Whether x is an assignment, as make finds one: PN the name, PO the
+		# operator (= := ::= :::= += ?= !=), PV the value. A reference in
+		# the name is skipped whole, so its = is no operator.
+		function pvd(x,   i, n, c, d, cl, lv, ws, e) {
+			sub(/^[ \t]+/, "", x)
+			n = length(x); ws = 0; e = 0; PO = ""
+			for (i = 1; i <= n; i++) {
+				c = substr(x, i, 1)
+				if (c == "#") return 0
+				if (c == "$") {
+					c = substr(x, i + 1, 1)
+					if (c == "") return 0
+					if (c != "(" && c != "{") { i++; continue }
+					cl = (c == "(") ? ")" : "}"
+					lv = 1
+					for (i += 2; i <= n; i++) {
+						d = substr(x, i, 1)
+						if (d == cl && --lv == 0) break
+						if (d == c) lv++
+					}
+					continue
+				}
+				if (c == " " || c == "\t") {
+					ws = 1; e = i
+					while (i < n && index(" \t", substr(x, i + 1, 1))) i++
+					if (i >= n) return 0
+					c = substr(x, ++i, 1)
+				}
+				d = substr(x, i + 1, 1)
+				if (c == "=") { PO = "="; if (!e) e = i; i++; break }
+				if (d == "=" && index(":+?!", c)) { PO = c "="; if (!e) e = i; i += 2; break }
+				if (d == "=") { if (ws) return 0; continue }
+				if (c == ":") {
+					if (substr(x, i + 1, 2) == ":=") { PO = "::="; if (!e) e = i; i += 3; break }
+					if (substr(x, i + 1, 3) == "::=") { PO = ":::="; if (!e) e = i; i += 4; break }
+					return 0
+				}
+				if (ws) return 0
+			}
+			if (PO == "") return 0
+			PN = substr(x, 1, e - 1)
+			PV = substr(x, i)
+			sub(/^[ \t]+/, "", PV)
+			return 1
+		}
+		# pvd after the words make takes for modifiers, PM: tv for the
+		# rest of a rule line, where define and undefine are none.
+		function pva(x, tv,   w) {
+			PM = ""
+			sub(/^[ \t]+/, "", x)
+			while (x != "") {
+				if (pvd(x)) return 1
+				match(x, /^[^ \t]+/)
+				w = substr(x, 1, RLENGTH)
+				x = substr(x, RLENGTH + 1)
+				sub(/^[ \t]+/, "", x)
+				if (w == "export" || w == "unexport" || w == "override" || w == "private") PM = PM " " w
+				else if (!tv && (w == "define" || w == "undefine")) {
+					PM = PM " " w; PN = x; PO = ""; PV = ""
+					return 1
+				}
+				else return 0
+			}
+			return 0
+		}
+		function setchaos(n) { chaos = 1; chaosl[n] = 1 }
+		# A line that may give .EXTRA_PREREQS words: make adds them to the
+		# prerequisites of each rule it is set for, every rule when it is set
+		# as any variable is.
+		function xpset(n) { xp = 1; xpl[n] = 1 }
+		# Whether x calls a function that fn names (a|b), by its name or
+		# through call, which runs any function by the name it is given: call
+		# itself among them, and one a reference gives.
+		function calls(x, fn,   f) {
+			if (x ~ ("\\$[({](" fn ")[ \t\n\v\f\r]")) return 1
+			while (match(x, /\$[({]call[ \t\n\v\f\r]/)) {
+				x = substr(x, RSTART + RLENGTH)
+				match(x, /^[^,)}]*/)
+				f = substr(x, 1, RLENGTH)
+				gsub(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/, "", f)
+				if (index(f, "$") || f == "call" || f ~ ("^(" fn ")$")) return 1
+			}
+			return 0
+		}
+		# Whether a value may hold a ;: one in its text, or one that a
+		# function may give and the Makefile does not hold (what a shell
+		# prints, the text of a file, the names a wildcard finds). A file it
+		# includes, and a != (what a shell prints), may give one too. So may
+		# the name of a variable, one the Makefile sets or exports or one
+		# from the environment, which .VARIABLES lists: a reference to it may
+		# give one (value, above, where a reference gives its name). A ; in
+		# the targets or prerequisites of a rule, once expanded, starts its
+		# recipe, so from here on a rule whose list this reader cannot expand
+		# may have a recipe it cannot see (gateu, and ru: ruleline).
+		function maysemi(x) {
+			if (index(x, ";") || index(x, ".VARIABLES") || calls(x, "shell|file|guile|wildcard"))
+				semiseen = 1
+		}
+		# A != sets a variable to what a shell prints, and make expands that
+		# again where the variable is used: a ; may come from it, and so may
+		# an eval the Makefile text never shows, which make runs where a
+		# line it reads uses the variable.
+		function bang() { semiseen = 1; evalseen = 1 }
+		# ov[v]: 1 set with override, so a plain assignment to v changes
+		# nothing; 2 maybe so; ovl[v] the line that made it maybe.
+		function ovset(v, o, n) { if (o == 2 && ov[v] != 2) ovl[v] = n; ov[v] = o }
+		# A line that may set PN (PM its modifiers), or may not: PN is not
+		# known below it, and with override, nor is a plain assignment to it.
+		function mayset(n,   w, o) {
+			o = index(PM " ", " override ")
+			maysemi(PN); maysemi(PV); if (PO == "!=") bang()
+			EU = 0; split("", EC); w = trim(ex(PN, "i", 0)); maysemi(w)
+			if ((EU || w == ".EXTRA_PREREQS") && !index(PM " ", " undefine ") && trim(PV) != "") xpset(n)
+			if (EU) {
+				ugen++; ugline[ugen] = n
+				if (o) { ovany = 1; ovanyl = n }
+				return
+			}
+			if (o && index(PM " ", " undefine ")) { if (ov[w] == 1) ovset(w, 2, n) }
+			else if (o && ov[w] != 1) ovset(w, 2, n)
+			setu(w, n)
+		}
+		# The rule above ends here: under a conditional, maybe.
+		function endctx() {
+			if (!depth) { ctx = 0; curs = " "; ccurs = " "; unkcur = 0 }
+			else if (ctx == 1) ctx = 2
+		}
+		function assign(nm, op, raw, ovr, n, unc,   st, e, mb) {
+			curn = n
+			maysemi(nm); maysemi(raw); if (op == "!=") bang()
+			if (index(nm, "$")) {
+				EU = 0; split("", EC)
+				nm = ex(nm, "i", 0)
+				# Any variable may be the one set, with override too.
+				if (EU) {
+					ugen++; ugline[ugen] = n; if (ovr) { ovany = 1; ovanyl = n }
+					if (op != "undefine" && (trim(raw) != "" || unc)) xpset(n)
+					return
+				}
+			}
+			nm = trim(nm); maysemi(nm)
+			if (nm == ".EXTRA_PREREQS" && op != "undefine" && (trim(raw) != "" || unc)) xpset(n)
+			if (nm == ".RECIPEPREFIX") { setchaos(n); return }
+			if (nm == ".DEFAULT_GOAL") dgl = n
+			st = vstate(nm)
+			# ?= on a variable that is set changes nothing, override or not,
+			# nor does += with nothing to add; mb: maybe nothing.
+			if (op == "?=" && (st == "r" || st == "s")) return
+			mb = (op == "?=" && st == "u")
+			if (op == "+=" && st != "n") {
+				if (raw == "" && !unc) return
+				if (st == "s") {
+					EU = 0; split("", EC)
+					if (ex(raw, "i", 0) == "" && !EU) return
+					mb = EU
+				}
+				if (st == "u") mb = 1
+			}
+			# A variable set with override ignores a plain assignment, and
+			# undefine with override unsets it for good.
+			if (!ovr && ov[nm] == 1) return
+			if (ovr) {
+				if (op == "undefine") ovset(nm, depth ? (ov[nm] ? 2 : 0) : 0, n)
+				else if (mb) { if (ov[nm] != 1) ovset(nm, 2, n) }
+				else ovset(nm, (depth && ov[nm] != 1) ? 2 : 1, n)
+				if (depth || unc) { setu(nm, n); return }
+			}
+			else if (ov[nm] == 2 || ovany || depth || unc) {
+				setu(nm, n, (ov[nm] == 2 ? ovl[nm] : "") (ovany ? " " ovanyl : ""))
+				return
+			}
+			if (op == "undefine") { fl[nm] = "n"; vv[nm] = ""; at[nm] = ugen; return }
+			if (op == "!=") { setu(nm, n); return }
+			if (st == "u" && (op == "?=" || op == "+=")) {
+				split("", EC); whyvar(nm); setu(nm, n, ecs())
+				return
+			}
+			if (op == "?=") {
+				if (st != "n") return
+				op = "="
+			}
+			if (op == "+=") {
+				if (st == "n") op = "="
+				else if (st == "r") { vv[nm] = (vv[nm] == "" ? raw : vv[nm] " " raw); return }
+				else {
+					EU = 0; split("", EC)
+					e = ex(raw, "i", 0)
+					if (EU) { setu(nm, n, ecs()); return }
+					vv[nm] = (vv[nm] == "" ? e : vv[nm] " " e)
+					return
+				}
+			}
+			if (op == "=") { fl[nm] = "r"; vv[nm] = raw; at[nm] = ugen; return }
+			EU = 0; split("", EC)
+			e = ex(raw, "i", 0)
+			if (EU) { setu(nm, n, ecs()); return }
+			fl[nm] = "s"; vv[nm] = e; at[nm] = ugen
+		}
+		# A define body, line by line, to its endef: one line is a value,
+		# more (or one a backslash continues) is none this reads. make takes
+		# a backslash and newline in it, with the blanks around them, for one
+		# space, on each of its lines, a TAB line too; and the name of a
+		# function may end a line of it, the newline after the name being the
+		# space make reads it by, so the whole body is looked at too.
+		function defline(x, n,   y) {
+			while (odd_bs(x) && (getline y) > 0) {
+				y = no_cr(y); dcont = 1
+				x = substr(x, 1, length(x) - 1)
+				sub(/[ \t]+$/, "", x); sub(/^[ \t]+/, "", y)
+				x = x " " y
+			}
+			if (substr(x, 1, 1) != "\t") {
+				if (x ~ /^[ \t]*define([ \t]|$)/) dlev++
+				else if (x ~ /^[ \t]*endef([ \t]|$)/ && --dlev == 0) {
+					indef = 0
+					maysemi(dbody)
+					if (calls(dbody, "eval|guile")) evalseen = 1
+					if (pvd(dspec)) { dnm = PN; dop = PO } else { dnm = dspec; dop = "=" }
+					assign(dnm, dop, dn == 1 ? dbody : "", index(dpm " ", " override "), defn, dn > 1 || dcont)
+					return
+				}
+			}
+			maysemi(x)
+			if (calls(x, "eval|guile")) evalseen = 1
+			dbody = dn++ ? dbody "\n" x : x
+		}
+		# A recipe line as make expands it, once the whole file is read:
+		# make first takes each backslash and newline inside a reference,
+		# with the blanks before them and the spaces after, for one space
+		# (its job.c, so that a function sees none of them), which can make
+		# the name before them the name of a function. Two backslashes
+		# there are no such pair. The rest of the line keeps them, as sh
+		# reads it.
+		function colref(s,   o, j, c, cl, lv, ch, q, k) {
+			o = ""
+			while ((j = index(s, "$")) > 0) {
+				o = o substr(s, 1, j)
+				s = substr(s, j + 1)
+				c = substr(s, 1, 1)
+				if (c != "(" && c != "{") continue
+				cl = (c == "(") ? ")" : "}"
+				o = o c; s = substr(s, 2); lv = 0; k = length(o)
+				while (s != "") {
+					ch = substr(s, 1, 1)
+					if (ch == cl && --lv < 0) break
+					if (ch == "\\" && substr(s, 2, 1) == "\n") {
+						match(substr(o, k + 1), /\\*$/)
+						if (RLENGTH % 2) { o = o ch; s = substr(s, 2); continue }
+						s = substr(s, 3); sub(/^[ \t\n\v\f\r]+/, "", s)
+						q = substr(o, k + 1); sub(/[ \t]+$/, "", q)
+						o = substr(o, 1, k) q " "
+						continue
+					}
+					if (ch == c) lv++
+					o = o ch; s = substr(s, 2)
+				}
+			}
+			return o s
+		}
+		function recipe(t, n, tgs) {
+			t = colref(t)
+			rN++; rl[rN] = n; rt[rN] = t; rtg[rN] = tgs
+			# An eval make runs as it expands a recipe may set any variable.
+			if (calls(t, "eval|guile")) reval = 1
+		}
+		function addl(arr, t, n) { arr[t] = arr[t] " " n }
+		function unsafe(w) { return w ~ /[;&|<>`"\\$()]/ || index(w, "\047") }
+		function autouns(n) { if (!autou) { autou = 1; autol = n } }
+		# The first target t of a rule, that is no .name in no pattern
+		# rule, sets the default goal while it is empty -- unless override
+		# set it.
+		function dgcand(t, n,   st) {
+			st = vstate(".DEFAULT_GOAL")
+			if (st == "u" || (st != "n" && vv[".DEFAULT_GOAL"] != "")) return
+			if (ov[".DEFAULT_GOAL"] == 1) return
+			if (ov[".DEFAULT_GOAL"] == 2 || ovany) {
+				setu(".DEFAULT_GOAL", n, ov[".DEFAULT_GOAL"] == 2 ? ovl[".DEFAULT_GOAL"] : ovanyl)
+				dgl = n
+				return
+			}
+			if (st == "n" || depth || t == "") { setu(".DEFAULT_GOAL", n); dgl = n; return }
+			fl[".DEFAULT_GOAL"] = "s"; vv[".DEFAULT_GOAL"] = t; at[".DEFAULT_GOAL"] = ugen
+			dgl = n
+		}
+		# A line make reads as a rule: targets, then prerequisites, then
+		# the recipe after a ;.
+		function ruleline(x, n,   pre, semi, rec, i, tg, rest, tu, m, w, tw, k, j, pat, pr, pu, stat, tgs, why, pn, dc, pb) {
+			pre = scan(x, ";#")
+			semi = (SCHAR == ";")
+			rec = semi ? SREST : ""
+			if (!(i = colon(pre))) { lone(pre, semi, n); return }
+			tg = substr(pre, 1, i - 1)
+			rest = substr(pre, i + 1)
+			dc = (substr(rest, 1, 1) == ":")
+			if (dc) rest = substr(rest, 2)
+			sub(/[ \t]*&[ \t]*$/, "", tg)
+			# A target-specific variable is no rule. make tells one by the text
+			# before the ;, and gives the ; and what follows back to its value.
+			if (pva(rest, 1)) {
+				if (semi) PV = PV ";" rec
+				endctx()
+				if (index(PN, "$")) { tsvany = 1; tsvanyl = n } else tsvu[trim(PN)] = n
+				if ((index(PN, "$") || trim(PN) == ".EXTRA_PREREQS") && trim(PV) != "") xpset(n)
+				maysemi(PV)
+				return
+			}
+			curn = n; EU = 0; split("", EC)
+			tg = ex(tg, "i", 0)
+			tu = EU
+			m = 0; pat = 0
+			if (!tu) {
+				k = split(tg, w, /[ \t]+/)
+				for (j = 1; j <= k; j++) {
+					if (w[j] == "") continue
+					w[j] = dot(w[j])
+					gsub(/\\:/, ":", w[j])
+					tw[++m] = w[j]
+					if (index(w[j], "%")) pat = 1
+					if (unsafe(w[j])) autouns(n)
+				}
+			} else autouns(n)
+			maysemi(pre)
+			curn = n; EU = 0; split("", EC)
+			pr = ex(rest, "i", 0)
+			pu = EU; why = ecs()
+			if (!semi && !pu && (k = index(pr, ";"))) {
+				semi = 1; rec = substr(pr, k + 1); pr = substr(pr, 1, k - 1)
+			}
+			stat = 0
+			if (!pu && (k = colon(pr, 1))) { stat = 1; pr = substr(pr, k + 1) }
+			gsub(/\|/, " ", pr)
+			if (pu) autouns(n)
+			else {
+				k = split(pr, w, /[ \t]+/)
+				for (j = 1; j <= k; j++) if (unsafe(w[j])) autouns(n)
+			}
+			if ((pu || tu) && semiseen) { gateu = 1; gatel[n] = 1 }
+			pn = ""; pb = m
+			if (pat && !stat) {
+				# A pattern rule (implicit, below): its patterns, and a name
+				# of its own its prerequisites and recipe go by. A target
+				# with no % on the line keeps the rule: make gives it the
+				# rule when such a target comes first, reading the % ones
+				# then as plain names (and stops on the line when a % one
+				# comes first); here they stay patterns, which can only make
+				# the answer 5. pb: the targets with no % before the first
+				# with one, the only ones that may be the default goal.
+				pn = "%" (++pN); ps[pN] = ""; pl[pN] = n
+				k = m; m = 0; pb = -1
+				for (j = 1; j <= k; j++) {
+					if (!index(tw[j], "%")) { tw[++m] = tw[j]; continue }
+					ps[pN] = ps[pN] " " tw[j]
+					if (pb < 0) pb = m
+				}
+			}
+			if (!pu && !depth) for (j = 1; j <= m; j++) if (tw[j] == ".PHONY") {
+				k = split(pr, w, /[ \t]+/)
+				for (i = 1; i <= k; i++) if (w[i] != "") phony[dot(w[i])] = 1
+			}
+			# The suffixes .SUFFIXES names, under a conditional too: any
+			# name, when this reader cannot expand them.
+			for (j = 1; j <= m; j++) if (tw[j] == ".SUFFIXES") {
+				if (pu) sfxu = 1
+				else {
+					k = split(pr, w, /[ \t]+/)
+					for (i = 1; i <= k; i++) if (w[i] != "") SUFD[w[i]] = 1
+				}
+			}
+			# The context the recipe lines below belong to; ccurs, the
+			# targets whose rule is certain to be there: none, after a rule
+			# under a conditional, as the lines may belong to that rule or
+			# to the one above it.
+			if (!depth) { ctx = 1; curs = " "; ccurs = " "; unkcur = 0 }
+			else {
+				ccurs = " "
+				if (ctx == 0) { ctx = 2; curs = " "; unkcur = 0 }
+			}
+			tgs = " "
+			for (j = 1; j <= m; j++) {
+				has[tw[j]] = 1
+				if (!(tw[j] in tl)) tl[tw[j]] = n
+				# Each :: rule of a target is one of its own: dcn counts
+				# them, dco says the last has no recipe yet (recd, below).
+				if (dc) { dcn[tw[j]]++; dco[tw[j]] = 1 }
+				if (!depth) { cert[tw[j]] = 1; ccurs = ccurs tw[j] " " }
+				if (!index(tgs, " " tw[j] " ")) tgs = tgs tw[j] " "
+				if (!index(curs, " " tw[j] " ")) curs = curs tw[j] " "
+				if (pu) { addl(Ul, tw[j], n); uc[n] = why }
+				else if (trim(pr) != "") addl(Wl, tw[j], n)
+			}
+			if (pn != "") {
+				tgs = tgs pn " "; curs = curs pn " "
+				if (pu) { addl(Ul, pn, n); uc[n] = why }
+				else if (trim(pr) != "") addl(Wl, pn, n)
+			}
+			# Targets it cannot expand may be any, patterns among them: a
+			# reference may hold several words, and one may be a %.
+			if (tu) { unktgt = 1; unkl[n] = 1; unkcur = 1; dgcand("", n) }
+			else for (j = 1; j <= m && j <= pb; j++) {
+				if (index(tw[j], "%")) break
+				if (tw[j] ~ /^\./ && !index(tw[j], "/")) continue
+				# make passes over a name it may take for a suffix rule.
+				if (sfxname(tw[j])) { dgcand("", n); break }
+				dgcand(tw[j], n)
+				break
+			}
+			if (semi) { recipe(rec, n, tgs); if (!depth) recd(tgs) }
+			# A ; it cannot see may start a recipe in what it cannot expand:
+			# maybe one, whose lines are those it could not tell from.
+			else if (pu && semiseen) { recipe("", n, tgs); ru[rN] = why }
+		}
+		# Targets that have a recipe for certain, and the :: rule of each
+		# that had none so far.
+		function recd(s,   k, w, i) {
+			k = split(s, w, " ")
+			for (i = 1; i <= k; i++) {
+				hasrec[w[i]] = 1
+				if (dco[w[i]]) { dco[w[i]] = 0; dcr[w[i]]++ }
+			}
+		}
+		# Whether x may be a suffix: one .SUFFIXES named, or any name with
+		# a . in front, which the list make starts with may hold.
+		function psuf(x) { return x != "" && (sfxu || (x in SUFD) || substr(x, 1, 1) == ".") }
+		# Whether t, a name with no . in front, may name a suffix rule, by
+		# the suffixes named so far: one of them, or one and then another.
+		function sfxname(t,   i) {
+			if (sfxu || (t in SUFD)) return 1
+			for (i = 2; i <= length(t); i++)
+				if ((substr(t, 1, i - 1) in SUFD) && psuf(substr(t, i))) return 1
+			return 0
+		}
+		# A line with no `:`, such as a reference standing alone, make reads
+		# as a rule all the same, once it is expanded: nothing, when it
+		# expands to nothing; else a rule (or an error) this reader reads
+		# again when it can, and is lost on. A function it calls (an eval)
+		# may set any variable.
+		function lone(pre, semi, n,   e) {
+			endctx()
+			curn = n; EU = 0; split("", EC)
+			e = ex(pre, "i", 0)
+			ugen++; ugline[ugen] = n
+			if (!EU && trim(e) == "" && !semi) return
+			if (!EU && !semi && colon(e) && !index(e, "$") && !index(e, "#")) { ruleline(e, n); return }
+			lost = 1; whylost[n] = 1
+			ctx = 2; curs = " "; unkcur = 1
+		}
+		# A directive make expands as it reads it (a conditional, include,
+		# export, unexport, vpath): once the file has an eval, or a != that
+		# may give one, a function it calls, or a variable it expands, may
+		# run one, and leave this reader lost (SFX).
+		function rdx(t) {
+			if (!evalseen) return
+			if (t ~ /\$[({][a-z-]+[ \t\n\v\f\r]/) { SFX = 1; return }
+			EU = 0; split("", EC)
+			ex(t, "i", 0)
+		}
+		# A line that is no recipe: an assignment, a directive, or a rule.
+		# maybe: a TAB line that may be a recipe instead, so what it sets
+		# is uncertain, and what would change how the lines below are read
+		# leaves this reader lost.
+		function ordinary(x, n, maybe,   t, w) {
+			curn = n
+			if (calls(x, "eval|guile")) evalseen = 1
+			t = scan(x, "#")
+			sub(/^[ \t]+/, "", t)
+			if (t == "") return
+			if (pva(t, 0)) {
+				if (index(PM " ", " define ")) {
+					if (maybe) { setchaos(n); return }
+					endctx()
+					indef = 1; dlev = 1; dn = 0; dcont = 0; dbody = ""
+					defn = n; dpm = PM; dspec = PN
+					return
+				}
+				if (maybe) { mayset(n); return }
+				endctx()
+				if (index(PM " ", " undefine ")) assign(PN, "undefine", "", index(PM " ", " override "), n, 0)
+				else assign(PN, PO, PV, index(PM " ", " override "), n, 0)
+				return
+			}
+			match(t, /^[^ \t]+/)
+			w = substr(t, 1, RLENGTH)
+			if (w ~ /^(ifeq|ifneq|ifdef|ifndef|else|endif)$/) {
+				if (maybe) { setchaos(n); return }
+				rdx(t)
+				if (w == "endif") { if (depth) depth--; else { lost = 1; whylost[n] = 1 } }
+				else if (w == "else") { if (!depth) { lost = 1; whylost[n] = 1 } }
+				else condl[++depth] = n
+				return
+			}
+			if (w == "endef") { if (maybe) setchaos(n); else { lost = 1; whylost[n] = 1 }; return }
+			# export and unexport define each variable they name that is
+			# not set.
+			if (w == "export" || w == "unexport") maysemi(t)
+			if (w == "export" || w == "unexport" || w == "vpath") { rdx(t); if (!maybe) endctx(); return }
+			if (w ~ /^(include|-include|sinclude|load|-load)$/) {
+				rdx(t)
+				ugen++; ugline[ugen] = n; semiseen = 1
+				if (!maybe) endctx()
+				return
+			}
+			if (substr(x, 1, 1) == "\t") {
+				# make: the recipe commences before the first target
+				if (maybe) ctx = 1
+				else { lost = 1; whylost[n] = 1 }
+				return
+			}
+			ruleline(x, n)
+		}
+		# A recipe line make might read as an assignment: what it sets is
+		# not certain.
+		function shaped(t, n) {
+			if (pva(t, 0) && !index(PM " ", " define ")) mayset(n)
+		}
+		# A recipe line as written, from its first command: make passes it
+		# on without the TAB after each newline, or the - @ + and blanks
+		# before it.
+		function bare(t) {
+			gsub(/\n\t/, "\n", t)
+			sub(/^[-@+ \t]+/, "", t)
+			return t
+		}
+		# The command t starts with, when it is one that runs nothing --
+		# echo, true or : -- else "": the word ends at a blank, a newline,
+		# a backslash, a ; & | < or >, or the end of t. literal, echoed
+		# and busy all ask it, so they never disagree on what is an echo.
+		function noop(t,   c) {
+			if (!match(t, /^(echo|true|:)/)) return ""
+			c = substr(t, RLENGTH + 1, 1)
+			return (c == "" || index(" \t\n\\;&|<>", c)) ? substr(t, 1, RLENGTH) : ""
+		}
+		# A recipe line, as written, that starts with a command no
+		# expansion can change and that is no echo: it does something,
+		# whatever the rest of it expands to.
+		function literal(t,   w) {
+			t = bare(t)
+			if (noop(t) != "" || !match(t, /^[^ \t\n;&|<>()]+/)) return 0
+			w = substr(t, 1, RLENGTH)
+			if (w ~ /[$\\"`]/ || index(w, "\047") || w ~ /^#/) return 0
+			return 1
+		}
+		# A recipe line, as written, whose command is echo.
+		function echoed(t) {
+			return noop(bare(t)) == "echo"
+		}
+		# A recipe line, expanded, that does more than one echo: one
+		# judge_mk would report, or one that starts as a stub line does
+		# and runs more -- a second command after an unquoted ; & or |, a
+		# redirection (not >&2, below), a command substituted into its
+		# words, or a command on a line a comment continues (sh ends a
+		# comment at the newline make passes on). Quotes are read as sh
+		# reads them; a continued line keeps its backslash and newline, so
+		# an echo whose words go on is one echo.
+		function busy(r, inner,   i, c, d, q, cm, n) {
+			gsub(/\n\t/, "\n", r)
+			if (inner) sub(/^[ \t]+/, "", r)
+			else sub(/^[-@+ \t]+/, "", r)
+			r = trim(r)
+			if (r == "") return 0
+			if (r ~ /^#/) cm = 1
+			else if (noop(r) == "") return 1
+			q = 0
+			n = length(r)
+			for (i = 1; i <= n; i++) {
+				c = substr(r, i, 1)
+				d = substr(r, i + 1, 1)
+				if (cm) {
+					# The comment ends here; what follows is a command.
+					if (c == "\n") return busy(substr(r, i + 1), 1)
+					continue
+				}
+				if (q == 1) { if (c == "\047") q = 0; continue }
+				if (c == "\\") { i++; continue }
+				if (c == "`" || (c == "$" && d == "(")) return 1
+				if (q == 2) { if (c == "\"") q = 0; continue }
+				if (c == "\047") { q = 1; continue }
+				if (c == "\"") { q = 2; continue }
+				# >&2 or 1>&2, one descriptor made a copy of another (an
+				# echo to stderr), opens no file and runs nothing.
+				if (c == ">" && substr(r, i, 4) ~ /^>&[0-9]([ \t\n;&|]|$)/) { i += 2; continue }
+				if (index(";&|<>\n", c)) return 1
+				if (c == "#" && (i == 1 || substr(r, i - 1, 1) ~ /[ \t]/)) cm = 1
+			}
+			return 0
+		}
+		function line(x, n,   y, p) {
+			if (indef) { defline(x, n); return }
+			if (substr(x, 1, 1) == "\t" && ctx) {
+				# A recipe line, as make passes it to sh: its backslash
+				# and newline kept.
+				while (odd_bs(x) && (getline y) > 0) { y = no_cr(y); x = x "\n" y }
+				p = x; gsub(/\\\n/, " ", p); text[n] = p
+				recipe(substr(x, 2), n, curs)
+				if (ctx == 1) {
+					if (!depth) recd(ccurs)
+					shaped(substr(x, 2), n)
+					return
+				}
+				y = x; gsub(/[ \t]*\\\n[ \t]*/, " ", y)
+				ordinary(y, n, 1)
+				return
+			}
+			while (odd_bs(x) && (getline y) > 0) {
+				y = no_cr(y)
+				x = substr(x, 1, length(x) - 1)
+				sub(/[ \t]+$/, "", x); sub(/^[ \t]+/, "", y)
+				x = x " " y
+			}
+			text[n] = x
+			ordinary(x, n, 0)
+		}
+		{
+			n = NR
+			x = $0
+			line(x, n)
+			if (SFX) { SFX = 0; ugen++; ugline[ugen] = n; lost = 1; whylost[n] = 1 }
+		}
+		function show(set,   k, a, m, i, j, t) {
+			m = 0
+			for (k in set) if (k + 0 > 0) a[++m] = k + 0
+			for (i = 2; i <= m; i++) {
+				t = a[i]
+				for (j = i - 1; j >= 1 && a[j] > t; j--) a[j + 1] = a[j]
+				a[j + 1] = t
+			}
+			for (i = 1; i <= m; i++) if (a[i] in text) printf "    %d: %s\n", a[i], text[a[i]]
+		}
+		function addset(set, s,   k, w, i) {
+			k = split(s, w, " ")
+			for (i = 1; i <= k; i++) set[w[i]] = 1
+		}
+		# THE IMPLICIT SEARCH. For a goal with no recipe of its own that is
+		# not .PHONY, make looks for another rule of the Makefile to make it
+		# with: a pattern rule whose pattern fits it (kind p), a suffix rule
+		# (s), and, for a name no rule has, the recipe of .DEFAULT (d).
+		# Whether make takes one turns on files this reader never looks at,
+		# so one with a recipe that gives the goal a prerequisite, or has a
+		# recipe line that does something or may, makes the answer 5: un,
+		# its lines in WHY. A rule with no recipe makes nothing, unless a ;
+		# this reader cannot see may start one (ru, in ruleline). The
+		# prerequisites of a pattern rule are those of the goal, and a
+		# suffix rule always gives it one, the source its suffix names (make
+		# drops any written on the line of a suffix rule); those of .DEFAULT
+		# make gives to no goal.
+		function imp(t, kind, rline,   k, w, j, r, f) {
+			r = 0; f = 0; split("", IW)
+			for (k = 1; k <= rN; k++) {
+				if (!index(rtg[k], " " t " ")) continue
+				r = 1
+				if (rv[k] == "") continue
+				IW[rl[k]] = 1; f = 1
+				if (rv[k] == "u") addset(IW, rc[k])
+			}
+			if (!r) return
+			if (kind == "s") f = 1
+			if (kind == "p") {
+				k = split(Wl[t] " " Ul[t], w, " ")
+				for (j = 1; j <= k; j++) { IW[w[j]] = 1; f = 1; if (w[j] in uc) addset(IW, uc[w[j]]) }
+			}
+			if (!f) return
+			IW[rline] = 1
+			for (k in IW) WHY[k] = 1
+			un = 1
+		}
+		# Whether a word of ps, the targets of a pattern rule, fits t: p%s
+		# fits a name that starts with p and ends with s, or the part of it
+		# after its last /.
+		function pmatch(ps, t,   w, n, i, j, bn) {
+			bn = t; sub(/^.*\//, "", bn)
+			n = split(ps, w, " ")
+			for (i = 1; i <= n; i++) {
+				j = index(w[i], "%")
+				if (pfit(substr(w[i], 1, j - 1), substr(w[i], j + 1), t) ||
+				    pfit(substr(w[i], 1, j - 1), substr(w[i], j + 1), bn)) return 1
+			}
+			return 0
+		}
+		function pfit(a, b, t) {
+			return length(t) >= length(a) + length(b) && substr(t, 1, length(a)) == a &&
+			    substr(t, length(t) - length(b) + 1) == b
+		}
+		# Whether t, a target with no / and no %, may be a suffix rule that
+		# makes g, by the suffixes .SUFFIXES named anywhere (psuf, above):
+		# one suffix (.c, or a name it named) makes any name, and two
+		# (.c.o) a name that ends in the second.
+		function sfx(t, g,   i, s) {
+			if (t ~ /[\/%]/ || (t in SPECIAL)) return 0
+			if (sfxu || (t in SUFD) || t ~ /^\.[^.]+$/) return 1
+			for (i = 2; i <= length(t); i++) {
+				s = substr(t, i)
+				if (psuf(substr(t, 1, i - 1)) && psuf(s) && length(g) > length(s) &&
+				    substr(g, length(g) - length(s) + 1) == s) return 1
+			}
+			return 0
+		}
+		END {
+			if (indef) { lost = 1; whylost[defn] = 1 }
+			if (depth) { lost = 1; whylost[condl[depth]] = 1 }
+			# Every recipe line, with the values the whole file gave.
+			for (k = 1; k <= rN; k++) {
+				curn = rl[k]; EU = 0; split("", EC)
+				if (k in ru) { rv[k] = "u"; rc[k] = ru[k] }
+				else {
+					OWNW = echoed(rt[k])
+					e = ex(rt[k], "r", 0)
+					OWNW = 0
+					if (!EU) rv[k] = busy(e, 0) ? "w" : ""
+					else { rv[k] = literal(rt[k]) ? "w" : "u"; rc[k] = ecs() }
+				}
+				if (rv[k] != "") gate = 1
+			}
+			if (any != "") {
+				for (k = 1; k <= rN; k++) if (rv[k] == "w") exit 1
+				exit (gate || gateu || lost || chaos) ? 5 : 0
+			}
+			g = goal
+			if (g == "-") {
+				curn = 0; EU = 0; split("", EC); SFX = 0
+				e = trim(value(".DEFAULT_GOAL", "i", 0))
+				k = split(e, w, /[ \t]+/)
+				if (EU || SFX || k > 1) {
+					for (j in EC) OUT[j] = 1
+					for (j in whylost) OUT[j] = 1
+					if (dgl) OUT[dgl] = 1
+					show(OUT)
+					exit 5
+				}
+				g = dot(e)
+			}
+			wr = 0; un = 0
+			if (g != "") {
+				k = split(Wl[g], w, " ")
+				for (j = 1; j <= k; j++) { OUT[w[j]] = 1; WHY[w[j]] = 1; wr = 1 }
+				k = split(Ul[g], w, " ")
+				for (j = 1; j <= k; j++) { OUT[w[j]] = 1; WHY[w[j]] = 1; addset(WHY, uc[w[j]]); un = 1 }
+				for (k = 1; k <= rN; k++) {
+					if (rv[k] == "" || !index(rtg[k], " " g " ")) continue
+					OUT[rl[k]] = 1; WHY[rl[k]] = 1
+					if (rv[k] == "w") wr = 1
+					else { un = 1; addset(WHY, rc[k]) }
+				}
+				# A :: rule of g with no recipe is searched for on its own,
+				# whatever the other :: rules of g have.
+				if (!wr && (!(g in hasrec) || dcn[g] > dcr[g]) && !(g in phony)) {
+					for (k = 1; k <= pN; k++) if (pmatch(ps[k], g)) imp("%" k, "p", pl[k])
+					for (tn in has) if (sfx(tn, g)) imp(tn, "s", tl[tn])
+					if ((".DEFAULT" in has) && !(g in cert)) imp(".DEFAULT", "d", tl[".DEFAULT"])
+				}
+			}
+			# Which rules .EXTRA_PREREQS gives a prerequisite rests on values
+			# this reader does not follow, so once it may be set, any may.
+			if (!wr && xp && g != "") { for (j in xpl) WHY[j] = 1; un = 1 }
+			if (wr) { show(OUT); exit 0 }
+			if (un) { show(WHY); exit 5 }
+			if (lost || unktgt || chaos) {
+				for (j in whylost) WHY[j] = 1
+				for (j in unkl) WHY[j] = 1
+				for (j in chaosl) WHY[j] = 1
+				show(WHY)
+				exit 5
+			}
+			if (g == "" || !(g in has)) exit 3
+			exit 4
+		}' < "$1"
+}
+
 # ------------------------------------------------- shell deliverables + generators
 #
 # c-09's libft_creator.sh is a turned-in deliverable; the shell modules'
 # generators/exNN.sh are the only place a shell answer lives at all. Both ship as
 # a description and a no-op, so any command is an answer.
 judge_sh() {
-	awk '
+	awk "$_SC_NO_CR"'
 		{ line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line) }
 		line == "" { next }
 		line ~ /^#/ { next }
@@ -531,7 +1736,7 @@ judge_sh() {
 # before a comment opens or after it closes. A comment never closed is
 # reported where it opens: the rest of the file is text no block holds.
 judge_md() {
-	awk '
+	awk "$_SC_NO_CR"'
 		{
 			line = $0
 			while (1) {
@@ -589,11 +1794,22 @@ is_blank() {
 }
 
 # has_header SRC -- the header as reset_headers.sh knows it: its border, a
-# comment of 74 stars, on line 1 and on line 11.
+# comment of 74 stars, on line 1 and on line 11. Exit 2 when those borders
+# are there but one or both end in \r, printing the number of each line
+# whose border does ("1", "11" or "1 11"): the judges read a line without
+# its \r, but reset_headers.sh reads no header in that file and would leave
+# its identity as it is, so it is refused as one that nothing re-stamps,
+# saying which border. Only the borders are read, so the reason names them
+# and no other line: a half-converted file may have one CR border.
 has_header() {
 	awk 'BEGIN { b = "/* "; for (i = 0; i < 74; i++) b = b "*"; b = b " */" }
 		(NR == 1 || NR == 11) && $0 == b { n++ }
-		END { exit (n == 2 ? 0 : 1) }' < "$1"
+		(NR == 1 || NR == 11) && $0 == b "\r" { cr++; at = at (at == "" ? "" : " ") NR }
+		END {
+			if (n == 2) exit 0
+			if (n + cr == 2) { print at; exit 2 }
+			exit 1
+		}' < "$1"
 }
 
 # score KIND PATH -- read PATH, the blob the index holds for it in repo mode,
@@ -615,6 +1831,45 @@ score() {
 	# fails the judge with nothing printed, and nothing is exactly what a
 	# stub prints.
 	_out=$("judge_$1" "$2" "$_src") || refuse "$2" "could not be read to the end"
+	# A Makefile judge_mk passes is read again by goal_rule, every rule's
+	# recipe as make reads it (busy): judge_mk reads TAB lines that start
+	# with echo as echoes, so `echo x; cc ...` and `echo x && $(CC) ...`
+	# passed, and never sees a recipe after a `;` on a rule's line. --goal
+	# has the same last word (below). goal_rule's `any` prints nothing, so
+	# the report says what it found: a line that does more than echo (1),
+	# or a file this reader could not tell (5), which counts as written too
+	# but is no code it found, and is counted apart (untold) for the
+	# summary to say so. A 5 comes from a line that uses what the reader
+	# cannot know, or from a line it cannot read past (goal_rule's lost and
+	# chaos: a stray endif, a define or conditional left open, a lone
+	# $(eval ...)), so the text names both, and no example of either: a
+	# list of examples went false for every cause it left out, and --goal
+	# names the lines.
+	if [ "$1" = mk ] && [ -z "$_out" ]; then
+		goal_rule "$_src" - any > /dev/null
+		case $? in
+			0) ;;
+			1) _out="$(printf '    %s
+    %s
+    %s
+    %s' \
+				"a recipe line does more than echo: a command after a ';', a '&&' or a" \
+				"'|', a redirection to a file, a command run inside its words, or a recipe" \
+				"after a ';' on a rule's own line. stub_check.sh --goal RULE MAKEFILE names" \
+				"a rule's lines.")" ;;
+			5)
+				untold=$((untold + 1))
+				_out="$(printf '    %s
+    %s
+    %s
+    %s' \
+				"this reader could not tell whether every recipe line only echoes: a line" \
+				"uses what it cannot know, or the file holds a line it cannot read past," \
+				"so it counts as written. stub_check.sh --goal RULE MAKEFILE names the" \
+				"lines that made it so.")" ;;
+			*) refuse "$2" "could not be read to the end" ;;
+		esac
+	fi
 	if [ -n "$_out" ]; then
 		report "$2" "$_out"
 	elif is_blank "$1" "$_src"; then
@@ -629,10 +1884,29 @@ score() {
 	else
 		case "$1" in
 			c | h)
-				has_header "$_src" || report_refused "$2" "$(printf '    %s\n    %s\n    %s' \
-					"has no 42 header -- the 11-line block every .c and .h stub opens with," \
-					"a border of 74 stars on its first and last line. The norm requires it," \
-					"and nothing re-stamps a file without one.")" ;;
+				_crb=$(has_header "$_src")
+				case $? in
+					0) ;;
+					2)
+						if [ "$_crb" = "1 11" ]; then
+							_crw="$(printf '    %s\n    %s' \
+								"has CRLF line ends: both borders of its 42 header, lines 1 and 11, end" \
+								"in a carriage return, as an editor set to CRLF saves them.")"
+						else
+							_crn=11
+							[ "$_crb" = 11 ] && _crn=1
+							_crw="$(printf '    %s\n    %s' \
+								"has a CRLF line end: the border on line $_crb of its 42 header ends in a" \
+								"carriage return, and the one on line $_crn does not.")"
+						fi
+						report_refused "$2" "$(printf '%s\n    %s\n    %s' "$_crw" \
+							"reset_headers.sh reads no header there, so nothing would re-stamp it. Save" \
+							"it with LF line ends, the ones .gitattributes gives every text file here.")" ;;
+					*) report_refused "$2" "$(printf '    %s\n    %s\n    %s' \
+						"has no 42 header -- the 11-line block every .c and .h stub opens with," \
+						"a border of 74 stars on its first and last line. The norm requires it," \
+						"and nothing re-stamps a file without one.")" ;;
+				esac ;;
 		esac
 	fi
 }
@@ -678,6 +1952,58 @@ if [ "$MODE" = defines ]; then
 	exit 3
 fi
 
+if [ "$MODE" = goal ]; then
+	# The Makefile vetted as --file does, then judged whole (judge_mk): a
+	# stub's rules do nothing, whatever they are named. Only then the rule.
+	[ $# -eq 1 ] || { echo "stub_check: --goal $GOAL_NAME needs one Makefile" >&2; exit 2; }
+	f=$1
+	[ -f "$f" ] || { echo "stub_check: no such file: $f" >&2; exit 2; }
+	[ -r "$f" ] || { echo "stub_check: cannot read: $f" >&2; exit 2; }
+	case "$f" in
+		*Makefile | *makefile) ;;
+		*) echo "stub_check: --goal reads a Makefile, not: $f" >&2; exit 2 ;;
+	esac
+	_what="the $GOAL_NAME rule"
+	[ "$GOAL_NAME" != - ] || _what="the default goal"
+	# judge_mk reads TAB lines alone, so goal_rule's own reading of every
+	# recipe line (one after a `;`, one a variable fills) has the last word.
+	_out=$(judge_mk "$f" "$f") || refuse "$f" "could not be read to the end"
+	if [ -z "$_out" ]; then
+		goal_rule "$f" "$GOAL_NAME" any > /dev/null
+		case $? in
+			0)
+				echo "stub_check: $f is a stub: no recipe in it does more than echo, so $_what does nothing yet."
+				exit 0 ;;
+			1 | 5) ;;
+			*) refuse "$f" "could not be read to the end" ;;
+		esac
+	fi
+	_out=$(goal_rule "$f" "$GOAL_NAME")
+	case $? in
+		0)
+			printf '  %s\n' "$f"
+			printf '%s\n' "$_out"
+			echo "stub_check: $_what of $f does something (above)."
+			exit 1 ;;
+		5)
+			printf '  %s\n' "$f"
+			[ -z "$_out" ] || printf '%s\n' "$_out"
+			echo "stub_check: could not tell from the line(s) above whether $_what of $f does something, so it counts as written."
+			exit 1 ;;
+		4)
+			echo "stub_check: $_what of $f does nothing yet: no prerequisite, and no recipe line that does more than echo."
+			exit 0 ;;
+		3)
+			if [ "$GOAL_NAME" = - ]; then
+				echo "stub_check: $f has no rule a bare make would run."
+			else
+				echo "stub_check: $f has no $GOAL_NAME rule."
+			fi
+			exit 3 ;;
+		*) refuse "$f" "could not be read to the end" ;;
+	esac
+fi
+
 if [ "$MODE" = file ]; then
 	# Check exactly the paths given, classified by name, with no git. The
 	# workspace is read for one thing only, the place in it an approved
@@ -709,13 +2035,14 @@ if [ "$MODE" = file ]; then
 else
 	# Only repo mode has a workspace to stand in; --file takes the caller's cwd
 	# so that a path relative to it still resolves.
-	cd "$WS" || exit 1
+	cd "$WS" || { echo "stub_check: cannot enter the workspace $WS: no verdict" >&2; exit 2; }
 	_prefix="${scope:-*}"
-	LISTS=$(mktemp -d)
+	LISTS=$(mktemp -d) || { echo "stub_check: cannot create a scratch directory" >&2; exit 2; }
 	CONTENT_TMP="$LISTS/content"
 	trap 'rm -rf "$LISTS"' EXIT
 	trap 'exit 143' TERM
 	trap 'exit 130' INT
+	trap 'exit 129' HUP
 
 	# ls_index FILE PATHSPEC... -- the INDEX's paths matching PATHSPEC, one per
 	# line, into FILE. A listing that fails is a refusal like an unreadable
@@ -783,10 +2110,19 @@ else
 	# checker never looks. Work written there -- c-piscine-reloaded's ex06/ at
 	# the project root, say, where the Vogsphere repo has it -- would reach the
 	# template unread. The allowlist is what legitimately lives beside a
-	# project: its BUILD file and README, a group project's team file (rush-00's
-	# team.bzl, which says what the team owes and holds no code), its subject
-	# (or the template's placeholder), and the exam guide, which is a study
-	# document rather than a project.
+	# project: its BUILD file, README and .gitignore, a group project's team
+	# file (rush-00's team.bzl, which says what the team owes and holds no
+	# code), its subject (or the template's placeholder), and the exam guide,
+	# which is a study document rather than a project; and a course folder's
+	# own README and .gitignore.
+	#
+	# Each at its place and nowhere deeper. A project folder is
+	# <course>/<project>, or cursus/<Milestone>/<project> (a cursus project
+	# may hold only its subject PDF, so no BUILD file can say where one is);
+	# its tests/ is the folder directly in it. The names once matched at any
+	# depth, so a README.md holding a method in a third-place folder, a PDF,
+	# a team.bzl or a tests/ folder of one's own under one, went unread. A
+	# deliverable/ or generators/ at any depth is the zone, read above.
 	#
 	# And 42's issued files, from tools/resources.tsv in the INDEX like
 	# everything else here: each row's one registered path, and the placeholder
@@ -812,16 +2148,18 @@ else
 	else
 		ls_index "$LISTS/course" "$_prefix/*"
 	fi
-	grep -v '^$' "$LISTS/course" |
-		grep -vE '/(deliverable|generators|tests)/' |
-		grep -vE '(^|/)(BUILD\.bazel|README\.md|\.gitignore|team\.bzl)$' |
-		grep -vE '\.pdf$|groups_subject\.txt$|subject-ammendment\.md$' |
-		grep -vE '(^|/)c-piscine-exam-prep/' |
+	awk -F/ '
+		$0 == "" || /\/(deliverable|generators)\// { next }
+		$1 == "c-piscine" && $2 == "c-piscine-exam-prep" { next }
+		NF == 2 && ($2 == "README.md" || $2 == ".gitignore") { next }
+		{ pd = ($1 == "cursus") ? 3 : 2 }
+		NF > pd + 1 && $(pd + 1) == "tests" { next }
+		NF == pd + 1 && ($NF ~ /^(BUILD\.bazel|README\.md|\.gitignore|team\.bzl)$/ ||
+			$NF ~ /\.pdf$|groups_subject\.txt$|subject-ammendment\.md$/) { next }
+		{ print }' "$LISTS/course" |
 		{ if [ -n "$res_allow" ]; then grep -vxF -e "$res_allow"; else cat; fi; } \
 		> "$LISTS/outside" || :
 fi
-
-[ "$checked" -gt 0 ] || { echo "stub_check: no deliverables found${scope:+ under $scope}" >&2; exit 1; }
 
 # ------------------------------------------------- kinds nothing can classify
 #
@@ -842,10 +2180,20 @@ if [ "$MODE" = repo ]; then
 			"here has looked inside it -- and everything under generators/ is an answer")"
 	done < "$LISTS/gen_other"
 	while IFS= read -r f; do
-		report_unread "$f" "$(printf '    %s\n    %s\n' \
-			"tracked in a project folder but under none of deliverable/, generators/" \
-			"or tests/: AGENTS.md §0 says there is no third place, and nothing reads it")"
+		report_unread "$f" "$(printf '    %s\n    %s\n    %s\n' \
+			"tracked in a course or project folder but under none of its project's" \
+			"deliverable/, generators/ or tests/, and no file a project keeps beside" \
+			"them: AGENTS.md §0 says there is no third place, and nothing reads it")"
 	done < "$LISTS/outside"
+fi
+
+# A zone with no file of a kind this reads is no verdict, said after the
+# files it does hold are named: it once stopped here first, so a zone of
+# unread files alone said "no deliverables found" and named none of them.
+if [ "$checked" -eq 0 ]; then
+	echo "stub_check: no deliverables found${scope:+ under $scope}: no verdict" >&2
+	[ "$unread" -eq 0 ] || echo "            ($unread file(s) above were never read)" >&2
+	exit 2
 fi
 
 echo
@@ -855,15 +2203,34 @@ if [ "$bad" -eq 0 ] && [ "$unread" -eq 0 ] && [ "$refused" -eq 0 ]; then
 fi
 if [ "$refused" -gt 0 ]; then
 	echo "stub_check: REFUSED — $refused of $checked deliverable(s) above hold no answer and are"
-	echo "            no stub either: each is empty, or has no 42 header. Put back what it"
-	echo "            lost, and run this again."
+	echo "            no stub either: each is empty, or has no 42 header that can be"
+	echo "            re-stamped. Do what each one says, and run this again."
 	[ "$bad" -gt 0 ] || [ "$unread" -gt 0 ] || exit 2
 fi
+# No body found, and files never read: no verdict (2), never 1, which the
+# template build reads as an answer to stub. Otherwise one FAIL stem, its
+# words chosen by what the files hold -- code it found, files it could not
+# tell (untold), or both -- then what that means, in a line or two, the
+# last of them joined by "; and" to the line on unread files below.
 if [ "$bad" -eq 0 ]; then
-	echo "stub_check: FAIL — none of $checked deliverable(s) holds an implementation, and"
+	echo "stub_check: NO VERDICT — none of $checked deliverable(s) holds an implementation, but"
 else
-	echo "stub_check: FAIL — $bad of $checked deliverable(s) still contain an implementation."
-	echo "            Every line above them is code that would ship in the template; and"
+	_held="still contain an implementation."
+	_first=""
+	_last="Every line above them is code that would ship in the template"
+	if [ "$untold" -eq "$bad" ]; then
+		# Files this reader could not tell, and nothing it found: no "code".
+		_held="may contain an implementation."
+		_first="This reader could not tell what the recipes above do, so each file"
+		_last="counts as written"
+	elif [ "$untold" -gt 0 ]; then
+		_held="still contain an implementation, or may:"
+		_first="$untold of them could not be told apart from code by this reader, and"
+		_last="every line above the rest is code that would ship in the template"
+	fi
+	echo "stub_check: FAIL — $bad of $checked deliverable(s) $_held"
+	[ -z "$_first" ] || echo "            $_first"
+	echo "            $_last; and"
 fi
 if [ "$unread" -gt 0 ]; then
 	echo "            $unread file(s) above were never read: a kind this checker cannot open,"
@@ -872,4 +2239,5 @@ if [ "$unread" -gt 0 ]; then
 else
 	echo "            no file was left unread."
 fi
+[ "$bad" -gt 0 ] || exit 2
 exit 1

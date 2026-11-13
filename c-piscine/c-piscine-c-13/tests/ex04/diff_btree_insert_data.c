@@ -11,6 +11,9 @@
 #include "diffio.h"
 #include "ft_btree.h"
 
+void	btree_insert_data(t_btree **root, void *item,
+			int (*cmpf)(void *, void *));
+
 static int	cmp_str(void *a, void *b)
 {
 	return (strcmp((char *)a, (char *)b));
@@ -95,8 +98,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		printf("%s\t%s\t", f[0], f[1]);
 		items = dio_hex_list(f[0], &n);
 		root = NULL;

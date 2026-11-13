@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+void	ft_list_push_front(t_list **begin_list, void *data);
+
 /* Print each node's data, one row per node labelled "<call>: node <n>",
  * reading at most `cap` nodes, and record each node in `seen` so it can be
  * freed once the printing is over. A list still going after `cap` nodes --

@@ -36,9 +36,49 @@ static inline int	dio_hv(int c)
 	return (value[(unsigned char)c]);
 }
 
+/* What a harness writes before it gives up on the corpus itself: the runner
+ * (tools/rust_diff.sh) reads it and reports a broken harness, exit 2, rather
+ * than a verdict on the student's function. */
+#define DIO_HARNESS_ERROR "diffio: HARNESS ERROR: "
+
+/* The harness cannot go on with this corpus: say why, and exit 2. */
+static inline void	dio_fail(const char *why)
+{
+	fprintf(stderr, DIO_HARNESS_ERROR "%s\n", why);
+	exit(2);
+}
+
+/* SIZED FROM THE CASE, NEVER A CAPACITY. Every array a harness fills from a
+ * corpus line comes from the helpers below, sized by what the line holds:
+ * a fixed int tab[64] or char *items[64] overflowed the harness's own stack,
+ * or silently dropped what did not fit, the first time a corpus held a case
+ * bigger than whoever wrote the harness expected -- and either way the
+ * differ blamed the student (finding 041). //tools:conventions refuses a
+ * fixed-size array in a diff_*.c that is not one of the two bounded by
+ * construction: the line dio_line reads (it exits 2 on a longer one) and the
+ * fields dio_split or dio_fields splits it into (never more than it is given
+ * room for). */
+
+/* A zeroed heap array of exactly n elements of `size` bytes: exact, so that
+ * under ASan (exNN_diff_asan) a step past the end is caught at the edge of
+ * the case itself. Never NULL: an empty case gets a valid pointer to nothing.
+ * Out of memory is a harness error. free() it. */
+static inline void	*dio_alloc(size_t n, size_t size)
+{
+	void	*p;
+
+	p = calloc(n, size);
+	if (p == NULL && n == 0)
+		p = calloc(1, size);
+	if (p == NULL)
+		dio_fail("out of memory for a case");
+	return (p);
+}
+
 /* Decode the first `hlen` hex digits of `h` (an even count) into a fresh
- * calloc'd buffer with `pad` extra zero bytes after the decoded content, plus
- * the one that terminates it as a C string. *len = decoded byte count.
+ * zeroed buffer (dio_alloc: never NULL, and out of memory a harness error) with
+ * `pad` extra zero bytes after the decoded content, plus the one that
+ * terminates it as a C string. *len = decoded byte count.
  * dio_unhex is the same for a whole string. For an input the function under
  * test reads: a DESTINATION it writes into comes from dio_garbage or dio_dest
  * below, never from the zeroed tail of this one (finding 057). A block the
@@ -51,7 +91,7 @@ static inline unsigned char	*dio_unhexn(const char *h, size_t hlen, size_t *len,
 	unsigned char	*b;
 
 	n = hlen / 2;
-	b = (unsigned char *)calloc(n + pad + 1, 1);
+	b = (unsigned char *)dio_alloc(n + pad + 1, 1);
 	i = 0;
 	while (i < n)
 	{
@@ -66,18 +106,6 @@ static inline unsigned char	*dio_unhexn(const char *h, size_t hlen, size_t *len,
 static inline unsigned char	*dio_unhex(const char *h, size_t *len, size_t pad)
 {
 	return (dio_unhexn(h, strlen(h), len, pad));
-}
-
-/* What a harness writes before it gives up on the corpus itself: the runner
- * (tools/rust_diff.sh) reads it and reports a broken harness, exit 2, rather
- * than a verdict on the student's function. */
-#define DIO_HARNESS_ERROR "diffio: HARNESS ERROR: "
-
-/* The harness cannot go on with this corpus: say why, and exit 2. */
-static inline void	dio_fail(const char *why)
-{
-	fprintf(stderr, DIO_HARNESS_ERROR "%s\n", why);
-	exit(2);
 }
 
 /* A destination for a function that writes into memory it is handed: exactly
@@ -118,6 +146,22 @@ static inline unsigned char	*dio_dest(const unsigned char *s, size_t len,
 	b = dio_garbage(cap);
 	memcpy(b, s, len);
 	b[len] = '\0';
+	return (b);
+}
+
+/* dio_dest of a corpus field: the string in hex, two digits per byte, decoded
+ * and copied into cap bytes of 0xff with its terminator, and the decode freed
+ * before it returns, so the caller frees only the destination. What every
+ * append reader does with its first column; dio_dest's check on cap holds. */
+static inline unsigned char	*dio_dest_hex(const char *hex, size_t cap)
+{
+	unsigned char	*s;
+	unsigned char	*b;
+	size_t			len;
+
+	s = dio_unhex(hex, &len, 0);
+	b = dio_dest(s, len, cap);
+	free(s);
 	return (b);
 }
 
@@ -169,32 +213,6 @@ static inline size_t	dio_caplen(const unsigned char *b, size_t cap)
 	if (nul == NULL)
 		return (cap);
 	return ((size_t)(nul - b));
-}
-
-/* SIZED FROM THE CASE, NEVER A CAPACITY. Every array a harness fills from a
- * corpus line comes from the helpers below, sized by what the line holds:
- * a fixed int tab[64] or char *items[64] overflowed the harness's own stack,
- * or silently dropped what did not fit, the first time a corpus held a case
- * bigger than whoever wrote the harness expected -- and either way the
- * differ blamed the student (finding 041). //tools:conventions refuses a
- * fixed-size array in a diff_*.c that is not one of the two bounded by
- * construction: the line dio_line reads (it exits 2 on a longer one) and the
- * fields dio_split splits it into (never more than it is given room for). */
-
-/* A zeroed heap array of exactly n elements of `size` bytes: exact, so that
- * under ASan (exNN_diff_asan) a step past the end is caught at the edge of
- * the case itself. Never NULL: an empty case gets a valid pointer to nothing.
- * Out of memory is a harness error. free() it. */
-static inline void	*dio_alloc(size_t n, size_t size)
-{
-	void	*p;
-
-	p = calloc(n, size);
-	if (p == NULL && n == 0)
-		p = calloc(1, size);
-	if (p == NULL)
-		dio_fail("out of memory for a case");
-	return (p);
 }
 
 /* ABOVE 4 GiB: WHERE A BLOCK WHOSE ADDRESS IS PRINTED LIVES (finding 048).
@@ -369,14 +387,19 @@ static inline void	dio_free_list(char **items, int n)
  * DIO_CASE_FILE nothing is installed and nothing is written: the count is
  * all the harness keeps, one increment per line.
  *
- * Under ASan the number is written from the sanitizer's death callback,
- * which runs before it aborts. The plain build has none, so it writes it from
- * a signal handler on the first SIGSEGV, SIGBUS, SIGFPE, SIGILL or SIGABRT,
- * on a stack of its own (a recursion that never ends dies by running out of
- * the one it had), with calls a handler may make (open, write, close), then
- * lets the signal end the run as it would have: SA_RESETHAND puts the
- * default action back and the handler raises it again, so the status the
- * runner reads is unchanged. */
+ * A signal handler writes it on the first deadly signal, on a stack of its
+ * own (a recursion that never ends dies by running out of the one it had),
+ * with calls a handler may make (open, write, close), then lets the signal
+ * end the run as it would have: SA_RESETHAND puts the default action back
+ * and the handler raises it again, so the status the runner reads is
+ * unchanged. Which signals depends on the build. The plain build takes
+ * SIGSEGV, SIGBUS, SIGFPE, SIGILL and SIGABRT. Under ASan, a death the
+ * sanitizer reports (a bad access, a SIGSEGV, SIGBUS or SIGFPE it catches
+ * itself) writes it from the sanitizer's death callback, which runs before
+ * the run ends; the handler takes only SIGILL and SIGABRT, which ASan leaves
+ * to the program (handle_sigill=0, handle_abort=0), so an abort(), a failed
+ * assert() or a trap names its case too. A stack ASan already put in place
+ * for its own handlers is kept. */
 #if defined(__SANITIZE_ADDRESS__)
 # define DIO_SANITIZED 1
 #elif defined(__has_feature)
@@ -432,13 +455,8 @@ static inline void	dio__say_case(void)
 
 #ifdef DIO_SANITIZED
 # include <sanitizer/common_interface_defs.h>
-
-static inline void	dio__arm(void)
-{
-	__sanitizer_set_death_callback(dio__say_case);
-}
-#else
-# include <signal.h>
+#endif
+#include <signal.h>
 
 static inline void	dio__on_signal(int sig)
 {
@@ -449,15 +467,25 @@ static inline void	dio__on_signal(int sig)
 static inline void	dio__arm(void)
 {
 	static char			alt[1 << 16];
+#ifdef DIO_SANITIZED
+	static const int	sigs[] = {SIGILL, SIGABRT};
+#else
 	static const int	sigs[] = {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT};
+#endif
 	struct sigaction	sa;
 	stack_t				st;
 	size_t				i;
 
-	st.ss_sp = alt;
-	st.ss_size = sizeof(alt);
-	st.ss_flags = 0;
-	sigaltstack(&st, NULL);
+#ifdef DIO_SANITIZED
+	__sanitizer_set_death_callback(dio__say_case);
+#endif
+	if (sigaltstack(NULL, &st) != 0 || (st.ss_flags & SS_DISABLE) != 0)
+	{
+		st.ss_sp = alt;
+		st.ss_size = sizeof(alt);
+		st.ss_flags = 0;
+		sigaltstack(&st, NULL);
+	}
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = dio__on_signal;
 	sigemptyset(&sa.sa_mask);
@@ -466,7 +494,6 @@ static inline void	dio__arm(void)
 	while (i < sizeof(sigs) / sizeof(sigs[0]))
 		sigaction(sigs[i++], &sa, NULL);
 }
-#endif
 
 /* One more line handed out. On the first, the runner's DIO_CASE_FILE is
  * read, and the report armed only when it names a file. */
@@ -609,6 +636,28 @@ static inline int	dio_split(char *line, char **fields, int maxf)
 	return (n);
 }
 
+/* dio_split, and the line held to the fields the harness reads: fewer than
+ * `need` is a HARNESS error, exit 2, never a case to skip. Every reader
+ * skipped such a line, `if (dio_split(...) < need) continue ;`, without a
+ * word, and the runner then blamed the student: the value diff for answers
+ * the harness never printed, the crash-only replay for an exit that came
+ * before the cases did. A corpus line has the fields its oracle arm writes,
+ * so a short one is an arm and a harness that disagree, as a line too long
+ * for dio_line's buffer is (finding 041's class). Returns the count, as
+ * dio_split does. //tools:conventions refuses the old guard in a diff_*.c. */
+static inline int	dio_fields(char *line, char **fields, int maxf, int need)
+{
+	int	n;
+
+	n = dio_split(line, fields, maxf);
+	if (n >= need)
+		return (n);
+	fprintf(stderr, DIO_HARNESS_ERROR "corpus line %lu has %d field(s), fewer "
+		"than the %d this harness reads: the oracle arm that wrote it and this "
+		"harness disagree on its columns.\n", *dio__count(), n, need);
+	exit(2);
+}
+
 /* Every field of `line`, split in place on tabs, in a heap array of exactly
  * *n of them (dio_nfields): for a line whose fields are ALL inputs, as many
  * as the case has. free() the array; the fields are the line's own bytes. */
@@ -620,6 +669,154 @@ static inline char	**dio_split_all(char *line, int *n)
 	fields = (char **)dio_alloc((size_t)*n, sizeof(char *));
 	dio_split(line, fields, *n);
 	return (fields);
+}
+
+/* WHAT A FUNCTION WRITES TO A DESCRIPTOR IT IS HANDED (Libft's ft_put*_fd).
+ * The reader hands the function a file and reads back what each call wrote
+ * to it: not a pipe, which a long case would fill and block on, and not fd 1
+ * or 2, where a function writing to the standard output instead would look
+ * right. And fd 1 is not the reader's stream while the function runs: it is
+ * a second such file, so bytes written there make a column of their own
+ * instead of landing in the middle of a line (V217). The three readers kept
+ * a copy each of the code below, the same edit made three times; it lives
+ * here once, and //tools:conventions refuses mkstemp and F_DUPFD in a
+ * diff_*.c, which belong to these helpers. An output fixture's capture is
+ * tools/fd_capture.h's, which reads the file back another way (it says
+ * how), and the same rule holds a test_*.c to it.
+ *
+ *     t_dio_fdcap	c;
+ *
+ *     dio_fdcap_open(&c, "diff_<fn>");    once, before the cases
+ *     dio_fd_aside(&c);                    fd 1 is c.stray from here
+ *     ... the call, handed c.fd ...
+ *     w = dio_fd_take(&c, "<fn>", &n);     fd 1 is back; n bytes in w
+ *     ... print w, then dio_put_stray(c.stray), free(w) ...
+ *     dio_fdcap_close(&c);                 once, after the cases */
+typedef struct s_dio_fdcap
+{
+	int		fd;
+	int		stray;
+	int		saved;
+	off_t	start;
+}	t_dio_fdcap;
+
+/* A file under $TEST_TMPDIR (else /tmp), unlinked once open, on a descriptor
+ * of 3 or more. `tag` names it while it has a name. The path is sized from
+ * the folder and the tag, never a fixed buffer. */
+static inline int	dio_capture_open(const char *tag)
+{
+	const char	*dir;
+	char		*path;
+	size_t		cap;
+	int			fd;
+	int			hi;
+
+	dir = getenv("TEST_TMPDIR");
+	if (dir == NULL || *dir == '\0')
+		dir = "/tmp";
+	cap = strlen(dir) + strlen(tag) + sizeof("/_XXXXXX");
+	path = (char *)dio_alloc(cap, 1);
+	snprintf(path, cap, "%s/%s_XXXXXX", dir, tag);
+	fd = mkstemp(path);
+	if (fd < 0)
+		dio_fail("cannot create the capture file under $TEST_TMPDIR");
+	unlink(path);
+	free(path);
+	if (fd >= 3)
+		return (fd);
+	hi = fcntl(fd, F_DUPFD, 3);
+	close(fd);
+	if (hi < 3)
+		dio_fail("cannot move the capture file to a descriptor of 3 or more");
+	return (hi);
+}
+
+/* The descriptor the function is handed (c->fd), the file fd 1 is during a
+ * call (c->stray), and the reader's own standard output, kept aside on 3 or
+ * more (c->saved), opened in that order. */
+static inline void	dio_fdcap_open(t_dio_fdcap *c, const char *tag)
+{
+	c->fd = dio_capture_open(tag);
+	c->stray = dio_capture_open(tag);
+	c->saved = fcntl(1, F_DUPFD, 3);
+	if (c->saved < 3)
+		dio_fail("cannot keep the standard output on a descriptor of 3 or more");
+	c->start = 0;
+}
+
+/* Right before the call: fd 1 becomes c->stray. */
+static inline void	dio_fd_aside(t_dio_fdcap *c)
+{
+	if (dup2(c->stray, 1) != 1)
+		dio_fail("cannot make fd 1 a file of its own for the call");
+}
+
+/* Right after the call: fd 1 is the standard output again, and the bytes
+ * the call wrote to c->fd come back in a block of *n bytes (one more, so
+ * never NULL), to free(). A descriptor the call closed is the function's
+ * doing, not the harness's: said as such, naming `fn`, and the run ends
+ * there, exit 1. What a call wrote runs from where the file stood before it
+ * to where it stands now; the file is emptied only past 1 MiB, to spend two
+ * system calls a case and not four. */
+static inline unsigned char	*dio_fd_take(t_dio_fdcap *c, const char *fn,
+		size_t *n)
+{
+	off_t			end;
+	unsigned char	*w;
+
+	if (dup2(c->saved, 1) != 1)
+		dio_fail("cannot put the standard output back after the call");
+	if (fcntl(c->fd, F_GETFD) < 0)
+	{
+		fprintf(stderr, "diff_%s: after the call, fd %d, the descriptor "
+			"%s was handed, was no longer open: the call closed it\n",
+			fn, c->fd, fn);
+		exit(1);
+	}
+	end = lseek(c->fd, 0, SEEK_CUR);
+	if (end < c->start)
+		end = c->start;
+	*n = (size_t)(end - c->start);
+	w = (unsigned char *)malloc(*n + 1);
+	if (w == NULL || pread(c->fd, w, *n, c->start) != end - c->start)
+		dio_fail("cannot read the capture file back");
+	c->start = end;
+	if (c->start > (1 << 20))
+	{
+		if (ftruncate(c->fd, 0) != 0 || lseek(c->fd, 0, SEEK_SET) != 0)
+			dio_fail("cannot empty the capture file");
+		c->start = 0;
+	}
+	return (w);
+}
+
+/* What the call wrote to fd 1, as the line's next column, then emptied for
+ * the next: no column at all when it wrote nothing there. stray and fd 1
+ * share one file offset (dup2), so the offset is how much was written. */
+static inline void	dio_put_stray(int stray)
+{
+	off_t			n;
+	unsigned char	*b;
+
+	n = lseek(stray, 0, SEEK_CUR);
+	if (n <= 0)
+		return ;
+	b = (unsigned char *)malloc((size_t)n);
+	if (b == NULL || pread(stray, b, (size_t)n, 0) != n)
+		dio_fail("cannot read back what the call wrote to fd 1");
+	printf("\t");
+	dio_puthex(b, (size_t)n);
+	free(b);
+	if (ftruncate(stray, 0) != 0 || lseek(stray, 0, SEEK_SET) != 0)
+		dio_fail("cannot empty the file fd 1 is during a call");
+}
+
+/* The three descriptors dio_fdcap_open opened, closed. */
+static inline void	dio_fdcap_close(t_dio_fdcap *c)
+{
+	close(c->fd);
+	close(c->stray);
+	close(c->saved);
 }
 
 #endif

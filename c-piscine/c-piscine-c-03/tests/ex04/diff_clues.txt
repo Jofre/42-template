@@ -1,4 +1,6 @@
-  The return is a pointer, printed as the tail it points at, or as NULL.
+  The return is a pointer, printed as where it points: its offset from the
+  start of the haystack, NULL, or OUTSIDE for a pointer that is neither into
+  the haystack nor at its end.
     * an empty needle diverges           -> the subject states what that returns,
                                             and it is not "not found"
     * matches at the very end are missed -> a needle that ends where the

@@ -57,8 +57,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		size = count_csv(f[0]);
 		tab = (int *)malloc(sizeof(int) * (size_t)size);
 		if (tab == NULL && size > 0)

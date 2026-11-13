@@ -94,8 +94,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		n = count_csv(f[0]);
 		blk = build_ip(f[0], n);
 		ft_list_reverse_fun(blk);

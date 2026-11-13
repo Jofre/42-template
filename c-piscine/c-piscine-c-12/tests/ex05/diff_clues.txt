@@ -1,0 +1,1 @@
+# conventions: no byte family -- the strings reach the function only as pointers it stores and never reads; only the harness prints their bytes

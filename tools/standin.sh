@@ -41,19 +41,28 @@
 # on the program before it runs it. A program handed over only as a
 # correctness gate (--gate-bin) is run by tools/diff_output.sh, which checks it
 # there. //tools:conventions refuses a runner that takes --bin or --student-bin
-# and does not call standin_check, and tools/defs.bzl refuses, while loading, a
-# test that hands a student_binary to a runner not in its _STANDIN_RUNNERS.
+# and does not call standin_check, and _test() in tools/defs_test.bzl
+# refuses, while loading, a test that hands a student_binary to a runner not
+# in its _STANDIN_RUNNERS.
 #
 # How a runner finds this file: beside itself when it is run by path (a hand
-# run, the selftest), else in the test's runfiles, where tools/defs.bzl's
-# _test() stages it for every test it emits (a hand-written sh_test lists
-# //tools:standin.sh in its data; conventions checks that too):
+# run, the selftest), else in the test's runfiles, where tools/defs_test.bzl's
+# _test() stages it for every test it emits (hand_test()'s too; a BUILD file
+# declares no sh_test of its own). A runner that sources tools/runner_lib.sh
+# asks its rl_tool, which refuses when neither place has it:
 #
-#   for _sl in "$(dirname "$0")/standin.sh" \
+#   rl_tool standin.sh
+#   # shellcheck source=tools/standin.sh
+#   . "$RL_TOOL"
+#
+# One that does not (tools/no_turnin.sh) writes the same two places out:
+#
+#   case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
+#   for _sl in "$_sl_dir/standin.sh" \
 #       "${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
 #       [ -f "$_sl" ] && break
 #   done
-#   [ -f "$_sl" ] || { echo "<runner>: tools/standin.sh is not staged" >&2; exit 2; }
+#   [ -f "$_sl" ] || { echo "<runner>.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
 #   . "$_sl"
 
 STANDIN_MARK='42-harness stand-in: no program was built from your code'
@@ -66,6 +75,19 @@ NOTURNIN_MARK='NOT TURNED IN — '
 # Read by the writer, tools/student_build.sh, which sources this file.
 # shellcheck disable=SC2034
 STANDIN_STATUS=86
+# standin_noun: what the program is built for, in the words below --
+# RL_UNIT_KIND (tools/runner_lib.sh's rl_noun reads the same), which a test
+# of a contract of units is handed and tools/student_build.sh sets from its
+# --kind, or "exercise". What is not written yet when a build had nothing to
+# compile is said through runner_lib.sh's rl_entry instead, which every
+# runner calling standin_check has sourced: a function's program is its
+# library's build, so it is the library that is not written yet.
+standin_noun() {
+	case "${RL_UNIT_KIND:-}" in
+		"") printf 'exercise' ;;
+		*) printf '%s' "$RL_UNIT_KIND" ;;
+	esac
+}
 # The two headlines (see the contract above). first_red.sh matches them as
 # fixed strings, so the words are the contract: change them here only.
 # shellcheck disable=SC2034
@@ -136,17 +158,17 @@ standin_check() {
 	if [ "$_sc_mode" = skip ] && [ "${NO_SKIP:-0}" != 1 ]; then
 		if [ "$_sc_kind" = empty ]; then
 			echo "$_sc_runner: SKIP — $_sc_what was never built: there is nothing to build yet."
-			echo "  The output layer of this exercise says what the build found."
+			echo "  The output layer of this $(standin_noun) says what the build found."
 		else
 			echo "$_sc_runner: SKIP — $_sc_what was never built: your code did not build."
-			echo "  The output layer of this exercise shows the compiler's words."
+			echo "  The output layer of this $(standin_noun) shows the compiler's words."
 		fi
 		echo "  (NO_SKIP=1 turns this skip red.)"
 		exit 0
 	fi
 	if [ "$_sc_kind" = empty ]; then
 		echo "$_sc_runner: FAIL — there was nothing to build, so there is no program"
-		echo "  to run as $_sc_what. If this exercise is not written yet, that is"
+		echo "  to run as $_sc_what. If this $(rl_entry) is not written yet, that is"
 		echo "  expected. What the build said:"
 	else
 		echo "$_sc_runner: FAIL — your code did not build: there was no program to run"

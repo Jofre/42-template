@@ -1,7 +1,9 @@
 #!/bin/sh
 # ex01 — testShell00.tar must hold exactly one member: a 40-byte file named
-# testShell00 with permissions -r--r-xr-x, listed as Jun 1 23:42 (any year;
-# see ck_listed_at in tools/shell_check.sh).
+# testShell00 with permissions -r--r-xr-x, listed as Jun 1 23:42 (any year).
+# The subject's latitude on the time: "A year will be accepted instead of the
+# time in the file's timestamp." -- ck_listed_at in tools/shell_check.sh
+# applies it, grading the time only where ls -l is sure to show one.
 # Emits a per-property PASS/FAIL checklist via shell_check.sh.
 # shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?shell_check library not provided}"

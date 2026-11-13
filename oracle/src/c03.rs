@@ -1,10 +1,23 @@
 //! c-03 string family references (strcmp, strncmp, strcat, strncat, strstr,
 //! strlcat). See oracle/README.md for the corpus-line format per function.
 
-use crate::common::{bench_lines, largest_dec, long_text, o_strcmp, rand_body, sink, string_pairs, to_hex, unhex, widest_hex, Rng};
+use crate::common::{
+    bench_lines, largest_dec, long_text, o_strcmp, or_null, rand_body, sink, string_pairs, to_hex, unhex, widest_hex,
+    with_long, Rng,
+};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
+//
+// o_strncmp, o_strstr and o_strlcat are also Libft's (libft_str.rs), whose
+// subject asks for the man page's behaviour, so each is written to its page.
+
+/// ft_strncmp, strncmp(3): compares "only the first (at most) n bytes of s1
+/// and s2", as unsigned characters. The first k below n where the bytes
+/// differ, or where a ends, gives (unsigned char)a[k]-(unsigned char)b[k]
+/// (0 when both end there), and none gives 0. A byte past a slice's end is
+/// its terminator. The page promises only the sign, which is all a plain
+/// corpus writes (`shown`).
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 pub(crate) fn o_strncmp(a: &[u8], b: &[u8], n: usize) -> i64 {
     let mut i = 0usize;
@@ -34,6 +47,10 @@ fn o_strncat(dest: &[u8], src: &[u8], n: usize) -> Vec<u8> {
     v
 }
 
+/// ft_strstr, strstr(3): the offset in `hay` of "the first occurrence of
+/// the substring needle", "the terminating null bytes ('\0')" not compared,
+/// or None for the NULL it returns when there is none. An empty needle is
+/// found at 0: the C standard's strstr returns haystack itself then.
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 pub(crate) fn o_strstr(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
@@ -52,33 +69,28 @@ pub(crate) fn o_strstr(hay: &[u8], needle: &[u8]) -> Option<usize> {
     None
 }
 
+/// ft_strlcat, strlcat(3bsd): "It will append at most size - strlen(dst) - 1
+/// bytes, NUL-terminating the result", and returns "the initial length of
+/// dst plus the length of src" -- except that "if strlcat() traverses size
+/// characters without finding a NUL, the length of the string is considered
+/// to be size", and nothing is appended: dest is left as it is. C 03's
+/// corpus never has strlen(dest) above size; Libft's does.
+/// Returns (the buffer up to its first NUL, the return value).
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 pub(crate) fn o_strlcat(dest: &[u8], src: &[u8], size: usize) -> (Vec<u8>, u64) {
-    let dlen = dest.len().min(size);
     let slen = src.len();
-    if dlen == size {
-        return (dest[..dlen].to_vec(), (size + slen) as u64);
+    if dest.len() >= size {
+        return (dest.to_vec(), (size + slen) as u64);
     }
+    let dlen = dest.len();
     let room = size - dlen - 1;
     let k = room.min(slen);
-    let mut v = dest[..dlen].to_vec();
+    let mut v = dest.to_vec();
     v.extend_from_slice(&src[..k]);
     (v, (dlen + slen) as u64)
 }
 
 // ---------------------------------------------------------- generators
-/// `cases` with `long` put in at `at` (the end of a structured head), cut
-/// back to `count` cases or to the head and `long`, whichever is more: a
-/// small --count keeps the capacity cases, a large one stays exact.
-fn with_long<T>(mut cases: Vec<T>, at: usize, long: Vec<T>, count: usize) -> Vec<T> {
-    let keep = count.max(at + long.len());
-    let tail = cases.split_off(at.min(cases.len()));
-    cases.extend(long);
-    cases.extend(tail);
-    cases.truncate(keep);
-    cases
-}
-
 /// strcmp's and strncmp's capacity cases (finding 041), with strncmp's n:
 /// every pair the corpus held was at most 32 bytes, so a comparison that
 /// copied its strings into room of a round size (16, 64, 256, 1024, 4096)
@@ -103,6 +115,24 @@ pub(crate) fn long_cmp_cases() -> Vec<(Vec<u8>, Vec<u8>, usize)> {
         (t4100.clone(), last, 4099),
         (longer, t4100, 4101),
         (hi, lo, 4098),
+    ]
+}
+
+/// strlcat's capacity cases (finding 041), with its size: every dest, src
+/// and size of the random cases is at most 24. A dest of 4100 and a src of
+/// 5000 in exactly the room they need (9101), cut at size 6000, and with
+/// size the length of dest (no room at all); a dest of 1100 and that src
+/// cut at size 4097. Each from a seed of its own, every dest past the 1000
+/// bytes the cycles layer's max_unit leaves out. Libft's corpus holds them
+/// too (libft_str.rs).
+pub(crate) fn long_lcat_cases() -> Vec<(Vec<u8>, Vec<u8>, usize)> {
+    let d = long_text(4100, 4100);
+    let s = long_text(5000, 5000);
+    vec![
+        (d.clone(), s.clone(), 9101),
+        (d.clone(), s.clone(), 6000),
+        (d, s.clone(), 4100),
+        (long_text(1100, 1100), s, 4097),
     ]
 }
 
@@ -224,8 +254,9 @@ fn gen_strncmp<W: Write>(w: &mut W, seed: u64, count: usize, sign: bool) {
 
 fn gen_strcat<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
+    let head = cat_pairs(&mut Rng::new(seed), 0).len();
     let long = long_cat_cases().into_iter().map(|(d, s, _)| (d, s)).collect();
-    let pairs = with_long(cat_pairs(&mut rng, count), 4, long, count);
+    let pairs = with_long(cat_pairs(&mut rng, count), head, long, count);
     for (d, s) in &pairs {
         let cap = d.len() + s.len() + 1;
         let r = o_strcat(d, s);
@@ -236,12 +267,13 @@ fn gen_strcat<W: Write>(w: &mut W, seed: u64, count: usize) {
 
 fn gen_strncat<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
+    let head = cat_pairs(&mut Rng::new(seed), 0).len();
     let mut cases: Vec<(Vec<u8>, Vec<u8>, usize)> = Vec::new();
     for (d, s) in cat_pairs(&mut rng, count) {
         let n = if s.is_empty() { 0 } else { rng.below(s.len() + 2) };
         cases.push((d, s, n));
     }
-    for (d, s, n) in &with_long(cases, 4, long_cat_cases(), count) {
+    for (d, s, n) in &with_long(cases, head, long_cat_cases(), count) {
         let n = *n;
         let k = n.min(s.len());
         let cap = d.len() + k + 1;
@@ -253,12 +285,10 @@ fn gen_strncat<W: Write>(w: &mut W, seed: u64, count: usize) {
 
 fn gen_strstr<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let pairs = with_long(strstr_pairs(&mut rng, count), 8, long_strstr_cases(), count);
+    let head = strstr_pairs(&mut Rng::new(seed), 0).len();
+    let pairs = with_long(strstr_pairs(&mut rng, count), head, long_strstr_cases(), count);
     for (h, nd) in &pairs {
-        let res = match o_strstr(h, nd) {
-            Some(i) => to_hex(&h[i..]),
-            None => "NULL".to_string(),
-        };
+        let res = or_null(o_strstr(h, nd));
         let _ = writeln!(w, "{}\t{}\t{}", to_hex(h), to_hex(nd), res);
     }
 }
@@ -266,16 +296,9 @@ fn gen_strstr<W: Write>(w: &mut W, seed: u64, count: usize) {
 fn gen_strlcat<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let mut done = 0usize;
-    // Capacity cases (finding 041): every dest, src and size below is at most
-    // 24. A dest of 4100 and a src of 5000 in exactly the room they need, cut
-    // at size 6000, and with size the length of dest (no room at all); a
-    // dest of 1100 and that src cut at size 4097. Each from a seed of its
-    // own, every dest past the 1000 bytes the cycles layer's max_unit leaves
-    // out, after the first 40 cases, so the first differences a report shows
-    // are short lines.
-    let d = long_text(4100, 4100);
-    let s = long_text(5000, 5000);
-    let mut long = vec![(d.clone(), s.clone(), 9101usize), (d.clone(), s.clone(), 6000), (d, s.clone(), 4100), (long_text(1100, 1100), s, 4097)];
+    // The capacity cases come after the first 40 cases, so the first
+    // differences a report shows are short lines.
+    let mut long = long_lcat_cases();
     while done < count || !long.is_empty() {
         if done == 40.min(count) && !long.is_empty() {
             for (d, s, size) in long.drain(..) {
@@ -359,6 +382,43 @@ pub fn check() -> usize {
         want(largest_dec(&c, 3) > past as i64, "strlcat", "size");
     }
 
+    // ---- the capacity cases come right after each structured head ----
+    // with_long puts them where it is told the head ends. Each arm measures
+    // its head from its builder, so a structured case added to one moves
+    // them with it: a length written out by hand would put them inside the
+    // head, and nothing else here would notice. strlcat places its own.
+    {
+        let row_of = |out: &[u8], (ia, a): (usize, &[u8]), (ib, b): (usize, &[u8])| -> Option<usize> {
+            let (a, b) = (to_hex(a), to_hex(b));
+            String::from_utf8_lossy(out).lines().position(|l| {
+                let f: Vec<&str> = l.split('\t').collect();
+                f.get(ia) == Some(&a.as_str()) && f.get(ib) == Some(&b.as_str())
+            })
+        };
+        let (cmp, cat, sst) = (&long_cmp_cases()[0], &long_cat_cases()[0], &long_strstr_cases()[0]);
+        let cmp_head = string_pairs(&mut Rng::new(1), 0).len();
+        let cat_head = cat_pairs(&mut Rng::new(1), 0).len();
+        let sst_head = strstr_pairs(&mut Rng::new(1), 0).len();
+        type Arm<'a> = (&'a str, fn(&mut Vec<u8>), usize, (usize, &'a [u8]), (usize, &'a [u8]));
+        let arms: [Arm; 5] = [
+            ("strcmp", |w| gen_strcmp(w, 1, 200, false), cmp_head, (0, &cmp.0[..]), (1, &cmp.1[..])),
+            ("strncmp", |w| gen_strncmp(w, 1, 200, false), cmp_head, (0, &cmp.0[..]), (1, &cmp.1[..])),
+            ("strcat", |w| gen_strcat(w, 1, 200), cat_head, (0, &cat.0[..]), (2, &cat.1[..])),
+            ("strncat", |w| gen_strncat(w, 1, 200), cat_head, (0, &cat.0[..]), (2, &cat.1[..])),
+            ("strstr", |w| gen_strstr(w, 1, 200), sst_head, (0, &sst.0[..]), (1, &sst.1[..])),
+        ];
+        for (arm, gen, head, a, b) in arms {
+            let mut out = Vec::new();
+            gen(&mut out);
+            let at = row_of(&out, a, b);
+            if at != Some(head) {
+                let at = at.map_or_else(|| "none".to_string(), |i| i.to_string());
+                eprintln!("CHECK FAIL c03 {}'s first capacity case is at row {}, not {}, where its head ends", arm, at, head);
+                fails += 1;
+            }
+        }
+    }
+
     let cases: &[(&[u8], &[u8], i64)] = &[
         (b"Hello", b"Hello", 0),
         (b"Hello", b"Hella", 14),
@@ -384,6 +444,7 @@ pub fn check() -> usize {
     let sl: &[(&[u8], &[u8], usize, &[u8], u64)] = &[
         (b"foo", b"bar", 10, b"foobar", 6),
         (b"foo", b"bar", 4, b"foo", 6),
+        (b"foo", b"bar", 2, b"foo", 5),
         (b"abcd", b"x", 4, b"abcd", 5),
         (b"", b"hi", 5, b"hi", 2),
         (b"ab", b"", 5, b"ab", 2),
@@ -445,9 +506,14 @@ pub fn check() -> usize {
             }
         }
         let size = rng.below(d.len() + 3);
-        let (_b, r) = o_strlcat(&d, &s, size);
+        let (b, r) = o_strlcat(&d, &s, size);
         if r != (d.len().min(size) + s.len()) as u64 {
             eprintln!("CHECK FAIL c03 strlcat return");
+            fails += 1;
+        }
+        // dest is kept whole, and the result fits size unless dest did not.
+        if !b.starts_with(&d) || (d.len() < size && b.len() >= size) {
+            eprintln!("CHECK FAIL c03 strlcat buffer {:?} {:?} {}", d, s, size);
             fails += 1;
         }
     }

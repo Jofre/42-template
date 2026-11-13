@@ -7,7 +7,7 @@ folder per project inside it, each named exactly as 42 names it:
 |---|---|---|
 | C Piscine | `c-piscine/` | `c-piscine-c-00` … `c-piscine-c-13`, the Shell Piscine (`c-piscine-shell-00`, `c-piscine-shell-01`), the three weekend **Rushes**, **BSQ** (the final project) and the study guide |
 | Piscine Reloaded | `c-piscine-reloaded/` | one project, `c-piscine-reloaded/`: 28 exercises mixing shell, C and Makefiles — see its README |
-| Common Core | `cursus/` | one folder per milestone, a project per folder inside it: `Milestone_0/Libft` so far — see its README |
+| Common Core | `cursus/` | one folder per milestone, a project per folder inside it: `Milestone_0` to `Milestone_6`, each project with its subject; only `Milestone_0/Libft` has a harness so far — see its README |
 
 You write each exercise, and a test suite tells you, TDD-style, when it is
 correct. One command, `42`, runs it. The tools that decide a verdict — both
@@ -173,11 +173,11 @@ and VS Code with its *Dev Containers* extension, open this folder in VS Code
 and accept **Reopen in Container**. `42` is already installed there; open a
 terminal in VS Code and start at `42 doctor`. (If that says `42: command not
 found`, `sh tools/fortytwo/install.sh` installs it.) **On your own Linux
-without Docker,** install `perl`, `build-essential` (the C library, `libgcc`
-and the libraries the fetched gcc loads), `libedit2`, `libffi8` and
-`libtinfo6` (libraries the fetched clang loads, which `build-essential` does
-not bring), the `en_US.UTF-8` locale and ld.so's debug symbols (`libc6-dbg`
-on Debian/Ubuntu), then run `sh tools/setup.sh`.
+without Docker,** install `build-essential` (the C library, `libgcc` and
+the libraries the fetched gcc loads), `libedit2`, `libffi8` and `libtinfo6`
+(libraries the fetched clang loads, which `build-essential` does not bring),
+the `en_US.UTF-8` locale and ld.so's debug symbols (`libc6-dbg` on
+Debian/Ubuntu), then run `sh tools/setup.sh`.
 
 → [**docs/environment.md**](docs/environment.md#which-path-are-you-on) is the
 full story: the three paths in one table and what each installs, what
@@ -198,11 +198,16 @@ The first commands that run the tests download what they need, so the first
 
 ### 3. Run the tests, and read one red
 
-Each project is a folder in `c-piscine/`. In a C project, each exercise has a
-folder in its `deliverable/`, holding the files you write. The shell projects
-(Shell 00, Shell 01, and the first exercises of Piscine Reloaded) work
-differently: there you write `generators/exNN.sh`, and `deliverable/` is made
-from it ([testing.md](docs/testing.md#shell-modules-work-differently)). Go into
+Each project is a folder in its course's folder: `c-piscine/`,
+`c-piscine-reloaded/`, or `cursus/` for the Common Core. In most C projects,
+each exercise has a folder in its `deliverable/`, holding the files you
+write. A project whose subject names no turn-in folder (BSQ and Libft)
+turns in at `deliverable/` itself, and is divided into the parts its
+subject names instead of numbered exercises: `42 units <project>` lists
+them. The shell projects (Shell 00, Shell 01, and the first exercises of
+Piscine Reloaded) work differently: there you write `generators/exNN.sh`,
+and `deliverable/` is made from it
+([testing.md](docs/testing.md#shell-modules-work-differently)). Go into
 C 00's ex01 and run its tests:
 
 ```sh
@@ -299,7 +304,11 @@ broken code.
   cannot see).
 - **A whole project:** in its folder (`cd ../..` from an exercise's), `42 test`
   runs every exercise in it and names the one to work on next. From any folder,
-  name it: `42 test c-05`, or `42 test c-05 ex03` for one exercise.
+  name it: `42 test c-05`, or `42 test c-05 ex03` for one exercise
+  (`42 test libft ft_strlen` for one part of a project divided into parts).
+- **What a project is made of:** `42 units` lists its exercises, or the parts
+  its subject names instead (a library and each of its functions, BSQ's one
+  program), each with the `42 test` command that runs it alone.
 - **One kind of test:** `42 test norm` runs only the Norm check, and
   `42 test valgrind` only the memory one.
 - **More tests:** `42 test` runs your **level**, `basic` until you choose
@@ -436,7 +445,7 @@ separator". A script's `#!` line has to stay line 1, so its header goes below it
 the 42 Norm are 42's documents, not ours to redistribute, and 42 revises them — so
 get the versions you are graded against from the intranet. Every project folder
 with a 42 subject has a `SUBJECT-PLACEHOLDER.pdf` where the subject belongs: open it
-for which one to download and what to call it (`en.subject.pdf`, `es.subject.pdf`). Nothing here
+for which one to download, its page on the intranet and the version this harness was built from, and what to call it (`en.subject.pdf`, `es.subject.pdf`). Nothing here
 reads them, and `.gitignore` already ignores `*.pdf`, so a copy of this repo
 cannot republish them by accident.
 

@@ -20,8 +20,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		src = dio_unhex(f[0], NULL, 0);
 		res = ft_strdup((char *)src);
 		printf("%s\t", f[0]);

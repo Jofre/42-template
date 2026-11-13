@@ -39,7 +39,7 @@ if [ "${MAC_CHECK_IFCONFIG+set}" = set ]; then
 else
 	_ifc_given=0
 fi
-ORACLE=${ORACLE:?this check needs //oracle: declare the exercise with oracle = True}
+ck_oracle
 
 # ifconfig lives in /usr/sbin (on a 42 machine it's on the user's PATH), as
 # in check.sh.
@@ -77,14 +77,25 @@ printf '%s\n' "$out" | "$ORACLE" shell01_hwaddr 2>/dev/null
 verdict=$?
 case "$verdict" in
 	4) ck_skipped "this machine publishes no hardware address, so no output can tell the two readings apart" ;;
-	*)
+	0 | 1 | 3)
 		ck "every line is the address of one of this machine's hardware interfaces (not the loopback's)" \
 			test "$verdict" -eq 0
 		if [ "$verdict" -eq 3 ]; then
 			refused=""
 			while IFS= read -r line; do
 				printf '%s\n' "$line" | "$ORACLE" shell01_hwaddr 2>/dev/null
-				[ $? -eq 3 ] || continue
+				# 3 refuses the line, 0 accepts it, and 4 is a machine
+				# that lost its last address meanwhile; anything else is
+				# the reference failing.
+				_line_rc=$?
+				case "$_line_rc" in
+					3) ;;
+					0 | 4) continue ;;
+					*)
+						rm -f "$raw" "$raw.err"
+						ck_broken "//oracle shell01_hwaddr answered $_line_rc for one line of this output, not 0, 3 or 4"
+						;;
+				esac
 				refused="$refused${refused:+
 }not a hardware interface's address: $line"
 			done <<EOF_OUT
@@ -92,6 +103,11 @@ $out
 EOF_OUT
 			ck_detail "$refused"
 		fi
+		;;
+	*)
+		# The reference failing, as at --machine above: a broken harness.
+		rm -f "$raw" "$raw.err"
+		ck_broken "//oracle shell01_hwaddr answered $verdict, not 0, 1, 3 or 4: the reference could not judge this output"
 		;;
 esac
 

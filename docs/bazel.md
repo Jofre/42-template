@@ -76,7 +76,9 @@ $ bazel shutdown
   any package below it: here, the whole project.
 - `//c-piscine/c-piscine-c-00:ex01` is a **test suite**: a target that stands
   for other targets, here every test of ex01. The harness declares one for
-  each exercise, and one for each level of a project (`:basic` is one).
+  each exercise, one for each part of a project its subject divides into
+  parts instead (BSQ's `:bsq`; Libft's `:libft`, and `:ft_strlen` for each
+  of its functions), and one for each level of a project (`:basic` is one).
 
 ### Tags, and your level
 
@@ -113,8 +115,9 @@ $ bazel test //c-piscine/c-piscine-c-00:ex01 --test_tag_filters=norm,-manual 2>&
 ```
 
 Your level is `--level`, else the variable `SUBMIT_GATE`, else the file
-`.submit-level`, else `basic`, which is how `42 submit` chooses the level it
-checks too. [reference.md](reference.md) says what each level adds.
+`.submit-level`, else your user file (`42 config set --global level`), else
+`basic`, which is how `42 submit` chooses the level it checks too.
+[reference.md](reference.md) says what each level adds.
 
 ### `test` and `run`
 
@@ -180,14 +183,17 @@ Piece by piece:
 - `bazel test` builds the tests and runs them.
 - `//c-piscine/c-piscine-c-00:ex01` is what to test, and the folder you are in
   decides it: in an exercise's `deliverable/exNN` (or its `tests/exNN`), that
-  exercise's suite; in the project's folder, the whole project. From any
-  folder, words name it:
+  exercise's suite; in a part's `tests/<part>` (`tests/ft_strlen`), that
+  part's; in the project's folder, the whole project. From any folder, words
+  name it:
 
   ```
   ~/42/c-piscine/c-piscine-c-00$ 42 test --dry-run
   $ bazel test //c-piscine/c-piscine-c-00/... --test_tag_filters=lvl_basic,-manual 2>&1 | sh tools/first_red.sh
   ~/42$ 42 test c-05 ex03 --dry-run
   $ bazel test //c-piscine/c-piscine-c-05:ex03 --test_tag_filters=lvl_basic,-manual 2>&1 | sh tools/first_red.sh
+  ~/42$ 42 test libft ft_strlen --dry-run
+  $ bazel test //cursus/Milestone_0/Libft:ft_strlen --test_tag_filters=lvl_basic,-manual 2>&1 | sh tools/first_red.sh
   ```
 
 - `--test_tag_filters=lvl_basic,-manual` is your level, as above.
@@ -214,7 +220,7 @@ says why), and `--show_bazel` shows that line too.
 
 `42 test --show_starlark` runs no test. It answers another question about the
 same selection: for each test, the line of the `BUILD.bazel` file whose call
-declares it, the macro that call is (`tools/defs.bzl` defines them), and the
+declares it, the macro that call is (`tools/defs.bzl` exports them), and the
 lowest level that runs it. Bazel answers with `bazel query`, which reads the
 `BUILD.bazel` files and builds nothing; with `--dry-run`, `42` prints the first
 of those queries.

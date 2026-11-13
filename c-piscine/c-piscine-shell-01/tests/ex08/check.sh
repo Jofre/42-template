@@ -40,7 +40,7 @@ ck_require "add_chelou.sh exists" test -f "$D"
 # The subject: shell exercises must be executable with /bin/sh.
 ck_sh_parses "$D"
 
-ORACLE=${ORACLE:?this check needs //oracle: declare the exercise with oracle = True}
+ck_oracle
 
 # The two examples' results are stored as digests, and neither value is echoed.
 # sha256sum is coreutils and present on the campus box; cksum is the fallback

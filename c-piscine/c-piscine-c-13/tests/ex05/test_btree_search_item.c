@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 
+void	*btree_search_item(t_btree *root, void *data_ref,
+			int (*cmpf)(void *, void *));
+
 typedef struct s_kv
 {
 	int		key;

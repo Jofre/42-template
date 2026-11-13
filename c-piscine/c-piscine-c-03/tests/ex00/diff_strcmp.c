@@ -22,8 +22,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		a = dio_unhex(f[0], NULL, 0);
 		b = dio_unhex(f[1], NULL, 0);
 		r = ft_strcmp((char *)a, (char *)b);

@@ -15,6 +15,8 @@
 #include "ft_list.h"
 #include <stdlib.h>
 
+void	ft_list_reverse_fun(t_list *begin_list);
+
 /* Free what the caller's head reaches -- node and datum -- reading at most
  * `cap` nodes: the length built, plus one. Every node is recorded before any
  * is freed, so nothing is read after it has been released. The record is

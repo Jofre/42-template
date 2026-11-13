@@ -116,7 +116,11 @@
 #                       twice, so a program that reads one of them and ignores
 #                       the other prints a grid and is caught: with a string
 #                       that is an error on its own, Error was right whatever
-#                       the program did with argc (finding 153).
+#                       the program did with argc (finding 153). So a --gate-arg
+#                       vector that is not accepted alone is refused (exit 2):
+#                       one that is malformed, of another board than the
+#                       required one, or with no solution where --oracle or
+#                       the gate's --gate-expected output says so.
 #   --probe-shape       also assert the malformed SHAPES of the one argument,
 #                       each built from the --gate-arg vector (required): a
 #                       leading space, a trailing space, a doubled space, a tab
@@ -167,8 +171,6 @@
 #              contradicts itself). Bazel reddens on both 1 and 2; the split is
 #              for the human reading the log, so nobody spends an afternoon
 #              debugging their solver because the reference is broken.
-#              (tools/rust_diff.sh reports a broken reference as 1; this runner
-#              follows the 0/1/2 split the newer runners use.)
 #
 # Env:
 #   RUSH01_TIMEOUT     seconds per run (default 10)
@@ -176,6 +178,9 @@
 #                      fails, and a wall of 900 identical blocks buries the one
 #                      thing the student needed to read (tools/runner_lib.sh,
 #                      rl_rows -- one knob for every differential report)
+#   RL_EXCERPT_WIDTH   bytes of one printed line, or of a value from it, that
+#                      a failing case shows before it cuts it and says how much
+#                      it left out (default 300, rl_excerpt's)
 #   RUSH01_MAX_TIMEOUTS  give up after this many runs fail to finish (default 3),
 #                      counting both hangs and endless printing. A solver that
 #                      does not terminate would otherwise burn cases x timeout
@@ -191,7 +196,7 @@
 # STANDARD ERROR
 # --------------
 # A choice at every call, as every corpus runner's (tools/runner_lib.sh,
-# rl_stderr_choice; tools/defs.bzl's _RUNNER_CHOICES refuses a call without
+# rl_stderr_choice; tools/defs_test.bzl's _RUNNER_CHOICES refuses a call without
 # it): --stderr-ignored REASON, and standard error is read, never judged --
 # the verdict is on standard output, the stream the Run contract compares --
 # or --stderr-empty, and a run whose answer
@@ -299,7 +304,7 @@ require() {
 		exit 2
 	done
 }
-require awk basename cat cp mktemp rm sed tr
+require awk basename cat cmp cp mktemp rm sed tr
 
 # The shared runner helpers: the time budget, signal traps, how a run ended,
 # excerpts and the clues.tsv rule (tools/runner_lib.sh, which says why each is
@@ -307,7 +312,7 @@ require awk basename cat cp mktemp rm sed tr
 RL_NAME=rush01_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "rush01_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "rush01_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -340,6 +345,9 @@ MAXSIZE="0"
 # can solve a 9x9, and failing it for either would be grading an optional part
 # of the subject.
 MANDATORY_N=4
+# How many bytes of a printed line, or of a value from one, a failing case
+# shows (shown, in the awk program): rl_excerpt's width.
+SHOW_W=${RL_EXCERPT_WIDTH:-300}
 MAXCASES="0"
 PROBE_ARGC=0
 PROBE_SHAPE=0
@@ -384,40 +392,35 @@ tokenised_hint() {
 	EOT
 }
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "rush01_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--bin) need "$1" "$#"; BIN="$2"; shift 2 ;;
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
 		--oracle-fn)
+			rl_need "$1" "$#"
 			if [ "$FN_SET" -eq 0 ]; then FN="$2"; FN_SET=1; else rl_list_add FN "$2"; fi
 			shift 2 ;;
-		--seed) need "$1" "$#"; SEED="$2"; shift 2 ;;
-		--count) need "$1" "$#"; COUNT="$2"; shift 2 ;;
-		--corpus) need "$1" "$#"; CORPUS="$2"; shift 2 ;;
-		--clues) need "$1" "$#"; HINTS="$2"; shift 2 ;;
-		--case) need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
-		--max-size) need "$1" "$#"; MAXSIZE="$2"; shift 2 ;;
-		--max-cases) need "$1" "$#"; MAXCASES="$2"; shift 2 ;;
+		--seed) rl_need "$1" "$#"; SEED="$2"; shift 2 ;;
+		--count) rl_need "$1" "$#"; COUNT="$2"; shift 2 ;;
+		--corpus) rl_need "$1" "$#"; CORPUS="$2"; shift 2 ;;
+		--clues) rl_need "$1" "$#"; HINTS="$2"; shift 2 ;;
+		--case) rl_need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
+		--max-size) rl_need "$1" "$#"; MAXSIZE="$2"; shift 2 ;;
+		--max-cases) rl_need "$1" "$#"; MAXCASES="$2"; shift 2 ;;
 		--probe-argc) PROBE_ARGC=1; shift ;;
 		--probe-shape) PROBE_SHAPE=1; shift ;;
 		--probes-only) PROBES_ONLY=1; shift ;;
-		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
-		--quotes) need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
-		--timeout) need "$1" "$#"; TMO="$2"; shift 2 ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-arg) need "$1" "$#"; GATE_ARG="$2"; GATE_ARG_SET=1; shift 2 ;;
-		--gate-arg-file) need "$1" "$#"; GATE_ARG_FILE="$2"; shift 2 ;;
-		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
-		--show) need "$1" "$#"; SHOW="$2"; shift 2 ;;
-		--stderr-empty) STDERR_EMPTY=1; shift ;;
-		--stderr-ignored) need "$1" "$#"; STDERR_WHY="$2"; shift 2 ;;
+		--label) rl_need "$1" "$#"; LABEL="$2"; shift 2 ;;
+		--quotes) rl_need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
+		--timeout) rl_need "$1" "$#"; TMO="$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-arg) rl_need "$1" "$#"; GATE_ARG="$2"; GATE_ARG_SET=1; shift 2 ;;
+		--gate-arg-file) rl_need "$1" "$#"; GATE_ARG_FILE="$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
+		--show) rl_need "$1" "$#"; SHOW="$2"; shift 2 ;;
+		--stderr-empty | --stderr-ignored) rl_stderr_opt "$@"; shift "$RL_STDERR_SHIFT" ;;
 		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
 		*)
@@ -483,7 +486,7 @@ esac
 # sanitizer build, not for a hung one. What is left of the test's own limit caps
 # it too (rl_tmo, in run_one).
 
-T=$(mktemp -d)
+T=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$T"'
 
 # ---------------------------------------------------------------------------
@@ -505,6 +508,42 @@ if [ -n "$GATE_ARG_FILE" ]; then
 	GATE_ARG_SET=1
 fi
 
+# THE CLUE RULE, written once: parse_clue, the awk function that reads a clue
+# string. The probes' base vector is held to it just below, before rush01.awk
+# exists, and rush01.awk, the judgement's awk program, is built with it after
+# RL_AWK_VIS, so the vector the probes are built from and every input a
+# program is judged on are read by one rule. It was written twice, an inline
+# awk here restating it for one string.
+AWK_PARSE_CLUE=$(cat << 'AWK_CLUE'
+# Split a clue string into cl[1..4N] and set the board's side. Returns 1, or 0
+# if the string is not a well-formed vector at all (this is the "any other
+# input is an error" case).
+#
+# The board is square: 4N clues are an N x N board, 1 <= N <= 9. That is the
+# only shape the subject's input can carry. A rectangle would need its width
+# said separately, since 2W + 2H clues do not determine W and H, and anything
+# beside the one clue string is, in the subject's words, input that "must be
+# considered an error". So no other shape is read here: a flag in front of the
+# clues makes the string malformed, and Error is the answer to it.
+function parse_clue(s, cl,   i, m, t, n) {
+	GW = 0; GH = 0; GK = 0
+	if (s !~ /^[1-9]( [1-9])*$/) return 0
+	m = split(s, t, " ")
+	if (m % 4 != 0) return 0
+	n = m / 4
+	if (n > 9) return 0
+	for (i = 1; i <= m; i++) {
+		# A clue counts boxes along ONE line, so it can never exceed that
+		# line's length.
+		if (t[i] + 0 > n) return 0
+		cl[i] = t[i] + 0
+	}
+	GW = n; GH = n; GK = n
+	return 1
+}
+AWK_CLUE
+)
+
 # The probes' base vector (see --probe-shape, --probe-argc): a well-formed
 # clue string. A malformed one would make every probe built from it an error
 # by construction, whatever the program does with blanks or with argc -- the
@@ -519,23 +558,53 @@ if [ "$PROBE_SHAPE" -eq 1 ] || { [ "$PROBES_ONLY" -eq 1 ] && [ "$PROBE_ARGC" -eq
 	fi
 fi
 if [ "$GATE_ARG_SET" -eq 1 ] && { [ "$PROBE_SHAPE" -eq 1 ] || [ "$PROBE_ARGC" -eq 1 ]; }; then
-	# parse_clue's rule (the awk program below), restated for one string:
-	# single digits, single spaces, 4N of them, none above N, N at most 9.
-	if ! printf '%s\n' "$GATE_ARG" | awk '
-		NR == 1 && /^[1-9]( [1-9])*$/ {
-			m = split($0, t, " "); n = m / 4
-			if (m % 4 == 0 && n <= 9) { ok = 1; for (i = 1; i <= m; i++) if (t[i] + 0 > n) ok = 0 }
-		}
-		END { exit !ok }'; then
+	# THE CLUE RULE (above), printing the board's side when the vector is well
+	# formed, and nothing when it is not. A --gate-arg of two lines is not:
+	# the program would get the newline in its one argument.
+	_base_n=$(printf '%s\n' "$GATE_ARG" | LC_ALL=C awk "$AWK_PARSE_CLUE"'
+		NR == 1 { ok = parse_clue($0, cl); n = GW }
+		END { if (NR == 1 && ok) print n }')
+	if [ -z "$_base_n" ]; then
 		echo "rush01_check: the probes' base vector \"$GATE_ARG\" is not a well-formed clue" >&2
 		echo "              string, so every probe built from it would be an error whatever" >&2
 		echo "              the program did: they could catch nothing." >&2
 		exit 2
 	fi
+	# ...and one the program must ACCEPT, which a well-formed vector need not
+	# be: one with no solution, sixteen 1s say, or one of another board than
+	# the required one (a program without the bonus answers "1 1 1 1" Error)
+	# makes Error the right answer to every probe built from it, and the
+	# probes dead the same way. The size is read off the vector. Whether it
+	# has a solution is the reference's to say (oracle run rush01, which
+	# answers as the subject's program does, the required board only), or
+	# the gate's: its expected output is the answer to this very vector.
+	# With neither, nothing here can say: this runner solves no board itself.
+	_base_dead=""
+	if [ "$_base_n" != "$MANDATORY_N" ]; then
+		_base_dead="it is the clue string of a ${_base_n}x${_base_n} board, and the one required is ${MANDATORY_N}x${MANDATORY_N}"
+	elif [ -n "$GATE_EXPECTED" ] && [ -f "$GATE_EXPECTED" ] && printf 'Error\n' | cmp -s - "$GATE_EXPECTED"; then
+		_base_dead="the gate's expected output for it (--gate-expected) is Error"
+	elif [ -n "$ORACLE" ] && [ -x "$ORACLE" ]; then
+		if ! "$ORACLE" run rush01 "$GATE_ARG" > "$T/base.out" 2> "$T/base.err"; then
+			echo "rush01_check: the reference failed on the probes' base" >&2
+			echo "              vector \"$GATE_ARG\", so whether it has a solution is unknown:" >&2
+			rl_excerpt "$T/base.err" 6 base-oracle-stderr.txt "              " >&2
+			exit 2
+		fi
+		! printf 'Error\n' | cmp -s - "$T/base.out" ||
+			_base_dead="the reference answers it Error: it has no solution"
+	fi
+	if [ -n "$_base_dead" ]; then
+		echo "rush01_check: the probes' base vector \"$GATE_ARG\" is no input the program" >&2
+		echo "              must accept -- $_base_dead --" >&2
+		echo "              so Error would be the right answer to every probe built from it" >&2
+		echo "              whatever the program did: they could catch nothing." >&2
+		exit 2
+	fi
 fi
 
 # The gate runs the program with the one argument the gating case's own output
-# test passes (c_levels()' audit holds the two to each other: tools/defs.bzl,
+# test passes (c_levels()' audit holds the two to each other: tools/defs_module.bzl,
 # _gate_problems).
 if [ "$GATE_ARG_SET" -eq 1 ]; then
 	rl_gate rush01_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$GATE_ARG"
@@ -548,14 +617,9 @@ fi
 # this layer, and past a green one -- or one NO_SKIP=1 forced open -- a
 # stand-in is a failure, told in the compiler's words rather than as a
 # report about a program that does not exist.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "rush01_check.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check rush01_check "$BIN" "$RL_STANDIN" "${LABEL:-the program}"
 
 # ---------------------------------------------------------------------------
@@ -626,7 +690,7 @@ fi
 # (empty without --oracle) and RUSH01_REQ, the request file. awk hands its
 # command line to a shell, and a path that travels as "$RUSH01_ORACLE" inside
 # that line can never need quoting, whatever characters it holds.
-printf '%s\n' "$RL_AWK_VIS" > "$T/rush01.awk"
+printf '%s\n' "$RL_AWK_VIS" "$AWK_PARSE_CLUE" > "$T/rush01.awk"
 cat >> "$T/rush01.awk" <<'AWK_END'
 # ---------------------------------------------------------------- shared rules
 #
@@ -690,32 +754,9 @@ function is_bonus() {
 	return (GW != mandatory_n() && GW > maxsize)
 }
 
-# Split a clue string into cl[1..4N] and set the board's side. Returns 1, or 0
-# if the string is not a well-formed vector at all (this is the "any other
-# input is an error" case).
-#
-# The board is square: 4N clues are an N x N board, 1 <= N <= 9. That is the
-# only shape the subject's input can carry. A rectangle would need its width
-# said separately, since 2W + 2H clues do not determine W and H, and anything
-# beside the one clue string is, in the subject's words, input that "must be
-# considered an error". So no other shape is read here: a flag in front of the
-# clues makes the string malformed, and Error is the answer to it.
-function parse_clue(s, cl,   i, m, t, n) {
-	GW = 0; GH = 0; GK = 0
-	if (s !~ /^[1-9]( [1-9])*$/) return 0
-	m = split(s, t, " ")
-	if (m % 4 != 0) return 0
-	n = m / 4
-	if (n > 9) return 0
-	for (i = 1; i <= m; i++) {
-		# A clue counts boxes along ONE line, so it can never exceed that
-		# line's length.
-		if (t[i] + 0 > n) return 0
-		cl[i] = t[i] + 0
-	}
-	GW = n; GH = n; GK = n
-	return 1
-}
+# parse_clue(s, cl), which splits a clue string and sets the board's side, is
+# THE CLUE RULE: the shell's AWK_PARSE_CLUE, written into this file ahead of
+# its text, as RL_AWK_VIS is.
 
 # Load an N*N-digit row-major string into g. Returns 1 on success.
 function load_sol(s, g,   i, r, c, ch) {
@@ -737,6 +778,20 @@ function load_sol(s, g,   i, r, c, ch) {
 # its own that showed every such byte as "\?" -- a NUL and an escape alike.
 function esc(s) {
 	return rl_vis_exact(s)
+}
+
+# A captured line (line = 1) or a value from one (line = 0) as a failing case
+# shows it: esc'd, and past `width` bytes cut, with what was left out said, the
+# way rl_excerpt cuts a line and rl_vis a value. Uncut, a program that printed
+# a long line per case filled the runner's own log past its `ulimit -f` (below)
+# a few cases in. And a sentence that holds one is built by concatenation,
+# never sprintf("%s"): mawk caps sprintf at 8192 bytes and exits 2 past it, so
+# one long line ended the judge as if it had reached a harness verdict.
+function shown(s, line,   x) {
+	x = length(s) - width
+	if (width <= 0 || x <= 0) return esc(s)
+	return esc(substr(s, 1, width)) (line ? " [... line cut here, " x " more bytes]" \
+		: " ... (" x " more bytes)")
 }
 
 BEGIN {
@@ -814,7 +869,15 @@ mode == "prep" {
 	if (!exh && nalt > 0 && !have_validator() && needoracle++ == 0) witness = clue
 	for (i = 1; i <= nalt; i++) {
 		ns++
-		sols = (sols == "" ? sset[i] : sols " " sset[i])
+		# Joined as load_sol reads it, separators stripped: the record
+		# keeps its solutions apart with a space, and judge_end splits
+		# them on spaces, so a solution written "1234 2341 3412 4123",
+		# as the corpus format allows, became four of four digits and
+		# a correct grid matched none. The notes below show the field
+		# as the corpus wrote it.
+		skey = sset[i]
+		gsub(/[\/,| ]/, "", skey)
+		sols = (sols == "" ? skey : sols " " skey)
 		# ---- the reference is checked against the rules, not trusted ----
 		if (!okc) {
 			note(sprintf("rush01_check: FAIL — the corpus lists a solution for an input that is\n" \
@@ -925,7 +988,7 @@ function show_output(   i, lim) {
 	say("   your program printed:")
 	if (nout == 0) { say("     (nothing on standard output)"); return }
 	lim = (nout > 8 ? 8 : nout)
-	for (i = 1; i <= lim; i++) say("     | " esc(o[i]))
+	for (i = 1; i <= lim; i++) say("     | " shown(o[i], 1))
 	if (nout > lim) say(sprintf("     ... and %d more line(s)", nout - lim))
 	if (!eol) say("     (the last line was NOT terminated by a newline)")
 }
@@ -980,19 +1043,21 @@ function verdict(cat, msg, why) {
 	gsub(/\n/, "\n     ", why)
 	if (why != "") say("     " why)
 	if (nerr > 0 && cat != "error-on-stderr") {
-		say("   (it also wrote to standard error: " esc(e[1]) ")")
+		say("   (it also wrote to standard error: " shown(e[1], 0) ")")
 	}
 }
 
 # The reference gave no usable answer about this grid. That says nothing about
-# the student, so it is a HARNESS verdict (exit 2), never theirs.
+# the student, so it is a HARNESS verdict, never theirs: exit 5, the code this
+# program keeps for one. Not 2, which awk exits with when it falls over itself
+# (judge_one, in the shell, tells the two apart).
 function validator_failed() {
 	print "validator-failed" >> catfile
 	say(" --------------------------------------------------")
 	say(" HARNESS PROBLEM, not yours: the reference (oracle rush01_validate) gave no")
 	say(" usable answer about the grid printed for \"" clue "\", so it could not be")
 	say(" judged.")
-	exit 2
+	exit 5
 }
 
 # What a row of this board looks like, one "d" per height: "d d d d" at 4x4,
@@ -1026,7 +1091,7 @@ function row_fault(s,   m, t, k) {
 		return sprintf("it holds %d value%s, but a row of this grid has %d", m, (m == 1 ? "" : "s"), GW)
 	for (k = 1; k <= m; k++) {
 		if (t[k] !~ /^[1-9]$/)
-			return sprintf("value %d is \"%s\"; each cell holds one digit", k, esc(t[k]))
+			return "value " k " is \"" shown(t[k], 0) "\"; each cell holds one digit"
 		if (t[k] + 0 > GK)
 			return sprintf("value %d is %s, but the heights of a %dx%d grid run 1..%d", \
 				k, t[k], GW, GH, GK)
@@ -1131,7 +1196,7 @@ function judge_end(   i, k, fault, faults, key, sawrow) {
 				say(" HARNESS PROBLEM, not yours: for \"" clue "\" the corpus says there is no")
 				say(" solution, but the grid printed satisfies every rule. The reference and")
 				say(" this checker disagree; the reference needs fixing.")
-				exit 2
+				exit 5
 			}
 			verdict("false-solution", \
 				"it printed a grid, but no arrangement satisfies these clues — " F_MSG, \
@@ -1145,7 +1210,7 @@ function judge_end(   i, k, fault, faults, key, sawrow) {
 			verdict("bad-error-text", "it printed Error, but without the newline after it.", \
 				"Output is compared byte for byte: \"Error\" and \"Error\\n\" are different files.")
 		else if (nout == 1 && tolower(o[1]) == "error")
-			verdict("bad-error-text", "it printed \"" esc(o[1]) "\"; the word is spelled Error.", \
+			verdict("bad-error-text", "it printed \"" shown(o[1], 0) "\"; the word is spelled Error.", \
 				ENVIRON["RUSH01_Q_ERROR"])
 		else if (nout > 1)
 			verdict("bad-error-text", \
@@ -1200,14 +1265,14 @@ function judge_end(   i, k, fault, faults, key, sawrow) {
 	if (!sawrow) {
 		if (nout <= 2 && tolower(o[1]) ~ /^error/)
 			verdict("false-error", \
-				sprintf("it printed \"%s\", but %d grid%s satisfies these clues.", esc(o[1]), nsol, \
-					(nsol == 1 ? "" : "s")), \
+				"it printed \"" shown(o[1], 0) "\", but " nsol " grid" (nsol == 1 ? "" : "s") \
+					" satisfies these clues.", \
 				"Error is for an input that is malformed or that nothing can satisfy. This one can be.")
 		else if (nout == GH)
 			# The right NUMBER of lines, none of them a valid row: the shape of
 			# the answer is there and only the row format is wrong, so say what
 			# is wrong with the row rather than the useless "not a grid".
-			verdict("row-format", sprintf("line 1 is not a row of this grid: %s.", row_fault(o[1])), \
+			verdict("row-format", "line 1 is not a row of this grid: " row_fault(o[1]) ".", \
 				"A row is printed as its heights separated by single spaces, e.g. \"1 2 3 4\".")
 		else
 			verdict("not-a-grid", "the output is not a grid.", \
@@ -1224,7 +1289,7 @@ function judge_end(   i, k, fault, faults, key, sawrow) {
 	for (i = 1; i <= GH; i++) {
 		fault = row_fault(o[i])
 		if (fault != "") {
-			verdict("row-format", sprintf("line %d is not a row of this grid: %s.", i, fault), \
+			verdict("row-format", "line " i " is not a row of this grid: " fault ".", \
 				"A row is printed as its heights separated by single spaces, e.g. \"1 2 3 4\".")
 			exit 1
 		}
@@ -1277,7 +1342,7 @@ function judge_end(   i, k, fault, faults, key, sawrow) {
 		say(" rule of the puzzle, but the corpus does not list it. The corpus is supposed")
 		say(" to be exhaustive, so the reference (or this checker) needs fixing.")
 		say("   grid: " key)
-		exit 2
+		exit 5
 	}
 	verdict(F_CAT, F_MSG, F_WHY sprintf(" (%d rule%s broken in total.)", faults, (faults == 1 ? "" : "s")))
 	exit 1
@@ -1343,6 +1408,16 @@ fi
 # Bazel budget. A correct answer here is a few dozen bytes, so 1 MiB is still
 # four orders of magnitude above anything legitimate. The corpus is already
 # written by this point, so the limit cannot truncate it.
+#
+# It also bounds what THIS shell writes: its own stdout when that is a file, as
+# a test's log is, and the blocks rl_block keeps for test.outputs. A program
+# that printed a 200000-byte line per case, each shown whole, killed the runner
+# itself with SIGXFSZ (153) a few blocks in, with no verdict. What keeps the
+# report under it is that a block shows at most 8 lines of what was printed,
+# each cut at SHOW_W bytes (shown, in the awk program). Every failing block,
+# shown or not, is still written to test.outputs, so a sweep of hundreds of
+# failing cases with long lines can still reach the cap there: only a cap on
+# the program alone, never on this shell, removes that.
 RUNAWAY_CAP_MIB=1
 ulimit -f 2048 2>/dev/null || true
 
@@ -1398,6 +1473,12 @@ run_one() {
 	if [ "$RL_CAUSE" = noexec ]; then
 		echo "rush01_check.sh: the program $RL_WHY" >&2
 		exit 2
+	fi
+	# Nor is a run stopped from outside a verdict (rl_unjudged).
+	if [ -n "$PROBE_KIND" ]; then
+		rl_unjudged "probe $((PRUN + 1))/$NPROBE"
+	else
+		rl_unjudged "case $((RUN + 1))/$TOTAL"
 	fi
 	# Killed by the TEST's limit rather than by this run's own cap: the sweep
 	# as a whole ran out of time, whatever this one case was doing.
@@ -1494,7 +1575,7 @@ judge_one() {
 		replay_line
 		return 1
 	fi
-	if [ "$RL_CAUSE" = signal ] || [ "$RL_CAUSE" = stopped ]; then
+	if [ "$RL_CAUSE" = signal ]; then
 		FAILS=$((FAILS + 1))
 		echo "crash" >> "$CATS"
 		echo " --------------------------------------------------"
@@ -1511,8 +1592,8 @@ judge_one() {
 		-v clue="$_clue" -v sols="$_sols" \
 		-v caseid="$_id" -v argvdesc="$_argvdesc" -v probe="$PROBE_KIND" \
 		-v exh="$_exh" -v maxsize="$MAXSIZE" -v mandn="$MANDATORY_N" \
-		-v outfile="$OUT" -v errfile="$ERRF" -v catfile="$CATS" \
-		"$OUT" "$ERRF"
+		-v outfile="$OUT" -v errfile="$ERRF" -v catfile="$CATS" -v width="$SHOW_W" \
+		"$OUT" "$ERRF" 2> "$T/jerr"
 	_jrc=$?
 	# The right answer, and a message the call said a valid run does not get
 	# (--stderr-empty): the message is the fault.
@@ -1530,8 +1611,26 @@ judge_one() {
 	if [ "$_jrc" -eq 0 ]; then
 		return 0
 	fi
-	if [ "$_jrc" -eq 2 ]; then
+	# 5 is the judge's own harness verdict (validator_failed, a corpus that
+	# contradicts itself), which it has printed. It was 2, which is also what
+	# awk exits with when it falls over -- mawk's sprintf past 8192 bytes, on
+	# a long line the program printed -- so that read as a harness verdict
+	# too, with no case shown and nothing saying why.
+	if [ "$_jrc" -eq 5 ]; then
 		HARNESS=$((HARNESS + 1))
+		return 2
+	fi
+	if [ "$_jrc" -ne 1 ]; then
+		HARNESS=$((HARNESS + 1))
+		echo "checker-crashed" >> "$CATS"
+		echo " --------------------------------------------------"
+		argv_line
+		echo "   HARNESS PROBLEM, not yours: this checker (its awk judge) stopped with"
+		echo "   status $_jrc before it reached a verdict on what the program printed."
+		if [ -s "$T/jerr" ]; then
+			echo "   It said:"
+			rl_excerpt "$T/jerr" 6 "case-$(printf '%s' "$_id" | tr '/' '-')-judge-stderr.txt" "     "
+		fi
 		return 2
 	fi
 	FAILS=$((FAILS + 1))
@@ -1551,6 +1650,12 @@ argv_line() {
 		printf ' %s %s  argv: "%s"%s\n' "$_word" "$_id" "$(printf '%s' "$_clue" | rl_vis arg)" \
 			"${_argvdesc:+  -- $_argvdesc}"
 	fi
+}
+
+# shown_legend -- under the failing blocks, the key to the marks their argv:
+# lines showed (rl_shown_legend), and nothing when they showed none.
+shown_legend() {
+	rl_shown_legend '  argv: "'
 }
 
 # keep_args ARG... -- a run's arguments, each kept whole for its failing
@@ -1775,6 +1880,7 @@ if [ -n "$RL_MEM" ]; then
 	_mn=$((TOTAL + NPROBE))
 	RL_MEM_N=$((RL_MEM_N + NPROBE))
 	[ -n "$RL_STOP" ] || probe_list memory
+	shown_legend
 	rl_tally
 	if [ -n "$RL_STOP" ]; then
 		echo ""
@@ -1862,6 +1968,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # Verdict.
+shown_legend
 rl_tally
 
 # One line per verdict was appended to $CATS; fold it into a census so the shape

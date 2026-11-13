@@ -185,90 +185,44 @@ c_reference_cost(
 
 c_levels()
 
-# The cycles layer, restored for ex05-ex07 with a MEASURED unit.
+# The cycles layer of ex05-ex07: what one call costs in instructions,
+# printed with no budget to read it against.
 #
-# It was absent from this whole module for a good reason, kept here because it
-# is the reason the unit below is shaped the way it is. A sqrt(n)-based unit was
-# tried and measured: it reported 1419 instructions "per division" against a
-# true cost under ten. The corpus spans 0..INT_MAX, so the instruction TOTAL is
-# dominated by a handful of huge values while the unit SUM is dominated by
-# thousands of tiny ones; dividing one by the other is not a per-unit cost, it
-# is an artefact of the distribution. A number that wrong is worse than none,
-# because a student cannot tell that it is wrong.
+# All three count per call: their work has no unit every answer does the same
+# amount of, so the figure is one to read against your own runs, with no budget
+# (c_cycles' budget). Each profiles its diff corpus: c05_sqrt, c05_is_prime and
+# c05_find_next_prime.
 #
-# What fixes it is measuring the unit instead of modelling it. //oracle now
-# emits, as a third corpus column, the iteration count its reference actually
-# performed for that input, and `unit_expr = "$3"` sums it. The corpora the diff
-# layer uses are untouched: these are SEPARATE oracle generators
-# (c05_*_cycles), which is why this arrived without regenerating a single
-# expected.txt or editing one of the eight diff harnesses.
+# no cycles on ex00 and ex01: BOUNDED-COST.
 #
-# no cycles on ex00-ex04: BOUNDED-COST.
+# The two factorials take an input bounded to 0..12 before the answer
+# overflows an int, so every case costs within about a dozen steps of every
+# other and a per-unit figure has nothing to distinguish.
 #
-# ex00-ex04 still have no cycles layer. Factorial, power and fibonacci are
-# linear in an input that is bounded to about a dozen before the answer
-# overflows an int, so every case costs within a few iterations of every other
-# and a per-unit figure has nothing to distinguish. The three below are the ones
-# where the cost genuinely varies over the corpus, which is what makes the
-# question ("what does one unit of this work cost you?") worth asking at all.
-#
-# The perf layer keeps doing what it did: its scaling exponent separates
-# trial-dividing all the way to n (n^2.00) from stopping at sqrt(n) (n^1.00),
-# from timings rather than an assumed unit. These two now answer different
-# questions instead of one covering for the other.
-
-# ft_sqrt is the one where NO measured iteration count is the right unit, and
-# both candidate units were tried and measured rather than argued about:
-#
-#   * the reference's OWN loop count is structurally zero: on this corpus it
-#     counts not one iteration -- 0 units over all 3000 cases. As a
-#     denominator that is not a small number, it is no number at all.
-#   * floor(sqrt(n)), the candidates an ascending integer scan examines, reports
-#     0.0 instructions per root: 190,972 instructions against 46,093,582 units,
-#     because a bisecting implementation does about log2 of that work. Also a
-#     true statement, also useless as a per-unit cost.
-#
-# Anything that produced a sensible number here would have to assume WHICH
-# algorithm the student wrote, which is modelling -- the exact thing this layer
-# was rebuilt to stop doing. So the unit is the call, which assumes nothing: 63.7
-# instructions per call, measured. That figure is still the lesson, because it is
-# where the two families separate by two orders of magnitude -- an ascending scan
-# to sqrt(INT_MAX) cannot come near it.
+# ex02-ex04 have no cycles layer either, and BOUNDED-COST is not their
+# reason: the exponents in power's corpus reach 1000 and fibonacci's index
+# 46, so their cases need not cost alike. Which reason is theirs is not
+# settled yet.
 c_cycles(
     num = "05",
     fn = "ft_sqrt",
-    oracle_fn = "c05_sqrt_cycles",
+    oracle_fn = "c05_sqrt",
     harness = "diff_sqrt.c",
-    # 63.7 measured. 90 leaves room for a slower-but-still-logarithmic method
-    # and is nowhere near what an O(sqrt n) scan costs, which is the distinction
-    # worth failing on.
-    budget = 90,
     syscall_budget = 0,
 )
 
 c_cycles(
     num = "06",
     fn = "ft_is_prime",
-    oracle_fn = "c05_is_prime_cycles",
+    oracle_fn = "c05_is_prime",
     harness = "diff_is_prime.c",
-    unit_expr = "$3",
-    unit_name = "division",
-    # 15.4 measured: a trial division plus the wheel's bookkeeping. 20 is the
-    # same ~30% headroom every other budget in this repo carries.
-    budget = 20,
     syscall_budget = 0,
 )
 
 c_cycles(
     num = "07",
     fn = "ft_find_next_prime",
-    oracle_fn = "c05_find_next_prime_cycles",
+    oracle_fn = "c05_find_next_prime",
     harness = "diff_find_next_prime.c",
-    unit_expr = "$3",
-    unit_name = "division",
-    # 15.3 measured -- and the agreement with ex06's 15.4 is the check that the
-    # unit is real: find_next_prime IS is_prime in a loop, so the two must cost
-    # the same per division or one of the two counts is wrong.
-    budget = 20,
     syscall_budget = 0,
 )

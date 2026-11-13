@@ -52,15 +52,8 @@ ck_sh_parses "$D"
 
 # No configuration but the repository's own: not the system's, not the user's
 # (whose core.excludesFile, or ~/.config/git/ignore, would add rules of its
-# own), for the fixture and for the run alike.
-GIT_CONFIG_NOSYSTEM=1
-HOME=$(mktemp -d)
-XDG_CONFIG_HOME="$HOME/.config"
-export GIT_CONFIG_NOSYSTEM HOME XDG_CONFIG_HOME
-# Nor where the repository is, or which configuration it takes, from what a
-# run outside Bazel's cleared environment would inherit.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
-unset GIT_CONFIG_GLOBAL GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+# own), for the fixture and for the run alike (tools/shell_check.sh).
+ck_git_sandbox
 
 #   path             tracked   ignored by
 #   .gitignore       yes       --            (*.log, .DS_Store, build/)
@@ -79,9 +72,7 @@ unset GIT_CONFIG_GLOBAL GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 repo=$(mktemp -d)
 (
 	cd "$repo" || exit 1
-	git init -q . || exit 1
-	git config user.email tester@example.com
-	git config user.name tester
+	ck_git_init . || exit 1
 	printf '*.log\n.DS_Store\nbuild/\n' > .gitignore
 	mkdir -p sub build .git/info
 	printf '*.tmp\n' > sub/.gitignore
@@ -93,7 +84,7 @@ repo=$(mktemp -d)
 	git add .gitignore sub/.gitignore tracked.txt || exit 1
 	git add -f forced.log || exit 1
 	git commit -q -m fixture || exit 1
-) > /dev/null 2>&1 || { ck "fixture repository created" false; ck_report; }
+) > /dev/null 2>&1 || { rm -rf "$repo" "$HOME"; ck_broken "the git fixture repository could not be built"; }
 
 # One run, from the repository's top, two views: the RAW bytes (with any
 # trailing newline) and the shell-stripped form of them.

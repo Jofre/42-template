@@ -1,0 +1,26 @@
+basic suite lvl_basic
+complete suite lvl_complete
+libtoy13 suite unit=libtoy13
+libtoy13_build make_test.sh @basic unit=libtoy13 by:defense kind:library
+libtoy13_build_exit make_test.sh @robust unit=libtoy13 by:defense kind:library
+libtoy13_build_rules make_test.sh @robust unit=libtoy13 by:defense kind:library
+libtoy13_compile_clang compile_check.sh @basic make-includes unit=libtoy13 by:defense kind:library
+libtoy13_compile_gcc compile_check.sh @basic make-includes unit=libtoy13 by:defense kind:library
+libtoy13_files files_test.sh @basic unit=libtoy13 by:defense kind:library
+libtoy13_forbidden forbidden_symbols.sh @basic make-includes unit=libtoy13 by:defense kind:library
+libtoy13_norm norminette_test.sh @basic unit=libtoy13 by:defense kind:library
+libtoy13_norm_header header_norm.sh @strict unit=libtoy13 by:defense kind:library
+libtoy13_norm_notice norminette_test.sh @strict unit=libtoy13 by:defense kind:library
+libtoy13_prototype prototype_check.sh @basic make-includes unit=libtoy13 by:defense kind:library
+libtoy13_symbols symbols_test.sh @strict make-includes unit=libtoy13 by:defense kind:library
+robust suite lvl_robust
+strict suite lvl_strict
+toy_down suite unit=toy_down
+toy_down_ilp32 ilp32_test.sh @complete make-includes unit=toy_down by:defense kind:function
+toy_down_memcheck valgrind_test.sh @strict gated gate-label:toy_down_output unit=toy_down by:defense kind:function
+toy_down_output diff_output.sh @basic suite:toy_down unit=toy_down by:defense kind:function
+toy_up suite unit=toy_up
+toy_up_ilp32 ilp32_test.sh @complete make-includes unit=toy_up by:defense kind:function
+toy_up_memcheck valgrind_test.sh @strict gated gate-label:toy_up_output unit=toy_up by:defense kind:function
+toy_up_method method_check.sh @strict gated gate-label:toy_up_output make-includes unit=toy_up by:defense kind:function
+toy_up_output diff_output.sh @basic suite:toy_up unit=toy_up by:defense kind:function

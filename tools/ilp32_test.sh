@@ -14,10 +14,12 @@
 # the exercise changes: same fixture, same cases, same diff.
 #
 # This needs a compiler that can target 32-bit. Bazel fetches a hermetic zig for
-# it; the host fallback needs 32-bit libc headers (libc6-dev-i386 / gcc-multilib).
-# If nothing can, the layer SKIPS loudly with exit 0 — like compile_check.sh does
-# for a missing compiler — so the suite stays green on a machine that cannot host
-# it. NO_SKIP=1 turns every one of those skips red instead: a layer that compiled
+# it; the host fallback needs 32-bit libc headers (libc6-dev-i386 /
+# gcc-multilib), and is tried only on a hand run without --zig: a zig that is
+# given and cannot run is a harness fault (exit 2). If nothing can, the layer
+# SKIPS loudly with exit 0, so the suite stays green on a machine that cannot
+# host it.
+# NO_SKIP=1 turns every one of those skips red instead: a layer that compiled
 # nothing has checked nothing, and the forced sweep exists to say so.
 #
 # The same compiler also stops the program at UNDEFINED BEHAVIOUR. zig builds in
@@ -97,19 +99,14 @@ require dirname id mkdir mktemp rm
 RL_NAME=ilp32_test
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "ilp32_test.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "ilp32_test.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The stand-in contract, to tell a 64-bit program that did not build from one
 # that fails its fixture (--gate-bin).
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "ilp32_test.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 # The harness's own programs this runner starts by path, outside rl_run on
 # purpose: //tools:conventions holds every other one to rl_run.
 # conventions: harness tool C32 -- the 32-bit compiler found below, with its flags: it builds, and runs none of what it builds
@@ -153,31 +150,26 @@ _add_src() {
 	rl_list_add INCS "-I$(dirname "$1")"
 }
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "ilp32_test.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--zig) need "$1" "$#"; ZIG="$2"; shift 2 ;;
-		--differ) need "$1" "$#"; DIFFER="$2"; shift 2 ;;
-		--harness) need "$1" "$#"; HARNESS="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--expected) need "$1" "$#"; EXPECTED="$2"; shift 2 ;;
-		--src) need "$1" "$#"; _add_src "$2"; shift 2 ;;
+		--zig) rl_need "$1" "$#"; ZIG="$2"; shift 2 ;;
+		--differ) rl_need "$1" "$#"; DIFFER="$2"; shift 2 ;;
+		--harness) rl_need "$1" "$#"; HARNESS="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--expected) rl_need "$1" "$#"; EXPECTED="$2"; shift 2 ;;
+		--src) rl_need "$1" "$#"; _add_src "$2"; shift 2 ;;
 		# A harness source is the unbuffered-stdout library, and a fixture
 		# built with it is one diff_output.sh may read case by case after a
 		# crash: --harness-fixture, whose premise diff_output.sh checks in the binary.
-		--harness-src) need "$1" "$#"; rl_list_add HSRCS "$2"; FIXTURE="--harness-fixture"; shift 2 ;;
-		--inc) need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
-		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
-		--stdin) need "$1" "$#"; rl_list_add PASS --stdin "$2"; shift 2 ;;
-		--clues) need "$1" "$#"; rl_list_add PASS --clues "$2"; shift 2 ;;
+		--harness-src) rl_need "$1" "$#"; rl_list_add HSRCS "$2"; FIXTURE="--harness-fixture"; shift 2 ;;
+		--inc) rl_need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
+		--inc-file) rl_need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
+		--stdin) rl_need "$1" "$#"; rl_list_add PASS --stdin "$2"; shift 2 ;;
+		--clues) rl_need "$1" "$#"; rl_list_add PASS --clues "$2"; shift 2 ;;
 		--labeled) rl_list_add PASS --labeled; shift ;;
 		--escaped-values) rl_list_add PASS --escaped-values; shift ;;
 		--sanitize) rl_list_add PASS --sanitize; shift ;;
-		--lib32) need "$1" "$#"; rl_list_add LIBS32 "$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--lib32) rl_need "$1" "$#"; rl_list_add LIBS32 "$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
 		*) echo "ilp32_test.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -187,7 +179,7 @@ done
 	exit 2
 }
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$WORK"'
 printf 'int main(void){return 0;}\n' > "$WORK/probe.c"
 
@@ -208,12 +200,31 @@ printf 'int main(void){return 0;}\n' > "$WORK/probe.c"
 #   fail     it ran, and failed
 #   nobuild  it is a stand-in: these files do not build as a 64-bit program
 #            with the flags every layer uses, and *_output says why
-#   unknown  not established: no --gate-bin (a hand run), or the differ could
-#            not judge it (exit 2 or more), which is said and fails open
+#   unknown  not established: no --gate-bin (a hand run), the differ could
+#            not judge it (exit 2 or more), or the test's own time ran out
+#            before it judged the run (its status file says "notrun", or a
+#            "timeout" with a "clamped" line), which is said and fails open
+#
+# The differ exits 1 both for a failed fixture and for a run the test's time
+# stopped, so the status file tells them apart, read as the 32-bit run's is
+# (status_read, below). Read as a failure, a gate out of time once skipped
+# this layer green, saying the 64-bit build fails a fixture it passes.
 #
 # The program is *_output's own, never a rebuild here: a rebuild is a second
 # copy of the flags, and it was one that differed (-w) -- a warning under
 # -Werror made a stand-in for every other layer and a pass for this one.
+# status_read FILE: STATUS, the first line of the status file diff_output.sh
+# wrote (empty when it wrote none), and CLAMPED, the S of its "clamped S".
+status_read() {
+	STATUS=""
+	CLAMPED=""
+	[ -f "$1" ] || return 0
+	read -r STATUS < "$1"
+	while read -r _k _v; do
+		[ "$_k" != clamped ] || CLAMPED=$_v
+	done < "$1"
+}
+
 NATIVE=unknown
 NATIVE_WHY="no 64-bit program was given to this layer (--gate-bin)"
 if [ -n "$GATE_BIN" ]; then
@@ -223,22 +234,30 @@ if [ -n "$GATE_BIN" ]; then
 	else
 		rl_split_on
 		# shellcheck disable=SC2086
-		sh "$DIFFER" --bin "$GATE_BIN" --expected "$EXPECTED" $FIXTURE $PASS > /dev/null 2>&1
+		sh "$DIFFER" --bin "$GATE_BIN" --expected "$EXPECTED" --status-file "$WORK/gate.status" \
+			$FIXTURE $PASS > /dev/null 2>&1
 		_gate_rc=$?
 		rl_split_off
 		case "$_gate_rc" in
 			0) NATIVE=pass ;;
-			1) NATIVE=fail ;;
-			*)
-				NATIVE_WHY="the 64-bit program could not be judged (its differ exited $_gate_rc)"
-				echo "ilp32_test: $NATIVE_WHY, so this layer is running anyway"
-				echo "            rather than going quiet." ;;
+			1)
+				status_read "$WORK/gate.status"
+				if [ "$STATUS" = notrun ] || [ -n "$CLAMPED" ]; then
+					NATIVE_WHY="the test's own time ran out before the 64-bit program's run was judged"
+				else
+					NATIVE=fail
+				fi ;;
+			*) NATIVE_WHY="the 64-bit program could not be judged (its differ exited $_gate_rc)" ;;
 		esac
+		if [ "$NATIVE" = unknown ]; then
+			echo "ilp32_test: $NATIVE_WHY, so this layer is running anyway"
+			echo "            rather than going quiet."
+		fi
 	fi
 fi
 
 if [ "$NATIVE" = fail ] && [ "${NO_SKIP:-0}" != "1" ]; then
-	echo "ilp32_test: SKIP — the ordinary 64-bit build already fails this exercise's"
+	echo "ilp32_test: SKIP — the ordinary 64-bit build already fails this $(rl_noun)'s"
 	echo "            own fixture, so there is nothing platform-specific to report."
 	echo "            Fix the *_output layer first; this one will start checking then."
 	exit 0
@@ -250,7 +269,7 @@ if [ "$NATIVE" = nobuild ] && [ "${NO_SKIP:-0}" != "1" ]; then
 	else
 		echo "ilp32_test: SKIP — your code does not build as a 64-bit program, so there"
 		echo "            is nothing platform-specific to report. The *_output layer of"
-		echo "            this exercise shows the compiler's words."
+		echo "            this $(rl_noun) shows the compiler's words."
 	fi
 	echo "            (NO_SKIP=1 runs this layer anyway.)"
 	exit 0
@@ -266,7 +285,19 @@ CCFLAGS=""
 # CCFLAGS are what the messages print).
 C32=""
 
-if [ -n "$ZIG" ] && [ -x "$ZIG" ]; then
+if [ -n "$ZIG" ]; then
+	# A ZIG THAT IS GIVEN IS THE COMPILER: Bazel hands every target one. One
+	# that does not exist or has lost its exec bit used to skip the wiring
+	# error below and fall through to the host compilers -- a different
+	# compiler from the pinned one on a box with gcc-multilib, and a SKIP
+	# saying the zig "failed to run" on one without, though it never ran.
+	[ -x "$ZIG" ] || {
+		echo "ilp32_test: the pinned 32-bit compiler was supplied and is not executable." >&2
+		echo "  $ZIG" >&2
+		echo "  This is a harness fault, not a finding about the exercise: a" >&2
+		echo "  fetched tool that cannot start must never degrade into a skip." >&2
+		exit 2
+	}
 	# zig insists on a writable cache, and rebuilds musl's startup objects from
 	# scratch without one — ~15s per test. A cache shared across the suite makes
 	# that a one-off; zig locks it itself, so parallel tests are safe. Override
@@ -293,8 +324,9 @@ if [ -n "$ZIG" ] && [ -x "$ZIG" ]; then
 	else
 		# A PINNED TOOL THAT IS PRESENT AND WILL NOT RUN IS A WIRING ERROR, not
 		# a fact about the student. Falling through from here reached the host
-		# compilers and then a SKIP -- so a broken cache directory, a truncated
-		# download or a bad --zig path all ended as a silent green.
+		# compilers and then a SKIP -- so a broken cache directory or a
+		# truncated download ended as a silent green, and a bad --zig path
+		# (refused above) did too.
 		#
 		# Only when Bazel SUPPLIED a zig, which is the path every target takes.
 		# A hand-run without --zig keeps the documented gcc-multilib fallback
@@ -330,44 +362,51 @@ if [ -z "$CC32" ]; then
 		echo "that is the whole point of the forced sweep."
 		exit 1
 	}
+	# Only a hand run without --zig reaches here: a zig that is given either
+	# builds the probe or is a wiring error (exit 2, above).
 	echo "ilp32_test: SKIP — no 32-bit compiler available."
-	# The zig line only when a zig was given: a hand run without --zig never
-	# tried one, and this said it "failed to run" all the same (V315).
-	if [ -n "$ZIG" ]; then
-		echo "            The hermetic one (zig, fetched by Bazel) failed to run, and no"
-		echo "            host compiler can target -m32 (needs gcc-multilib/libc6-dev-i386)."
-		rl_excerpt "$WORK/zig.err" 5 zig-output.txt "            "
-	else
-		echo "            No --zig was given (Bazel gives the hermetic one), and no"
-		echo "            host compiler can target -m32 (needs gcc-multilib/libc6-dev-i386)."
-	fi
+	echo "            No --zig was given (Bazel gives the hermetic one), and no"
+	echo "            host compiler can target -m32 (needs gcc-multilib/libc6-dev-i386)."
 	exit 0
 fi
 
-# Confirm the type model really is ILP32 before claiming anything.
+# Confirm the type model really is ILP32 before claiming anything. A probe
+# that does not build confirms nothing: the layer went on with an unchecked
+# compiler under a line saying int and long are both 32 bits, so it is a
+# SKIP that shows why, and red under NO_SKIP=1.
 printf '#include <stdio.h>\nint main(void){printf("%%zu %%zu\\n",sizeof(int),sizeof(long));return 0;}\n' \
 	> "$WORK/model.c"
 rl_split_on
 # shellcheck disable=SC2086
-$C32 "$WORK/model.c" -o "$WORK/model" 2>/dev/null
+$C32 "$WORK/model.c" -o "$WORK/model" 2> "$WORK/model.err"
 _model_rc=$?
 rl_split_off
-if [ "$_model_rc" -eq 0 ]; then
-	# conventions: harness tool -- the model probe written above, never the student's code
-	MODEL=$("$WORK/model")
-	case "$MODEL" in
-		"4 4") ;;
-		*)
-			[ "${NO_SKIP:-0}" != "1" ] || {
-				echo "NO_SKIP set: $CC32 reports sizeof(int) sizeof(long) = $MODEL, not"
-				echo "4 4, so this layer never exercised a narrow long and checked nothing."
-				exit 1
-			}
-			echo "ilp32_test: SKIP — $CC32 reports sizeof(int) sizeof(long) = $MODEL, not 4 4"
-			exit 0
-			;;
-	esac
+if [ "$_model_rc" -ne 0 ]; then
+	[ "${NO_SKIP:-0}" != "1" ] || {
+		echo "NO_SKIP set: $CC32 could not build the probe that confirms int and long"
+		echo "are 32 bits, so this layer never confirmed a narrow long and checked nothing."
+		rl_excerpt "$WORK/model.err" 5 model-probe-output.txt "  "
+		exit 1
+	}
+	echo "ilp32_test: SKIP — $CC32 could not build the probe that confirms int and"
+	echo "            long are 32 bits, so there is no 32-bit build to check against."
+	rl_excerpt "$WORK/model.err" 5 model-probe-output.txt "            "
+	exit 0
 fi
+# conventions: harness tool -- the model probe written above, never the student's code
+MODEL=$("$WORK/model")
+case "$MODEL" in
+	"4 4") ;;
+	*)
+		[ "${NO_SKIP:-0}" != "1" ] || {
+			echo "NO_SKIP set: $CC32 reports sizeof(int) sizeof(long) = $MODEL, not"
+			echo "4 4, so this layer never exercised a narrow long and checked nothing."
+			exit 1
+		}
+		echo "ilp32_test: SKIP — $CC32 reports sizeof(int) sizeof(long) = $MODEL, not 4 4"
+		exit 0
+		;;
+esac
 
 # -Wall -Wextra without -Werror: the campus compilers already gate warnings in
 # the *_compile_* layers, and this compiler is a different (newer) clang whose
@@ -429,14 +468,7 @@ rl_split_off
 # test's own time ran out before the run could start. A "timeout" that what
 # was left of the test's time cut, before any row was judged wrong, has a
 # second line, "clamped S" (CLAMPED).
-STATUS=""
-CLAMPED=""
-if [ -f "$WORK/status" ]; then
-	read -r STATUS < "$WORK/status"
-	while read -r _k _v; do
-		[ "$_k" != clamped ] || CLAMPED=$_v
-	done < "$WORK/status"
-fi
+status_read "$WORK/status"
 echo "----------------------------------------------------------------"
 # A RUN THAT NEVER HAPPENED, or one whose ending was not recorded, is no
 # finding about this target, and comes before anything that compares it with

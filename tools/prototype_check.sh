@@ -44,7 +44,7 @@
 # same, so the grader's own nodes still read right; only code written against
 # the subject's header by name -- the grader's tests may be -- tells them
 # apart. So it is a file of its own, tests/layout/tag/<header>, and a check of
-# its own at strict (tools/defs.bzl, _prototype_test).
+# its own at strict (tools/defs_checks.bzl, _prototype_test).
 #
 # Each header a --layout or --layout-tag file checks is force-included by name
 # first, found where the student's file finds it, then every --layout, then
@@ -81,7 +81,7 @@
 # lines, a macro, a comment between two parameters all parse the way the
 # compiler parses them. Names change no behaviour and only an evaluator
 # reading the code can mark them, so a target of this mode sits at strict
-# (tools/defs.bzl's _prototype_names_test). The --proto file must include
+# (tools/defs_checks.bzl's _prototype_names_test). The --proto file must include
 # nothing: its own declarations are the whole contract, and a header it
 # pulled in would add declarations nobody transcribed.
 #
@@ -199,7 +199,7 @@ require awk basename cat cut dirname grep mkdir mktemp rm sed sort tr wc
 RL_NAME=prototype_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "prototype_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "prototype_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -229,56 +229,42 @@ _dir() {
 	if [ -d "$1" ]; then printf '%s\n' "$1"; else dirname "$1"; fi
 }
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "prototype_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--proto) need "$1" "$#"; PROTO="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--layout) need "$1" "$#"; rl_list_add LAYOUTS "$2"; shift 2 ;;
-		--layout-tag) need "$1" "$#"; rl_list_add TAGS "$2"; shift 2 ;;
+		--proto) rl_need "$1" "$#"; PROTO="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--layout) rl_need "$1" "$#"; rl_list_add LAYOUTS "$2"; shift 2 ;;
+		--layout-tag) rl_need "$1" "$#"; rl_list_add TAGS "$2"; shift 2 ;;
 		--grader-hdr)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			rl_list_add INCS "-I$(_dir "$2")"
 			rl_list_add TINCS "-I$(_dir "$2")"
 			rl_list_add GRADER_HDRS "$2"
 			shift 2 ;;
-		--readme) need "$1" "$#"; README="$2"; shift 2 ;;
+		--readme) rl_need "$1" "$#"; README="$2"; shift 2 ;;
 		--src)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			rl_list_add SRCS "$2"
 			rl_list_add INCS "-I$(dirname "$2")"
 			rl_list_add TINCS "-I$(dirname "$2")"
 			shift 2 ;;
 		--hdr)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			rl_list_add HDRS "$2"
 			rl_list_add INCS "-I$(dirname "$2")"
 			rl_list_add TINCS "-I$(dirname "$2")"
 			shift 2 ;;
-		--inc) need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; rl_list_add TINCS "-I$(_dir "$2")"; shift 2 ;;
-		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; rl_inc_file TINCS "$2"; shift 2 ;;
-		--quotes) need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
+		--inc) rl_need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; rl_list_add TINCS "-I$(_dir "$2")"; shift 2 ;;
+		--inc-file) rl_need "$1" "$#"; rl_inc_file INCS "$2"; rl_inc_file TINCS "$2"; shift 2 ;;
+		--quotes) rl_need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
 		--no-restrict) NO_RESTRICT=1; shift ;;
 		--all-functions) ALL_FN=1; shift ;;
 		--declares) DECLARES=1; shift ;;
-		# The directories the fetched compiler's own shared objects live in.
-		# A pinned clang that cannot find libclang-cpp does not fail: the loader
-		# falls back to this machine's copy and the layer reports on a compiler
-		# nobody pinned. Same flag, same reason, same shape as compile_check.sh.
-		--cc-lib)
-			need "$1" "$#"
-			# Absolute: a relative entry in LD_LIBRARY_PATH resolves against the
-			# process's cwd, which is not this script's to assume.
-			case "$2" in
-				/*) _d=$(dirname "$2") ;;
-				*) _d=$(dirname "$PWD/$2") ;;
-			esac
-			CC_LIBS="${CC_LIBS:+$CC_LIBS:}$_d"
-			shift 2 ;;
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
+		# The fetched compiler's own shared objects, one per line (LISTS OF
+		# WORDS). A pinned clang that cannot find libclang-cpp does not fail:
+		# the loader falls back to this machine's copy and the layer reports on
+		# a compiler nobody pinned. rl_cc_pin, below, proves them.
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
 		--names) NAMES=1; shift ;;
 		*) echo "prototype_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -350,29 +336,14 @@ done
 rl_split_off
 
 
-# Each --cc-lib directory must EXIST. A moved or mistyped one is the quiet
-# failure this arrangement is exposed to: the loader falls back to the default
-# search path, finds the box's libraries, and the pinned compiler silently stops
-# being pinned. Exit 2 -- the harness is misconfigured, the exercise is not
-# wrong. Copied deliberately from compile_check.sh rather than abbreviated.
-if [ -n "$CC_LIBS" ]; then
-	_ifs=$IFS
-	IFS=:
-	for _d in $CC_LIBS; do
-		[ -d "$_d" ] || {
-			IFS=$_ifs
-			echo "prototype_check.sh: --cc-lib directory '$_d' does not exist." >&2
-			echo "  Without it the loader would fall back to this machine's own" >&2
-			echo "  libraries and the pinned compiler would silently stop being" >&2
-			echo "  pinned, so this refuses to run rather than pass." >&2
-			exit 2
-		}
-	done
-	IFS=$_ifs
-	LD_LIBRARY_PATH="$CC_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-	export LD_LIBRARY_PATH
-fi
-
+# THE PINNED COMPILER, proved before the first compile (tools/runner_lib.sh,
+# rl_cc_pin): each --cc-lib directory exists and goes first on the exported
+# LD_LIBRARY_PATH, the compiler is there and starts, and the loader took its
+# libraries from those directories, with the libxml2 and ICU a libLLVM loads
+# (V321). Each failure is exit 2. This runner kept its own copy of the first
+# three, written before rl_cc_pin, and never made the last: a pinned clang on
+# this machine's libxml2 or ICU passed here while rl_cc_pin refused it.
+#
 # A COMPILER IS NOT OPTIONAL HERE. This layer compiles something and then reads
 # the result, so without a compiler it has checked nothing -- and it used to say
 # SKIP and exit 0, which is a PASS to Bazel.
@@ -388,20 +359,11 @@ fi
 # compiler is no longer a fact about the student's machine: it is a wiring
 # error. Exit 2, the code this repo reserves for "the harness is broken, the
 # exercise is not wrong" -- never exit 0.
-command -v "$CC" > /dev/null 2>&1 || {
-	echo "prototype_check: the compiler '$CC' is not executable." >&2
-	echo "  This layer compiles before it inspects, so without one it would be" >&2
-	echo "  reporting on nothing. Bazel passes the pinned clang through --cc;" >&2
-	echo "  if that is missing the target's data is wrong, which is a harness" >&2
-	echo "  fault and not a finding about this exercise." >&2
-	exit 2
-}
-# And it must START: one the loader cannot start failed the compile below,
-# and the student's file was reported as not compiling (runner_lib.sh's
-# rl_cc_starts, V241).
-rl_cc_starts "$CC"
+# And it must START (rl_cc_starts, V241): one the loader cannot start failed
+# the compile below, and the student's file was reported as not compiling.
+rl_cc_pin "$CC" "$CC_LIBS" ""
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$WORK"'
 TAB=$(printf '\t')
 
@@ -1201,13 +1163,21 @@ if [ "$RC" -ne 0 ] && [ -n "$GRADER_HDRS" ]; then
 	rl_split_off
 fi
 if [ "$RC" -eq 0 ]; then
-	if [ -n "$PROTO" ] && [ -n "$HDR" ]; then
+	# A run with --layout-tag and no --layout compared the structure's names
+	# alone, not its layout, and says no more than that.
+	if [ -n "$PROTO" ] && [ -n "$HDR" ] && [ -n "$LAYOUTS" ]; then
 		echo "prototype_check: OK — signatures match the subject, and $HDR holds its structure."
+	elif [ -n "$PROTO" ] && [ -n "$HDR" ]; then
+		# conventions: the call site's --layout-tag -- the names transcribed from the subject
+		echo "prototype_check: OK — signatures match the subject, and $HDR names its structure as the subject prints it."
 	elif [ -n "$PROTO" ]; then
 		echo "prototype_check: OK — signatures match the subject."
-	else
+	elif [ -n "$LAYOUTS" ]; then
 		# conventions: the call site's --layout -- the structure transcribed from the subject
 		echo "prototype_check: OK — $HDR holds the structure the subject prints."
+	else
+		# conventions: the call site's --layout-tag -- the names transcribed from the subject
+		echo "prototype_check: OK — $HDR names its structure as the subject prints it."
 	fi
 fi
 exit $RC

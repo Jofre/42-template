@@ -53,8 +53,15 @@ ck_executable "$D"
 # The subject: shell exercises must be executable with /bin/sh.
 ck_sh_parses "$D"
 
-u=$(id -un)
-ORACLE=${ORACLE:?this check needs //oracle: declare the exercise with oracle = True}
+ck_oracle
+# The current user, by name. A machine with none for it (a uid with no
+# passwd entry, as a container can run under) cannot drive the program for
+# a user: a host condition, said with ck_skipped, which NO_SKIP=1 turns red.
+u=$(id -un 2> /dev/null)
+if [ -z "$u" ]; then
+	ck_skipped "what print_groups.sh prints: this machine has no name for the current user (id -un), so no user's groups can be asked for"
+	ck_report
+fi
 
 # One run, two views: the raw bytes (with any trailing newline) and the
 # shell-stripped form of them.
@@ -76,7 +83,10 @@ ck "no spaces in the output (comma-joined, not space-joined)" \
 
 # 4) The names printed must be exactly this user's groups, in the order `id`
 #    gives them. The reference is the oracle's; a plain pass/fail, never printed.
-want=$("$ORACLE" shell01_groups "$u")
+# A reference that fails, or names no group, leaves nothing to compare
+# with: the harness's fault, never a verdict on the program.
+want=$("$ORACLE" shell01_groups "$u") && [ -n "$want" ] ||
+	{ rm -f "$raw" "$raw.err"; ck_broken "the reference could not list the current user's groups ($u)"; }
 ck "lists exactly the user's groups, by name, in order" test "$out" = "$want"
 
 # 5) $FT_USER is actually READ. Drive a DIFFERENT user and require the output to

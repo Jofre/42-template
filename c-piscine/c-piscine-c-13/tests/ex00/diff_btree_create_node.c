@@ -7,6 +7,8 @@
 #include "diffio.h"
 #include "ft_btree.h"
 
+t_btree	*btree_create_node(void *item);
+
 int	main(void)
 {
 	char			*line;
@@ -21,8 +23,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 4) < 1)
-			continue ;
+		dio_split(line, f, 4);
 		item = dio_unhex(f[0], NULL, 0);
 		node = btree_create_node((void *)item);
 		if (node == NULL)

@@ -230,6 +230,14 @@ c_diff(
     perf_length = {"oracle_fn": "c07_split_len", "harness": "len_split.c"},
 )
 
+# //tools/tests's selftest_slow builds len_split.c over a toy whose wrong
+# result has no NULL, and requires exit 3, the series' "wrong at this
+# length", never a crash in the harness: so the file is visible to it.
+exports_files(
+    ["tests/ex05/len_split.c"],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
 c_levels()
 
 c_cycles(

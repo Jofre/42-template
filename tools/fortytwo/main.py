@@ -2,9 +2,11 @@
 
 Every command runs a Bazel target, or Bazel itself; tools/fortytwo/commands.tsv
 says which, and `42 help` is printed from it. 42 adds no check of its own:
-what a run reports is first_red.sh's and the tests' own logs. The one command
-that runs no Bazel is `42 config` (config.py), which reads and writes the
-files the others read: it has to work when Bazel does not.
+what a run reports is first_red.sh's and the tests' own logs. Two commands
+run no Bazel: `42 config` (config.py), which reads and writes the files the
+others read and has to work when Bazel does not, and `42 units`, which lists
+a project's exercises or units from its contract, read as text
+(Project.units()).
 """
 
 import os
@@ -24,7 +26,7 @@ import bazel  # noqa: E402
 import report  # noqa: E402
 import taint  # noqa: E402
 import workspace  # noqa: E402
-from workspace import LEVELS, UnknownWord, UsageError, Workspace, resolve_level  # noqa: E402
+from workspace import LEVELS, UnknownWord, UsageError, Workspace, gate_level_args, resolve_level  # noqa: E402
 
 VERSION = "1"
 
@@ -82,7 +84,7 @@ class Ctx:
         self.cwd = cwd
         self.env = environ
         self.args = args
-        self.W = Workspace(ws, cwd)
+        self.W = Workspace(ws, cwd, environ)
         self.out = Out(getattr(args, "plain", False))
 
     def show(self, argv, pipe=False):
@@ -129,8 +131,7 @@ def print_help(ctx, every=False, command=None):
         if row is None:
             raise UsageError("no command %r. `42 help` lists them." % command)
         ctx.out.say("42 %s %s\n\n  %s\n  Runs: %s" % (
-            command, row["usage"], row["text"],
-            row["runs"] or "no Bazel command; 42 reads and writes the files itself"))
+            command, row["usage"], row["text"], row["runs"] or NO_BAZEL[command]))
         if command in ("test", "watch", "clues"):
             ctx.out.say(WORDS_HELP % {"projects": wrap(ctx.W.project_list(), 16),
                                       "layers": wrap(" ".join(ctx.W.layers()), 16)})
@@ -155,7 +156,8 @@ def print_help(ctx, every=False, command=None):
             ctx.out.say("        " + r["text"])
     ctx.out.say(
         "\n  Levels: %s. Yours comes from --level, then\n"
-        "  SUBMIT_GATE, then the .submit-level file, else basic.\n"
+        "  SUBMIT_GATE, then the .submit-level file, then your user file\n"
+        "  (42 config set --global level), else basic.\n"
         "  Every command that runs Bazel takes --show_bazel, which prints the\n"
         "  Bazel command it runs, and --dry-run, which prints it and runs\n"
         "  nothing; docs/bazel.md takes those commands apart. `42 config` runs\n"
@@ -168,6 +170,14 @@ def print_help(ctx, every=False, command=None):
     return 0
 
 
+# What `42 help CMD` says a command runs, for the two whose commands.tsv row
+# names none (AGENTS.md, 4).
+NO_BAZEL = {
+    "config": "no Bazel command; 42 reads and writes the files itself",
+    "units": "no Bazel command; 42 reads the project's BUILD.bazel itself",
+}
+
+
 def wrap(words, indent, width=80):
     """Words on lines of at most `width`, every line after the first indented."""
     return textwrap.fill(words, width - indent, break_on_hyphens=False).replace("\n", "\n" + " " * indent)
@@ -178,21 +188,24 @@ WORDS_HELP = """
     a project   %(projects)s
                 (or its folder, c-piscine/c-piscine-c-05, or any path inside it)
     exNN        one exercise of that project
-    a function  one function of a library exercise, by its name (ft_strlen):
-                its tests alone
+    a name      one part of a project whose subject names its parts instead
+                of numbering exercises (42 units lists them), such as one of a
+                library's functions (ft_strlen): its tests alone. A part with
+                its project's own name comes after the project (libft libft);
+                alone, that word is the whole project
     a layer     %(layers)s
                 (norminette is norm): that layer alone, whatever its level
     //label     a Bazel label or pattern, run as it is
   With no project word, the folder you are in decides: an exercise's folder
-  under deliverable/ or tests/ is that exercise, a function's under
-  tests/exNN/ that function, anywhere else in a project is the whole project.
-  A function word with no project in scope names the one project that has it."""
+  under deliverable/ or tests/ is that exercise, a part's under tests/ that
+  part, anywhere else in a project is the whole project.
+  A part's name with no project in scope names the one project that has it."""
 
 TEST_FLAGS_HELP = """
   Its flags:
     --level L   that level instead of yours (%(levels)s)
     --fresh     every test again, even one whose result Bazel has cached
-    --all       in what is still red, one line per exercise
+    --all       in what is still red, one line per exercise or part
     --show_starlark
                 which BUILD.bazel line and macro declare each test; runs none"""
 
@@ -204,11 +217,14 @@ SUBMIT_FLAGS_HELP = """
     --all            every project with a URL in .submit-remotes
     --level L        gate at that level instead of yours:
                      %(levels)s
-    --written-only   an exercise not written yet does not block the push;
-                     every other test still has to pass, and the run names
-                     what it let through. It refuses a project with nothing
-                     written, or with an exercise its subject calls
-                     mandatory not written yet
+    --written-only   an exercise or part not written yet does not block the
+                     push; every other test still has to pass, and the run
+                     names what it let through. It refuses a project with
+                     nothing written, or with an exercise its subject calls
+                     mandatory not written yet, or a part it calls so.
+                     Without it, a project whose subject names a mandatory
+                     part is blocked while another part is not written yet:
+                     the run names that part
     -n              show what it would push, and push nothing
   Words after -- go to //tools:submit itself (docs/submitting.md)."""
 
@@ -423,12 +439,14 @@ def report_run(ctx, scope, level, rc, out_path, bep_path, next_path, all_lines):
         # (norm, the Makefile's) is found in no function's suite, and a
         # function may lack one its neighbours have (valgrind, where it does
         # not allocate). Which is Bazel's to say, never a list here: it only
-        # found none in this suite. The command names the exercise, which is
-        # the whole exercise from any folder, the function's own included.
+        # found none in this suite. A library's own suite holds its own tests
+        # and none of its functions', so the command names the whole project,
+        # which a project word is from any folder, the function's own
+        # included.
         if scope.member and scope.layer and scope.project and scope.ex:
-            out.say("  %s has no %s test of its own. To run %s over all of %s: 42 test %s %s %s" % (
-                scope.member, scope.layer, scope.layer, scope.ex,
-                scope.project.short, scope.ex, scope.layer))
+            whole = scope.project.short
+            out.say("  %s has no %s test of its own. To run %s over all of %s: 42 test %s %s" % (
+                scope.member, scope.layer, scope.layer, whole, whole, scope.layer))
         return rc
     if rc == bazel.USAGE:
         with open(out_path, encoding="utf-8", errors="replace") as f:
@@ -454,7 +472,8 @@ def show_next_log(ctx, scope, bep, next_path):
     nxt = report.read_next(next_path)
     if nxt is None:
         return
-    label = report.pick_label(nxt, bep)
+    members = library_members(ctx, nxt[1], nxt[2])
+    label = report.pick_label(nxt, bep, members)
     path = report.log_path(label, bep) if label else None
     out = ctx.out
     if not path:
@@ -468,13 +487,35 @@ def show_next_log(ctx, scope, bep, next_path):
         out.say("\n  ... %d more line(s): %s" % (more, path))
     if any("more hidden hint" in l or "CLUE_MODE=all" in l for l in lines):
         bucket, module, ex, _ = nxt
-        words = [report_words(ctx, module), report.clue_word(ex)] if ex.startswith("ex") else [label]
+        words = [report_words(ctx, module), report.clue_word(ex, label, members)] \
+            if is_unit_word(ctx, module, ex) else [label]
         out.say("\n  more hints: 42 clues %s" % " ".join(w for w in words if w))
 
 
 def report_words(ctx, module_label):
     p = ctx.W.project_named(module_label)
     return p.short if p else module_label
+
+
+def named_project(ctx, module_label):
+    """The project of a label first_red names, when its subject names its parts; else None."""
+    p = ctx.W.project_named(module_label)
+    return p if p is not None and p.named() else None
+
+
+def is_unit_word(ctx, module_label, ex):
+    """Whether what first_red names next is a word `42 clues` takes: an exercise
+    (exNN), or a part or function of a project whose subject names its parts.
+    Anything else (deliverable_files) is shown by its label."""
+    p = named_project(ctx, module_label)
+    return p.has_unit_word(ex) if p else ex.startswith("ex")
+
+
+def library_members(ctx, module_label, ex):
+    """The functions of the library first_red names next, in a project whose
+    subject names its parts: their tests are named after them, not after it."""
+    p = named_project(ctx, module_label)
+    return p.members(ex) if p else []
 
 
 def cmd_test(ctx):
@@ -490,10 +531,10 @@ def cmd_test(ctx):
     return run_tests(ctx, scope, level, source, extra, all_lines=a.all)
 
 
-def root_message(ctx, cmd):
+def root_message(ctx, cmd, examples=("c-05", "c-05 ex03")):
     return ("42 %s needs a project, and you are not in one. Run it in a project's\n"
-            "folder, or name one:\n  42 %s c-05\n  42 %s c-05 ex03\nThe projects: %s" % (
-                cmd, cmd, cmd, ctx.W.project_list()))
+            "folder, or name one:\n%s\nThe projects: %s" % (
+                cmd, "\n".join("  42 %s %s" % (cmd, e) for e in examples), ctx.W.project_list()))
 
 
 # ---------------------------------------------------------------------------
@@ -670,6 +711,8 @@ def here_project(ctx, words, cmd, what="a project"):
         raise UsageError("42 %s takes a project, not %s." % (cmd, scope.layer or scope.label))
     if scope.member and scope.member in words:
         raise UsageError("42 %s takes a project, not %s." % (cmd, scope.member))
+    if scope.ex and scope.ex in words:
+        raise UsageError("42 %s takes a project, not %s." % (cmd, scope.ex))
     return scope
 
 
@@ -714,10 +757,11 @@ def cmd_submit(ctx):
             raise UsageError("a URL is one project's repository: name one project with it, not %d."
                              % len(projects))
         args += [p.rel for p in projects]
-    if a.level:
-        if a.level not in LEVELS:
-            raise UsageError("--level %s is not a level: %s." % (a.level, ", ".join(LEVELS)))
-        args += ["--gate-level", a.level]
+    if a.level and a.level not in LEVELS:
+        raise UsageError("--level %s is not a level: %s." % (a.level, ", ".join(LEVELS)))
+    # The script reads SUBMIT_GATE and .submit-level itself; a level from
+    # anywhere else (--level, your user file) reaches it as --gate-level.
+    args += gate_level_args(a.level, ctx.env, ctx.ws)
     if url:
         if save_url(ctx, projects[0], url, a.n) != 0:
             return 1
@@ -758,11 +802,11 @@ def cmd_norm(ctx):
     if not a.files:
         # The harness's verdict, which gives each file the -R its norm test
         # gives it; a bare norminette over a header can say otherwise.
-        level, source = resolve_level(None, ctx.env, ctx.ws)
+        level, source = resolve_level(None, ctx.env, ctx.ws, takes_flag=False)
         scope = ctx.W.resolve(["norm"])
         if scope.project is None:
             raise UsageError(root_message(ctx, "norm"))
-        # A library's norm is its exercise's, never one function's: the
+        # A library's norm is the library's own, never one function's: the
         # function's own suite holds no norm test.
         scope.member = None
         return run_tests(ctx, scope, level, source, label="norm")
@@ -822,9 +866,97 @@ def cmd_init(ctx):
     return run_target(ctx, "//tools:init", args)
 
 
+# ---------------------------------------------------------------------------
+# units
+
+# The words a row of tools/units.awk is shown with, by its KIND: (singular,
+# plural). A KIND not here is no row workspace.read_units lets through.
+KIND_WORDS = {
+    "exercise": ("exercise", "exercises"),
+    "library": ("library", "libraries"),
+    "project": ("project", "projects"),
+    "part": ("part", "parts"),
+    "function": ("function", "functions"),
+}
+
+
+def counted(n, kind):
+    return "%d %s" % (n, KIND_WORDS[kind][n != 1])
+
+
+def and_list(words):
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def turnin_cell(folder):
+    """A turn-in folder as the repository pushed to 42 names it: deliverable/ex00 is ex00/, deliverable ./."""
+    if folder == "deliverable":
+        return "./"
+    return (folder[len("deliverable/"):] if folder.startswith("deliverable/") else folder) + "/"
+
+
+def units_listing(project):
+    """The lines of `42 units PROJECT`: the units its contract lists (Project.units(),
+    tools/units.awk's rows, in their order), each with the `42 test` that runs it.
+    No Bazel: the contract is read as text."""
+    units = project.units()
+    tops = [u for u in units if u.kind != "function"]
+    head = "%s (%s): " % (project.short, project.rel)
+    if not tops:
+        return [wrap(head + "its subject() contract lists no exercise or unit yet.", 0)]
+    kinds = []
+    for u in tops:
+        if u.kind not in kinds:
+            kinds.append(u.kind)
+    what = and_list([counted(sum(1 for u in tops if u.kind == k), k) for k in kinds])
+    functions = sum(1 for u in units if u.kind == "function")
+    if functions and len(tops) == 1:
+        what += (" of " if tops[0].kind == "library" else ", a library of ") + counted(functions, "function")
+    elif functions:
+        what += ", with " + counted(functions, "function")
+    rooted = [u.folder == "deliverable" for u in tops]
+    if all(rooted):
+        where = "at the root of your repository"
+    elif len(tops) == 1:
+        where = "in its folder %s of your repository" % turnin_cell(tops[0].folder)
+    elif not any(rooted):
+        where = "each in its own folder of your repository"
+    else:
+        where = "each in the folder of your repository named beside it"
+    rows = []
+    for u in units:
+        rows.append([u.kind.upper(), u.name,
+                     "" if u.kind == "function" or all(rooted) else turnin_cell(u.folder),
+                     "mandatory" if u.req == "mandatory" else "",
+                     "42 test %s %s" % (project.short, u.name)])
+    keep = [i for i in range(5) if any(r[i] for r in rows)]
+    widths = {i: max(len(r[i]) for r in rows) for i in keep}
+    lines = [wrap("%s%s, %s." % (head, what, where), 0)]
+    for r in rows:
+        lines.append(("  " + "  ".join(r[i].ljust(widths[i]) for i in keep)).rstrip())
+    # A function row leaves the column blank: the part is its unit's, and so
+    # is the floor --written-only checks, which asks whether anything in the
+    # unit's folder is written, never whether each function is.
+    if any(u.req == "mandatory" for u in units):
+        lines.append(wrap("mandatory: in the part its subject calls mandatory%s. `42 submit "
+                          "--written-only` pushes nothing while one marked so has nothing written yet."
+                          % (", as is each function listed under one" if functions else ""), 0))
+    lines.append("The project's tests, at your level: 42 test %s" % project.short)
+    return lines
+
+
+def cmd_units(ctx):
+    a = ctx.args
+    scope = here_project(ctx, [a.project] if a.project else [], "units")
+    if scope.project is None:
+        raise UsageError(root_message(ctx, "units", ("c-05",)))
+    ctx.out.say("\n".join(units_listing(scope.project)))
+    return 0
+
+
 def cmd_config(ctx):
     import config
-    return config.run(ctx, ctx.args.words, ctx.args.all, ctx.args.dry_run)
+    return config.run(ctx, ctx.args.words, ctx.args.all, ctx.args.dry_run, ctx.args.scope)
 
 
 def cmd_stop(ctx):
@@ -855,7 +987,9 @@ def cmd_doctor(ctx):
 
 
 def cmd_selftest(ctx):
-    labels = ["//tools/tests:fortytwo_test"] + (["//tools/..."] if ctx.args.harness else [])
+    # 42's own tests: its suite, and the oracle that holds its YAML reader to two real ones.
+    labels = ["//tools/tests:fortytwo_test", "//tools/tests:userconfig_oracle_test"] + (
+        ["//tools/..."] if ctx.args.harness else [])
     argv = ["bazel", "test"] + labels
     ctx.show(argv)
     if ctx.args.dry_run:
@@ -866,6 +1000,16 @@ def cmd_selftest(ctx):
 
 def cmd_conventions(ctx):
     return run_target(ctx, "//tools:conventions")
+
+
+def cmd_gate(ctx):
+    # The root BUILD.bazel's gate_fast: the harness's tests that take seconds.
+    argv = ["bazel", "test", "//:gate_fast"]
+    ctx.show(argv)
+    if ctx.args.dry_run:
+        return 0
+    argv[0] = ctx.bazel()
+    bazel.exec_foreground(argv, ctx.ws, ctx.env)
 
 
 def checkout_paths(ctx, words):
@@ -996,9 +1140,15 @@ def parser():
     p.add_argument("--login")
     p.add_argument("--email")
 
+    p = add("units")
+    p.add_argument("project", nargs="?")
+
     p = add("config")
     p.add_argument("words", nargs="*")
     p.add_argument("--all", action="store_true")
+    scope = p.add_mutually_exclusive_group()
+    scope.add_argument("--global", dest="scope", action="store_const", const="global")
+    scope.add_argument("--local", dest="scope", action="store_const", const="local")
 
     p = add("doctor")
     p.add_argument("--drift", action="store_true")
@@ -1008,6 +1158,7 @@ def parser():
     p = add("selftest")
     p.add_argument("--harness", action="store_true")
     add("conventions")
+    add("gate")
     p = add("stubcheck")
     p.add_argument("where", nargs="*")
     p.add_argument("--file")
@@ -1018,9 +1169,9 @@ def parser():
 COMMANDS = {
     "test": cmd_test, "watch": cmd_watch, "clues": cmd_clues, "submit": cmd_submit,
     "norm": cmd_norm, "generate": cmd_generate, "header": cmd_header, "init": cmd_init,
-    "config": cmd_config,
+    "units": cmd_units, "config": cmd_config,
     "doctor": cmd_doctor, "stop": cmd_stop, "selftest": cmd_selftest,
-    "conventions": cmd_conventions, "stubcheck": cmd_stubcheck,
+    "conventions": cmd_conventions, "gate": cmd_gate, "stubcheck": cmd_stubcheck,
 }
 
 # The commands whose words after `--` go to the tool they run, untouched.
@@ -1056,6 +1207,9 @@ def main(argv=None, environ=None):
         print("42: %s" % e, file=sys.stderr)
         return 2
     except bazel.NoBazel as e:
+        print("42: %s" % e, file=sys.stderr)
+        return 2
+    except workspace.ContractError as e:
         print("42: %s" % e, file=sys.stderr)
         return 2
     except KeyboardInterrupt:

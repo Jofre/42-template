@@ -36,13 +36,19 @@ c_function(num = "01", fn = "ft_putstr", test = "test_putstr.c", clues = "clues.
 c_function(num = "02", fn = "ft_putnbr", test = "test_putnbr.c", labeled = True, clues = "clues.tsv")
 
 # Live differential fuzz against the Rust reference (//oracle): seeded ints,
-# exact-value compare. The harness sets stdout unbuffered so the student's
-# write() bytes stay interleaved with the harness's printf labels.
+# exact-value compare. ft_putnbr is C 00 ex07's function, prototype and
+# allowed write() alike, so this replays C 00's corpus, c00_putnbr: one corpus
+# for one function, whose head holds every 10^k-1, 10^k and 10^k+1 of both
+# signs, where a digit carries into a new place. The corpus this module once
+# had of its own held none of them from 1000 up to 999999999. The reader is a
+# copy of C 00's, and flushes stdout around the call so the student's write()
+# bytes stay in order with the harness's printf labels. The fixture
+# (test_putnbr.c, expected.txt) stays this module's own: each is graded alone.
 c_diff(
     num = "02",
     fn = "ft_putnbr",
     harness = "diff_putnbr.c",
-    oracle_fn = "c04_putnbr",
+    oracle_fn = "c00_putnbr",
     # Lower count: this function write()s one CHARACTER at a time, which is what
     # the subject asks for, so its replay is syscall-bound and dominates the
     # layer's wall time (measured 52s of a 60s budget at 400k under full-suite
@@ -116,14 +122,13 @@ c_levels()
 c_cycles(
     num = "02",
     fn = "ft_putnbr",
-    oracle_fn = "c04_putnbr",
+    oracle_fn = "c00_putnbr",
     harness = "diff_putnbr.c",
     unit_expr = "length($2)",
     unit_name = "digit",
     # A number, not a reference implementation: it says where you stand without
     # saying how to get there.
     budget = 40,
-    syscall_budget = 1.0,
 )
 
 c_cycles(
@@ -142,6 +147,7 @@ c_cycles(
     # NO BUDGET, on purpose: what one digit costs here follows how the
     # student checks the base and looks a digit up in it, so a budget would
     # recommend the technique it was measured from (C 07 ex04's reason). The
-    # figure is printed alone.
-    syscall_budget = 1.0,
+    # figure is printed alone, and so is the count of write() calls: what
+    # it writes is not what it was handed, so a write() budget would
+    # recommend one way of handing that to write() (c_cycles refuses one).
 )

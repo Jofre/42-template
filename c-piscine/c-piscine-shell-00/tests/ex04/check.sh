@@ -154,11 +154,12 @@ got=$(cat "$raw")
 pos() { printf '%s\n' "$got" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -nxF "$1" | head -n1 | cut -d: -f1; }
 pc=$(pos charlie); pb=$(pos bravo/); pl=$(pos delta)
 # The order is judged apart from the markers: an entry is found there with a
-# type marker after it (*, @, =, | or >) left out, so a listing whose only
-# fault is its markers -- which the line about markers below reports -- is not
-# also called unsorted (the mutation run of 2026-10-03, shell00a M2).
-pos_any() { printf '%s\n' "$got" | tr ',' '\n' | sed 's/^ *//;s/ *$//;s/[*@=|>]$//' | grep -nxF "$1" | head -n1 | cut -d: -f1; }
-oc=$(pos_any charlie); oe=$(pos_any echo); ob=$(pos_any bravo/); ol=$(pos_any delta); oa=$(pos_any alpha)
+# type marker after it (*, @, =, |, > or /) left out, so a listing whose only
+# fault is its markers -- which the lines about markers below report -- is not
+# also called unsorted (the mutation run of 2026-10-03, shell00a M2): neither
+# one with a marker too many, nor one whose directory lacks its slash.
+pos_any() { printf '%s\n' "$got" | tr ',' '\n' | sed 's/^ *//;s/ *$//;s:[*@=|>/]$::' | grep -nxF "$1" | head -n1 | cut -d: -f1; }
+oc=$(pos_any charlie); oe=$(pos_any echo); ob=$(pos_any bravo); ol=$(pos_any delta); oa=$(pos_any alpha)
 
 ck "entries separated by a comma and a space" sh -c 'case "$1" in *", "*) exit 0;; *) exit 1;; esac' _ "$got"
 ck "directories marked with a trailing slash (bravo/)" test -n "$pb"

@@ -3,9 +3,9 @@
 BSQ, the C Piscine's final project: **one program, `bsq`, built by a Makefile
 of yours**, pushed as one Vogsphere repository whose root is `deliverable/`
 itself. Its subject has no "Turn-in directory" line, so nothing goes under an
-`ex00/`. The harness still names its one exercise `ex00`, so every target is
-`ex00_<something>`, and `bazel test //c-piscine/c-piscine-bsq:ex00` runs them
-all.
+`ex00/`, and it numbers no exercise: its one part is the program, so the
+harness names it `bsq`. Every target is `bsq_<something>`, and
+`bazel test //c-piscine/c-piscine-bsq:bsq` runs them all.
 
 The subject sits beside this file (`en.subject.pdf`, `es.subject.pdf`); a fresh
 clone of the public template has a placeholder there instead, saying where to
@@ -23,7 +23,7 @@ assistant may and may not do here.
 | the program | `bsq`, built by `make` |
 | allowed functions | `open`, `close`, `read`, `write`, `malloc`, `free`, `exit` |
 
-The subject asks for "only the files requested", so `ex00_files` fails on
+The subject asks for "only the files requested", so `bsq_files` fails on
 anything else in the turn-in: a `bsq` a hand-run of `make` left there (delete
 it before you submit), a note, a test map, and a `.c` your Makefile never
 compiles, which is not one of "the necessary files" (`make -Bn` says which it
@@ -53,33 +53,33 @@ bazel run //tools:reset_headers -- c-piscine/c-piscine-bsq/deliverable/<your fil
 
 Two halves, so that neither can hide the other.
 
-**Your Makefile** is `ex00_build`'s, at `basic`. It runs `make` in a copy of
+**Your Makefile** is `bsq_build`'s, at `basic`. It runs `make` in a copy of
 your turn-in and checks what the subject says of it: a bare `make` builds
 `bsq`; every command it runs to compile a `.c` uses `cc` with `-Wall -Wextra
 -Werror` ("Your program must compile using cc with the following flags"); and a
 second `make` has nothing left to do ("Your Makefile must not relink"). The
 subject names no rule beyond that, so no `clean`, `fclean` or `re` is asked
-for. `ex00_build_wildcards` (strict) plants a decoy source and a foreign object
+for. `bsq_build_wildcards` (strict) plants a decoy source and a foreign object
 for the Norm's "no \*.c, no \*.o", which the subject does not quote, and
-`ex00_build_exit` (robust) judges how each run of `make` exits.
+`bsq_build_exit` (robust) judges how each run of `make` exits.
 
 **Your program** is built by Bazel, not by your Makefile's recipes. The run
 layers ask `make -Bn` which sources and which `-I` folders the default goal
 would compile, and build `bsq` from exactly those, with the harness's own
 flags and sanitizers. So a Makefile that leaves out a source, or forgets an
-`-I`, is red in the run layers as well as in `ex00_build`, and one that leaves
+`-I`, is red in the run layers as well as in `bsq_build`, and one that leaves
 out a flag cannot soften them. It is the same build as Rush 02's,
-[described in docs/rushes.md](../../docs/rushes.md#rush-02--numbers-into-words).
+[described in Rush 02's README](../c-piscine-rush-02/README.md).
 Until your Makefile compiles something, there is no program: every run layer
 fails saying so, rather than breaking the build.
 
-`ex00_norm`, `ex00_compile_clang`, `ex00_compile_gcc` and `ex00_forbidden` read
+`bsq_norm`, `bsq_compile_clang`, `bsq_compile_gcc` and `bsq_forbidden` read
 every `.c` and `.h` of the turn-in, subfolders included.
 
 ### The named cases
 
 Each case of the `c_program` call in `BUILD.bazel` is a test of its own,
-`ex00_<case>_output` at `basic`, with arms of its own: `_asan` (robust),
+`bsq_<case>_output` at `basic`, with arms of its own: `_asan` (robust),
 `_valgrind` (strict: the subject allows `malloc`), and, on a case whose map is
 valid under every reading, `_exit` (robust), which fails a non-zero return
 where the subject names no status (the
@@ -102,8 +102,8 @@ where the subject names no status (the
   (below).
 
 Every file a case reads, and every output it expects, is written by
-`//oracle`'s reference (`oracle bsq_fixtures`): `ex00_oracle_fixtures`
-(complete) fails when one was edited by hand, and `ex00_reference_cases`
+`//oracle`'s reference (`oracle bsq_fixtures`): `bsq_oracle_fixtures`
+(complete) fails when one was edited by hand, and `bsq_reference_cases`
 (complete) runs every case with the reference in your program's place. Neither
 runs anything of yours.
 
@@ -116,14 +116,14 @@ memcheck. The big maps have no memcheck twin, at memcheck's 20 to 50 times.
 
 | stem | level | what it replays |
 |---|---|---|
-| `ex00_bsq` (the plain target is `ex00_bsq_diff`) | strict | 120 maps of `bsq_mixed`, valid and invalid interleaved, one per run, named as an argument |
-| `ex00_bsq_stdin` | strict | 60 maps of the same generator, each on standard input |
-| `ex00_bsq_multi` | strict | 40 maps of it, three per run: the one target that checks the empty line between two outputs |
-| `ex00_readings` | strict | the forms the subject leaves open, under one reading, which its hints state (below) |
-| `ex00_bsq_long`, `ex00_bsq_long_stdin` | basic | three maps past every capacity a program might pick (a line of 70000 cells, 70000 lines, a 300 x 300 map), whose biggest square is one cell at most: every correct program finishes them |
-| `ex00_bsq_big`, `ex00_bsq_big_stdin` | strict | four maps where the method matters (a million cells, ten thousand lines of a hundred, a million cells with three obstacles) |
+| `bsq` (the plain target is `bsq_diff`) | strict | 120 maps of `bsq_mixed`, valid and invalid interleaved, one per run, named as an argument |
+| `bsq_stdin` | strict | 60 maps of the same generator, each on standard input |
+| `bsq_multi` | strict | 40 maps of it, three per run: the one target that checks the empty line between two outputs |
+| `bsq_readings` | strict | the forms the subject leaves open, under one reading, which its hints state (below) |
+| `bsq_long`, `bsq_long_stdin` | basic | three maps past every capacity a program might pick (a line of 70000 cells, 70000 lines, a 300 x 300 map), whose biggest square is one cell at most: every correct program finishes them |
+| `bsq_big`, `bsq_big_stdin` | strict | four maps where the method matters (a million cells, ten thousand lines of a hundred, a million cells with three obstacles) |
 
-**Every corpus waits for the example.** While `ex00_subject_example_output` is
+**Every corpus waits for the example.** While `bsq_subject_example_output` is
 red, each target above says SKIP and Bazel shows it PASSED, since a corpus run
 over a program that fails the subject's own example only repeats that red.
 That output test's red log lists every target that waits for it, and
@@ -136,8 +136,8 @@ gets `BSQ_TIMEOUT` (10 s), one of the long maps 280 s and one of the big maps
 too slow -- and counted apart from a wrong answer. That is why the big maps
 sit at `strict`.
 
-**Running out of memory.** `ex00_program_allocfail` and
-`ex00_stdin_map_program_allocfail` (robust) run the example, as an argument
+**Running out of memory.** `bsq_program_allocfail` and
+`bsq_stdin_map_program_allocfail` (robust) run the example, as an argument
 and on standard input, refusing one of your `malloc` calls per run. They ask
 only that the program end by itself, in time, with bounded output: no message
 and no status. No grader at 42 refuses a program an allocation, so this is the
@@ -156,7 +156,7 @@ expected and what came out -- and keeps the map in
 `bazel-testlogs/c-piscine/c-piscine-bsq/<target>/test.outputs/`, with the line
 that replays it (`replay: ./bsq case-17.map`). Run that line in that folder, with
 your program's path in place of `./bsq`: the harness's build of it is
-`bazel-bin/c-piscine/c-piscine-bsq/ex00_bin`. The report prints the first 40
+`bazel-bin/c-piscine/c-piscine-bsq/bsq_bin`. The report prints the first 40
 failing maps and counts the rest; all of them are in that folder's
 `differences.txt`.
 
@@ -175,7 +175,7 @@ for an ordinary run. The full table is in
 | `VALGRIND_FDS` | unset | `lax` turns a descriptor left open into a note |
 | `NO_SKIP` | `0` | `1` runs every target that waits for the example |
 
-The hints are in [`tests/ex00/clues.tsv`](tests/ex00/clues.tsv), each row
+The hints are in [`tests/bsq/clues.tsv`](tests/bsq/clues.tsv), each row
 keyed to the cases it is about.
 
 ## What the subject leaves open
@@ -187,23 +187,23 @@ you read and how.
 
 - **A last row with no newline after it.** "Lines are separated by the usual
   newline character" says what is between lines. At `basic`,
-  `ex00_no_final_newline_output` accepts either verdict a reading can give,
+  `bsq_no_final_newline_output` accepts either verdict a reading can give,
   and checks what both agree on: every line your program prints ends with a
-  newline, and it neither crashes nor hangs. At `strict`, `ex00_readings`
+  newline, and it neither crashes nor hangs. At `strict`, `bsq_readings`
   holds one reading; its hints say which, as this harness's reading and never
   the subject's.
 - **How the number of lines is written.** "The first line must start with a
   valid positive number" does not say whether `09`, `+9`, ` 9` or `9 ` is one.
   At `basic`, no case and no corpus map holds such a form. At `strict`,
-  `ex00_readings` holds one reading, its hints saying which.
+  `bsq_readings` holds one reading, its hints saying which.
 - **The "full" character inside the map.** The subject describes the map as
   "lines containing 'empty' characters and 'obstacle' characters", and its
   validity list says "The characters on the map can only be those introduced
   in the first line", which are three. At `basic`,
-  `ex00_full_in_body_output` accepts either verdict a reading can give, and
+  `bsq_full_in_body_output` accepts either verdict a reading can give, and
   checks what both agree on: "map error", or the solved map with that
   character left where it is (it sits where no biggest square goes, whatever
-  your program takes it for). At `strict`, `ex00_readings` holds one reading,
+  your program takes it for). At `strict`, `bsq_readings` holds one reading,
   its hints saying which.
 - **More rows than the first line announces.** A file with fewer rows does
   not hold the map it promises; for more, the subject does not say. No test

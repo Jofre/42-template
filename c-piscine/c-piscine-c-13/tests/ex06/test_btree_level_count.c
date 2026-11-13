@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 
+int		btree_level_count(t_btree *root);
+
 /* Zero N nodes and give every one of them the same ITEM: no link exists until
  * main() sets one. */
 static void	fill(t_btree *nodes, int n, void *item)

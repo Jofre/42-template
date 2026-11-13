@@ -8,6 +8,7 @@ import locale
 import os
 import re
 import shutil
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -95,7 +96,12 @@ class Drift(unittest.TestCase):
     The stand-in bazel runs the real tools/env_drift.sh over a pins file of
     one row whose fetched binary is a stand-in too, in a workspace of its own,
     off campus: doctor reads the line env_drift prints, never a copy of it.
+    It hands the launcher this test's interpreter and tools/env_drift.py, as
+    //tools:env_drift hands it the fetched one (LAUNCH).
     """
+
+    LAUNCH = 'ENV_DRIFT_PYTHON="%s" ENV_DRIFT_MAIN="%s" ' % (
+        sys.executable, os.path.join(WS, "tools", "env_drift.py"))
 
     PIN = "GNU nm (GNU Binutils for Ubuntu) 2.38"
     ROW = "true\tcampus\t%s\techo %s\tfixture\tFT_FETCHED\n" % (PIN, PIN)
@@ -126,7 +132,7 @@ class Drift(unittest.TestCase):
     def env_drift(self, fetched):
         """bazel run //tools:env_drift, with FT_FETCHED a binary printing `fetched`."""
         tool = self.write("fetched.sh", "#!/bin/sh\n" + fetched, 0o755)
-        self.bazel('C_PISCINE_CAMPUS=0 FT_FETCHED="%s" BUILD_WORKSPACE_DIRECTORY="%s" '
+        self.bazel(self.LAUNCH + 'C_PISCINE_CAMPUS=0 FT_FETCHED="%s" BUILD_WORKSPACE_DIRECTORY="%s" '
                    'exec sh "%s" --pins "%s"\n'
                    % (tool, os.path.join(self.d.name, "ws"),
                       os.path.join(WS, "tools", "env_drift.sh"),
@@ -176,7 +182,7 @@ class Drift(unittest.TestCase):
         # env_drift's own exit 2, a pins file it cannot read: the build went
         # fine, so the BLOCK blames env_drift's reason, never a download.
         # Its stderr joins stdout so that the reason stays out of this log.
-        self.bazel('C_PISCINE_CAMPUS=0 BUILD_WORKSPACE_DIRECTORY="%s" '
+        self.bazel(self.LAUNCH + 'C_PISCINE_CAMPUS=0 BUILD_WORKSPACE_DIRECTORY="%s" '
                    'exec sh "%s" --pins "%s" 2>&1\n'
                    % (os.path.join(self.d.name, "ws"),
                       os.path.join(WS, "tools", "env_drift.sh"),
@@ -191,9 +197,9 @@ class Drift(unittest.TestCase):
 
     def test_the_summary_line_is_the_one_env_drift_prints(self):
         # doctor's pattern over env_drift's own line, its counts filled in.
-        with open(os.path.join(WS, "tools", "env_drift.sh"), encoding="utf-8") as f:
-            line = re.search(r'^SUMMARY="(.*)"$', f.read(), re.M).group(1)
-        m = doctor.DRIFT_SUMMARY.match("  " + re.sub(r"\$[A-Z_]+", "3", line))
+        with open(os.path.join(WS, "tools", "env_drift.py"), encoding="utf-8") as f:
+            line = re.search(r'^ +summary = "(.*)" % \($', f.read(), re.M).group(1)
+        m = doctor.DRIFT_SUMMARY.match("  " + line.replace("%d", "3"))
         self.assertIsNotNone(m, line)
         self.assertEqual(m.group(1), "3")
 

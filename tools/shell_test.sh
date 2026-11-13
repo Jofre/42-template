@@ -38,7 +38,9 @@
 #                      POSIX-undefined constructs to posix; bash (the example
 #                      runs `bash name`) lints them here. ./name (the example
 #                      runs it so) lets the script's own #! line decide: sh,
-#                      dash or none is sh's case, any other shell bash's.
+#                      dash or none is sh's case, any other shell bash's. A
+#                      carriage return ending that line (CRLF line ends) is
+#                      not part of the shell's name.
 #   --output-test NAME lint, posix: the exercise's exNN_output, which reports
 #                      a turn-in the generator did not make, or that does not
 #                      parse; its exNN_norm reports a generator that does not.
@@ -100,6 +102,10 @@
 #                      (//tools:path_redirect.so), for --redirect.
 #   --fixture PATH     stage this file into the scratch dir before running (repeatable);
 #                      covers generator inputs (e.g. resources.tar.gz) and run inputs.
+#   --diff PATH        diff mode: the pinned diff the report is made with; without
+#                      it, the box's (a hand run).
+#   --clues PATH       the exercise's clues.tsv, whose hints follow a verdict on
+#                      the turn-in (exit 1), never a harness error.
 #   --                 remaining args are passed to the deliverable (diff --run)
 #                      or to the check script.
 #
@@ -117,7 +123,8 @@ require() {
 		exit 2
 	done
 }
-require awk basename cat cmp cp env grep mkdir mktemp rm sed sort tr
+require awk cat cmp cp env grep mkdir mktemp rm sed sort tr
+# conventions: optional ls -- the listing of what the generator produced, under a deliverable it did not
 # `diff` is NOT in that list, though it was until the require scanner learned to
 # read quoted strings: the word was being picked up out of the message
 # "--mode must be norm|diff|check", split at the pipe and counted as a command.
@@ -130,7 +137,7 @@ require awk basename cat cmp cp env grep mkdir mktemp rm sed sort tr
 RL_NAME=shell_test
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "shell_test.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "shell_test.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -208,37 +215,36 @@ DIFF="diff"
 # this is the same binary, reaching the layer that grades people.
 SHELLCHECK=""
 
-need() { [ "$2" -ge 2 ] || { echo "shell_test.sh: $1 needs a value" >&2; exit 2; }; }
-
-# What the check script is handed comes from this call alone, as CK_REDIRECT_*
-# does (prove_redirect): each of these is exported only on the path that gives
-# it, so one left in the environment reached the check as if the call had --
-# a second run nobody made, words nobody quoted, an oracle nobody named (V80).
-unset SHELL_CHECK_RERUN ORACLE
+# What the check script, and the turn-in it runs, are handed comes from this
+# call alone: each of these is exported only on the path that gives it, so
+# one left in the environment reached the check as if the call had -- a second
+# run nobody made, words nobody quoted, an oracle nobody named (V80), a check
+# library nobody passed, and in diff --run, where nothing else unset them, a
+# redirect nobody declared, which put an LD_PRELOAD into the turn-in's run.
+unset SHELL_CHECK_RERUN ORACLE SHELL_CHECK_LIB CK_REDIRECT_LIB CK_REDIRECT_FROM \
+	CK_REDIRECT_TO CK_REDIRECT_NAME CK_REDIRECT_BROKEN
 for _v in $(env | sed -n 's/^\(SHELL_CHECK_WORDING_[A-Za-z0-9_]*\)=.*/\1/p'); do
 	unset "$_v"
 done
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--diff) need "$1" "$#"; DIFF="$2"; shift 2 ;;
-		--shellcheck) need "$1" "$#"; SHELLCHECK=$(abspath "$2"); shift 2 ;;
-		--generator) need "$1" "$#"; GEN_ARG=$2; GEN=$(abspath "$2"); shift 2 ;;
-		--mode) need "$1" "$#"; MODE="$2"; shift 2 ;;
-		--deliverable) need "$1" "$#"; DELIV="$2"; shift 2 ;;
-		--expected) need "$1" "$#"; EXPECTED=$(abspath "$2"); shift 2 ;;
-		--check) need "$1" "$#"; CHECK=$(abspath "$2"); shift 2 ;;
-		--check-lib) need "$1" "$#"; CHECK_LIB=$(abspath "$2"); shift 2 ;;
-		--oracle) need "$1" "$#"; ORACLE=$(abspath "$2"); export ORACLE; shift 2 ;;
-		--clues) need "$1" "$#"; CLUES=$(abspath "$2"); shift 2 ;;
+		--diff) rl_need "$1" "$#"; DIFF="$2"; shift 2 ;;
+		--shellcheck) rl_need "$1" "$#"; SHELLCHECK=$(abspath "$2"); shift 2 ;;
+		--generator) rl_need "$1" "$#"; GEN_ARG=$2; GEN=$(abspath "$2"); shift 2 ;;
+		--mode) rl_need "$1" "$#"; MODE="$2"; shift 2 ;;
+		--deliverable) rl_need "$1" "$#"; DELIV="$2"; shift 2 ;;
+		--expected) rl_need "$1" "$#"; EXPECTED=$(abspath "$2"); shift 2 ;;
+		--check) rl_need "$1" "$#"; CHECK=$(abspath "$2"); shift 2 ;;
+		--check-lib) rl_need "$1" "$#"; CHECK_LIB=$(abspath "$2"); shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE=$(abspath "$2"); export ORACLE; shift 2 ;;
+		--clues) rl_need "$1" "$#"; CLUES=$(abspath "$2"); shift 2 ;;
 		--run) RUN=1; shift ;;
-		--interp) need "$1" "$#"; INTERP="$2"; shift 2 ;;
-		--env) need "$1" "$#"; ENVS="$ENVS
-$2"; shift 2 ;;
-		--fixture) need "$1" "$#"; FIXTURES="$FIXTURES
-$(abspath "$2")"; shift 2 ;;
+		--interp) rl_need "$1" "$#"; INTERP="$2"; shift 2 ;;
+		--env) rl_need "$1" "$#"; rl_list_add ENVS "$2"; shift 2 ;;
+		--fixture) rl_need "$1" "$#"; rl_list_add FIXTURES "$(abspath "$2")"; shift 2 ;;
 		--redirect)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				/*=?*) ;;
 				*) echo "shell_test.sh: --redirect is FROM=PATH, FROM an absolute path: '$2'" >&2; exit 2 ;;
@@ -246,39 +252,37 @@ $(abspath "$2")"; shift 2 ;;
 			REDIRECT_FROM=${2%%=*}
 			REDIRECT_TO=$(abspath "${2#*=}")
 			shift 2 ;;
-		--redirect-lib) need "$1" "$#"; REDIRECT_LIB=$(abspath "$2"); shift 2 ;;
-		--files-test) need "$1" "$#"; FILES_TEST=$(abspath "$2"); shift 2 ;;
-		--required) need "$1" "$#"; rl_list_add FREQUIRED "$2"; shift 2 ;;
-		--optional) need "$1" "$#"; rl_list_add FOPTIONAL "$2"; shift 2 ;;
-		--turnin) need "$1" "$#"; rl_list_add FTURNIN "$2"; shift 2 ;;
+		--redirect-lib) rl_need "$1" "$#"; REDIRECT_LIB=$(abspath "$2"); shift 2 ;;
+		--files-test) rl_need "$1" "$#"; FILES_TEST=$(abspath "$2"); shift 2 ;;
+		--required) rl_need "$1" "$#"; rl_list_add FREQUIRED "$2"; shift 2 ;;
+		--optional) rl_need "$1" "$#"; rl_list_add FOPTIONAL "$2"; shift 2 ;;
+		--turnin) rl_need "$1" "$#"; rl_list_add FTURNIN "$2"; shift 2 ;;
 		--strict) FSTRICT=1; shift ;;
-		--label) need "$1" "$#"; FLABEL="$2"; shift 2 ;;
-		--twin-of) need "$1" "$#"; TWIN_OF="$2"; shift 2 ;;
-		--twin-tests) need "$1" "$#"; TWIN_TESTS="$2"; shift 2 ;;
-		--stray) need "$1" "$#"; TWIN_STRAYS="$TWIN_STRAYS
-$2"; shift 2 ;;
+		--label) rl_need "$1" "$#"; FLABEL="$2"; shift 2 ;;
+		--twin-of) rl_need "$1" "$#"; TWIN_OF="$2"; shift 2 ;;
+		--twin-tests) rl_need "$1" "$#"; TWIN_TESTS="$2"; shift 2 ;;
+		--stray) rl_need "$1" "$#"; rl_list_add TWIN_STRAYS "$2"; shift 2 ;;
 		--no-readme) TWIN_README=0; shift ;;
 		--stable) STABLE=1; shift ;;
 		--wording)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "${2%%=*}" in
 				"$2" | "" | [!A-Za-z_]* | *[!A-Za-z0-9_]*)
 					echo "shell_test.sh: --wording is KEY=TEXT, KEY a name, got '$2'" >&2
 					exit 2 ;;
 			esac
-			WORDINGS="$WORDINGS
-$2"
+			rl_list_add WORDINGS "$2"
 			shift 2
 			;;
 		--script)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				sh | ./name | bash) SCRIPT=$2 ;;
 				*) echo "shell_test.sh: --script is sh, ./name or bash, got '$2'" >&2; exit 2 ;;
 			esac
 			shift 2
 			;;
-		--output-test) need "$1" "$#"; OUTPUT_TEST="$2"; shift 2 ;;
+		--output-test) rl_need "$1" "$#"; OUTPUT_TEST="$2"; shift 2 ;;
 		--) shift; break ;;
 		*) echo "shell_test.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -315,7 +319,7 @@ if [ "$MODE" = twin ]; then
 	if [ -n "$TWIN_STRAYS" ]; then
 		printf '  STRAY TEST FILE(S) in %s, which no target reads:\n' "$FLABEL"
 		printf '%s\n' "$TWIN_STRAYS" | sed '/^$/d; s/^/      /'
-		printf '  This exercise repeats %s (twin_of on its shell_exercise\n' "$TWIN_OF"
+		printf '  This %s repeats %s (twin_of on its shell_exercise\n' "$(rl_noun)" "$TWIN_OF"
 		printf '  call), so its tests are read from\n'
 		printf '      %s\n' "$TWIN_TESTS"
 		printf '  and a change made to the file(s) above changes nothing. Make it\n'
@@ -485,23 +489,24 @@ if [ -n "$WORDINGS" ] && [ "$MODE" != check ]; then
 fi
 
 # ---- diff/check: run the generator in a scratch dir, then validate ----------
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 WORK2=""
 ALT2=""
-rl_traps 'rm -rf "$WORK" ${WORK2:+"$WORK2"} ${ALT2:+"$ALT2"}'
+# diff mode's capture of the turn-in's output, with --run's .err and .ended
+# beside it: in TMPDIR, outside WORK, whose names are the turn-in's.
+ACTUAL=""
+rl_traps 'rm -rf "$WORK" ${WORK2:+"$WORK2"} ${ALT2:+"$ALT2"} ${ACTUAL:+"$ACTUAL" "$ACTUAL.err" "$ACTUAL.ended"}'
 
-# stage fixtures (generator inputs and/or run inputs). The lists are newline
-# delimited, so split on newline and restore IFS afterwards (never `unset` it —
-# referencing an unset IFS would trip `set -u`).
-OLD_IFS=${IFS-}
+# stage fixtures (generator inputs and/or run inputs). ENVS, FIXTURES,
+# TWIN_STRAYS and WORDINGS are lists like FREQUIRED's (runner_lib.sh, LISTS OF
+# WORDS): one word per line, never empty, expanded with globbing off, so a
+# '*' or a '?' in one arrives as itself.
 stage() {  # stage DIR -- every fixture into DIR
-	IFS='
-'
+	rl_split_on
 	for f in $FIXTURES; do
-		[ -n "$f" ] || continue
 		cp -- "$f" "$1/" || { echo "shell_test.sh: cannot stage fixture $f" >&2; exit 2; }
 	done
-	IFS=$OLD_IFS
+	rl_split_off
 }
 stage "$WORK"
 
@@ -509,13 +514,11 @@ cd "$WORK" || { echo "shell_test.sh: cannot enter scratch dir" >&2; exit 2; }
 
 # don't let a host FT_* leak in and make a test pass for the wrong reason
 unset FT_USER FT_LINE1 FT_LINE2 FT_NBR1 FT_NBR2 2>/dev/null || true
-IFS='
-'
+rl_split_on
 for kv in $ENVS; do
-	[ -n "$kv" ] || continue
 	export "${kv?}"
 done
-IFS=$OLD_IFS
+rl_split_off
 
 # Bound what unverified code can do before running any of it — the same idiom
 # every C-side runner carries (grep tools/diff_output.sh for "ulimit -f"), and
@@ -602,6 +605,11 @@ if [ "$MODE" = lint ] || [ "$MODE" = posix ]; then
 	if [ "$SCRIPT" = ./name ]; then
 		RUNS_WITH="sh"
 		SHEBANG=$(sed -n '1{/^#!/p;}' "$DELIV")
+		# A script saved with CRLF line ends: its first line ends in a
+		# carriage return, which is not part of the shell's name. Kept, it
+		# named "sh<CR>", which is not sh, and posix passed the script
+		# having linted nothing.
+		SHEBANG=${SHEBANG%"$(printf '\r')"}
 		if [ -n "$SHEBANG" ]; then
 			# The interpreter: the first word after #!, or env's argument.
 			INTERP=$(printf '%s\n' "${SHEBANG#??}" | awk '{
@@ -654,8 +662,8 @@ fi
 # under one HOME, and passed, while two machines, or a fresh clone, get two
 # different files.
 if [ "$STABLE" = 1 ]; then
-	WORK2=$(mktemp -d)
-	ALT2=$(mktemp -d)
+	WORK2=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
+	ALT2=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 	mkdir "$ALT2/home" "$ALT2/tmp" || {
 		echo "shell_test.sh: cannot make the second run's HOME and TMPDIR" >&2; exit 2; }
 	stage "$WORK2"
@@ -701,18 +709,14 @@ if [ "$MODE" = files ]; then
 	# file they left behind -- a driver bug charged to the student, which is the
 	# defect class this repo ranks worst after a false green.
 	is_fixture() {
-		_f=$1
-		_oifs=${IFS-}
-		IFS='
-'
+		rl_split_on
 		for _x in $FIXTURES; do
-			[ -n "$_x" ] || continue
-			if [ "$(basename "$_x")" = "$_f" ]; then
-				IFS=$_oifs
+			if [ "${_x##*/}" = "$1" ]; then
+				rl_split_off
 				return 0
 			fi
 		done
-		IFS=$_oifs
+		rl_split_off
 		return 1
 	}
 
@@ -751,8 +755,8 @@ fi
 # whose loader ignores the library, a C library that is not glibc -- is told
 # to the check in CK_REDIRECT_BROKEN rather than hidden: its runs then read
 # the machine's own file, and it says which properties that leaves unseen.
+# None is set when it starts: the scrub at the top unset every one.
 prove_redirect() {
-	unset CK_REDIRECT_LIB CK_REDIRECT_FROM CK_REDIRECT_TO CK_REDIRECT_NAME CK_REDIRECT_BROKEN
 	[ -n "$REDIRECT_FROM" ] || return 0
 	[ -f "$REDIRECT_TO" ] || {
 		echo "shell_test.sh: the fixture for $REDIRECT_FROM is not here: $REDIRECT_TO" >&2; exit 2; }
@@ -785,13 +789,11 @@ if [ "$MODE" = check ]; then
 	[ -n "$CHECK_LIB" ] && export SHELL_CHECK_LIB="$CHECK_LIB"
 	prove_redirect
 	# The subject's words, for the check alone: the generator has run.
-	IFS='
-'
+	rl_split_on
 	for kv in $WORDINGS; do
-		[ -n "$kv" ] || continue
 		export "SHELL_CHECK_WORDING_$kv"
 	done
-	IFS=$OLD_IFS
+	rl_split_off
 	# The checks run the turn-in, so they get what is left of the test's time
 	# limit and no more: a script that never ends is then stopped here, and
 	# said to be, rather than by Bazel with the log cut short.
@@ -816,12 +818,26 @@ fi
 [ -n "$EXPECTED" ] || { echo "shell_test.sh: --expected is required for diff mode" >&2; exit 2; }
 if [ ! -e "$DELIV" ]; then
 	echo "shell_test.sh: deliverable '$DELIV' was not produced by the generator" >&2
-	ls -la >&2
+	# What it did produce, when ls is there to say (its marker is under
+	# require, above): the verdict stands without it.
+	if command -v ls > /dev/null 2>&1; then
+		ls -la >&2
+	fi
 	print_clue
 	exit 1
 fi
 
-ACTUAL=$(mktemp)
+if [ "$RUN" = 1 ]; then
+	[ -n "$CHECK_LIB" ] || {
+		echo "shell_test.sh: --run needs --check-lib: the run goes through its ck_run" >&2
+		exit 2
+	}
+	[ -f "$CHECK_LIB" ] || {
+		echo "shell_test.sh: --check-lib $CHECK_LIB is not there: the run goes through its ck_run" >&2
+		exit 2
+	}
+fi
+ACTUAL=$(mktemp) || { echo "shell_test.sh: cannot create a scratch file" >&2; exit 2; }
 RRC=0
 PARSED=1
 if [ "$RUN" = 1 ]; then
@@ -834,11 +850,10 @@ if [ "$RUN" = 1 ]; then
 	# and how it ended, are shown the way every check shows them. An
 	# exercise whose subject names another shell passes --interp, and gets
 	# that shell and no parse check. ck_run judges nothing; the library's
-	# exit guard, which is for check scripts, is switched off.
-	[ -n "$CHECK_LIB" ] || {
-		echo "shell_test.sh: --run needs --check-lib: the run goes through its ck_run" >&2
-		exit 2
-	}
+	# exit guard, which is for check scripts, is switched off. A library
+	# that could not do either -- it does not load, or ck_run cannot tell
+	# how the run ended -- is a harness error (exit 2, no hint): nothing
+	# was judged.
 	SHELL_CHECK_LIB=$CHECK_LIB
 	export SHELL_CHECK_LIB
 	_interp=${INTERP:-sh}
@@ -851,6 +866,10 @@ if [ "$RUN" = 1 ]; then
 				ck_sh_parses "$CHECK_LIB" "$DELIV")
 			case "$_parse" in
 				*"[FAIL]"*) PARSED=0; printf '%s\n' "$_parse" ;;
+				*"[PASS]"*) ;;
+				*)
+					echo "shell_test.sh: the parse check of $DELIV did not reach ck_sh_parses in $CHECK_LIB: a harness error, so nothing was judged" >&2
+					exit 2 ;;
 			esac
 			;;
 	esac
@@ -875,7 +894,12 @@ if [ "$RUN" = 1 ]; then
 		ok | "exit")
 			# ck_run ran to its end and showed the run, stderr and all: its
 			# excerpt is rl_excerpt's, which says what it left out and keeps
-			# the whole text. How the deliverable ended is its line.
+			# the whole text. How the deliverable ended is its line, and
+			# a shell that returned without one never got through ck_run.
+			[ -s "$ACTUAL.ended" ] || {
+				echo "shell_test.sh: the run of $DELIV through $CHECK_LIB's ck_run ended before ck_run did (status $RRC): a harness error, so nothing was judged" >&2
+				exit 2
+			}
 			rl_classify "$RRC" "$ACTUAL.ended"
 			;;
 		*)

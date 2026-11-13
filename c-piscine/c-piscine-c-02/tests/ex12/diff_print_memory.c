@@ -2,8 +2,9 @@
  * Line: <hexBlock>\t<size>\t<escapedRender>\t<returned addr>. The block, two
  * hex digits per byte, the size in decimal, then what ft_print_memory wrote
  * as ONE field -- each row's address as its offset from the block when it is
- * the row's real address, backslash doubled, newline as \n -- and 1 or 0 for
- * "returned the addr it was given".
+ * the row's real address, and as printed behind a '!' when it is not,
+ * backslash doubled, newline as \n -- and 1 or 0 for "returned the addr it
+ * was given".
  *
  * WHY THE OUTPUT IS CAPTURED. This function writes with write() straight to fd
  * 1, and the bytes it emits are most of the answer. fd 1 is therefore pointed
@@ -21,8 +22,11 @@
  * -- and prints the row's offset in its place only when they match, which is
  * what the reference prints. A wrong address (narrowed to 32 bits, the
  * block's instead of the row's, uppercase) is kept as the function printed
- * it, and the record diverges (finding 048). The output layer checks the same
- * against the addresses its fixture publishes (diff_output.sh --sanitize).
+ * it, behind a '!' the reference never prints, and the record diverges
+ * (finding 048) -- even where the wrong address is the row's offset itself,
+ * which kept bare was the reference's own record. The output layer checks the
+ * same against the addresses its fixture publishes (diff_output.sh
+ * --sanitize), which marks a kept one too.
  *
  * WHERE THE BLOCK LIVES: ABOVE 4 GiB, OR A NARROWED ADDRESS IS RIGHT. This
  * program is linked as a position-dependent executable, and its heap starts
@@ -46,7 +50,8 @@
 void	*ft_print_memory(void *addr, unsigned int size);
 
 /* Print one captured line with its address column replaced by `row` when it
- * is the row's real address, block + row, then the rest verbatim. A row is
+ * is the row's real address, block + row, and kept behind a '!' when it is
+ * not, then the rest verbatim. A row is
  * "<16 hex>: <rest>"; anything shorter than that is passed through untouched
  * rather than mangled, so a malformed line from the deliverable still reaches
  * the report as what it was. libc's snprintf writes the address it must be,
@@ -73,7 +78,7 @@ static void	put_row(const char *p, int len, const unsigned char *block,
 	if (memcmp(p, want, 16) == 0)
 		printf("%016llx", row);
 	else
-		printf("%.16s", p);
+		printf("!%.16s", p);
 	free(want);
 	i = 16;
 	while (i < len)
@@ -156,9 +161,9 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
-		block = dio_high(dio_unhex(f[0], &len, 0), len + 1);
+		dio_fields(line, f, 3, 2);
+		block = dio_unhex(f[0], &len, 0);
+		block = dio_high(block, len + 1);
 		size = (unsigned int)strtoul(f[1], NULL, 10);
 		if (size > len)
 			dio_fail("a case asks for more bytes than its block holds");

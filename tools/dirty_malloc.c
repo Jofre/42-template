@@ -41,7 +41,7 @@
  * writes them: a byte the student's code never set reads as defined there, and
  * an uninitialised read goes unseen. So no valgrind layer runs a program
  * linking //tools:diffio -- they run the exercise's own _bin, or a _vgbin --
- * and c_levels()' audit refuses one that does (tools/defs.bzl,
+ * and c_levels()' audit refuses one that does (tools/defs_module.bzl,
  * _diffio_memcheck_problems).
  *
  * WHERE. Every program linking //tools:diffio: the c_diff and c_perf readers

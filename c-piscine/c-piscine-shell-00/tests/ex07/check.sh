@@ -11,7 +11,9 @@
 # format, in Rust, that replays sw.diff's recorded edits onto a -- so no shell
 # command in the template computes the expected b. It is strict: if sw.diff
 # does not describe an edit of this a, it refuses rather than guessing, and the
-# check below says so.
+# check below says so: as the harness's fault (exit 2), since an archive that
+# holds no a and sw.diff, or a reference that refuses them, leaves nothing to
+# judge b by, and says nothing of b.
 # shellcheck source=tools/shell_check.sh
 . "${SHELL_CHECK_LIB:?}"
 
@@ -53,21 +55,23 @@ if [ ! -f "$RES" ]; then
         Everything else about ex07 is unaffected."
 fi
 
-ORACLE=${ORACLE:?this check needs //oracle: declare the exercise with oracle = True}
+ck_oracle
+
+ck_require "produces a file named b" test -f "$B"
 
 # Unpack the two inputs into a private temp dir, never next to the deliverable:
 # the student's b sits in the current directory, and nothing here may write
 # over it or beside it. The reference result goes into the same temp dir.
-WANT=""
 WORK=$(mktemp -d)
-if tar -xf "$RES" -C "$WORK" a sw.diff 2>/dev/null \
-	&& "$ORACLE" shell00_diff_apply "$WORK/a" "$WORK/sw.diff" > "$WORK/want" 2>/dev/null; then
-	WANT="$WORK/want"
+tar -xf "$RES" -C "$WORK" a sw.diff 2> /dev/null ||
+	{ rm -rf "$WORK"; ck_broken "resources.tar.gz holds no a and sw.diff that could be unpacked: it is not the archive this check was written for"; }
+if ! "$ORACLE" shell00_diff_apply "$WORK/a" "$WORK/sw.diff" > "$WORK/want" 2> "$WORK/err"; then
+	ck_detail "$(cat "$WORK/err")"
+	rm -rf "$WORK"
+	ck_broken "the reference could not apply sw.diff to a: this archive is not the one this check was written for"
 fi
 
-ck_require "produces a file named b"             test -f "$B"
-ck "fixture yields an a that sw.diff applies to" test -n "$WANT"
-ck "b equals a with sw.diff's edits applied"     sh -c '[ -n "$1" ] && cmp -s "$1" "$2"' _ "$WANT" "$B"
+ck "b equals a with sw.diff's edits applied" cmp -s "$WORK/want" "$B"
 
 rm -rf "$WORK"
 ck_report

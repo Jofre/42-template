@@ -23,7 +23,7 @@
 #     RL_NAME=rust_diff
 #     case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 #     [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-#     [ -f "$RL_LIB" ] || { echo "rust_diff.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+#     [ -f "$RL_LIB" ] || { echo "rust_diff.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 #     # shellcheck source=tools/runner_lib.sh
 #     . "$RL_LIB"
 #
@@ -31,25 +31,39 @@
 # hand, by the selftest, or as a gate by another runner), and from a Bazel test,
 # whose $0 is the TARGET's name in its own package -- so there the file is found
 # through the runfiles tree, and only if the target lists //tools:runner_lib.sh
-# in its data (defs.bzl's _test() adds it to every test it emits; a sh_test
-# written by hand lists it itself). A runner that runs student code (rl_tmo,
-# rl_run) needs //tools:exit_status beside it the same way: defs.bzl's
-# _EXIT_STATUS_RUNNERS, and //tools:conventions checks both.
+# in its data (defs_test.bzl's _test() adds it to every test it emits, hand_test()'s
+# too, and a BUILD file declares no sh_test of its own). A runner that runs
+# student code (rl_tmo, rl_run) needs //tools:exit_status beside it the same
+# way: _test() adds it for the runners in defs_test.bzl's _EXIT_STATUS_RUNNERS,
+# which //tools:conventions holds to every runner that calls rl_tmo, rl_run or
+# rl_ready.
 #
 # THE HELPERS, each described where it is defined:
 #
 #   the time budget    RL_DEADLINE, rl_ready, rl_tmo, rl_run, rl_overrun, rl_hang,
 #                      rl_sweep_next / rl_sweep_ran / rl_sweep_stopped,
 #                      RL_DNF, rl_dnf_said, rl_dnf_note
+#   harness files      rl_tool (beside the runner, or in the runfiles)
 #   signal handling    rl_traps
 #   how a run ended    rl_classify (from tools/exit_status), rl_signame
+#                      (--short: the name and its gist), rl_unjudged
+#                      (noexec or stopped: exit 2), rl_end_fault (a case's
+#                      fault when it did not return)
 #   lists of words     RL_NL, rl_list_add, rl_split_on / rl_split_off
-#   byte rendering     RL_AWK_VIS (rl_vis_exact, rl_vis_text, rl_vis_noted),
-#                      rl_vis, rl_vis_legend, rl_shword, rl_first_diff,
-#                      rl_caret, rl_diff_window, rl_udiff
-#   the invocation     rl_cmdline, rl_argv_words, rl_rundir, rl_ran
+#   byte rendering     RL_AWK_VIS (rl_vis_exact, rl_vis_text, rl_vis_noted,
+#                      rl_vis_join, rl_vis_wrap), rl_vis, rl_vis_legend,
+#                      rl_shword, rl_first_diff, rl_caret, rl_diff_window,
+#                      rl_udiff
+#   options            rl_need (an option given no value)
+#   the invocation     rl_cmdline, rl_argv_words, rl_rundir, rl_ran,
+#                      rl_case_check / rl_case_run (the case's own run)
 #   long output        rl_excerpt, rl_save, rl_keep_input (an input kept,
 #                      which rl_mem_report then names by its kept name)
+#   a corpus's size    rl_corpus_lines, rl_corpus_floor (too few cases to
+#                      prove anything: exit 2)
+#   a corpus's field   rl_dec_to (an escaped field decoded into a file)
+#   a corpus replay's  rl_corpus_seen (a partial replay: exit 2),
+#   end                rl_corpus_mem_end, rl_corpus_verdict (RL_DIFFER)
 #   a report's length  rl_rows, rl_block, rl_tally (DIFF_MAX_ROWS),
 #                      rl_shown, rl_shown_legend
 #   a layer that waits rl_gate (on another test's result), rl_noskip_cmd (the
@@ -59,8 +73,11 @@
 #                      rl_mem_opt, rl_mem_ready, rl_mem_pick, rl_mem_count,
 #                      rl_mem_run, rl_mem_report, rl_mem_tally, rl_mem_argv_note,
 #                      rl_mem_stopped
-#   a valgrind run     rl_vg_env (the host's valgrind settings off), and
-#                      rl_vg_aborted (valgrind stopped at its own startup)
+#   a valgrind run     rl_vg_pin (the pinned valgrind, proved able to run
+#                      its tool), rl_vg_env (the host's valgrind settings
+#                      off), rl_vg_aborted (valgrind stopped at its own
+#                      startup), and rl_cg_total (a callgrind profile's
+#                      instruction count)
 #   sanitizer runs     rl_sanitizers (options, the pinned symbolizer),
 #                      rl_sanitized, rl_sanitizer_report; what a report
 #                      is: rl_sanitizer_kind, rl_sanitizer_about,
@@ -70,12 +87,18 @@
 #   why it is raised   rl__raised, on a red exit of a test _RAISED lists
 #   a grader's header  rl_grader_hdrs, after a compile that failed
 #   a fetched compiler rl_cc_pin, proved pinned before the first compile
+#   a fetched nm       rl_binutils_pin (or objdump; RL_PB_PATH, its own path)
 #   a fetched linker   rl_ld_pin, proved pinned before the first link;
 #                      rl_cc_wrap, the two as one command
-#   a corpus's stderr  rl_stderr_choice, rl_stderr_noisy, rl_stderr_rule
+#   a fetched tool's   rl_probe_libs (the loader's trace, or why it did not
+#   libraries          start), rl_libs_under (each taken from its folder)
+#   a corpus's stderr  rl_stderr_opt, rl_stderr_choice, rl_stderr_noisy,
+#                      rl_stderr_rule
 #   who grades         rl_at (RL_GRADER, from the subject contract)
+#   what it tests      rl_noun, rl_entry (RL_UNIT_KIND, from the contract)
 #   a subject's quote  rl_quotes_opt, rl_quotes_ready, rl_quote (--quotes, from
 #                      runner_quotes())
+#   a sentence's lines rl_wrap (folded to a width, after an indent)
 #
 # Everything here is POSIX sh and reads its inputs under `set -u`, so every
 # optional variable is written ${VAR:-}.
@@ -358,29 +381,67 @@ rl_tmo() {
 # Found beside the runner when another runner or the selftest calls it by path,
 # in the test's runfiles when it IS the test (its $0 is then the target's name,
 # in the module's folder), and in bazel-bin when it is run by hand from tools/.
-# defs.bzl's _test() stages it for every test that names a runner calling
+# defs_test.bzl's _test() stages it for every test that names a runner calling
 # rl_run. Without it the ending would be guessed from the status again, so its
 # absence is a wiring error, never a fallback. Absolute, because some runners
-# run the program from a scratch directory.
+# run the program from a scratch directory -- and so is the folder it is looked
+# for in, RL__HERE, the runner's own, taken when this file is sourced: a
+# runner that moves into its scratch folder before its first run (shell_test)
+# looked for it from there, so one started by a relative path, outside a test,
+# never found the helper beside it.
+case "$0" in */*) RL__HERE=${0%/*} ;; *) RL__HERE=. ;; esac
+case "$RL__HERE" in /*) ;; *) RL__HERE=$PWD/$RL__HERE ;; esac
 RL_WAITER=""
 RL_HOWF=""
+RL_UDF=""
+# rl__noscratch -- the refusal when mktemp could not make a scratch file:
+# `X=$(mktemp) || rl__noscratch`, whose exit ends the caller's shell.
+rl__noscratch() {
+	echo "${RL_NAME}: cannot create a scratch file" >&2
+	exit 2
+}
 rl__waiter() {
 	[ -z "$RL_WAITER" ] || return 0
-	case "$0" in */*) _rl_here=${0%/*} ;; *) _rl_here=. ;; esac
-	for _rl_w in "$_rl_here/exit_status" \
+	for _rl_w in "$RL__HERE/exit_status" \
 		"${TEST_SRCDIR:+$TEST_SRCDIR/${TEST_WORKSPACE:-_main}/tools/exit_status}" \
-		"$_rl_here/../bazel-bin/tools/exit_status"; do
+		"$RL__HERE/../bazel-bin/tools/exit_status"; do
 		[ -n "$_rl_w" ] && [ -x "$_rl_w" ] && { RL_WAITER=$_rl_w; break; }
 	done
 	if [ -z "$RL_WAITER" ]; then
 		echo "${RL_NAME}: tools/exit_status is not in this test's data, so how the" >&2
-		echo "  program ends could not be told apart from what it returns. Add" >&2
-		echo "  //tools:exit_status beside this runner (defs.bzl's _test() does it for" >&2
-		echo "  every macro-made test; by hand: bazel build //tools:exit_status)." >&2
+		echo "  program ends could not be told apart from what it returns." >&2
+		echo "  tools/defs_test.bzl's _test() stages it for every test naming a runner" >&2
+		echo "  of _EXIT_STATUS_RUNNERS: add this runner there (by hand: bazel build" >&2
+		echo "  //tools:exit_status)." >&2
 		exit 2
 	fi
 	case "$RL_WAITER" in /*) ;; *) RL_WAITER="$PWD/$RL_WAITER" ;; esac
-	RL_HOWF=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
+	RL_HOWF=$(mktemp) || rl__noscratch
+}
+
+# rl_tool NAME [LINE...] -- RL_TOOL, the path of the harness file NAME, found
+# as a runner is reached: beside the runner when it is run by path (a hand
+# run, the selftest), else in the test's runfiles, where tools/defs_test.bzl's
+# _test() stages what the test lists. Exits 2 when neither has it, saying
+# the LINEs, or "<runner>.sh: cannot find tools/NAME beside it or in the
+# runfiles". The path is kept as found. `rl_tool standin.sh` then
+# `. "$RL_TOOL"` is how a runner that sources this file loads standin.sh
+# (//tools:conventions holds it to that). rl__waiter's own lookup differs on
+# purpose: it needs an executable, a third place (bazel-bin, for a hand run
+# of an unbuilt helper) and an absolute path.
+RL_TOOL=""
+rl_tool() {
+	case "$0" in */*) _rl_td=${0%/*} ;; *) _rl_td=. ;; esac
+	for RL_TOOL in "$_rl_td/$1" "${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/$1"; do
+		[ -f "$RL_TOOL" ] && return 0
+	done
+	if [ "$#" -gt 1 ]; then
+		shift
+		printf '%s\n' "$@" >&2
+	else
+		echo "${RL_NAME}.sh: cannot find tools/$1 beside it or in the runfiles" >&2
+	fi
+	exit 2
 }
 
 # rl_ready -- find tools/exit_status now. rl_tmo does it on its first call; a
@@ -658,11 +719,12 @@ rl_dnf_note() {
 #
 # CLEANUP is stored, not expanded: rl_traps 'rm -rf "$T"' removes whatever $T
 # holds when the runner exits. A script that does not source this file writes
-# the same three lines itself:
+# the same four lines itself:
 #
 #     trap 'rm -rf "$T"' EXIT
 #     trap 'exit 143' TERM
 #     trap 'exit 130' INT
+#     trap 'exit 129' HUP
 #
 # One limit no trap can lift: a shell runs a trap only once its foreground
 # command returns, so a TERM that lands while student code runs waits for that
@@ -683,12 +745,15 @@ rl__cleanup" EXIT
 	trap 'rl__signalled INT 130' INT
 	trap 'rl__signalled HUP 129' HUP
 }
-# The library's own scratch file (rl_run's report). Its EXIT trap is set when
-# the library is sourced, and rl_traps keeps it after the caller's cleanup.
+# The library's own scratch files (rl_run's report, rl_udiff's diff, the
+# lists of blocks shown). Its EXIT trap is set when the library is sourced,
+# and rl_traps keeps it after the caller's cleanup. RL_UDF is rl_udiff's,
+# which removes it itself once read: listed for a signal that lands while
+# it diffs.
 # RL_MEM_OUT's ".as" and ".as.shown" are rl_mem_report's, which removes them
 # itself once shown: listed for a signal that lands while it writes them.
 rl__cleanup() {
-	for _rl_f in "$RL_HOWF" "${RL_LISTF:-}" "${RL_SHOWNF:-}" "${RL_SHOWNF:+$RL_SHOWNF.legend}" \
+	for _rl_f in "$RL_HOWF" "$RL_UDF" "${RL_LISTF:-}" "${RL_SHOWNF:-}" "${RL_SHOWNF:+$RL_SHOWNF.legend}" \
 		"${RL_ERRF:-}" "${RL_MEM_OUT:-}" \
 		"${RL_MEM_OUT:+$RL_MEM_OUT.shown}" "${RL_MEM_OUT:+$RL_MEM_OUT.as}" \
 		"${RL_MEM_OUT:+$RL_MEM_OUT.as.shown}" "${RL_MEM_STDOUT:-}" "${RL_MEM_STATUS:-}"; do
@@ -711,7 +776,7 @@ rl__signalled() {
 #
 # rl__raised STATUS -- under a red test (STATUS 1) that its BUILD file placed
 # above the level its name gives it, why it sits there. Such a test is listed
-# in tools/defs.bzl's _RAISED, and _test() hands it the level as RL_RAISED
+# in tools/defs_levels.bzl's _RAISED, and _test() hands it the level as RL_RAISED
 # and stages docs/reference.md beside it, whose table "Targets raised above
 # their layer" gives the reason -- held to _RAISED row for row by
 # //tools:conventions. So the reason is written once, in that table, and a
@@ -745,14 +810,7 @@ rl__raised() {
 	echo " --------------------------------------------------"
 	echo " WHY THIS TEST IS AT ${RL__RAISED}, above its layer's own level:"
 	if [ -n "$_rl_why" ]; then
-		printf '%s\n' "$_rl_why" | awk '{
-			n = split($0, w, " "); line = ""
-			for (i = 1; i <= n; i++) {
-				if (line != "" && length(line) + 1 + length(w[i]) > 72) { print "   " line; line = "" }
-				line = (line == "") ? w[i] : line " " w[i]
-			}
-			if (line != "") print "   " line
-		}'
+		printf '%s\n' "$_rl_why" | rl_wrap 72 "   "
 	fi
 	echo "   (docs/reference.md, \"Targets raised above their layer\")"
 }
@@ -767,28 +825,42 @@ trap 'rl__signalled HUP 129' HUP
 # ---------------------------------------------------------------------------
 # HOW A RUN ENDED.
 #
-# rl_signame N -- a signal's name, with what it usually means in a Piscine
-# program. One table, so a student meets one vocabulary for a dead process
-# whichever layer reports it.
+# rl_signame [--short] N -- a signal's name, with what it usually means in a
+# Piscine program. One table, so a student meets one vocabulary for a dead
+# process whichever layer reports it. --short is the name with the gist
+# alone, for a headline that explains below it (diff_output's CRASH) or a
+# column that must stay narrow (allocfail_check's sweep): written out beside
+# the long one, never cut from it.
 rl_signame() {
+	_rl_sshort=0
+	[ "$1" != --short ] || { _rl_sshort=1; shift; }
 	case "$1" in
-		1) echo "SIGHUP (hangup)" ;;
-		2) echo "SIGINT (interrupted)" ;;
-		3) echo "SIGQUIT (quit)" ;;
-		4) echo "SIGILL (illegal instruction: usually a trap the compiler planted at undefined behaviour)" ;;
-		5) echo "SIGTRAP (trace trap)" ;;
-		6) echo "SIGABRT (abort: assertion, stack smashing, or a glibc heap error)" ;;
-		7) echo "SIGBUS (bus error: an access the memory system cannot perform)" ;;
-		8) echo "SIGFPE (arithmetic error, e.g. division or modulo by zero, or INT_MIN / -1)" ;;
-		9) echo "SIGKILL (killed from outside: most often the kernel's out-of-memory killer)" ;;
-		11) echo "SIGSEGV (invalid memory access)" ;;
-		13) echo "SIGPIPE (wrote to a closed pipe)" ;;
-		14) echo "SIGALRM (alarm clock)" ;;
-		15) echo "SIGTERM (asked to stop)" ;;
-		24) echo "SIGXCPU (CPU time limit exceeded)" ;;
-		25) echo "SIGXFSZ (file size limit exceeded: output past its budget)" ;;
-		*) echo "signal $1" ;;
+		1) rl__sig "SIGHUP (hangup)" ;;
+		2) rl__sig "SIGINT (interrupted)" ;;
+		3) rl__sig "SIGQUIT (quit)" ;;
+		4) rl__sig "SIGILL (illegal instruction)" \
+			"SIGILL (illegal instruction: usually a trap the compiler planted at undefined behaviour)" ;;
+		5) rl__sig "SIGTRAP (trace trap)" ;;
+		6) rl__sig "SIGABRT (abort)" \
+			"SIGABRT (abort: assertion, stack smashing, or a glibc heap error)" ;;
+		7) rl__sig "SIGBUS (bus error)" \
+			"SIGBUS (bus error: an access the memory system cannot perform)" ;;
+		8) rl__sig "SIGFPE (arithmetic error)" \
+			"SIGFPE (arithmetic error, e.g. division or modulo by zero, or INT_MIN / -1)" ;;
+		9) rl__sig "SIGKILL (killed from outside)" \
+			"SIGKILL (killed from outside: most often the kernel's out-of-memory killer)" ;;
+		11) rl__sig "SIGSEGV (invalid memory access)" ;;
+		13) rl__sig "SIGPIPE (wrote to a closed pipe)" ;;
+		14) rl__sig "SIGALRM (alarm clock)" ;;
+		15) rl__sig "SIGTERM (asked to stop)" ;;
+		24) rl__sig "SIGXCPU (CPU time limit exceeded)" ;;
+		25) rl__sig "SIGXFSZ (file size limit exceeded)" \
+			"SIGXFSZ (file size limit exceeded: output past its budget)" ;;
+		*) rl__sig "signal $1" ;;
 	esac
+}
+rl__sig() {  # rl__sig SHORT [LONG] -- rl_signame's entry: LONG, or SHORT under --short
+	if [ "$_rl_sshort" = 1 ] || [ "$#" -eq 1 ]; then echo "$1"; else echo "$2"; fi
 }
 
 # RL_CAUSE and RL_SIG are reset when the library is sourced, as every setting
@@ -828,7 +900,12 @@ RL_SIG=""
 #   stopped N   the helper received signal N -- Bazel's SIGTERM, a Ctrl-C --
 #               and killed the program's group: the run was ended from outside
 #               the program, and the runner's own trap follows.
-#   no report   the helper itself was killed from outside: "stopped" as well.
+#   no report   the helper itself was killed from outside (a SIGKILL, the
+#               out-of-memory killer), and no trap follows: "stopped" as well.
+#               That says nothing about the student's code either, so it is a
+#               harness error, exit 2, wherever it is met (rl_unjudged), never
+#               a crash: it once turned a layer red against the student when
+#               only the helper had been killed.
 #
 # What a plain non-zero return COSTS is not decided here: that is the Run
 # contract in docs/reference.md (a note at basic where the subject names no
@@ -896,6 +973,35 @@ rl_classify() {
 	# One report per run: a later rl_classify without a run in between must
 	# not read this one again.
 	[ -z "$RL_HOWF" ] || : > "$RL_HOWF"
+}
+
+# rl_unjudged WHAT -- right after rl_classify (or rl_sweep_ran): when the run
+# could not be started (noexec) or was stopped from outside (stopped), say
+# so on stderr, naming WHAT ("case 4", "the replay"), and exit 2: the harness
+# failed, and nothing about the program was judged. Returns for every other
+# ending. A runner with words of its own for noexec says them first, and this
+# is then its refusal of stopped.
+rl_unjudged() {
+	case "$RL_CAUSE" in
+		noexec | stopped) ;;
+		*) return 0 ;;
+	esac
+	echo "${RL_NAME}: $1 could not be judged: the program $RL_WHY" >&2
+	exit 2
+}
+
+# rl_end_fault -- the fault a corpus case is filed under when its run did
+# not return: did-not-finish (timeout), runaway-output (runaway) or crash
+# (signal). Returns 1, printing nothing, when it returned (ok, exit) and its
+# bytes are the caller's to judge; noexec and stopped never reach it
+# (rl_unjudged). One table, where each corpus runner kept its own copy.
+rl_end_fault() {
+	case "$RL_CAUSE" in
+		"timeout") echo "did-not-finish" ;;
+		runaway) echo "runaway-output" ;;
+		signal) echo "crash" ;;
+		*) return 1 ;;
+	esac
 }
 
 # ---------------------------------------------------------------------------
@@ -969,7 +1075,10 @@ rl_classify() {
 # the array M, after its element N, one phrase per mark recorded ("\t a tab",
 # ...) and returns the new count. rl_vis_marks(M, N, 1) says \n is a newline,
 # for a byte stream rendered on one line (rl_diff_window), where no value
-# holds it.
+# holds it. rl_vis_join(M, N) is the sentence of M[1..N]: "a, b, and c".
+# rl_vis_wrap(T, WIDTH, IND) prints T greedily wrapped at WIDTH columns, each
+# line behind IND (not counted in WIDTH): every legend but rl_vis_legend's,
+# which is one line, is said that way.
 RL_AWK_VIS='
 BEGIN {
 	for (_rlv_i = 0; _rlv_i < 256; _rlv_i++) {
@@ -1052,6 +1161,20 @@ function rl_vis_marks(m, n, stream) {
 		(("z" in _rlv_used) ? " (\\x00 is a NUL)" : "")
 	return n
 }
+function rl_vis_join(m, n,   k, s) {
+	s = m[1]
+	for (k = 2; k <= n; k++) s = s ((k == n) ? ", and " : ", ") m[k]
+	return s
+}
+function rl_vis_wrap(t, width, ind,   nw, w, k, l) {
+	nw = split(t, w, " ")
+	l = ""
+	for (k = 1; k <= nw; k++) {
+		if (l != "" && length(l) + 1 + length(w[k]) > width) { print ind l; l = w[k] }
+		else l = (l == "") ? w[k] : l " " w[k]
+	}
+	if (l != "") print ind l
+}
 '
 
 # rl_vis_legend FILE [INDENT] [STREAM] -- one line naming the marks the text
@@ -1068,9 +1191,7 @@ rl_vis_legend() {
 		END {
 			n = rl_vis_marks(m, 0, stream + 0)
 			if (!n) exit
-			s = m[1]
-			for (k = 2; k <= n; k++) s = s ((k == n) ? ", and " : ", ") m[k]
-			print ind "(byte for byte: " s ")"
+			print ind "(byte for byte: " rl_vis_join(m, n) ")"
 		}' "$1"
 }
 # rl_vis MODE [MAXLINES [WIDTH]] -- stdin, every byte of it rendered by
@@ -1282,16 +1403,8 @@ rl_diff_window() {
 		END {
 			n = rl_vis_marks(m, 0, 1)
 			if (!n) exit
-			s = "In the lines above, " m[1]
-			for (k = 2; k <= n; k++) s = s ((k == n) ? ", and " : ", ") m[k]
 			# At most 76 columns after the indent, as in a table legend.
-			nw = split(s ".", w, " ")
-			l = ""
-			for (k = 1; k <= nw; k++) {
-				if (l != "" && length(l) + 1 + length(w[k]) > 76) { print ind l; l = w[k] }
-				else l = (l == "") ? w[k] : l " " w[k]
-			}
-			print ind l
+			rl_vis_wrap("In the lines above, " rl_vis_join(m, n) ".", 76, ind)
 		}'
 }
 # rl__window FILE FROM -- 32 bytes of FILE from byte FROM (counted from 1), as
@@ -1337,15 +1450,16 @@ rl__window() {
 # "expected" and "got"), never by their scratch paths. MAXLINES (default 40)
 # lines of the diff are shown, and the rest counted.
 rl_udiff() {
-	_rl_ud=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
-	"$1" -a -u -L "${4:-expected}" -L "${5:-got}" "$2" "$3" > "$_rl_ud"
+	RL_UDF=$(mktemp) || rl__noscratch
+	"$1" -a -u -L "${4:-expected}" -L "${5:-got}" "$2" "$3" > "$RL_UDF"
 	_rl_ud_rc=$?
-	LC_ALL=C od -An -v -tx1 "$_rl_ud" | LC_ALL=C awk -v max="${6:-40}" "$RL_AWK_VIS"'
+	LC_ALL=C od -An -v -tx1 "$RL_UDF" | LC_ALL=C awk -v max="${6:-40}" "$RL_AWK_VIS"'
 		# One line of the diff, from its bytes b[1..nb]. Every byte goes
 		# through the renderer but the backslash that opens the note diff
 		# writes itself, "\ No newline at end of file", which the renderer
 		# would double. A line of text (after the two headers, not a hunk @@
-		# line, not the note) gets a $ at its end, which the note takes back.
+		# line, not the note) gets a $ at its end, which the note takes back;
+		# it stays a line of text (txt[]), so its marks are still named.
 		function line(   s, i) {
 			n++
 			note = (n > 2 && b[1] == "5c")
@@ -1355,34 +1469,29 @@ rl_udiff() {
 			if (note && end[n - 1]) end[n - 1] = 0
 			out[n] = s
 			end[n] = text
-			if (text) body = body substr(s, 2) "\n"
+			txt[n] = text
 			nb = 0
 		}
 		{ for (i = 1; i <= NF; i++) if ($i == "0a") line(); else b[++nb] = $i }
 		END {
 			if (nb) line()
 			if (n == 0) exit
+			# THE LEGEND is read off the lines shown, never off the
+			# ones past MAXLINES, which no one sees.
 			for (i = 1; i <= n && i <= max + 0; i++) {
 				print out[i] (end[i] ? "$" : "")
 				if (end[i]) dollar = 1
+				if (txt[i]) rl_vis_scan(substr(out[i], 2))
 			}
 			if (n > max + 0) print "... " (n - max) " more line(s) of the diff not shown"
-			rl_vis_scan(body)
 			c = 0
 			if (dollar) m[++c] = "$ is where a line ended"
 			c = rl_vis_marks(m, c, 1)
 			if (!c) exit
-			s = "In the lines above, " m[1]
-			for (i = 2; i <= c; i++) s = s ((i == c) ? ", and " : ", ") m[i]
-			nw = split(s ".", w, " ")
-			l = ""
-			for (i = 1; i <= nw; i++) {
-				if (l != "" && length(l) + 1 + length(w[i]) > 76) { print l; l = w[i] }
-				else l = (l == "") ? w[i] : l " " w[i]
-			}
-			print l
+			rl_vis_wrap("In the lines above, " rl_vis_join(m, c) ".", 76, "")
 		}'
-	rm -f "$_rl_ud"
+	rm -f "$RL_UDF"
+	RL_UDF=""
 	return "$_rl_ud_rc"
 }
 
@@ -1477,6 +1586,69 @@ $4
 RL_EOF
 }
 
+# rl_case_check ARGV_FILE RUN_AS CWD_FILES -- refuse (exit 2) a run that
+# would not be the one the case describes: an argument file that cannot be
+# read would run the program with fewer arguments, a staged file without a
+# folder to stage it in (--cwd-file without --run-as) would run it from
+# somewhere else, and --run-as is the program's file name, never a path.
+# diff_output.sh, valgrind_test.sh, asan_run.sh and allocfail_check.sh call
+# it once their options are read; rl_case_run then makes the run.
+# model_check.sh takes the same three options and keeps refusals of its own,
+# a partial copy in its own words, because its purpose differs.
+rl_case_check() {
+	if [ -n "$1" ] && [ ! -r "$1" ]; then
+		echo "${RL_NAME}.sh: --argv-file '$1' is not readable" >&2
+		exit 2
+	fi
+	if [ -n "$3" ] && [ -z "$2" ]; then
+		echo "${RL_NAME}.sh: --cwd-file stages a file in the folder --run-as runs the program from" >&2
+		exit 2
+	fi
+	case "$2" in
+		*/* | . | ..)
+			echo "${RL_NAME}.sh: --run-as takes the program's file name, not '$2'" >&2
+			exit 2 ;;
+	esac
+}
+# rl_case_run DIR ARGV_FILE RUN_AS BIN CWD_FILES SHOW_RUN STDIN -- the run the
+# case describes, made: RL_CASE_WORDS, the argument file's words (rl_argv_words)
+# for the caller's `eval "set -- \"\$@\" $RL_CASE_WORDS"` (a function cannot
+# add to its caller's arguments); with RUN_AS, the folder DIR holding BIN as
+# RUN_AS and each CWD_FILES line (rl_rundir). It sets RL_RUN_BIN (BIN, or
+# ./RUN_AS), RL_RUN_DIR (".", or DIR), RL_RUN_IN (STDIN, made absolute under
+# RUN_AS: the folder is the program's working directory, so a path given
+# from here would no longer resolve) and, for rl_ran, RL_RAN_PROG (SHOW_RUN,
+# or ./RUN_AS) and RL_RAN_SPECS (rl_rundir's lines, the program first). The
+# RAN line shows STDIN as given. Exits 2 when the run cannot be made.
+RL_CASE_WORDS=""
+RL_RUN_BIN=""
+RL_RUN_DIR=""
+RL_RUN_IN=""
+RL_RAN_PROG=""
+RL_RAN_SPECS=""
+# shellcheck disable=SC2034 # RL_CASE_WORDS and RL_RAN_* are the caller's to read
+rl_case_run() {
+	RL_CASE_WORDS=""
+	if [ -n "$2" ]; then
+		RL_CASE_WORDS=$(rl_argv_words "$2") || {
+			echo "${RL_NAME}.sh: cannot read --argv-file '$2'" >&2
+			exit 2
+		}
+	fi
+	RL_RUN_BIN=$4
+	RL_RUN_DIR=.
+	RL_RUN_IN=$7
+	RL_RAN_PROG=$6
+	RL_RAN_SPECS=""
+	[ -n "$3" ] || return 0
+	RL_RUN_DIR=$1
+	rl_rundir "$RL_RUN_DIR" "$3" "$4" "$5" || exit 2
+	RL_RUN_BIN="./$3"
+	RL_RAN_PROG=$RL_RUN_BIN
+	RL_RAN_SPECS="$3=${6:-$4}$5"
+	case "$RL_RUN_IN" in "" | /*) ;; *) RL_RUN_IN="$PWD/$RL_RUN_IN" ;; esac
+}
+
 # rl_ran PROG STDIN SPECS ARG... -- the RAN line: PROG and the ARGs as
 # rl_cmdline writes them, then `< STDIN` when STDIN is not empty. SPECS is
 # rl_rundir's, lines of DEST=SRC, and not empty when the run was made from a
@@ -1507,12 +1679,20 @@ rl_ran() {
 # ---------------------------------------------------------------------------
 # LONG OUTPUT.
 #
-# rl_excerpt [--crlf] FILE N NAME [PREFIX] -- the first N lines of FILE, each behind
-# PREFIX (default four spaces), then -- only if something was left out --
+# rl_excerpt [--crlf] [--tail T] FILE N NAME [PREFIX] -- the first N lines of
+# FILE, each behind PREFIX (default four spaces), then -- only if something was
+# left out --
 #
 #     ... K more line(s), full text in bazel-testlogs/<package>/<target>/test.outputs/NAME
 #
-# with the whole file saved there. A bare `| head -N` on captured output used to
+# with the whole file saved there. --tail T shows the LAST T lines as well,
+# after that line, which then ends "; the last T line(s):": what is left out
+# is the middle. That is for the output of a run that stops where it went
+# wrong, a failed build's: its first lines say what it started, and its last
+# ones what stopped it. A file of N + T lines or fewer is shown whole. After
+# it, RL_LEFT_OUT is the number of lines left out (0 when none was), and
+# RL_SAVED where the whole text was kept (empty when none was left out, or
+# when there is nowhere to keep it). A bare `| head -N` on captured output used to
 # be the only form in the runners, and it never said how much it dropped: a
 # build failure's explanation was cut under unrelated hints and nobody could
 # tell. Each line is rendered by rl_vis_text (THE ONE BYTE RENDERER, above), so
@@ -1526,16 +1706,63 @@ rl_ran() {
 # ends, whose shell's errors end in a \r.
 rl_excerpt() {
 	_rl_crlf=0
-	if [ "${1:-}" = --crlf ]; then
-		_rl_crlf=1
-		shift
-	fi
+	_rl_tail=0
+	RL_LEFT_OUT=0
+	RL_SAVED=""
+	while :; do
+		case "${1:-}" in
+			--crlf) _rl_crlf=1; shift ;;
+			--tail) _rl_tail=$2; shift 2 ;;
+			*) break ;;
+		esac
+	done
 	[ -s "$1" ] || return 0
 	_rl_pre=${4-    }
 	_rl_w=${RL_EXCERPT_WIDTH:-300}
-	LC_ALL=C awk -v n="$2" -v pre="$_rl_pre" -v w="$_rl_w" -v crlf="$_rl_crlf" "$RL_AWK_VIS"'
-		NR > n { exit }
-		{
+	# What is shown: lines 1 to HEAD and FROM to the end. What is cut: a
+	# shown line longer than the width.
+	_rl_n=$(LC_ALL=C awk -v n="$2" -v t="$_rl_tail" -v w="$_rl_w" -v crlf="$_rl_crlf" '
+		crlf { sub(/\r$/, "") }
+		{ len[NR % (t + 1)] = length($0) }
+		NR <= n && length($0) > w { cut = 1 }
+		END {
+			if (NR <= n + t) {
+				for (i = n + 1; i <= NR; i++)
+					if (len[i % (t + 1)] > w) cut = 1
+				printf "%d %d %d", NR, NR + 1, cut + 0
+				exit
+			}
+			for (i = NR - t + 1; i <= NR; i++)
+				if (len[i % (t + 1)] > w) cut = 1
+			printf "%d %d %d", n, NR - t + 1, cut + 0
+		}' "$1")
+	_rl_head=${_rl_n%% *}
+	_rl_cut=${_rl_n##* }
+	_rl_from=${_rl_n#* }
+	_rl_from=${_rl_from% *}
+	rl_excerpt_lines "$1" 1 "$_rl_head"
+	RL_LEFT_OUT=$((_rl_from - _rl_head - 1))
+	[ "$RL_LEFT_OUT" -gt 0 ] || [ "$_rl_cut" = 1 ] || return 0
+	if [ "$RL_LEFT_OUT" -gt 0 ]; then
+		_rl_more="... $RL_LEFT_OUT more line(s)"
+	else
+		_rl_more="... (a line was cut)"
+	fi
+	_rl_last=""
+	[ "$RL_LEFT_OUT" -eq 0 ] || [ "$_rl_tail" -eq 0 ] || _rl_last="; the last $_rl_tail line(s):"
+	if rl_save "$1" "$3"; then
+		echo "${_rl_pre}${_rl_more}, full text in $RL_SAVED$_rl_last"
+	else
+		echo "${_rl_pre}${_rl_more} not shown (only a run under bazel test keeps the full text)$_rl_last"
+	fi
+	[ "$RL_LEFT_OUT" -eq 0 ] || rl_excerpt_lines "$1" "$_rl_from" ""
+}
+# rl_excerpt_lines FILE FROM TO -- rl_excerpt's lines FROM to TO of FILE (TO
+# empty: to the end), rendered, behind its PREFIX.
+rl_excerpt_lines() {
+	LC_ALL=C awk -v a="$2" -v b="$3" -v pre="$_rl_pre" -v w="$_rl_w" -v crlf="$_rl_crlf" "$RL_AWK_VIS"'
+		b != "" && NR > b + 0 { exit }
+		NR >= a + 0 {
 			line = $0
 			if (crlf) sub(/\r$/, "", line)
 			extra = length(line) - w
@@ -1544,24 +1771,6 @@ rl_excerpt() {
 			if (extra > 0) out = out " [... line cut here, " extra " more bytes]"
 			print pre out
 		}' "$1"
-	# What was left out: lines past N, or a shown line cut at the width.
-	_rl_n=$(LC_ALL=C awk -v n="$2" -v w="$_rl_w" -v crlf="$_rl_crlf" '
-		crlf { sub(/\r$/, "") }
-		NR <= n && length($0) > w { cut = 1 }
-		END { printf "%d %d", NR, cut + 0 }' "$1")
-	_rl_total=${_rl_n% *}
-	_rl_cut=${_rl_n#* }
-	[ "$_rl_total" -gt "$2" ] || [ "$_rl_cut" = 1 ] || return 0
-	if [ "$_rl_total" -gt "$2" ]; then
-		_rl_more="... $((_rl_total - $2)) more line(s)"
-	else
-		_rl_more="... (a line was cut)"
-	fi
-	if rl_save "$1" "$3"; then
-		echo "${_rl_pre}${_rl_more}, full text in $RL_SAVED"
-	else
-		echo "${_rl_pre}${_rl_more} not shown (only a run under bazel test keeps the full text)"
-	fi
 }
 
 # rl_save FILE NAME -- keep FILE as a test output; RL_SAVED says where. False
@@ -1628,32 +1837,55 @@ rl_keep_input() {
 # a layer stayed quiet. BIN and EXPECTED are not tested here first: that
 # test let the layer run with nothing said, which the differ's own exit 2
 # says (V292). Only "the fixture ran and is red" (exit 1) skips.
-# Every corpus runner with a gate calls it (//tools:conventions refuses one
-# that runs its --gate-differ itself), and so does method_check, which
-# replays nothing; c_levels()' audit holds the ARGs to an output test that
-# runs the program the same way (tools/defs.bzl, _gate_problems): BSQ's gate
-# once ran the program with no map at all, so every BSQ corpus SKIPped on
-# every correct program.
 #
-# Four optional settings. Two for a gate whose case is run in a way ARGs
+# WHY THE STATUS IS CAPTURED RATHER THAN TESTED WITH `if !`. `if ! <gate>`
+# treats every non-zero the same, and the differ has two: 1, the fixture is
+# red, which is what a gate is for, and 2, the differ could not run at all.
+# Taken as one, a BROKEN gate silenced the layer it guards and printed a
+# false sentence doing it: a program whose fixture passed and which leaked
+# 64 bytes was reported "SKIP -- this exercise's own output fixture is not
+# passing yet", exit 0, and the whole perf layer went 77/77 green under a
+# PATH shim missing `mv`, which diff_output.sh requires (exit 2). The
+# runners that keep a copy of their own (below) point here.
+#
+# Every runner with a gate calls it, method_check too, which replays
+# nothing. //tools:conventions refuses one that runs its --gate-differ
+# itself, but for two it names with why -- perf_test and valgrind_test run
+# the differ under NO_SKIP=1 too, which this never does, because each needs
+# the fixture's verdict even when it runs anyway -- and holds each of those
+# to skipping on exit 1 alone. c_levels()' audit holds the ARGs of a corpus
+# runner's gate to an output test that runs the program the same way
+# (tools/defs_module.bzl, _gate_problems): BSQ's gate once ran the program with no
+# map at all, so every BSQ corpus SKIPped on every correct program.
+#
+# RL_GATE_OK, set by every call: 1 when the differ ran and passed, 0 when it
+# was not asked (NO_SKIP=1, a gate not wired) or could not answer. A layer
+# that says anything of the program being right reads it: past a gate that
+# did not pass, nothing compared the program's output with anything.
+#
+# Five optional settings. Two for a gate whose case is run in a way ARGs
 # cannot say: RL_GATE_PASS, a list (LISTS OF WORDS) of the differ's own
 # options that shape the run -- --stdin FILE, --stream S, --sanitize,
 # --labeled -- passed before the `--`; and RL_GATE_LABEL, the gating case's
-# name, for the SKIP line (asan_run.sh's survive cases, gated on their
-# exercise's first case). Third, RL_GATE_WHY, the paragraph under the SKIP
-# line: why THIS layer waits, in lines already indented. Unset, it is the
-# corpus one below, which is true of a layer that replays inputs and of
-# nothing else: the method layer replays nothing, and a newcomer reads this
-# paragraph on every exercise not written yet, so a layer that waits for
-# another reason says its own. Fourth, RL_GATE_NAME, the output test waited
-# for, named in the SKIP line; it changes nothing else (the --gate-label of
-# run_check.sh, method_check.sh, bsq_check.sh and both rush runners): a log
-# that says "the output fixture" sends a newcomer looking for which one,
-# and RL_GATE_LABEL would swap the paragraph for a survive case's.
+# name, for the SKIP line of a survive case, gated on another case of its
+# exercise (asan_run.sh's and allocfail_check.sh's). Third, RL_GATE_SURVIVE:
+# 1 says the gate is such a case when no RL_GATE_LABEL names it, so the SKIP
+# line still speaks of a case, not of an output fixture. Fourth,
+# RL_GATE_WHY, the paragraph under the SKIP line: why THIS layer waits, in
+# lines already indented. Unset, it is the corpus one below, which is true
+# of a layer that replays inputs and of nothing else (the method layer
+# replays nothing, and a newcomer reads this paragraph on every exercise not
+# written yet, so a layer that waits for another reason says its own), or,
+# for a survive case, the one that says the run only asks the program to
+# end. Fifth, RL_GATE_NAME, the output test waited for, named in the SKIP
+# line; it changes nothing else (the --gate-label of run_check.sh,
+# method_check.sh, bsq_check.sh and both rush runners): a log that says
+# "the output fixture" sends a newcomer looking for which one, and
+# RL_GATE_LABEL would make the line and its paragraph a survive case's.
 #
-# All four are reset here, when the library is sourced, and a runner sets
+# All five are reset here, when the library is sourced, and a runner sets
 # its own after that: bsq_check.sh and both rush runners set none of the
-# first three, so a value left in the environment (a --test_env, a hand
+# first four, so a value left in the environment (a --test_env, a hand
 # run) reached their gates -- an RL_GATE_LABEL there turned the corpus
 # SKIP into a case's, and an RL_GATE_PASS handed the differ options the
 # call never gave (V36).
@@ -1662,10 +1894,13 @@ rl_keep_input() {
 RL_GATE_WHY=""
 RL_GATE_PASS=""
 RL_GATE_LABEL=""
+RL_GATE_SURVIVE=""
 RL_GATE_NAME=""
+RL_GATE_OK=0
 rl_gate() {
 	_rl_gn=$1 _rl_gd=$2 _rl_gb=$3 _rl_ge=$4
 	shift 4
+	RL_GATE_OK=0
 	[ "${NO_SKIP:-0}" != 1 ] && [ -n "$_rl_gd" ] && [ -n "$_rl_gb" ] && [ -n "$_rl_ge" ] ||
 		return 0
 	# The differ's options, then --, then the ARGs: RL_GATE_PASS's words are
@@ -1692,18 +1927,27 @@ rl_gate() {
 		echo "  so this layer is running anyway rather than going quiet."
 		return 0
 	fi
-	[ "$_rl_grc" -eq 1 ] || return 0
-	if [ -n "${RL_GATE_LABEL:-}" ]; then
-		echo "$_rl_gn: SKIP — $RL_GATE_LABEL, this exercise's own case, is not passing yet."
+	# shellcheck disable=SC2034 # RL_GATE_OK is the caller's to read.
+	[ "$_rl_grc" -eq 1 ] || { RL_GATE_OK=1; return 0; }
+	if [ -n "${RL_GATE_LABEL:-}" ] || [ "${RL_GATE_SURVIVE:-}" = 1 ]; then
+		if [ -n "${RL_GATE_LABEL:-}" ]; then
+			echo "$_rl_gn: SKIP — $RL_GATE_LABEL, this $(rl_noun)'s own case, is not passing yet."
+		else
+			echo "$_rl_gn: SKIP — this $(rl_noun)'s own case is not passing yet."
+		fi
 		echo ""
-		echo "  This run only asks that the program ends by itself, and a program that"
-		echo "  does nothing yet does that: green here would say nothing. Get that case"
-		echo "  green and this one starts checking."
+		if [ -n "${RL_GATE_WHY:-}" ]; then
+			printf '%s\n' "$RL_GATE_WHY"
+		else
+			echo "  This run only asks that the program ends by itself, and a program that"
+			echo "  does nothing yet does that: green here would say nothing. Get that case"
+			echo "  green and this one starts checking."
+		fi
 	else
 		if [ -n "${RL_GATE_NAME:-}" ]; then
-			echo "$_rl_gn: SKIP — $RL_GATE_NAME, this exercise's own output fixture, is not passing yet."
+			echo "$_rl_gn: SKIP — $RL_GATE_NAME, this $(rl_noun)'s own output fixture, is not passing yet."
 		else
-			echo "$_rl_gn: SKIP — this exercise's own output fixture is not passing yet."
+			echo "$_rl_gn: SKIP — this $(rl_noun)'s own output fixture is not passing yet."
 		fi
 		echo ""
 		if [ -n "${RL_GATE_WHY:-}" ]; then
@@ -1751,6 +1995,176 @@ rl_noskip_cmd() {
 		//*:*) printf 'bazel test %s --test_env=NO_SKIP=1\n' "$TEST_TARGET" ;;
 		*) printf 'bazel test //<course>/<project>/... --test_env=NO_SKIP=1\n' ;;
 	esac
+}
+
+# ---------------------------------------------------------------------------
+# A CORPUS TOO SMALL TO PROVE ANYTHING.
+#
+# A differential runner compares a program with a corpus the reference wrote,
+# and a corpus of no case agrees with every program: rush02_check.sh once
+# reported "OK -- 0/0 agree with the reference" over an oracle that had printed
+# nothing. So each runner refuses a corpus below a floor of its own, and the
+# refusal is exit 2: nothing was checked, so it is the harness that failed, not
+# the program. The guard was written in five runners, which counted in two
+# ways, spoke on two streams and exited two ways -- rust_diff.sh's copy, the
+# first, said exit 1, the code for a wrong program. Each runner keeps its own
+# floor and the setting that moves it (docs/reference.md, under Environment);
+# the count and the refusal are these two.
+#
+# rl_corpus_lines FILE -- how many cases FILE holds: its lines of at least one
+# byte, an unterminated last line included. That is grep -c ., not wc -l,
+# which counts newlines, so it misses that last line and counts a blank one.
+# 0 for an empty or missing file. Written once because it went wrong once:
+# grep -c PRINTS 0 and EXITS 1 when nothing matches, so `$(grep -c . F ||
+# echo 0)` read "0" and "0" on two lines, the floor's test called it a bad
+# number, and the guard against a false green never fired.
+rl_corpus_lines() {
+	_rl_cn=$(LC_ALL=C grep -c . "$1" 2> /dev/null) || _rl_cn=0
+	echo "$_rl_cn"
+}
+
+# rl_corpus_floor FILE MIN WHAT [ERRFILE] -- return when FILE holds MIN cases
+# or more (rl_corpus_lines); below that, say so on stderr and exit 2. WHAT
+# names the corpus in that sentence ("fn=ft_atoi (asked for 4000 at seed
+# 1)"), and ERRFILE, the reference's captured stderr, is shown after it when
+# it holds anything: a generator that stopped early may have said why. A MIN
+# that is not a whole number is a wiring mistake, exit 2 too: `[ N -lt abc ]`
+# is a shell error, false, and the guard used to let the run go on past it.
+rl_corpus_floor() {
+	case ${2:-} in
+		"" | *[!0-9]*)
+			echo "${RL_NAME}: rl_corpus_floor: the floor '${2:-}' is not a whole number of cases" >&2
+			exit 2 ;;
+	esac
+	_rl_cn=$(rl_corpus_lines "$1")
+	[ "$_rl_cn" -lt "$2" ] || return 0
+	echo "${RL_NAME}: the reference produced $_rl_cn case(s) for $3," >&2
+	echo "  fewer than the $2 this layer needs. A corpus that small proves nothing" >&2
+	echo "  about the program, so the harness failed here and nothing was checked:" >&2
+	echo "  this is no verdict on the program." >&2
+	if [ -n "${4:-}" ] && [ -s "$4" ]; then
+		echo "  The reference wrote to standard error:" >&2
+		rl_excerpt "$4" 5 reference-stderr.txt >&2
+	fi
+	exit 2
+}
+
+# rl_dec_to ESCAPED DEST -- decode one escaped corpus field (printf's %b) STRAIGHT
+# INTO the file DEST, never through a variable.
+#
+# A shell variable cannot hold a NUL byte -- dash drops it silently, bash warns
+# and drops it -- so `_d=$(printf '%b.' "$1"); printf '%s' "${_d%.}" > "$2"`
+# writes the file with every NUL missing. A file holding a NUL is what tells a
+# correct read loop from one that treats its buffer as a C string, and the
+# first version of file_check.sh's decode did exactly that: a deliberately
+# broken `strlen(buf)` program PASSED 60 of 60. argv_check.sh kept that form
+# for its expected blocks after file_check.sh had dropped it, so an expected
+# NUL never reached the comparison there.
+#
+# Redirecting printf's output needs no sentinel either: command substitution
+# is what strips trailing newlines, and there is none here. An argument is the
+# one field that does go through a variable (a runner's own peel, with its
+# sentinel), since execve takes no NUL in one.
+rl_dec_to() {
+	printf '%b' "$1" > "$2"
+}
+
+# ---------------------------------------------------------------------------
+# THE END OF A CORPUS REPLAY (argv_check.sh, file_check.sh).
+#
+# The two runners replay a corpus case by case the same way and ended it the
+# same way, in two copies of the same sixty lines: the guard against a
+# partial replay, the report under a memory checker, and the verdict line.
+# The copies had drifted already -- one refused a run stopped from outside,
+# the other called it the student's crash -- so the end is written here,
+# once. Each helper is called as a command of its own, never inside $(...),
+# so that its exit ends the runner. The case loop stays in each runner:
+# `continue` and `break` cannot reach a loop from inside a function.
+#
+# rl_corpus_seen SEEN TOTAL -- after the loop: SEEN cases replayed of TOTAL
+# (rl_corpus_lines). Fewer, with no stop to explain it, is a replay that
+# lost cases -- a program that ate the loop's stdin, a last line with no
+# newline, a `while read` that died -- and every one of them used to be
+# reported as a pass: exit 2.
+rl_corpus_seen() {
+	{ [ -n "$RL_STOP" ] || [ "$1" -eq "$2" ]; } && return 0
+	echo "${RL_NAME}: read $1 of $2 cases. Refusing to report on a partial replay." >&2
+	exit 2
+}
+
+# rl_corpus_mem_end REPORT DONE TOTAL [GUARDED [NOTE]] -- under a memory
+# checker (RL_MEM), the replay's whole report, and exit: REPORT, the blocks
+# of the cases it found bad, then the tally of DONE runs of TOTAL cases, or
+# the report of a sweep that stopped (exit 1); then what the sanitizer saw
+# of the arguments (rl_mem_argv_note GUARDED NOTE), and the tally's status.
+# Returns, doing nothing, when no checker is on.
+rl_corpus_mem_end() {
+	[ -n "$RL_MEM" ] || return 0
+	cat "$1"
+	rl_tally differences.txt
+	if [ -n "$RL_STOP" ]; then
+		echo ""
+		rl_mem_count "$3"
+		rl_mem_stopped "$2"
+		exit 1
+	fi
+	rl_mem_tally "$2" "$3"
+	_rl_cmt=$?
+	rl_mem_argv_note "${4:-0}" "${5:-}"
+	exit "$_rl_cmt"
+}
+
+# rl_corpus_verdict DONE TOTAL FAILED NOISY EXIT_ONLY CAP -- a replay that
+# did not pass: the stop, when the sweep stopped (rl_sweep_stopped), and the
+# verdict line, then rl_dnf_note. DONE cases ran of TOTAL; FAILED of them
+# failed, NOISY of those only for what they wrote to standard error
+# (--stderr-empty); EXIT_ONLY is 1 where only how each run ended is judged
+# (argv_check.sh --exit-only); CAP is one run's limit, in seconds. A run that
+# did not finish (RL_DNF, in FAILED too) is said apart, never as a case that
+# differs or did not return 0: it was not seen to its end (V85). Sets
+# RL_DIFFER, how many cases' bytes differ, for the hints that read it. A
+# sweep that stopped with nothing failed exits 1 here, said as that and not
+# as "0 differ".
+RL_DIFFER=0
+rl_corpus_verdict() {
+	if [ -n "$RL_STOP" ]; then
+		# The cases judged wrong before the sweep stopped, not counting the
+		# one the time ran out in (counted in FAILED, but cut short, not
+		# wrong): a verdict, which keeps the report from reading as "ran out
+		# of time" alone. Nor any that ran out of its own limit (both in
+		# RL_DNF, and in FAILED too): not judged (ruling R4), and
+		# rl_sweep_stopped names them apart (V84).
+		rl_sweep_stopped "$1" "$2" "$(($3 - RL_DNF))"
+		if [ "$3" -eq 0 ] && [ "$5" = 1 ]; then
+			echo "  Every one of the $1 case(s) that ran returned 0."
+			exit 1
+		elif [ "$3" -eq 0 ]; then
+			echo "  None of the $1 case(s) that ran differed from the reference."
+			exit 1
+		fi
+	fi
+	_rl_cvw=$(($3 - RL_DNF))
+	RL_DIFFER=$((_rl_cvw - $4))
+	rl_dnf_said "$6"
+	_rl_cva=${RL_DNF_SAID:+, and $RL_DNF_SAID}
+	if [ "$5" = 1 ] && [ "$_rl_cvw" -eq 0 ]; then
+		echo "${RL_NAME}: FAIL — $(($1 - $3)) of $1 cases returned 0$_rl_cva."
+	elif [ "$5" = 1 ]; then
+		echo "${RL_NAME}: FAIL — $_rl_cvw of $1 cases did not return 0$_rl_cva."
+	elif [ "$_rl_cvw" -eq 0 ]; then
+		echo "${RL_NAME}: FAIL — $(($1 - $3)) of $1 cases agree with the reference$_rl_cva."
+	elif [ "$4" -eq 0 ]; then
+		echo "${RL_NAME}: FAIL — $_rl_cvw of $1 cases differ from the reference$_rl_cva."
+	elif [ "$RL_DIFFER" -eq 0 ] && [ "$RL_DNF" -eq 0 ]; then
+		echo "${RL_NAME}: FAIL — $3 of $1 cases wrote to standard error; their output was right."
+	elif [ "$RL_DIFFER" -eq 0 ]; then
+		echo "${RL_NAME}: FAIL — $3 of $1 cases: $4 had the right output and wrote to standard error$_rl_cva."
+	elif [ "$RL_DNF" -eq 0 ]; then
+		echo "${RL_NAME}: FAIL — $3 of $1 cases: $RL_DIFFER differ from the reference, and $4 more had the right output and wrote to standard error."
+	else
+		echo "${RL_NAME}: FAIL — $3 of $1 cases: $RL_DIFFER differ from the reference, $4 more had the right output and wrote to standard error$_rl_cva."
+	fi
+	rl_dnf_note "$_rl_cvw"
 }
 
 # ---------------------------------------------------------------------------
@@ -1834,25 +2248,30 @@ rl_rows() {
 			echo "${RL_NAME}: DIFF_MAX_ROWS (or --show) must be a number, 0 for all: got '$RL_ROWS'" >&2
 			exit 2 ;;
 	esac
+	# Without its leading zeros (a lone 0 kept): `[` reads 08 as eight, and
+	# $(( )) as an octal number it is not, which ended the tally with
+	# "Illegal number", or counted 010 as eight.
+	while :; do
+		case "$RL_ROWS" in
+			0?*) RL_ROWS=${RL_ROWS#0} ;;
+			*) break ;;
+		esac
+	done
 }
 rl_block() {
 	RL_BLOCKS=$((RL_BLOCKS + 1))
 	if [ -z "$RL_LISTF" ]; then
-		RL_LISTF=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
+		RL_LISTF=$(mktemp) || rl__noscratch
 	fi
 	cat "$1" >> "$RL_LISTF"
 	[ "$RL_ROWS" -ne 0 ] && [ "$RL_BLOCKS" -gt "$RL_ROWS" ] && return 0
 	rl_table_mark
-	cat "$1"
-	if [ -z "$RL_SHOWNF" ]; then
-		RL_SHOWNF=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
-	fi
-	cat "$1" >> "$RL_SHOWNF"
+	rl_shown "$1"
 }
 rl_shown() {
 	cat "$1"
 	if [ -z "$RL_SHOWNF" ]; then
-		RL_SHOWNF=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
+		RL_SHOWNF=$(mktemp) || rl__noscratch
 	fi
 	cat "$1" >> "$RL_SHOWNF"
 }
@@ -1903,7 +2322,7 @@ rl_stderr() {
 	RL_ERRS=$((RL_ERRS + 1))
 	[ "$RL_ERRS" -eq 1 ] || return 0
 	RL_ERR_WHAT=$2
-	RL_ERRF=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
+	RL_ERRF=$(mktemp) || rl__noscratch
 	cp "$1" "$RL_ERRF"
 }
 rl_stderr_note() {
@@ -1915,6 +2334,13 @@ rl_stderr_note() {
 	echo "        the answer. The first, $RL_ERR_WHAT:"
 	rl_excerpt "$RL_ERRF" 5 stderr-first-case.txt "        | "
 }
+
+# rl_need FLAG COUNT -- in an option loop, `rl_need "$1" "$#"` before an
+# option reads its value: with nothing after it, "<runner>.sh: FLAG needs a
+# value" and exit 2, rather than set -u's own words under a status that
+# depends on the shell (dash 2, bash 1). A script that does not source this
+# file defines the same guard as its own need().
+rl_need() { [ "$2" -ge 2 ] || { echo "${RL_NAME}.sh: $1 needs a value" >&2; exit 2; }; }
 
 # ---------------------------------------------------------------------------
 # A CORPUS UNDER A MEMORY CHECKER (finding 113).
@@ -1990,6 +2416,9 @@ rl_stderr_note() {
 #     rl_mem_argv_note GUARDED [HOW]       # input in argv: what ASan saw of it
 #     rl_mem_count M; rl_mem_stopped DONE  # or, when the sweep stopped early
 #
+# (argv_check.sh and file_check.sh end with rl_corpus_mem_end, the last
+# three lines in one: "THE END OF A CORPUS REPLAY".)
+#
 # RL_MEM is "" for an ordinary replay, "sanitized" or "valgrind".
 #
 # A PROGRAM THAT NEVER BUILT is the output layer's story, not a memory
@@ -2013,6 +2442,7 @@ RL_MEM_SYM=""
 RL_MEM_SYMLIB=""
 RL_MEM_SYMD=""
 RL_MEM_RAN=0
+RL_MEM_SAVE=""
 RL_MEM_FAILS=0
 RL_MEM_DNF=0
 RL_MEM_EXPLAIN=""
@@ -2030,7 +2460,7 @@ rl_mem_opt() {
 			[ "$RL_MEM" != valgrind ] || rl__mem_both
 			RL_MEM=sanitized ;;
 		--valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
-			[ "$#" -ge 2 ] || { echo "${RL_NAME}: $1 needs a value" >&2; exit 2; }
+			rl_need "$1" "$#"
 			RL_MEM_SHIFT=2
 			case "$1" in
 				--valgrind)
@@ -2068,7 +2498,7 @@ rl_mem_ready() {
 			# the one place that sets them (rl_sanitizers): stop at the first
 			# report, as SIGABRT, and leave leaks to memcheck. And the pinned
 			# symbolizer, as every ASan arm has it, so a report's frames name
-			# a file and a line (corpus_memory() hands it over; tools/defs.bzl,
+			# a file and a line (corpus_memory() hands it over; tools/defs_toolchain.bzl,
 			# _SYMBOLIZER_RUNNERS): without it each frame was a bare offset
 			# into a binary in Bazel's cache. Never one a PATH search finds:
 			# with no --symbolizer the frames are left unsymbolised.
@@ -2097,23 +2527,17 @@ rl_mem_ready() {
 				[ -s "$RL_MEM_ACCESS_RULE" ] || { echo "${RL_NAME}: no sentence in --access-rule $RL_MEM_ACCESS_RULE" >&2; exit 2; }
 				case "$RL_MEM_ACCESS_RULE" in /*) ;; *) RL_MEM_ACCESS_RULE="$PWD/$RL_MEM_ACCESS_RULE" ;; esac
 			fi
-			case "$0" in */*) _rl_here=${0%/*} ;; *) _rl_here=. ;; esac
-			for RL_VG_TEST in "$_rl_here/valgrind_test.sh" \
-				"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/valgrind_test.sh"; do
-				[ -f "$RL_VG_TEST" ] && break
-			done
-			[ -f "$RL_VG_TEST" ] || {
-				echo "${RL_NAME}: --valgrind runs each case through tools/valgrind_test.sh, which" >&2
-				echo "  is not beside this runner or in the runfiles (list //tools:valgrind_test.sh)" >&2
-				exit 2
-			}
+			rl_tool valgrind_test.sh \
+				"${RL_NAME}: --valgrind runs each case through tools/valgrind_test.sh, which" \
+				"  is not beside this runner or in the runfiles (list //tools:valgrind_test.sh)"
+			RL_VG_TEST=$RL_TOOL
 			;;
 	esac
 	# shellcheck disable=SC2034 # the caller's, for standin_check
 	[ -z "$RL_MEM" ] || RL_STANDIN=skip
-	RL_MEM_OUT=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
-	RL_MEM_STDOUT=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
-	RL_MEM_STATUS=$(mktemp) || { echo "${RL_NAME}: cannot create a scratch file" >&2; exit 2; }
+	RL_MEM_OUT=$(mktemp) || rl__noscratch
+	RL_MEM_STDOUT=$(mktemp) || rl__noscratch
+	RL_MEM_STATUS=$(mktemp) || rl__noscratch
 }
 # rl_mem_pick K M -- true when case K of M runs: every case under --sanitized,
 # and under --valgrind the RL_MEM_SAMPLE spread evenly, the last case always
@@ -2134,7 +2558,10 @@ rl_mem_count() {
 }
 # rl_mem_run [--what TEXT] [--stdin FILE] -- ARG... -- one case of BIN under
 # the checker, after rl_sweep_next; TEXT names it in memcheck's report ("case
-# 15 of 30"), as the runner's own block does. Sets RL_MEM_BAD (1 when the
+# 15 of 30"), as the runner's own block does, and names the file its whole
+# report is kept in (RL_MEM_SAVE: "memory-case-15-of-30.txt", each run of
+# characters outside A-Z, a-z, 0-9 and - one -). Without it the case is
+# "case N", N the count of cases run. Sets RL_MEM_BAD (1 when the
 # case is to be shown: it went wrong, or did not finish), RL_MEM_KIND
 # (sanitizer, crash, timeout, runaway, memcheck) and RL_MEM_OUT, the report to
 # show; a timeout is counted in RL_MEM_DNF as well as RL_MEM_FAILS. Exits 2
@@ -2144,6 +2571,8 @@ rl_mem_run() {
 	RL_MEM_RAN=$((RL_MEM_RAN + 1))
 	_rl_what="case $RL_MEM_RAN"
 	if [ "$1" = --what ]; then _rl_what=$2; shift 2; fi
+	RL_MEM_SAVE=memory-$(printf '%s\n' "$_rl_what" |
+		LC_ALL=C awk '{ gsub(/[^A-Za-z0-9-]+/, "-"); printf "%s", $0 }').txt
 	if [ "$1" = --stdin ]; then _rl_in=$2; shift 2; fi
 	[ "$1" != -- ] || shift
 	RL_MEM_BAD=0
@@ -2236,10 +2665,8 @@ rl_mem_run() {
 	rl_run "$BIN" "$@" < "$_rl_in" > "$RL_MEM_STDOUT" 2> "$RL_MEM_OUT"
 	rl_sweep_ran "$?"
 	: > "$RL_MEM_STDOUT"
+	rl_unjudged "$_rl_what"
 	case "$RL_CAUSE" in
-		noexec | stopped)
-			echo "${RL_NAME}: case $RL_MEM_RAN could not be run: the program $RL_WHY" >&2
-			exit 2 ;;
 		"timeout") RL_MEM_BAD=1; RL_MEM_KIND="timeout" ;;
 		runaway) RL_MEM_BAD=1; RL_MEM_KIND=runaway ;;
 	esac
@@ -2345,7 +2772,7 @@ rl__mem_report() {  # rl__mem_report FILE NOTE -- rl_mem_report's report, from F
 			# Without its shadow-memory map and HINT lines, as every sanitizer
 			# runner shows one; the whole report is kept beside it when either
 			# is left out.
-			rl_sanitizer_report "$1" 30 "memory-case-$RL_MEM_RAN.txt" "      | "
+			rl_sanitizer_report "$1" 30 "${RL_MEM_SAVE:-memory-case-$RL_MEM_RAN.txt}" "      | "
 			return 0 ;;
 		crash) echo "    it $RL_WHY, with no sanitizer report:" ;;
 		"timeout")
@@ -2364,7 +2791,7 @@ rl__mem_report() {  # rl__mem_report FILE NOTE -- rl_mem_report's report, from F
 		memcheck) echo "    memcheck's report:" ;;
 	esac
 	[ -z "$2" ] || echo "$2"
-	rl_excerpt "$1" 30 "memory-case-$RL_MEM_RAN.txt" "      | "
+	rl_excerpt "$1" 30 "${RL_MEM_SAVE:-memory-case-$RL_MEM_RAN.txt}" "      | "
 }
 # rl_mem_tally DONE TOTAL [UNIT] -- the verdict line under the cases; returns
 # 1 when any case went wrong or did not finish, which it says apart (A RUN
@@ -2539,6 +2966,108 @@ rl_vg_aborted() {
 	return 0
 }
 
+# rl_vg_pin VALGRIND VGTOOLS TOOL -- prove the pinned valgrind can run TOOL
+# (memcheck, callgrind) before its first run: VALGRIND, the fetched
+# valgrind.bin, made absolute in RL_VG_BIN, before anything changes
+# directory; and VGTOOLS, a file in its own tool folder, whose folder must
+# hold TOOL-amd64-linux and is exported as VALGRIND_LIB. Return 1, having
+# said why in one line on stderr, when either is missing or wrong; the
+# caller exits 2: a wiring error, never a skip, and there is no host
+# fallback. Called as a command, never in $(...), which would lose the
+# export.
+#
+# The valgrind these layers run is FETCHED AND PINNED, never found on PATH:
+# a check run by another valgrind would be that machine's (valgrind_test.sh
+# says why it mattered most there). It is packaged for /usr/libexec/valgrind
+# and reads $VALGRIND_LIB to be told otherwise, and a binary that cannot
+# find part of its own tree can fall back to the box's copy, report the
+# pinned version and go green: so the folder must hold the TOOL, not merely
+# exist. And it is the folder of a FILE inside it, not a folder passed as
+# one: `$(location x)/..` walks through a file rather than naming its
+# parent, and `cd && pwd` stops at the runfiles tree, whose folders are
+# real while the files in them are symlinks. Resolving the file with
+# readlink -f and taking ITS folder is the one form that survives both.
+# An empty VGTOOLS is refused by name: its folder was ".", reported as ".
+# does not hold ...", or taken when the working folder held such a file.
+rl_vg_pin() {
+	[ -n "$1" ] || {
+		echo "${RL_NAME}: --valgrind is required (the pinned valgrind.bin, \$(location @valgrind_ubuntu//:usr/bin/valgrind.bin))" >&2
+		return 1
+	}
+	case "$1" in /*) RL_VG_BIN=$1 ;; *) RL_VG_BIN=$PWD/$1 ;; esac
+	[ -f "$RL_VG_BIN" ] && [ -x "$RL_VG_BIN" ] || {
+		echo "${RL_NAME}: pinned valgrind missing or not executable: $RL_VG_BIN" >&2
+		return 1
+	}
+	[ -n "$2" ] || {
+		echo "${RL_NAME}: --valgrind-tools is required (a file in valgrind's own tool folder; it cannot start without one)" >&2
+		return 1
+	}
+	_rl_vgl=$(readlink -f "$2" 2> /dev/null || echo "$2")
+	_rl_vgl=$(dirname "$_rl_vgl")
+	[ -f "$_rl_vgl/$3-amd64-linux" ] || {
+		echo "${RL_NAME}: $_rl_vgl does not hold $3-amd64-linux, so the pinned valgrind cannot run $3: a wiring error, not a finding about the code" >&2
+		return 1
+	}
+	VALGRIND_LIB=$_rl_vgl
+	export VALGRIND_LIB
+}
+
+# rl_cg_awk -- print the awk functions every reader of a callgrind profile
+# starts its program with (ref_compare.sh, cycles_check.sh), so that the two
+# read names, and decide what is write(), the one way: awk "$(rl_cg_awk)"'...'.
+# Each reader keeps its own scope (the whole process, or the student's own
+# calls) and its own counters.
+#
+# named(K, LINE): the profile COMPRESSES names ("Callgrind Format
+# Specification") -- "fn=(12) write" the first time, bare "fn=(12)" after --
+# so the id->name table is filled as it is read, and either line may be the
+# one that introduces a name: fn= and cfn= share one table ("fn"), ob= and
+# cob= another ("ob"), and fl=, fi=, fe=, cfi= and cfl= a third ("fl"). It
+# returns the line's name, read from the table. Both readers once got 0
+# for every count until they did this.
+#
+# is_write(NAME): write() under any name glibc records it with -- an alias
+# (__write, __libc_write, __GI___libc_write) or a version (write@GLIBC_2.2.5,
+# write@plt) is the same function -- and writev, the same trip into the
+# kernel, which a buffered reference could one day make instead and would
+# then read as zero syscalls. Matched on the whole name after base() strips
+# those: stdio's internals, _IO_do_write and _IO_file_write, are inside a
+# printf's own write() and counting them too would count it twice, and
+# libc's helpers (__write_nocancel) likewise. The two readers each kept a
+# list of their own, and on one profile counted 2 and 8 of 10 calls.
+rl_cg_awk() {
+	printf '%s\n' '
+	function id(s,   p, q) { p = index(s, "("); q = index(s, ")");
+		return (p && q) ? substr(s, p + 1, q - p - 1) : "" }
+	function nm(s,   q) { q = index(s, ")");
+		return (q && length(s) > q + 1) ? substr(s, q + 2) : "" }
+	function named(k, s,   i, n) { i = k SUBSEP id(s); n = nm(s)
+		if (n != "") cg_names[i] = n
+		return cg_names[i] }
+	function base(s) { sub(/@.*/, "", s); sub(/^(__GI_)?_*(libc_)?/, "", s); return s }
+	function is_write(s,   b) { b = base(s); return b == "write" || b == "writev" }
+'
+}
+
+# rl_cg_total PROFILE -- print the instruction count a callgrind profile
+# collected, or nothing when it holds none: the Ir of its own "totals:"
+# line, or of its "summary:" line when it has no totals. Both are records
+# of callgrind's documented format ("Callgrind Format Specification"): one
+# number per event collected, Ir always the first, so the line's second
+# field. Under --toggle-collect=SYM that is SYM's inclusive count (what ran
+# inside it, everything it called included), and 0 when SYM never ran or
+# is not in the program; without it, the whole process's. 0 and nothing
+# are the caller's "nothing was measured". It used to be read off
+# callgrind_annotate's columns, a layout nothing promised, through a perl
+# the harness does not pin; the profile's own line needs neither.
+rl_cg_total() {
+	_rl_cgt=$(awk '/^totals:/ { print $2; exit }' "$1" 2> /dev/null)
+	[ -n "$_rl_cgt" ] || _rl_cgt=$(awk '/^summary:/ { print $2; exit }' "$1" 2> /dev/null)
+	case "$_rl_cgt" in '' | *[!0-9]*) _rl_cgt="" ;; esac
+	printf '%s\n' "$_rl_cgt"
+}
+
 # rl_vg_env DIR [RUNDIR] -- switch the host's valgrind settings off for the
 # valgrind runs this runner makes from here on (V227): unset VALGRIND_OPTS
 # and DEBUGINFOD_URLS, and point HOME at DIR/vghome, a folder of its own
@@ -2672,26 +3201,18 @@ rl_sanitizers() {
 				exit 2 ;;
 		esac
 		mkdir -p "$1" || exit 2
-		printf "#!/bin/sh\nLD_LIBRARY_PATH='%s'\nexport LD_LIBRARY_PATH\nexec '%s' \"\$@\"\n" \
-			"$_rl_symdir" "$_rl_sym" > "$1/llvm-symbolizer" || exit 2
-		chmod +x "$1/llvm-symbolizer" || exit 2
+		rl__wrap_tool "$1/llvm-symbolizer" "$_rl_symdir" "$_rl_sym" no
 		# PROVE THE LOADER AGREED: `calling init:` names each library ld.so
 		# actually loaded, where `trying file=` lists only candidates. Its
 		# own loop, not rl_libs_under's (below), which the binutils runners
 		# use (V277): this one names every library taken from elsewhere, and
 		# asks for libxml2 only after libLLVM.
-		env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$1/llvm-symbolizer" --version \
-			> /dev/null 2> "$1/llvm-symbolizer.debug"
-		_rl_st=$?
 		# And first that it started (V322): one the loader cannot start (a
 		# library this machine lacks) printed no `calling init:` line for
 		# libLLVM, and the refusal said only that it could not observe one,
-		# with the loader's own words thrown away. Its numbered lines are
-		# the loader's tracing; what is left is what stopped it.
-		if [ "$_rl_st" -ne 0 ]; then
-			awk '!/^[ \t]*[0-9]+:/' "$1/llvm-symbolizer.debug" > "$1/llvm-symbolizer.err"
-			rl__cannot_start "$1/llvm-symbolizer.err" "$_rl_st" \
-				"$RL_NAME: the pinned symbolizer '${_rl_sym##*/}'" symbolizer-start.txt
+		# with the loader's own words thrown away (rl_probe_libs).
+		if ! rl_probe_libs "$RL_NAME: the pinned symbolizer '${_rl_sym##*/}'" \
+			"$1/llvm-symbolizer.debug" symbolizer-start.txt "$1/llvm-symbolizer"; then
 			if [ -n "$RL_START_LIB" ]; then
 				echo "  The loader found no $(printf '%s' "$RL_START_LIB" | rl_vis arg), a shared library the symbolizer" >&2
 				echo "  needs before it does anything." >&2
@@ -2999,8 +3520,10 @@ rl_sanitizer_report() {
 # which is most-fundamental first by the files' own convention. A value it
 # cannot read shows three and says so, last in the HINTS block (V101: "al"
 # showed three in silence). It reaches awk through ENVIRON, never -v, which
-# would read a backslash in it as an escape. Which rows fire depends on what
-# the runner knows:
+# would read a backslash in it as an escape, and so do FIRST, CASE and LAYER:
+# a case label may hold one ('embedded tabs "x\ty"'), and through -v its
+# row was never moved first. Which rows fire depends on what the runner
+# knows:
 #
 #   no FAILED        a runner with no case names to key on, and no CASE (a
 #                    compile that failed, a hint file of one test's own):
@@ -3038,13 +3561,20 @@ rl_sanitizer_report() {
 #                    exercise has", are the output's too.
 #
 # The footer under a capped list says how to see the rest, and only promises
-# what is true: "pass more cases" frees a slot only for a CASE-KEYED row, since
-# a row with no label fires until everything passes. When no row names a
+# what is true. A hidden row rises only when a SHOWN row stops firing, and
+# only a case-keyed one does, since a row with no label fires until
+# everything passes: so "pass more cases" is said when a shown row is keyed
+# to a case -- or, with FIRST, when a hidden one is, since passing the first
+# case moves another case's rows to the top. When no row names a
 # failing case, the exercise's first hints are shown, said to be unmatched so
 # nobody chases the wrong one.
+#
+# The headings' word for what this test tests is rl_noun's, handed to awk
+# by -v: it is one of five fixed words, with no backslash for -v to read.
 rl_clues() {
 	[ -n "${1:-}" ] && [ -f "$1" ] || return 0
-	CLUE_MODE="${CLUE_MODE:-}" awk -v cluefile="$1" -v failfile="${2:-}" -v first="${3:-}" -v self="${4:-}" -v layer="${5:-}" '
+	CLUE_MODE="${CLUE_MODE:-}" RL_CL_FIRST="${3:-}" RL_CL_SELF="${4:-}" RL_CL_LAYER="${5:-}" \
+		awk -v cluefile="$1" -v failfile="${2:-}" -v noun="$(rl_noun)" '
 	function dash(w,    r)  { r = ""; while (length(r) < w) r = r "-"; return r }
 	# The end of a HINTS block, after its last line.
 	function done() {
@@ -3053,6 +3583,9 @@ rl_clues() {
 		exit
 	}
 	BEGIN {
+		first = ENVIRON["RL_CL_FIRST"]
+		self = ENVIRON["RL_CL_SELF"]
+		layer = ENVIRON["RL_CL_LAYER"]
 		keyed = (failfile != "" || self != "")
 		nfailed = 0
 		if (failfile != "") while ((getline l < failfile) > 0) if (l != "") { failed[l] = 1; nfailed++ }
@@ -3102,7 +3635,7 @@ rl_clues() {
 			if (layer != "") exit
 			shown = (nall < limit) ? nall : limit
 			print " " dash(50)
-			print " HINTS (none matches this case -- showing what this exercise has):"
+			print " HINTS (none matches this case -- showing what this " noun " has):"
 			for (k = 1; k <= shown; k++) print "   * " aclue[k]
 			if (nall > shown)
 				printf "   (%d more -- CLUE_MODE=all shows every one)\n", nall - shown
@@ -3113,7 +3646,7 @@ rl_clues() {
 		if (nown > 0) print " HINTS:"
 		for (k = 1; k <= shown; k++) {
 			if (k == nown + 1 && layer != "")
-				print " HINTS (from this exercise, written for its output test rather than this one):"
+				print " HINTS (from this " noun ", written for its output test rather than this one):"
 			print "   * " fclue[k]
 		}
 		if (nfired <= shown) done()
@@ -3122,9 +3655,16 @@ rl_clues() {
 			done()
 		}
 		gated = 0
-		for (k = shown + 1; k <= nfired; k++) if (!fcatch[k]) gated = 1
+		hkeyed = 0
+		for (k = 1; k <= shown; k++) if (!fcatch[k]) gated = 1
+		for (k = shown + 1; k <= nfired; k++) if (!fcatch[k]) hkeyed = 1
+		if (first != "" && hkeyed) gated = 1
 		if (gated)
 			printf "   (%d more hidden hint%s -- unlock %s by passing more cases, or CLUE_MODE=all)\n", \
+				nfired - shown, (nfired - shown == 1 ? "" : "s"), \
+				(nfired - shown == 1 ? "it" : "them")
+		else if (hkeyed)
+			printf "   (%d more hidden hint%s -- CLUE_MODE=all shows %s; passing cases will not)\n", \
 				nfired - shown, (nfired - shown == 1 ? "" : "s"), \
 				(nfired - shown == 1 ? "it" : "them")
 		else
@@ -3137,10 +3677,12 @@ rl_clues() {
 	}'
 }
 
-# rl_waiting STATUS FILE -- under a red output test (STATUS 1), the tests that
-# wait for it, read from FILE (one a line, "<test> (<level>)"; subject()'s
-# finalizer writes it, tools/defs.bzl's _WAITING), and what Bazel shows for
-# them when they run.
+# rl_waiting STATUS FILE [SUITE] -- under a red output test (STATUS 1), the
+# tests that wait for it, read from FILE (one a line, "<test> (<level>)";
+# subject()'s finalizer writes it, tools/defs_contract.bzl's _WAITING), and what Bazel
+# shows for them when they run. SUITE, the suite of the test's unit in a
+# package of units (the runner's --suite), is named where an exercise's
+# block says :exNN.
 #
 # A layer gated on the exercise's output (docs/reference.md, "Which layers wait
 # for which") stands down while that output is red: it says SKIP in its log and
@@ -3168,8 +3710,15 @@ rl_waiting() {
 	[ "${NO_SKIP:-0}" != 1 ] || return 0
 	echo " --------------------------------------------------"
 	echo " WAITING FOR THIS OUTPUT: until this test passes, the tests below check"
-	echo " nothing. A run that includes them (the level named, a higher one, :exNN"
-	echo " or //...) shows each one PASSED while its log says SKIP: not a pass."
+	if [ -z "${3:-}" ]; then
+		echo " nothing. A run that includes them (the level named, a higher one, :exNN"
+		echo " or //...) shows each one PASSED while its log says SKIP: not a pass."
+	else
+		# printf, not echo: //tools:conventions holds each echo line here
+		# to README.md's sample, which shows an exercise's block.
+		printf ' nothing. A run that includes them (the level named, a higher one,\n'
+		printf ' :%s or //...) shows each one PASSED while its log says SKIP: not a pass.\n' "$3"
+	fi
 	rl_excerpt "$2" 12 waiting-tests.txt "   "
 }
 
@@ -3258,16 +3807,18 @@ _RL_SRCS
 # output, so each is checked before the first compile, and each failure is
 # exit 2: the harness is wired wrong, the exercise is not wrong.
 #
-# compile_check.sh, header_check.sh, prototype_check.sh, symbols_test.sh,
-# forbidden_symbols.sh, ilp32_test.sh and make_test.sh each carry a copy of
-# the library half, written before this existed; the runners written since
-# call this. None of those since assembles anything (header_norm.sh
-# preprocesses, method_check.sh's --fixed-array stops at -S), so the third
-# proof -- the pinned assembler, compile_check.sh's --cc-progs -- lives in
-# compile_check.sh alone: that -B finds it, that it runs, and, through
+# Every runner that takes --cc calls this. Five kept a copy of the library
+# half written before it, without the loader's proof -- compile_check.sh,
+# header_check.sh, prototype_check.sh, symbols_test.sh and
+# forbidden_symbols.sh -- and passed a pinned clang on this machine's
+# libxml2 and ICU; tools/conventions.sh now reports a runner that takes --cc
+# and does not call this, or that checks --cc-lib directories itself. The
+# third proof, the pinned assembler, is not made here: compile_check.sh's
+# --cc-progs makes it -- that -B finds it, that it runs, and, through
 # rl_libs_under below, that the libbfd and libopcodes it loads are the
-# fetched ones (TO VERIFY V228). It moves here with the first runner that
-# assembles and calls this.
+# fetched ones (TO VERIFY V228), from its --cc-progs-lib, which it keeps
+# apart from --cc-lib because the compiler loads none of them -- and
+# make_test.sh makes it of the as its Makefile's gcc runs.
 #
 # rl_cc_pin CC LIBS UNDER
 #   CC     the compiler, a path to the fetched one (or a name on PATH): it
@@ -3282,24 +3833,13 @@ _RL_SRCS
 #          compiler must name that tree in its -print-search-dirs
 rl_cc_pin() {
 	_rl_cc=$1 _rl_libs=$2 _rl_under=$3
-	_rl_dirs=""
-	while IFS= read -r _rl_l; do
-		[ -n "$_rl_l" ] || continue
-		case "$_rl_l" in
-			/*) _rl_d=$(dirname "$_rl_l") ;;
-			*) _rl_d=$(dirname "$PWD/$_rl_l") ;;
-		esac
-		[ -d "$_rl_d" ] || {
-			echo "$RL_NAME.sh: --cc-lib directory '$_rl_d' does not exist." >&2
-			echo "  Without it the loader would fall back to this machine's own" >&2
-			echo "  libraries and the pinned compiler would silently stop being" >&2
-			echo "  pinned, so this refuses to run rather than pass." >&2
-			exit 2
-		}
-		_rl_dirs="${_rl_dirs:+$_rl_dirs:}$_rl_d"
-	done <<_RL_LIBS
-$_rl_libs
-_RL_LIBS
+	rl__lib_dirs "$_rl_libs" _rl_dirs || {
+		echo "$RL_NAME.sh: --cc-lib directory '$RL_LIB_MISSING' does not exist." >&2
+		echo "  Without it the loader would fall back to this machine's own" >&2
+		echo "  libraries and the pinned compiler would silently stop being" >&2
+		echo "  pinned, so this refuses to run rather than pass." >&2
+		exit 2
+	}
 	if [ -n "$_rl_dirs" ]; then
 		LD_LIBRARY_PATH="$_rl_dirs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 		export LD_LIBRARY_PATH
@@ -3309,7 +3849,7 @@ _RL_LIBS
 		echo "  This layer compiles before it reads anything, so without one it" >&2
 		echo "  would be reporting on nothing. Bazel passes the pinned one through" >&2
 		echo "  --cc; if that is missing the target's data is wrong, which is a" >&2
-		echo "  harness fault and not a finding about this exercise." >&2
+		echo "  harness fault and not a finding about this $(rl_noun)." >&2
 		exit 2
 	}
 	rl_cc_starts "$_rl_cc"
@@ -3331,10 +3871,16 @@ _RL_LIBS
 $_rl_libs
 _RL_LIBS
 		_rl_cp_dbg=$(mktemp) || { echo "$RL_NAME.sh: mktemp failed" >&2; exit 2; }
-		# conventions: harness tool -- the pinned compiler, which started just above
-		env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$_rl_cc" --version > /dev/null 2> "$_rl_cp_dbg"
-		rl_libs_under "the pinned compiler '${_rl_cc##*/}'" "$_rl_cp_dbg" "$_rl_dirs" "$@"
-		rm -f "$_rl_cp_dbg"
+		rl_probe_libs "$RL_NAME.sh: the pinned compiler '${_rl_cc##*/}'" "$_rl_cp_dbg" compiler-start.txt "$_rl_cc" || {
+			rm -f "$_rl_cp_dbg" "$_rl_cp_dbg.err"
+			rl__start_tail "the compiler" "Every check that compiles stops here: nothing was checked."
+		}
+		# rl_libs_under exits 2 when it refuses: in a subshell, so that the
+		# scratch file goes whatever it finds, as in rl_binutils_pin.
+		(rl_libs_under "the pinned compiler '${_rl_cc##*/}'" "$_rl_cp_dbg" "$_rl_dirs" "$@")
+		_rl_cp_rc=$?
+		rm -f "$_rl_cp_dbg" "$_rl_cp_dbg.err"
+		[ "$_rl_cp_rc" -eq 0 ] || exit 2
 	fi
 	if [ -n "$_rl_under" ]; then
 		_rl_u=$(readlink -f "$_rl_under" 2> /dev/null) || _rl_u=""
@@ -3353,6 +3899,77 @@ _RL_LIBS
 		}
 	fi
 	return 0
+}
+
+# ---------------------------------------------------------------------------
+# A FETCHED nm OR objdump, PROVED BEFORE IT IS USED.
+#
+# THE PINNED nm's OWN LIBRARIES, and why this is not the same as pinning nm.
+#
+# binutils ships FRONTENDS. This nm is 44 KB; everything it does is in libbfd,
+# which it names as a bare soname with no RPATH and no RUNPATH. Without a path
+# to the fetched copy the loader answers from /lib/x86_64-linux-gnu and the
+# "pinned" nm is the box's binutils wearing a pinned name -- and it still
+# prints the pinned version, because that string is in the frontend's own
+# .rodata. On a campus box whose binutils is NOT 2.38 the version-stamped
+# soname does not exist at all and the tool would not start. objdump
+# (forbidden_symbols.sh --function) is the same kind of frontend over the
+# same libraries, so the same proof is made of it. symbols_test.sh,
+# forbidden_symbols.sh and make_test.sh each kept a copy of it.
+#
+# EACH TOOL ITS OWN PATH (V274). nm and objdump used to go on one exported
+# LD_LIBRARY_PATH, objdump's directories ahead of nm's, so nm's proof was
+# made under one path and its runs under another: with --nm-lib and
+# --objdump-lib in two folders, nm proved its own libbfd and then ran on
+# objdump's. So the path a tool is proved under -- its own directories, then
+# the LD_LIBRARY_PATH the runner has when it calls this -- is RL_PB_PATH,
+# which the runner hands every run of that tool, and nothing is exported
+# here: a compiler's --cc-lib, put on the loader's path after this, reaches
+# no tool. make_test.sh exported nm's, and every recipe of a Makefile ran
+# with the pinned libbfd's folder on its loader's path; it no longer does.
+#
+# rl_binutils_pin TOOL BIN DIRS FLAG LIBRARY...
+#   TOOL     its name, as a refusal names it (nm, objdump)
+#   BIN      the fetched program
+#   DIRS     its libraries' directories, absolute, colon-separated (a
+#            runner's FLAG, given once a folder): each must exist
+#   FLAG     the runner's option that gave DIRS, as a refusal names it
+#   LIBRARY  a library by the start of its file name (libbfd): the loader
+#            must have taken each from DIRS (rl_libs_under, below)
+# Sets RL_PB_PATH. Each failure is exit 2: a missing directory or a library
+# from elsewhere is a wiring error, not a finding about the code under test.
+RL_PB_PATH=""
+rl_binutils_pin() {
+	_rl_pb_tool=$1 _rl_pb_bin=$2 _rl_pb_dirs=$3 _rl_pb_flag=$4
+	shift 4
+	_rl_rest=$_rl_pb_dirs
+	while [ -n "$_rl_rest" ]; do
+		_rl_d=${_rl_rest%%:*}
+		case "$_rl_rest" in *:*) _rl_rest=${_rl_rest#*:} ;; *) _rl_rest="" ;; esac
+		[ -d "$_rl_d" ] || {
+			echo "$RL_NAME.sh: $_rl_pb_flag directory '$_rl_d' does not exist." >&2
+			echo "  Without it the loader would fall back to this machine's own" >&2
+			echo "  binutils libraries and the pinned $_rl_pb_tool would silently stop" >&2
+			echo "  being pinned, so this refuses to run rather than pass." >&2
+			exit 2
+		}
+	done
+	RL_PB_PATH="$_rl_pb_dirs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+	# PROVE THE LOADER AGREED, rather than that the flag arrived: the
+	# libraries it loaded, each under one of DIRS. The failure being guarded
+	# against is exactly one where the right file is exec'd and the wrong
+	# code runs, so checking which file is exec'd proves nothing. In a
+	# subshell, so that the scratch file goes whatever it finds.
+	_rl_pb_dbg=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+	(
+		rl_probe_libs "$RL_NAME.sh: the pinned $_rl_pb_tool" "$_rl_pb_dbg" "$_rl_pb_tool-start.txt" \
+			"$_rl_pb_bin" "$RL_PB_PATH" ||
+			rl__start_tail "the pinned $_rl_pb_tool" "No symbol can be read here: nothing was checked."
+		rl_libs_under "the pinned $_rl_pb_tool" "$_rl_pb_dbg" "$_rl_pb_dirs" "$@"
+	)
+	_rl_pb_rc=$?
+	rm -f "$_rl_pb_dbg" "$_rl_pb_dbg.err"
+	[ "$_rl_pb_rc" -eq 0 ] || exit 2
 }
 
 # rl_cc_starts CC -- the compiler starts at all, or exit 2 saying why.
@@ -3378,16 +3995,8 @@ rl_cc_starts() {
 		return 0
 	fi
 	rl__cannot_start "$_rl_cs_f" "$_rl_cs_rc" "$RL_NAME.sh: the compiler '${1##*/}'" compiler-start.txt
-	if [ -n "$RL_START_LIB" ]; then
-		echo "  The loader found no $(printf '%s' "$RL_START_LIB" | rl_vis arg), a shared library the compiler" >&2
-		echo "  needs before it does anything: this machine does not have it where" >&2
-		echo "  the loader looks. Install it from your distribution, or work in the" >&2
-		echo "  dev container (docs/environment.md); the code under test is not at" >&2
-		echo "  fault." >&2
-	fi
-	echo "  Every check that compiles stops here: nothing was checked." >&2
 	rm -f "$_rl_cs_f"
-	exit 2
+	rl__start_tail "the compiler" "Every check that compiles stops here: nothing was checked."
 }
 
 # rl__cannot_start FILE STATUS WHO SAVE -- the head of a refusal for a
@@ -3395,7 +4004,7 @@ rl_cc_starts() {
 # FILE, what it said, through the one renderer (rl_excerpt, the whole text
 # kept as SAVE), all on stderr. Sets RL_START_LIB to the library the
 # loader's "error while loading shared libraries" line names, or "".
-# rl_cc_starts' and rl_sanitizers' (V322).
+# rl_cc_starts' and rl_probe_libs' (V322).
 rl__cannot_start() {
 	echo "$3 cannot start (exit $2):" >&2
 	rl_excerpt "$1" 10 "$4" >&2
@@ -3405,6 +4014,50 @@ rl__cannot_start() {
 			j = index(r, ":")
 			if (j > 1) { print substr(r, 1, j - 1); exit }
 		}' "$1")
+}
+
+# rl_probe_libs WHO DEBUG SAVE PROG [PATH] -- PROG --version, run under
+# LD_DEBUG=libs with its stderr in DEBUG, for rl_libs_under to read; with
+# PATH, LD_LIBRARY_PATH=PATH for that run alone. Always as `env -u
+# LD_DEBUG_OUTPUT` (rl_libs_under, below, says why).
+#
+# Returns 0 when PROG started. One the loader could not start (a library
+# this machine lacks) printed no `calling init:` line, and each proof read
+# that as "could not observe" a library, with the loader's own words thrown
+# away in DEBUG (V322, the symbolizer's; the linker's and the binutils'
+# after it). So on a non-zero status: the loader's tracing lines (numbered)
+# are filtered out of DEBUG into DEBUG.err, and what is left is shown by
+# rl__cannot_start under WHO, kept as SAVE; RL_START_LIB is set, and the
+# status is returned, for the caller to say what it means and exit 2
+# (rl__start_tail does for most).
+rl_probe_libs() {
+	if [ $# -ge 5 ]; then
+		# conventions: harness tool -- a pinned tool, asked only for its version
+		env -u LD_DEBUG_OUTPUT LD_LIBRARY_PATH="$5" LD_DEBUG=libs "$4" --version > /dev/null 2> "$2"
+	else
+		# conventions: harness tool -- a pinned tool, asked only for its version
+		env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$4" --version > /dev/null 2> "$2"
+	fi
+	_rl_pl_st=$?
+	[ "$_rl_pl_st" -ne 0 ] || return 0
+	awk '!/^[ \t]*[0-9]+:/' "$2" > "$2.err"
+	rl__cannot_start "$2.err" "$_rl_pl_st" "$1" "$3"
+	return "$_rl_pl_st"
+}
+
+# rl__start_tail WHAT LAST -- the rest of a refusal rl__cannot_start began:
+# the library the loader named (RL_START_LIB), which WHAT needs, then LAST,
+# then exit 2. rl_cc_starts' and rl_probe_libs' callers'.
+rl__start_tail() {
+	if [ -n "$RL_START_LIB" ]; then
+		echo "  The loader found no $(printf '%s' "$RL_START_LIB" | rl_vis arg), a shared library $1" >&2
+		echo "  needs before it does anything: this machine does not have it where" >&2
+		echo "  the loader looks. Install it from your distribution, or work in the" >&2
+		echo "  dev container (docs/environment.md); the code under test is not at" >&2
+		echo "  fault." >&2
+	fi
+	echo "  $2" >&2
+	exit 2
 }
 
 # rl_cc_searches CC DIR -- CC names DIR in its -print-search-dirs. Its
@@ -3444,8 +4097,9 @@ rl_cc_searches() {
 # prints as "<entry>/../lib/<soname>", a path that starts with the folder's
 # own, or a subfolder (binutils' fetched folder holds bfd-plugins/).
 #
-# Every such probe, here and in the runners that keep their own copy, runs
-# as `env -u LD_DEBUG_OUTPUT LD_DEBUG=libs PROGRAM`: an LD_DEBUG_OUTPUT set
+# Every such probe is rl_probe_libs (above; compile_check.sh's assembler
+# proof is the one other), and runs as
+# `env -u LD_DEBUG_OUTPUT LD_DEBUG=libs PROGRAM`: an LD_DEBUG_OUTPUT set
 # from outside (--test_env) sends the loader's lines to files of its own,
 # and the proof, seeing none, refused a correct setup (V276). This file
 # sets one too, for an LD_DEBUG from outside (V336, at its top).
@@ -3547,26 +4201,15 @@ rl_ld_pin() {
 		echo "$RL_NAME.sh: the linker '$_rl_ld' is not an executable file." >&2
 		echo "  Bazel passes the pinned ld.bfd through --ld; if that is missing the" >&2
 		echo "  target's data is wrong, which is a harness fault and not a finding" >&2
-		echo "  about this exercise." >&2
+		echo "  about this $(rl_noun)." >&2
 		exit 2
 	fi
-	_rl_dirs=""
-	while IFS= read -r _rl_l; do
-		[ -n "$_rl_l" ] || continue
-		case "$_rl_l" in
-			/*) _rl_d=$(dirname "$_rl_l") ;;
-			*) _rl_d=$(dirname "$PWD/$_rl_l") ;;
-		esac
-		[ -d "$_rl_d" ] || {
-			echo "$RL_NAME.sh: --ld-lib directory '$_rl_d' does not exist." >&2
-			echo "  Without it the loader would take this machine's libbfd, and the" >&2
-			echo "  pinned linker would silently stop being pinned." >&2
-			exit 2
-		}
-		_rl_dirs="${_rl_dirs:+$_rl_dirs:}$_rl_d"
-	done <<_RL_LIBS
-$_rl_libs
-_RL_LIBS
+	rl__lib_dirs "$_rl_libs" _rl_dirs || {
+		echo "$RL_NAME.sh: --ld-lib directory '$RL_LIB_MISSING' does not exist." >&2
+		echo "  Without it the loader would take this machine's libbfd, and the" >&2
+		echo "  pinned linker would silently stop being pinned." >&2
+		exit 2
+	}
 	[ -n "$_rl_dirs" ] || {
 		echo "$RL_NAME.sh: --ld needs its --ld-lib: the pinned ld.bfd loads libbfd and" >&2
 		echo "  libctf by bare name, and without their directory the loader takes" >&2
@@ -3580,14 +4223,12 @@ _RL_LIBS
 	esac
 	mkdir -p "$_rl_lw" || exit 2
 	for _rl_n in ld ld.bfd; do
-		printf "#!/bin/sh\nLD_LIBRARY_PATH='%s'\nexport LD_LIBRARY_PATH\nexec '%s' \"\$@\"\n" \
-			"$_rl_dirs" "$_rl_ld" > "$_rl_lw/$_rl_n" || exit 2
-		chmod +x "$_rl_lw/$_rl_n" || exit 2
+		rl__wrap_tool "$_rl_lw/$_rl_n" "$_rl_dirs" "$_rl_ld" no
 	done
 	# PROVE THE LOADER AGREED (rl_libs_under, above): ld.bfd loads libbfd
-	# and libctf.
-	# conventions: harness tool -- the pinned linker's wrapper, written above
-	env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$_rl_lw/ld" --version > /dev/null 2> "$_rl_lw/ld.debug"
+	# and libctf -- once it has started at all (rl_probe_libs).
+	rl_probe_libs "$RL_NAME.sh: the pinned linker" "$_rl_lw/ld.debug" linker-start.txt "$_rl_lw/ld" ||
+		rl__start_tail "the pinned linker" "Nothing can be linked here: nothing was checked."
 	rl_libs_under "the pinned linker" "$_rl_lw/ld.debug" "$_rl_dirs" libbfd libctf
 	# PROVE THE DRIVER TAKES IT: the program -### names for the link.
 	printf 'int\tmain(void)\n{\n\treturn (0);\n}\n' > "$_rl_lw/nothing.c" || exit 2
@@ -3636,25 +4277,61 @@ rl_cc_wrap() {
 	_rl_cw_cc=$1 _rl_cw_libs=$2 _rl_cw_ld=$3 _rl_cw_out=$4
 	case "$_rl_cw_cc" in /*) ;; *) _rl_cw_cc="$PWD/$_rl_cw_cc" ;; esac
 	case "$_rl_cw_ld" in /*) ;; *) _rl_cw_ld="$PWD/$_rl_cw_ld" ;; esac
+	# Their existence was proved by rl_cc_pin, before this.
 	_rl_cw_dirs=""
+	rl__lib_dirs "$_rl_cw_libs" _rl_cw_dirs || :
+	case "$_rl_cw_cc$_rl_cw_dirs$_rl_cw_ld" in
+		*"'"*)
+			echo "$RL_NAME: a path with a single quote in it cannot be put in the compiler's wrapper" >&2
+			exit 2 ;;
+	esac
+	rl__wrap_tool "$_rl_cw_out" "$_rl_cw_dirs" "$_rl_cw_cc" yes "-B$_rl_cw_ld/"
+}
+
+# rl__lib_dirs LIBS VAR -- VAR set to the directory of each of LIBS (one per
+# line, LISTS OF WORDS, a runner's library files), absolute, joined with
+# ':' in their order. Returns 1 when one of them does not exist, with the
+# first such in RL_LIB_MISSING, for the caller to refuse in its own words.
+rl__lib_dirs() {
+	_rl_ldv="" RL_LIB_MISSING=""
 	while IFS= read -r _rl_l; do
 		[ -n "$_rl_l" ] || continue
 		case "$_rl_l" in
 			/*) _rl_d=$(dirname "$_rl_l") ;;
 			*) _rl_d=$(dirname "$PWD/$_rl_l") ;;
 		esac
-		_rl_cw_dirs="${_rl_cw_dirs:+$_rl_cw_dirs:}$_rl_d"
-	done <<_RL_CW
-$_rl_cw_libs
-_RL_CW
-	case "$_rl_cw_cc$_rl_cw_dirs$_rl_cw_ld" in
-		*"'"*)
-			echo "$RL_NAME: a path with a single quote in it cannot be put in the compiler's wrapper" >&2
+		[ -d "$_rl_d" ] || [ -n "$RL_LIB_MISSING" ] || RL_LIB_MISSING=$_rl_d
+		_rl_ldv="${_rl_ldv:+$_rl_ldv:}$_rl_d"
+	done <<_RL_LD
+$1
+_RL_LD
+	eval "$2=\$_rl_ldv"
+	[ -z "$RL_LIB_MISSING" ]
+}
+
+# rl__wrap_tool OUT DIRS TOOL KEEP [WORD] -- write OUT, a script that runs
+# TOOL (then WORD, when given, then its own arguments) with DIRS first on
+# the loader's path: KEEP is yes to put the LD_LIBRARY_PATH it is run with
+# after DIRS, no for DIRS alone. Every path is single-quoted in it, so the
+# caller has refused one holding a single quote. Exit 2 when it cannot.
+rl__wrap_tool() {
+	case "$4" in
+		yes) _rl_wt_p="'%s'\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}" ;;
+		no) _rl_wt_p="'%s'" ;;
+		*)
+			echo "$RL_NAME.sh: rl__wrap_tool takes KEEP yes or no, not '$4'" >&2
 			exit 2 ;;
 	esac
-	printf "#!/bin/sh\nLD_LIBRARY_PATH='%s'\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\nexport LD_LIBRARY_PATH\nexec '%s' '-B%s/' \"\$@\"\n" \
-		"$_rl_cw_dirs" "$_rl_cw_cc" "$_rl_cw_ld" > "$_rl_cw_out" || exit 2
-	chmod +x "$_rl_cw_out" || exit 2
+	if [ $# -ge 5 ]; then
+		# shellcheck disable=SC2059 # the format is built from _rl_wt_p, above
+		printf "#!/bin/sh\nLD_LIBRARY_PATH=$_rl_wt_p\nexport LD_LIBRARY_PATH\nexec '%s' '%s' \"\$@\"\n" \
+			"$2" "$3" "$5" > "$1" || exit 2
+	else
+		# shellcheck disable=SC2059 # the format is built from _rl_wt_p, above
+		printf "#!/bin/sh\nLD_LIBRARY_PATH=$_rl_wt_p\nexport LD_LIBRARY_PATH\nexec '%s' \"\$@\"\n" \
+			"$2" "$3" > "$1" || exit 2
+	fi
+	chmod +x "$1" || exit 2
 }
 
 # ---------------------------------------------------------------------------
@@ -3669,7 +4346,7 @@ _RL_CW
 # corpus would have ignored it by omission rather than by its subject's say-so
 # (review of WP-50). Each of them now takes the same pair, parsed into
 # STDERR_EMPTY (1 for --stderr-empty) and STDERR_WHY (--stderr-ignored's
-# REASON), and tools/defs.bzl refuses, while loading, a call that makes the
+# REASON), and tools/defs_test.bzl refuses, while loading, a call that makes the
 # choice zero or two times (_RUNNER_CHOICES), as these refuse a call by hand:
 #
 #   --stderr-empty            a run that writes anything to stderr fails, its
@@ -3683,7 +4360,7 @@ _RL_CW
 # CHECKER" above) the mode is the choice, and neither flag is given: standard
 # error is where the checker writes its report, which is what such a replay
 # reads, and no output is judged, so "held empty" or "ignored because ..."
-# would each claim something that replay does not do. tools/defs.bzl's
+# would each claim something that replay does not do. tools/defs_test.bzl's
 # _runner_choice_problem says the same while loading.
 #
 # The two variables are set here, when this file is sourced, so that every
@@ -3692,6 +4369,25 @@ _RL_CW
 # the environment: a runner that takes the pair sets them from its options.
 STDERR_EMPTY=0
 STDERR_WHY=""
+# shellcheck disable=SC2034 # the caller's to read: how many words to shift
+RL_STDERR_SHIFT=1
+
+# rl_stderr_opt "$@" -- the option loop's arm for the pair, as rl_mem_opt is
+# for a memory checker's options: it sets STDERR_EMPTY or STDERR_WHY, and
+# RL_STDERR_SHIFT to the words it took, and refuses --stderr-ignored with no
+# REASON (rl_need). A runner's loop has the one arm
+#
+#   --stderr-empty | --stderr-ignored) rl_stderr_opt "$@"; shift "$RL_STDERR_SHIFT" ;;
+#
+# and calls rl_stderr_choice after the loop.
+# shellcheck disable=SC2034 # RL_STDERR_SHIFT is the caller's, to shift by
+rl_stderr_opt() {
+	case "$1" in
+		--stderr-empty) STDERR_EMPTY=1; RL_STDERR_SHIFT=1 ;;
+		--stderr-ignored) rl_need "$1" "$#"; STDERR_WHY=$2; RL_STDERR_SHIFT=2 ;;
+		*) echo "${RL_NAME}: rl_stderr_opt: not a standard-error option: $1" >&2; exit 2 ;;
+	esac
+}
 
 # rl_stderr_choice -- exit 2 unless exactly one was given, or, under a memory
 # checker, unless none was. Call it after the option loop (RL_MEM is set by
@@ -3743,7 +4439,7 @@ rl_stderr_rule() {
 # lines, written once in the project's BUILD.bazel through tools/defs.bzl's
 # runner_quotes(), each TEXT saying where it is from. A runner that takes one
 # parses --quotes with rl_quotes_opt, calls rl_quotes_ready with the keys it
-# quotes after its option loop, and prints one with rl_quote; tools/defs.bzl's
+# quotes after its option loop, and prints one with rl_quote; tools/defs_test.bzl's
 # _RUNNER_CHOICES refuses, while loading, a call that passes none.
 #
 # UNDER A MEMORY CHECKER no output is judged and no message quotes anything,
@@ -3792,23 +4488,29 @@ rl_quotes_ready() {
 	exit 2
 }
 
+# rl_wrap WIDTH INDENT -- stdin, each line folded at blanks into lines of at
+# most WIDTH (a longer word keeps a line of its own), each printed after
+# INDENT; a line of blanks prints nothing. The width is awk's length() in
+# the caller's locale, which this does not pin: the text is a sentence for a
+# reader, never a value to render (that is RL_AWK_VIS's rl_vis_wrap, under
+# LC_ALL=C).
+rl_wrap() {
+	awk -v width="$1" -v ind="$2" '{
+		n = split($0, w, " ")
+		l = ""
+		for (i = 1; i <= n; i++) {
+			if (l != "" && length(l) + 1 + length(w[i]) > width + 0) { print ind l; l = w[i] }
+			else l = (l == "" ? w[i] : l " " w[i])
+		}
+		if (l != "") print ind l
+	}'
+}
+
 # rl_quote KEY -- KEY's sentence, folded at blanks into lines of at most 66
-# bytes (a longer word keeps a line of its own), for a message to indent;
-# nothing without --quotes.
+# (rl_wrap), for a message to indent; nothing without --quotes.
 rl_quote() {
 	[ -n "$RL_QUOTES" ] || return 0
-	awk -F'\t' -v k="$1" '
-		$1 != k { next }
-		{
-			sub(/^[^\t]*\t/, "")
-			n = split($0, w, " ")
-			l = ""
-			for (i = 1; i <= n; i++) {
-				if (l != "" && length(l) + 1 + length(w[i]) > 66) { print l; l = w[i] }
-				else l = (l == "" ? w[i] : l " " w[i])
-			}
-			if (l != "") print l
-		}' "$RL_QUOTES"
+	awk -F'\t' -v k="$1" '$1 == k { sub(/^[^\t]*\t/, ""); print }' "$RL_QUOTES" | rl_wrap 66 ""
 }
 
 # ---------------------------------------------------------------------------
@@ -3818,7 +4520,7 @@ rl_quote() {
 # program (every Piscine module and BSQ, which peers evaluate too), or the
 # evaluators at a defense (the rushes: "This assignment is not verified by a
 # program"). The project's subject() contract says which, in its `grader`
-# field, and tools/defs.bzl's _test() hands it to every test it declares as
+# field, and tools/defs_test.bzl's _test() hands it to every test it declares as
 # RL_GRADER: moulinette, defense or both. So a runner never names a grader of
 # its own. Every one of them named the Moulinette, and told a rush team that a
 # forbidden call was "an outright KO at the Moulinette", which grades no rush
@@ -3849,5 +4551,43 @@ rl_at() {
 		moulinette | both) printf 'at the Moulinette' ;;
 		defense) printf 'at the defense' ;;
 		*) printf 'wherever this project is graded' ;;
+	esac
+}
+
+# WHAT THIS TEST TESTS, for the runners' words: RL_UNIT_KIND, which
+# tools/defs_test.bzl's _test() hands every test of a contract of units -- its
+# unit's kind, library, function, project or part (tools/subject.bzl's
+# units_of()). A test of an exercise, and one outside every project, gets
+# none, and the runners say "exercise" as they always have. So a runner
+# never writes "this exercise" itself:
+#
+#   rl_noun    the kind ("this $(rl_noun)'s own case"), or "exercise"
+#   rl_entry   the entry whose files, allowed functions and BUILD file the
+#              words are about: a function's library, else rl_noun
+#
+# (tools/files_test.sh and tools/norminette_test.sh, which do not source
+# this file, read RL_UNIT_KIND themselves; tools/student_build.sh, a build
+# action with no test environment, takes it as --kind.)
+#
+# //tools:conventions refuses a runner line that says "this exercise" itself.
+case "${RL_UNIT_KIND:-}" in
+	"" | exercise | library | function | project | part) ;;
+	*)
+		echo "runner_lib.sh: RL_UNIT_KIND is '$RL_UNIT_KIND', and a unit's kind is" >&2
+		echo "  exercise, library, function, project or part (tools/subject.bzl): the harness is broken." >&2
+		exit 2 ;;
+esac
+
+rl_noun() {
+	case "${RL_UNIT_KIND:-}" in
+		"") printf 'exercise' ;;
+		*) printf '%s' "$RL_UNIT_KIND" ;;
+	esac
+}
+
+rl_entry() {
+	case "${RL_UNIT_KIND:-}" in
+		function) printf 'library' ;;
+		*) rl_noun ;;
 	esac
 }

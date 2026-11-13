@@ -111,14 +111,18 @@ c_diff(
 # diff harness's comparator answers "no match" to a call that does not hand it
 # the query, so a search that never does finds nothing there. //tools/tests's
 # selftest builds the fixture over a toy that hands cmpf a node, and requires
-# the last row to count it, so the file is visible to it. It also builds
-# ex00's fixture over a toy that hands back one static block, whose crash in
-# free() must be marked on the first call's last row (V303).
+# the last row to count it, so the file is visible to it. It builds the diff
+# harness over toys that return the query's own copy, or an item equal to it
+# that is not the one the reference returns, and requires a divergence of
+# each, by the index the harness prints. It also builds ex00's fixture over a
+# toy that hands back one static block, whose crash in free() must be marked
+# on the first call's last row (V303).
 exports_files(
     [
         "tests/ex00/test_btree_create_node.c",
         "tests/ex00/expected.txt",
         "tests/ex05/test_btree_search_item.c",
+        "tests/ex05/diff_btree_search_item.c",
     ],
     visibility = ["//tools/tests:__pkg__"],
 )
@@ -152,7 +156,6 @@ c_diff(
     harness = "diff_btree_level_count.c",
     oracle_fn = "c13_level_count",
     diff_clues = "diff_clues.txt",
-    gate_labeled = True,
 )
 
 c_function(
@@ -264,7 +267,6 @@ c_cycles(
     max_unit = LONG_CASES,
     unit_name = "node",
     syscall_budget = 0,
-    gate_labeled = True,
 )
 
 # Per-level suites, so you can run just what you need while you work:

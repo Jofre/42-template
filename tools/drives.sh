@@ -8,8 +8,8 @@
 #                   rc file names one
 #   setup.sh        chooses the scratch directory and records it
 #   prime.sh        the root its own Bazel runs share with yours
-#   init.sh         and env_drift.sh: the campus warning when this checkout's
-#                   state sits somewhere shared or quota'd
+#   init.sh         and env_drift.py, by /bin/sh: the campus warning when
+#                   this checkout's state sits somewhere shared or quota'd
 #   env-audit.sh    reports every candidate drive, and what setup.sh and the
 #                   wrapper would choose on that box
 #
@@ -22,12 +22,21 @@
 # on its choice before anything else exists, declares all five; prime.sh, which
 # is wired into the login shell and must never refuse, declares the ones it
 # calls itself and falls back to the drive list if the rc files cannot be read;
-# init.sh, env_drift.sh and the wrapper only print or pass on what it answers,
+# init.sh, env_drift.py and the wrapper only print or pass on what it answers,
 # so a missing one costs them a warning or a default, never a wrong action.
 # setup.sh sources it before Bazel
 # exists, and tools/bazel sources it on every bazel command. drives_describe,
 # which only env-audit calls, also uses awk, df and ls, and a missing one shows
-# as an empty fact in the report.
+# as an empty fact in the report. So it probes nothing and refuses nothing (a
+# login shell sources it through prime.sh), and each tool it takes is named
+# for //tools:conventions with what goes without it:
+# conventions: optional id -- setup.sh declares it; elsewhere a missing one costs a warning or the default root, never a wrong action
+# conventions: optional mkdir -- setup.sh declares it; elsewhere a missing one costs a warning or the default root, never a wrong action
+# conventions: optional rm -- setup.sh declares it; elsewhere a missing one costs a warning or the default root, never a wrong action
+# conventions: optional sed -- setup.sh declares it; prime.sh falls back to the drive list when the rc files cannot be read
+# conventions: optional tail -- setup.sh declares it; prime.sh falls back to the drive list when the rc files cannot be read
+# conventions: optional awk -- drives_describe's alone, for env-audit: a missing one shows as an empty fact in its report
+# conventions: optional ls -- drives_describe's alone, for env-audit: a missing one shows as an empty owner and mode in its report
 #
 # THE KNOBS. They change where the facts come from, never what is done with
 # them -- the same terms as setup.sh's SETUP_* overrides. //tools/tests:selftest
@@ -58,8 +67,11 @@
 # shellcheck disable=SC2034
 DRIVES_FULL_GB=5
 
+# The name that makes a path per-user: USER, else the login's name, else the
+# numeric uid -- a container run as --user N with no passwd line has no name
+# at all, and an empty one made "/goinfre/$name" the shared /goinfre/ itself.
 drives_user() {
-	printf '%s' "${USER:-$(id -un 2> /dev/null)}"
+	printf '%s' "${USER:-$(id -un 2> /dev/null || id -u)}"
 }
 
 # Path $1 with each run of slashes squeezed to one and a trailing one dropped

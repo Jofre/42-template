@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+void	ft_list_clear(t_list *begin_list, void (*free_fct)(void *));
+
 /* Each call is a line, ended once its free() is done: a crash in free() (a
  * pointer handed over twice, or one no node holds) then stops the output on
  * that call's own line, which diff_output.sh marks, and not on the next. */

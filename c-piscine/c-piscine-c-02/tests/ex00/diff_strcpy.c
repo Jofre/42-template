@@ -23,8 +23,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		src = dio_unhex(f[0], &slen, 0);
 		dest = dio_garbage(slen + 1);
 		ret = ft_strcpy((char *)dest, (char *)src);

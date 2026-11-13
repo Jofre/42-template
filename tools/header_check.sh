@@ -41,7 +41,7 @@
 #                   [--exit CODE [--exit-source subject|reading|convention]
 #                    [--exit-quote TEXT]]
 #                   [--cc NAME] [--ld PATH --ld-lib FILE...]
-#                   [--waiting FILE] [-- PROG ARGS...]
+#                   [--waiting FILE [--suite NAME]] [-- PROG ARGS...]
 #
 # Options:
 #   --expected-alt FILE, --survive, --stdin FILE
@@ -89,7 +89,7 @@ require dirname mktemp rm
 RL_NAME=header_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "header_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "header_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -108,6 +108,7 @@ CLUES=""
 PASS=""
 EXPECT_EXIT=""
 WAITING=""
+WAIT_SUITE=""
 EXIT_SOURCE=""
 EXIT_QUOTE=""
 SURVIVE=0
@@ -116,11 +117,6 @@ CC="${HEADER_CC:-cc}"
 CC_LIBS=""
 LD=""
 LD_LIBS=""
-
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "header_check.sh: $1 needs a value" >&2; exit 2; }; }
 
 # THE LISTS -- sources, include directories, and the options forwarded to
 # diff_output.sh ($PASS) -- are runner_lib.sh's LISTS OF WORDS: one word per
@@ -132,60 +128,55 @@ need() { [ "$2" -ge 2 ] || { echo "header_check.sh: $1 needs a value" >&2; exit 
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--differ) need "$1" "$#"; DIFFER="$2"; shift 2 ;;
-		--hdr) need "$1" "$#"; HDR="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--main) need "$1" "$#"; MAIN="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--differ) rl_need "$1" "$#"; DIFFER="$2"; shift 2 ;;
+		--hdr) rl_need "$1" "$#"; HDR="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--main) rl_need "$1" "$#"; MAIN="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--src) rl_need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		# The unbuffered-stdout library: a program built with it is one
 		# diff_output.sh may read case by case after a crash, so it gets
 		# --harness-fixture, whose premise diff_output.sh checks in the binary.
-		--harness-src) need "$1" "$#"; rl_list_add HSRCS "$2"; rl_list_add PASS --harness-fixture; shift 2 ;;
-		--inc) need "$1" "$#"; rl_list_add INCS "-I$2"; shift 2 ;;
+		--harness-src) rl_need "$1" "$#"; rl_list_add HSRCS "$2"; rl_list_add PASS --harness-fixture; shift 2 ;;
+		--inc) rl_need "$1" "$#"; rl_list_add INCS "-I$2"; shift 2 ;;
 		--shape)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				header | sources) SHAPE="$2" ;;
 				*) echo "header_check.sh: --shape must be header or sources, not '$2'" >&2
 				   exit 2 ;;
 			esac
 			shift 2 ;;
-		--expected) need "$1" "$#"; EXPECTED="$2"; shift 2 ;;
-		--clues) need "$1" "$#"; CLUES="$2"; rl_list_add PASS --clues; rl_list_add PASS "$2"; shift 2 ;;
+		--expected) rl_need "$1" "$#"; EXPECTED="$2"; shift 2 ;;
+		--clues) rl_need "$1" "$#"; CLUES="$2"; rl_list_add PASS --clues; rl_list_add PASS "$2"; shift 2 ;;
 		--labeled) rl_list_add PASS --labeled; shift ;;
-		--expected-alt) need "$1" "$#"; rl_list_add PASS --expected-alt; rl_list_add PASS "$2"; shift 2 ;;
-		--stdin) need "$1" "$#"; rl_list_add PASS --stdin; rl_list_add PASS "$2"; shift 2 ;;
+		--expected-alt) rl_need "$1" "$#"; rl_list_add PASS --expected-alt; rl_list_add PASS "$2"; shift 2 ;;
+		--stdin) rl_need "$1" "$#"; rl_list_add PASS --stdin; rl_list_add PASS "$2"; shift 2 ;;
 		--survive) SURVIVE=1; rl_list_add PASS --survive; shift ;;
 		# Kept out of $PASS: the code is compared by value below (--exit), and
 		# it and the sentence behind it (--exit-quote) are forwarded as their
 		# own quoted words.
-		--exit) need "$1" "$#"; EXPECT_EXIT="$2"; shift 2 ;;
-		--exit-source) need "$1" "$#"; EXIT_SOURCE="$2"; shift 2 ;;
-		--exit-quote) need "$1" "$#"; EXIT_QUOTE="$2"; shift 2 ;;
-		# The directories the fetched compiler's own shared objects live in.
-		# A pinned clang that cannot find libclang-cpp does not fail: the loader
-		# falls back to this machine's copy and the layer reports on a compiler
-		# nobody pinned. Same flag, same reason, same shape as compile_check.sh.
-		--cc-lib)
-			need "$1" "$#"
-			# Absolute: a relative entry in LD_LIBRARY_PATH resolves against the
-			# process's cwd, which is not this script's to assume.
-			case "$2" in
-				/*) _d=$(dirname "$2") ;;
-				*) _d=$(dirname "$PWD/$2") ;;
-			esac
-			CC_LIBS="${CC_LIBS:+$CC_LIBS:}$_d"
-			shift 2 ;;
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
+		--exit) rl_need "$1" "$#"; EXPECT_EXIT="$2"; shift 2 ;;
+		--exit-source) rl_need "$1" "$#"; EXIT_SOURCE="$2"; shift 2 ;;
+		--exit-quote) rl_need "$1" "$#"; EXIT_QUOTE="$2"; shift 2 ;;
+		# The fetched compiler's own shared objects, one per line (LISTS OF
+		# WORDS). A pinned clang that cannot find libclang-cpp does not fail:
+		# the loader falls back to this machine's copy and the layer reports on
+		# a compiler nobody pinned. rl_cc_pin, below, proves them.
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
 		# The pinned ld.bfd and the libraries it loads: the test program is
 		# LINKED here, and the clang package has no linker of its own, so
 		# without these every link ran the box's /usr/bin/ld (TO VERIFY V38).
 		# tools/runner_lib.sh's rl_ld_pin proves them, below.
-		--ld) need "$1" "$#"; LD="$2"; shift 2 ;;
-		--ld-lib) need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
+		--ld) rl_need "$1" "$#"; LD="$2"; shift 2 ;;
+		--ld-lib) rl_need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
 		# The tests of this exercise that wait for this one, named under a
 		# red verdict (rl_waiting). Not forwarded: this runner's own red, a
 		# compile that failed, is one too.
-		--waiting) need "$1" "$#"; WAITING="$2"; shift 2 ;;
+		--waiting) rl_need "$1" "$#"; WAITING="$2"; shift 2 ;;
+		# With --waiting, the suite its block names for a run that includes
+		# them: the unit's, in a package of units, where an exercise's says
+		# :exNN.
+		--suite) rl_need "$1" "$#"; WAIT_SUITE="$2"; shift 2 ;;
 		--) shift; break ;;
 		*) echo "header_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -219,29 +210,14 @@ if [ "$SHAPE" = sources ] && [ -z "$SRCS" ]; then
 fi
 
 
-# Each --cc-lib directory must EXIST. A moved or mistyped one is the quiet
-# failure this arrangement is exposed to: the loader falls back to the default
-# search path, finds the box's libraries, and the pinned compiler silently stops
-# being pinned. Exit 2 -- the harness is misconfigured, the exercise is not
-# wrong. Copied deliberately from compile_check.sh rather than abbreviated.
-if [ -n "$CC_LIBS" ]; then
-	_ifs=$IFS
-	IFS=:
-	for _d in $CC_LIBS; do
-		[ -d "$_d" ] || {
-			IFS=$_ifs
-			echo "header_check.sh: --cc-lib directory '$_d' does not exist." >&2
-			echo "  Without it the loader would fall back to this machine's own" >&2
-			echo "  libraries and the pinned compiler would silently stop being" >&2
-			echo "  pinned, so this refuses to run rather than pass." >&2
-			exit 2
-		}
-	done
-	IFS=$_ifs
-	LD_LIBRARY_PATH="$CC_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-	export LD_LIBRARY_PATH
-fi
-
+# THE PINNED COMPILER, proved before the first compile (tools/runner_lib.sh,
+# rl_cc_pin): each --cc-lib directory exists and goes first on the exported
+# LD_LIBRARY_PATH, the compiler is there and starts, and the loader took its
+# libraries from those directories, with the libxml2 and ICU a libLLVM loads
+# (V321). Each failure is exit 2. This runner kept its own copy of the first
+# three, written before rl_cc_pin, and never made the last: a pinned clang on
+# this machine's libxml2 or ICU passed here while rl_cc_pin refused it.
+#
 # A COMPILER IS NOT OPTIONAL HERE. This layer compiles something and then reads
 # the result, so without a compiler it has checked nothing -- and it used to say
 # SKIP and exit 0, which is a PASS to Bazel.
@@ -257,25 +233,25 @@ fi
 # compiler is no longer a fact about the student's machine: it is a wiring
 # error. Exit 2, the code this repo reserves for "the harness is broken, the
 # exercise is not wrong" -- never exit 0.
-command -v "$CC" > /dev/null 2>&1 || {
-	echo "header_check: the compiler '$CC' is not executable." >&2
-	echo "  This layer compiles before it inspects, so without one it would be" >&2
-	echo "  reporting on nothing. Bazel passes the pinned clang through --cc;" >&2
-	echo "  if that is missing the target's data is wrong, which is a harness" >&2
-	echo "  fault and not a finding about this exercise." >&2
-	exit 2
-}
-# And it must START: one the loader cannot start failed the compile below,
-# and the student's file was reported as not compiling (runner_lib.sh's
-# rl_cc_starts, V241).
-rl_cc_starts "$CC"
+# And it must START (rl_cc_starts, V241): one the loader cannot start failed
+# the compile below, and the student's file was reported as not compiling.
+rl_cc_pin "$CC" "$CC_LIBS" ""
 
 [ -z "$WAITING" ] || [ -f "$WAITING" ] || {
 	echo "header_check.sh: no --waiting file at $WAITING" >&2
 	exit 2
 }
-WORK=$(mktemp -d)
-rl_traps 'rl_waiting $? "$WAITING"; rm -rf "$WORK"'
+[ -z "$WAIT_SUITE" ] || [ -n "$WAITING" ] || {
+	echo "header_check.sh: --suite needs --waiting: it names the suite the list of waiting tests points at" >&2
+	exit 2
+}
+case "$WAIT_SUITE" in
+	[!a-z]* | *[!a-z0-9_]*)
+		echo "header_check.sh: --suite takes a suite's name: a lowercase letter, then lowercase letters, digits or _" >&2
+		exit 2 ;;
+esac
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
+rl_traps 'rl_waiting $? "$WAITING" "$WAIT_SUITE"; rm -rf "$WORK"'
 
 # THE LINKER, pinned like the compiler (tools/runner_lib.sh, rl_ld_pin): with
 # --ld, every link here runs the fetched ld.bfd, proved before the first one.
@@ -293,7 +269,7 @@ if [ "$_cc_rc" -ne 0 ]; then
 		echo "header_check: FAIL — the test program does not compile against what you turned in."
 		echo ""
 		echo "  The test program is the harness's file, not yours. It calls every"
-		echo "  function this exercise bundles and reaches them only through what"
+		echo "  function this $(rl_entry) bundles and reaches them only through what"
 		# conventions: the call site's --hdr -- the header the contract lists, where it lists one
 		echo "  you turned in: your sources, and your header where the subject asks"
 		echo "  for one. So this is the exercise failing, not a broken test: every"
@@ -302,7 +278,7 @@ if [ "$_cc_rc" -ne 0 ]; then
 	else
 		echo "header_check: FAIL — the test program does not compile against your header."
 		echo ""
-		echo "  This exercise's deliverable IS the header, so this is the exercise"
+		echo "  This $(rl_noun)'s deliverable IS the header, so this is the exercise"
 		echo "  itself failing, not a broken test. The program below was written to"
 		# conventions: the call site's --main -- the test program, written to the contract's header
 		echo "  use everything the subject says your header must declare; every"

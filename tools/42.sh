@@ -35,7 +35,7 @@ if [ -n "${BUILD_WORKSPACE_DIRECTORY:-}" ]; then
 	FT_WS=$BUILD_WORKSPACE_DIRECTORY
 	FT_CWD=${BUILD_WORKING_DIRECTORY:-$BUILD_WORKSPACE_DIRECTORY}
 else
-	FT_WS=$(cd "$(dirname "$0")/.." && pwd) || exit 2
+	FT_WS=$(CDPATH='' cd "$(dirname "$0")/.." && pwd) || exit 2
 	FT_CWD=$PWD
 fi
 export FT_WS FT_CWD

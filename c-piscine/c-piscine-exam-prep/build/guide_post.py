@@ -4,11 +4,19 @@
     guide_post.py print-template PAGE_TEMPLATE PRINT_CSS   -> stdout
     guide_post.py screen FILE.html                         (in place)
     guide_post.py print FILE.html                          (in place)
-    guide_post.py self-check PRINT_CSS                     exit 1 on a fault
+    guide_post.py self-check PRINT_CSS PAGE_TEMPLATE       exit 1 on a fault
+
+Exit 1 is a fault it found: a layout rule self-check sees broken, a page
+template that lacks what print-template changes, or an answer block with no
+question before it. Exit 2 is a check that broke: a
+wrong call, a file it cannot read, anything else that stops it. Python ends
+an exception nobody caught with 1 too, and tools/exam_guide.sh reads the two
+apart, so a missing print.css read as a layout rule that no longer holds.
 
 print-template derives the PDF's pandoc template from the page's: the same
 styles, no web fonts (the PDF is built offline), print.css laid over them, and
-a plain "Contents" list instead of the collapsible one.
+a plain "Contents" list instead of the collapsible one. Each of those edits
+has to find what it changes, and it fails naming each one that did not.
 
 screen and print move each self-check answer to the end of its chapter, where
 a reader meets it after answering, and leave a link under its question. They
@@ -28,14 +36,39 @@ import sys
 DETAILS = re.compile(r'<details>\n<p><summary>(.*?)</summary></p>')
 
 
-def print_template(page, css):
-    t = open(page, encoding='utf-8').read()
-    t = re.sub(r'<link rel="stylesheet" href="https://fonts\.googleapis\.com[^>]*>\n', '', t)
-    style = open(css, encoding='utf-8').read()
+def template_edits(t, style):
+    """The page's template t as the PDF's, and what was not there to change.
+
+    Each edit counts what it found. One that finds nothing changes nothing,
+    and silently: a page.html5 whose fonts link or table of contents was
+    reworded built a PDF that fetched web fonts, or kept its contents folded
+    on paper, which cannot unfold them.
+    """
+    missing = []
+    t, n = re.subn(r'<link rel="stylesheet" href="https://fonts\.googleapis\.com[^>]*>\n', '', t)
+    if not n:
+        missing.append('the web fonts link (<link rel="stylesheet" href="https://fonts.googleapis.com...">), '
+                       'which the PDF, built offline, must not fetch')
+    if '</head>' not in t:
+        missing.append('</head>, before which print.css goes')
     t = t.replace('</head>', '<style>\n' + style + '</style>\n</head>', 1)
-    t = re.sub(r'<details class="toc"><summary>Table of contents</summary>\n',
-               '<p class="toc-title">Contents</p>\n', t)
+    t, n = re.subn(r'<details class="toc"><summary>Table of contents</summary>\n',
+                   '<p class="toc-title">Contents</p>\n', t)
+    if not n:
+        missing.append('the folded table of contents (<details class="toc"><summary>Table of '
+                       'contents</summary>), which paper cannot unfold')
+    if '</nav></details>' not in t:
+        missing.append("the folded table of contents' end (</nav></details>)")
     t = t.replace('</nav></details>', '</nav>', 1)
+    return t, missing
+
+
+def print_template(page, css):
+    t, missing = template_edits(open(page, encoding='utf-8').read(),
+                                open(css, encoding='utf-8').read())
+    if missing:
+        sys.exit('guide_post.py: %s lacks what print-template changes, so the PDF would keep it:\n  %s'
+                 % (page, '\n  '.join(missing)))
     return t
 
 
@@ -218,14 +251,15 @@ PLANTED_CHAPTER = ('<h3 id="planted">Planted</h3>\n'
                    '<h3 id="next">Next</h3>\n<p>The next chapter.</p>\n')
 
 
-def self_check(css_path):
+def self_check(css_path, page_path):
     """The layout rules no build of the guide as it is can show broken.
 
     The render gate reads the PDF of the guide as it is: a table the guide
     does not hold yet, or a code block it does not hold yet, is never
     rendered, so a rule that stopped holding goes unseen until one is
-    written; and nothing reads where an answer lands. So the three rules are
-    checked here on their own, before every build (tools/exam_guide.sh):
+    written; and nothing reads where an answer lands, or whether the PDF's
+    template still fetches web fonts. So the four rules are checked here on
+    their own, before every build (tools/exam_guide.sh):
       - widths() gives a column at least the width its longest word prints,
         on the planted table above (V21: it gave the word's column 119.6 pt
         of the 231.5 it needs, and the gate refused the build);
@@ -233,9 +267,11 @@ def self_check(css_path):
         recipe line is another command, and the gate cannot see a fold);
       - both renderings print a self-check answer once, after the rest of
         its chapter, on the planted chapter above (the PDF printed each
-        answer open under its question, read before it was answered).
+        answer open under its question, read before it was answered);
+      - print-template finds each thing it changes in page.html5, so the
+        PDF fetches no web fonts and folds no contents.
 
-    Returns a list of sentences, empty when all three hold.
+    Returns a list of sentences, empty when all four hold.
     """
     problems = []
     cells = ''.join('<td>%s</td>' % PLANTED_PROSE for _ in range(3))
@@ -260,6 +296,9 @@ def self_check(css_path):
                             'answer printed under its question is read '
                             'first' % mode)
     css = open(css_path, encoding='utf-8').read()
+    for piece in template_edits(open(page_path, encoding='utf-8').read(), css)[1]:
+        problems.append('%s lacks %s: print-template makes the PDF\'s template '
+                        'from it by changing that' % (page_path, piece))
     css = re.sub(r'/\*.*?\*/', '', css, flags=re.S)
     if not re.search(r'(^|[\s,}])pre\[class\]\s*(,[^{]*)?\{[^}]*white-space:\s*pre\s*[;}]', css):
         problems.append('%s does not keep a code block with a language '
@@ -269,21 +308,37 @@ def self_check(css_path):
     return problems
 
 
-def main():
-    mode = sys.argv[1]
+# The words each mode takes after its name.
+ARGS = {'print-template': 2, 'screen': 1, 'print': 1, 'self-check': 2}
+
+
+def run(mode, args):
     if mode == 'print-template':
-        sys.stdout.write(print_template(sys.argv[2], sys.argv[3]))
+        sys.stdout.write(print_template(args[0], args[1]))
         return
     if mode == 'self-check':
-        problems = self_check(sys.argv[2])
+        problems = self_check(args[0], args[1])
         for p in problems:
             print('  ' + p)
         sys.exit(1 if problems else 0)
-    if mode not in RENDER:
-        sys.exit('guide_post.py: unknown mode ' + mode)
-    path = sys.argv[2]
+    path = args[0]
     s = open(path, encoding='utf-8').read()
-    open(path, 'w', encoding='utf-8').write(RENDER[mode](s))
+    s = RENDER[mode](s)
+    open(path, 'w', encoding='utf-8').write(s)
+
+
+def main():
+    if len(sys.argv) < 2 or ARGS.get(sys.argv[1]) != len(sys.argv) - 2:
+        print('guide_post.py: usage: guide_post.py print-template PAGE_TEMPLATE PRINT_CSS'
+              ' | screen FILE.html | print FILE.html | self-check PRINT_CSS PAGE_TEMPLATE',
+              file=sys.stderr)
+        sys.exit(2)
+    # A fault found leaves by sys.exit, which this lets through.
+    try:
+        run(sys.argv[1], sys.argv[2:])
+    except Exception as e:
+        print('guide_post.py: %s' % e, file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == '__main__':

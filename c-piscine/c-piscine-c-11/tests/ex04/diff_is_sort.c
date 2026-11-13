@@ -30,8 +30,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 2) < 2)
-			continue ;
+		dio_fields(line, f, 2, 2);
 		tab = dio_csv_ints(f[0], &size);
 		res = ft_is_sort(tab, size, cmp_asc);
 		printf("%s\t%d\t", f[0], !!res);

@@ -16,11 +16,6 @@
 use crate::common::{join_csv, Rng};
 use std::io::{self, Write};
 
-/// A value in [lo, hi], uniform.
-fn ranged(rng: &mut Rng, lo: i64, hi: i64) -> i32 {
-    (lo + rng.below((hi - lo + 1) as usize) as i64) as i32
-}
-
 /// A word of 1..=max letters drawn from `alphabet`.
 fn word(rng: &mut Rng, alphabet: &[u8], max: usize) -> String {
     let n = 1 + rng.below(max);
@@ -52,7 +47,12 @@ const ARMS: [(&str, Unit); 9] = [
 ];
 
 /// The lines an arm writes, or None for a name that is not one of these arms.
+/// The name is decided before the first case: decided in the loop alone, a
+/// count of 0 ran no case and claimed any name.
 fn lines(name: &str, seed: u64, count: usize, len: usize) -> Option<Vec<String>> {
+    if !ARMS.iter().any(|(n, _)| *n == name) {
+        return None;
+    }
     let mut rng = Rng::new(seed);
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
@@ -62,7 +62,7 @@ fn lines(name: &str, seed: u64, count: usize, len: usize) -> Option<Vec<String>>
             // C 12 ex14: bounded as c12_list_sort is, so the harness's
             // comparator, *a - *b, never overflows.
             "c12_list_sort_len" => {
-                join_csv(&(0..len).map(|_| ranged(&mut rng, -100_000, 100_000)).collect::<Vec<i32>>())
+                join_csv(&(0..len).map(|_| rng.range_i32(-100_000, 100_000)).collect::<Vec<i32>>())
             }
             // C 11 ex06 and ex07: `len` strings of a small alphabet and up to
             // six letters, as c11_sort_string_tab draws them -- many ties and
@@ -101,7 +101,7 @@ fn lines(name: &str, seed: u64, count: usize, len: usize) -> Option<Vec<String>>
             // Libft's ft_split: `len` words of letters with exactly one '_'
             // between each and none at either end, so every reading of the
             // subject agrees on the answer (for a length of at least 1: the
-            // empty line of length 0 is a case the readings part on, and no
+            // empty string of length 0 is a case the readings part on, and no
             // series asks for it); then a tab and the words, comma-joined, as
             // above. The harness passes '_' as the delimiter.
             "libft_split_len" => {
@@ -170,10 +170,12 @@ pub fn gen(name: &str, seed: u64, count: usize, len: usize) -> bool {
     }
 }
 
-/// Self-check: each arm writes `count` lines of exactly `len` elements each
-/// (as ARMS counts them), an empty line for length 0, and the same lines for
-/// the same seed; a string arm's line never holds its own separator inside an
-/// element, and strstr's needle is where its harness looks for it.
+/// Self-check: each arm writes `count` lines of exactly `len` elements each,
+/// as ARMS counts them, and the same lines for the same seed; a string arm's
+/// line never holds its own separator inside an element, and strstr's needle
+/// is where its harness looks for it. At length 0 a line is held to having no
+/// element, not to being empty: the csv and char arms write an empty line,
+/// the word arms a lone tab (an empty string, then its empty list of words).
 pub fn check() -> usize {
     let mut fails = 0usize;
     for &(name, unit) in ARMS.iter() {
@@ -231,7 +233,7 @@ pub fn check() -> usize {
             }
         }
     }
-    if lines("c01_nope_len", 1, 1, 1).is_some() {
+    if lines("c01_nope_len", 1, 1, 1).is_some() || lines("c01_nope_len", 1, 0, 1).is_some() {
         eprintln!("CHECK FAIL length: an unknown arm was claimed");
         fails += 1;
     }

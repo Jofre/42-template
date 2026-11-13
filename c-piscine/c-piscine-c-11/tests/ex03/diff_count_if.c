@@ -36,8 +36,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 3) < 3)
-			continue ;
+		dio_fields(line, f, 3, 3);
 		n = (int)strtol(f[0], NULL, 10);
 		/* echo the input fields first: what the call does to the array is
 		 * re-read from it afterwards. */

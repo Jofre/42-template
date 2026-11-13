@@ -1,6 +1,8 @@
 #include "ft_list.h"
 #include <stdio.h>
 
+void	ft_list_reverse(t_list **begin_list);
+
 /* Prints "<label>\t<value>" so tools/diff_output.sh (run with --labeled) can
  * show each row in its own column: first the reversed list's data, one row
  * per node, then one row per property of the links, each labelled with what

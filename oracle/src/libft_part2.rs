@@ -67,7 +67,10 @@
 //! striteri's give s back through f's inverse at every index (past 255).
 
 use crate::c04::o_putnbr;
-use crate::common::{bench_lines, largest_dec, long_text, many_words, o_split, rand_body, sink, to_hex, unhex, widest_hex, Rng};
+use crate::common::{
+    bench_lines, int_cases, int_corners_missing, int_head_len, largest_dec, long_text, many_words, o_split, rand_body,
+    sink, to_hex, unhex, widest_hex, Rng,
+};
 use std::io::{self, Write};
 
 /// SIZE_MAX on LP64, as the substr corpora write it.
@@ -480,17 +483,9 @@ fn gen_split<W: Write>(w: &mut W, seed: u64, count: usize, part: bool) {
     }
 }
 
-/// itoa's head: zero, one digit and its negative, the powers of ten and their
-/// negatives, both ends of int and their neighbours.
-const ITOA_HEAD: [i32; 20] = [
-    0, 7, 42, 10, 100, 1000000000, -7, -42, -100, -1000000000, 2147483647, 2147483646, -2147483647, i32::MIN,
-    1, -1, 9, -9, 99, -99,
-];
-
+/// itoa's ints: the int corpus C 00's ft_putnbr reads, cut at `count`.
 fn gen_itoa<W: Write>(w: &mut W, seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    for k in 0..count {
-        let n = if k < ITOA_HEAD.len() { ITOA_HEAD[k] } else { rng.i32val() };
+    for n in int_cases(&mut Rng::new(seed), count, true) {
         let _ = w.write_all(format!("{}\t", n).as_bytes());
         let _ = w.write_all(&o_itoa(n));
         let _ = w.write_all(b"\n");
@@ -620,6 +615,24 @@ fn records(corpus: &[u8]) -> Vec<Vec<String>> {
         .lines()
         .map(|l| l.split('\t').map(str::to_string).collect())
         .collect()
+}
+
+/// The fields of `name`'s lines that its reader passes to the function as
+/// a C string: strjoin's s1 and s2, strtrim's s1 and set, itoa's none (its
+/// n is an int), and every other arm's s. Each is also an input with no
+/// bound on its length. split's c is a char, where 0x00 is a case.
+fn c_string_fields(name: &str) -> &'static [usize] {
+    match name {
+        "libft_strjoin" | "libft_strtrim" => &[0, 1],
+        "libft_itoa" => &[],
+        _ => &[0],
+    }
+}
+
+/// Whether a line of `name`'s corpus holds a NUL in a field its reader
+/// passes to the function as a C string, which would end the string there.
+fn nul_in_c_string(name: &str, r: &[String]) -> bool {
+    c_string_fields(name).iter().any(|&k| r.get(k).is_some_and(|f| unhex(f).contains(&0)))
 }
 
 /// Self-check: hand-verified tables, properties over a seeded sweep, and the
@@ -857,8 +870,17 @@ pub fn check() -> usize {
     }
 
     // ---- the corpora, read back ----
+    // The NUL guard reads every field the reader takes as a C string:
+    // strjoin's s2 is one, so a NUL there is reported.
+    let nul_s2 = [to_hex(b"a"), to_hex(b"x\0y"), to_hex(b"ax\0y")];
+    if !nul_in_c_string("libft_strjoin", &nul_s2) {
+        fail("the NUL guard missed a NUL in strjoin's s2".to_string());
+    }
     let count = 300usize;
     for name in ARMS {
+        // itoa's corpus opens on the shared int head, the same at every seed
+        // and longer than 300 lines: it is read whole, with a tail.
+        let count = if name == "libft_itoa" { int_head_len() + count } else { count };
         let a = written(name, 1, count);
         if a != written(name, 1, count) {
             fail(format!("{}: the same seed gave another corpus", name));
@@ -928,17 +950,21 @@ pub fn check() -> usize {
                 break;
             }
         }
+        // 0, +/-1, both ends of int and every power of ten and its
+        // neighbours, of both signs (common::int_corners_missing)
+        if name == "libft_itoa" {
+            let ns: Vec<i32> = recs.iter().filter_map(|r| r[0].parse().ok()).collect();
+            let missing = int_corners_missing(&ns);
+            if !missing.is_empty() {
+                fail(format!("{}: no case of {:?}", name, missing));
+            }
+        }
         // No input holds a NUL where a C string is read.
-        if name != "libft_itoa" && recs.iter().any(|r| unhex(&r[0]).contains(&0)) {
+        if recs.iter().any(|r| nul_in_c_string(name, r)) {
             fail(format!("{}: an input string holds a NUL", name));
         }
         // Every unbounded input reaches past every round capacity (finding 041).
-        let wide: &[usize] = match name {
-            "libft_strjoin" | "libft_strtrim" => &[0, 1],
-            "libft_itoa" => &[],
-            _ => &[0],
-        };
-        for &k in wide {
+        for &k in c_string_fields(name) {
             if widest_hex(&a, k) <= PAST {
                 fail(format!("{}: field {} holds nothing past {} bytes", name, k, PAST));
             }
@@ -1009,9 +1035,6 @@ pub fn check() -> usize {
             let s = unhex(&r[0]);
             s.len() > 1 && s[s.len() - 1] == unhex(&r[1])[0]
         }),
-        has("libft_itoa", "INT_MIN", &|r| r[0] == i32::MIN.to_string()),
-        has("libft_itoa", "INT_MAX", &|r| r[0] == i32::MAX.to_string()),
-        has("libft_itoa", "zero", &|r| r[0] == "0"),
         has("libft_strmapi", "the empty string", &|r| r[0].is_empty()),
         has("libft_strmapi", "an index past 255", &|r| r[0].len() / 2 > 256),
         has("libft_striteri", "the empty string", &|r| r[0].is_empty()),

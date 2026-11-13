@@ -1,7 +1,8 @@
 //! c-12 references: singly-linked-list family (t_list = {next, void *data}).
 //!
 //! The corpus encodes the INPUT list as a comma-joined decimal int sequence
-//! (empty string == the empty list). The reader harness builds a real t_list
+//! (empty string == the empty list; push_strs's strings are hex instead, as
+//! its line below says). The reader harness builds a real t_list
 //! from that sequence (data carried either as `(void*)(intptr_t)v` for the
 //! value-only functions, or as a malloc'd `int*` for the callback functions),
 //! runs the student's function, then serialises the RESULT list's data back in
@@ -15,6 +16,9 @@
 //!   list_at       <csv>\t<idx>\t<valueAtIdx|NULL>
 //!   push_front    <csv>\t<result-csv>            (== input reversed)
 //!   push_back     <csv>\t<result-csv>            (== input)
+//!   push_strs     <hex-csv>\t<result-hex-csv>    (strings, hex and comma-joined
+//!                                                 as diffio.h's dio_hex_list
+//!                                                 reads them; none is empty)
 //!   list_reverse  <csv>\t<result-csv>
 //!   list_sort     <csv>\t<sorted-csv>            (FIXED cmp: ascending int)
 //!   list_clear    <csv>\t<freeCount>             (== size; free_fct call count)
@@ -23,11 +27,29 @@
 //!   remove_if     <csv>\t<ref>\t<result-csv>\t<freeCount>
 //!                                                (FIXED cmp: drop where ==ref;
 //!                                                 free_fct calls == removed)
+//!   sorted_list_insert <sorted-csv>\t<x>\t<result-csv>
+//!                                                (the input list sorted
+//!                                                 ascending; FIXED cmp:
+//!                                                 ascending int)
+//!   sorted_list_merge  <sorted-csv>\t<sorted-csv>\t<result-csv>
+//!                                                (both input lists sorted
+//!                                                 ascending; FIXED cmp:
+//!                                                 ascending int)
+//!   list_merge    <csv>\t<csv>\t<result-csv>      (the input lists
+//!                                                 deliberately NOT sorted)
 
-use crate::common::{bench_lines, ints_csv, join_csv, sink, Rng};
+use crate::common::{bench_lines, ints_csv, join_csv, join_hex, or_null, sink, unhex_csv, Rng};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
+/// ex05: the list ft_list_push_strs builds from `strs`, read from its head.
+/// The order is the subject's: "The first element should be at the end of
+/// the list".
+#[inline(never)] // keep this attributable under callgrind (see tools/)
+fn o_push_strs<T: Clone>(strs: &[T]) -> Vec<T> {
+    strs.iter().rev().cloned().collect()
+}
+
 /// FIXED foreach callback: each element's int value x becomes x*3-1.
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 pub(crate) fn o_foreach(v: &[i32]) -> Vec<i32> {
@@ -101,27 +123,13 @@ fn o_list_merge(a: &[i32], b: &[i32]) -> Vec<i32> {
 }
 
 // ------------------------------------------------------------- helpers
-/// A signed 32-bit value biased toward small magnitudes and the i32 boundaries.
-/// Used by the value-only functions (data is never dereferenced, so the full
-/// range — including i32::MIN/MAX — is safe).
-pub(crate) fn full_val(rng: &mut Rng) -> i32 {
-    match rng.below(8) {
-        0 => 0,
-        1 => i32::MIN,
-        2 => i32::MAX,
-        3 => -(rng.below(1000) as i32),
-        4 => rng.below(1000) as i32,
-        _ => rng.next_u64() as i32,
-    }
-}
-
-/// A value in the inclusive range [lo, hi]. For the callback functions whose C
-/// comparator/transform does int arithmetic, this keeps every operation
-/// (`a-b`, `x*3-1`, `x+100`) well within i32 so there is no signed overflow.
-pub(crate) fn ranged_val(rng: &mut Rng, lo: i32, hi: i32) -> i32 {
-    let span = (hi as i64 - lo as i64 + 1) as usize;
-    lo + rng.below(span) as i32
-}
+//
+// THE VALUES. The value-only functions (create_elem, size, last, at, the
+// pushes, reverse, clear) never dereference their data, so the full int
+// range is safe: Rng::i32val, biased toward small magnitudes and both ends
+// of int. The callback functions' C comparator or transform does int
+// arithmetic (`a-b`, `x*3-1`, `x+100`), so theirs come from Rng::range_i32
+// within bounds that keep every such operation well inside int.
 
 /// The lengths of the long lists every int_lists corpus carries.
 const LONG_LISTS: [usize; 2] = [600, 2000];
@@ -162,7 +170,45 @@ fn int_lists(rng: &mut Rng, count: usize, val: fn(&mut Rng) -> i32) -> Vec<Vec<i
     out
 }
 
+/// A second list, for the two-list arms: its length drawn first, below
+/// `max_len`, then each value in [lo, hi].
+fn rand_ints(rng: &mut Rng, max_len: usize, lo: i32, hi: i32) -> Vec<i32> {
+    let n = rng.below(max_len);
+    (0..n).map(|_| rng.range_i32(lo, hi)).collect()
+}
+
+/// The one-list corpora: each list int_lists draws with `val`, then the
+/// answer `answer` gives for it, tab-separated.
+fn emit_lists(seed: u64, count: usize, val: fn(&mut Rng) -> i32, answer: impl Fn(&[i32]) -> String) {
+    let mut rng = Rng::new(seed);
+    let lists = int_lists(&mut rng, count, val);
+    let mut w = io::BufWriter::new(io::stdout());
+    for v in &lists {
+        let _ = writeln!(w, "{}\t{}", join_csv(v), answer(v));
+    }
+}
+
+/// push_front's and list_reverse's answer: the list reversed.
+fn reversed_csv(v: &[i32]) -> String {
+    let mut r = v.to_vec();
+    r.reverse();
+    join_csv(&r)
+}
+
 // ---------------------------------------------------------- generators
+/// ex05's corpus: each list int_lists draws, as strings -- each value's
+/// decimal text, so that no string is empty (a comma join cannot tell one
+/// empty string from none) and none holds a NUL -- then the list built from
+/// them. The function stores its strings and never reads them, so what they
+/// hold matters only to the harness that prints them back.
+fn gen_push_strs<W: Write>(w: &mut W, seed: u64, count: usize) {
+    let mut rng = Rng::new(seed);
+    for v in &int_lists(&mut rng, count, Rng::i32val) {
+        let strs: Vec<String> = v.iter().map(|x| x.to_string()).collect();
+        let _ = writeln!(w, "{}\t{}", join_hex(&strs), join_hex(&o_push_strs(&strs)));
+    }
+}
+
 fn gen_create_elem(seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let mut w = io::BufWriter::new(io::stdout());
@@ -177,31 +223,9 @@ fn gen_create_elem(seed: u64, count: usize) {
         done += 1;
     }
     while done < count {
-        let v = full_val(&mut rng);
+        let v = rng.i32val();
         let _ = writeln!(w, "{}\t{}\t1", v, v);
         done += 1;
-    }
-}
-
-fn gen_list_size(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let lists = int_lists(&mut rng, count, full_val);
-    let mut w = io::BufWriter::new(io::stdout());
-    for v in &lists {
-        let _ = writeln!(w, "{}\t{}", join_csv(v), v.len());
-    }
-}
-
-fn gen_list_last(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let lists = int_lists(&mut rng, count, full_val);
-    let mut w = io::BufWriter::new(io::stdout());
-    for v in &lists {
-        let out = match v.last() {
-            Some(x) => x.to_string(),
-            None => "NULL".to_string(),
-        };
-        let _ = writeln!(w, "{}\t{}", join_csv(v), out);
     }
 }
 
@@ -233,81 +257,32 @@ fn gen_list_at(seed: u64, count: usize) {
         if done >= count {
             break;
         }
-        let out = match v.get(idx) {
-            Some(x) => x.to_string(),
-            None => "NULL".to_string(),
-        };
-        let _ = writeln!(w, "{}\t{}\t{}", join_csv(v), idx, out);
+        let _ = writeln!(w, "{}\t{}\t{}", join_csv(v), idx, or_null(v.get(idx)));
         done += 1;
     }
-    let lists = int_lists(&mut rng, count, full_val);
+    let lists = int_lists(&mut rng, count, Rng::i32val);
     for v in &lists {
         if done >= count {
             break;
         }
         // exercise in-range and out-of-range indices (0 ..= len+2)
         let idx = rng.below(v.len() + 3);
-        let out = match v.get(idx) {
-            Some(x) => x.to_string(),
-            None => "NULL".to_string(),
-        };
-        let _ = writeln!(w, "{}\t{}\t{}", join_csv(v), idx, out);
+        let _ = writeln!(w, "{}\t{}\t{}", join_csv(v), idx, or_null(v.get(idx)));
         done += 1;
-    }
-}
-
-fn gen_push_front(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let lists = int_lists(&mut rng, count, full_val);
-    let mut w = io::BufWriter::new(io::stdout());
-    for v in &lists {
-        let mut r = v.clone();
-        r.reverse();
-        let _ = writeln!(w, "{}\t{}", join_csv(v), join_csv(&r));
-    }
-}
-
-fn gen_push_back(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let lists = int_lists(&mut rng, count, full_val);
-    let mut w = io::BufWriter::new(io::stdout());
-    for v in &lists {
-        let _ = writeln!(w, "{}\t{}", join_csv(v), join_csv(v));
-    }
-}
-
-fn gen_list_reverse(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let lists = int_lists(&mut rng, count, full_val);
-    let mut w = io::BufWriter::new(io::stdout());
-    for v in &lists {
-        let mut r = v.clone();
-        r.reverse();
-        let _ = writeln!(w, "{}\t{}", join_csv(v), join_csv(&r));
-    }
-}
-
-fn gen_list_sort(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    // bounded so the C comparator's (*a - *b) never overflows.
-    let lists = int_lists(&mut rng, count, |r| ranged_val(r, -100_000, 100_000));
-    let mut w = io::BufWriter::new(io::stdout());
-    for v in &lists {
-        let _ = writeln!(w, "{}\t{}", join_csv(v), join_csv(&o_sort(v)));
     }
 }
 
 fn gen_sorted_list_insert(seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    // Bounded for the C comparator's (*a - *b), exactly as gen_list_sort is.
+    // Bounded for the C comparator's (*a - *b), exactly as list_sort's corpus is.
     // SORTED on the way out: this exercise's precondition is that the list it
     // is handed is already in order, so a corpus of unsorted lists would be
     // asking the deliverable a question the subject never poses.
-    let lists = int_lists(&mut rng, count, |r| ranged_val(r, -100_000, 100_000));
+    let lists = int_lists(&mut rng, count, |r| r.range_i32(-100_000, 100_000));
     let mut w = io::BufWriter::new(io::stdout());
     for v in &lists {
         let sorted = o_sort(v);
-        let x = ranged_val(&mut rng, -100_000, 100_000);
+        let x = rng.range_i32(-100_000, 100_000);
         let _ = writeln!(
             w,
             "{}\t{}\t{}",
@@ -320,17 +295,13 @@ fn gen_sorted_list_insert(seed: u64, count: usize) {
 
 fn gen_sorted_list_merge(seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let lists = int_lists(&mut rng, count, |r| ranged_val(r, -100_000, 100_000));
+    let lists = int_lists(&mut rng, count, |r| r.range_i32(-100_000, 100_000));
     let mut w = io::BufWriter::new(io::stdout());
     for v in &lists {
         // The second list is drawn independently, so the pairs cover the cases
         // that matter for a merge: either side empty, one entirely below the
         // other, and interleaved.
-        let n = rng.below(9) as usize;
-        let mut other: Vec<i32> = Vec::new();
-        while other.len() < n {
-            other.push(ranged_val(&mut rng, -100_000, 100_000));
-        }
+        let other = rand_ints(&mut rng, 9, -100_000, 100_000);
         let a = o_sort(v);
         let b = o_sort(&other);
         let _ = writeln!(
@@ -343,33 +314,13 @@ fn gen_sorted_list_merge(seed: u64, count: usize) {
     }
 }
 
-fn gen_list_clear(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let lists = int_lists(&mut rng, count, full_val);
-    let mut w = io::BufWriter::new(io::stdout());
-    for v in &lists {
-        // a correct clear invokes free_fct exactly once per element.
-        let _ = writeln!(w, "{}\t{}", join_csv(v), v.len());
-    }
-}
-
-fn gen_foreach(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    // bounded so the C transform (x*3 - 1) never overflows.
-    let lists = int_lists(&mut rng, count, |r| ranged_val(r, -1_000_000, 1_000_000));
-    let mut w = io::BufWriter::new(io::stdout());
-    for v in &lists {
-        let _ = writeln!(w, "{}\t{}", join_csv(v), join_csv(&o_foreach(v)));
-    }
-}
-
 fn gen_foreach_if(seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     // small range so equality with `ref` (and hence matches) is common.
-    let lists = int_lists(&mut rng, count, |r| ranged_val(r, 0, 20));
+    let lists = int_lists(&mut rng, count, |r| r.range_i32(0, 20));
     let mut w = io::BufWriter::new(io::stdout());
     for v in &lists {
-        let data_ref = ranged_val(&mut rng, 0, 20);
+        let data_ref = rng.range_i32(0, 20);
         let r = o_foreach_if(v, data_ref);
         let _ = writeln!(w, "{}\t{}\t{}", join_csv(v), data_ref, join_csv(&r));
     }
@@ -377,10 +328,10 @@ fn gen_foreach_if(seed: u64, count: usize) {
 
 fn gen_remove_if(seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let lists = int_lists(&mut rng, count, |r| ranged_val(r, 0, 20));
+    let lists = int_lists(&mut rng, count, |r| r.range_i32(0, 20));
     let mut w = io::BufWriter::new(io::stdout());
     for v in &lists {
-        let data_ref = ranged_val(&mut rng, 0, 20);
+        let data_ref = rng.range_i32(0, 20);
         let r = o_remove_if(v, data_ref);
         // "The data from an element to be erased should be freed using
         // free_fct": one call per element removed (finding 130).
@@ -397,7 +348,7 @@ fn gen_remove_if(seed: u64, count: usize) {
 
 fn gen_list_merge(seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let lists = int_lists(&mut rng, count, |r| ranged_val(r, -100_000, 100_000));
+    let lists = int_lists(&mut rng, count, |r| r.range_i32(-100_000, 100_000));
     let mut w = io::BufWriter::new(io::stdout());
     for v in &lists {
         // The second list is drawn independently, so the pairs cover what a
@@ -409,11 +360,7 @@ fn gen_list_merge(seed: u64, count: usize) {
         // nothing about order, so preserving each list's own is the whole
         // requirement, and a corpus of sorted pairs would be passed by an
         // implementation that sorted.
-        let n = rng.below(9) as usize;
-        let mut other: Vec<i32> = Vec::new();
-        while other.len() < n {
-            other.push(ranged_val(&mut rng, -100_000, 100_000));
-        }
+        let other = rand_ints(&mut rng, 9, -100_000, 100_000);
         let _ = writeln!(
             w,
             "{}\t{}\t{}",
@@ -428,18 +375,21 @@ fn gen_list_merge(seed: u64, count: usize) {
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
         "c12_create_elem" => gen_create_elem(seed, count),
-        "c12_list_size" => gen_list_size(seed, count),
-        "c12_list_last" => gen_list_last(seed, count),
+        // list_clear's answer is free_fct's call count: a correct clear makes
+        // one per element.
+        "c12_list_size" | "c12_list_clear" => emit_lists(seed, count, Rng::i32val, |v| v.len().to_string()),
+        "c12_list_last" => emit_lists(seed, count, Rng::i32val, |v| or_null(v.last())),
         "c12_list_at" => gen_list_at(seed, count),
-        "c12_push_front" => gen_push_front(seed, count),
-        "c12_push_back" => gen_push_back(seed, count),
-        "c12_list_reverse" => gen_list_reverse(seed, count),
-        "c12_list_sort" => gen_list_sort(seed, count),
+        "c12_push_front" | "c12_list_reverse" => emit_lists(seed, count, Rng::i32val, reversed_csv),
+        "c12_push_back" => emit_lists(seed, count, Rng::i32val, join_csv),
+        "c12_push_strs" => gen_push_strs(&mut io::BufWriter::new(io::stdout()), seed, count),
+        // bounded so the C comparator's (*a - *b) never overflows.
+        "c12_list_sort" => emit_lists(seed, count, |r| r.range_i32(-100_000, 100_000), |v| join_csv(&o_sort(v))),
         "c12_sorted_list_insert" => gen_sorted_list_insert(seed, count),
         "c12_sorted_list_merge" => gen_sorted_list_merge(seed, count),
         "c12_list_merge" => gen_list_merge(seed, count),
-        "c12_list_clear" => gen_list_clear(seed, count),
-        "c12_foreach" => gen_foreach(seed, count),
+        // bounded so the C transform (x*3 - 1) never overflows.
+        "c12_foreach" => emit_lists(seed, count, |r| r.range_i32(-1_000_000, 1_000_000), |v| join_csv(&o_foreach(v))),
         "c12_foreach_if" => gen_foreach_if(seed, count),
         "c12_remove_if" => gen_remove_if(seed, count),
         _ => return false,
@@ -454,16 +404,66 @@ pub fn check() -> usize {
     // ---- every int_lists corpus carries its long lists, the same at every
     //      seed and count (finding 041) ----
     for seed in [1u64, 7] {
-        let lists = int_lists(&mut Rng::new(seed), 0, full_val);
+        let lists = int_lists(&mut Rng::new(seed), 0, Rng::i32val);
         let long: Vec<usize> = lists.iter().map(|l| l.len()).filter(|&n| n > 12).collect();
-        if long != LONG_LISTS.to_vec() || int_lists(&mut Rng::new(seed), 0, full_val) != lists {
+        if long != LONG_LISTS.to_vec() || int_lists(&mut Rng::new(seed), 0, Rng::i32val) != lists {
             eprintln!("CHECK FAIL c12 int_lists: the long lists are {:?}", long);
             fails += 1;
         }
     }
-    if int_lists(&mut Rng::new(1), 0, full_val)[9] != int_lists(&mut Rng::new(9), 0, full_val)[9] {
+    if int_lists(&mut Rng::new(1), 0, Rng::i32val)[9] != int_lists(&mut Rng::new(9), 0, Rng::i32val)[9] {
         eprintln!("CHECK FAIL c12 int_lists: a long list depends on the corpus's seed");
         fails += 1;
+    }
+
+    // ---- push_strs (ex05) ----
+    //
+    // Read back from the corpus itself, at two seeds: each line's list is its
+    // strings in the order the subject asks for ("The first element should be
+    // at the end of the list"), checked index by index rather than by the
+    // reference; no string is empty or holds a NUL, which the C reader could
+    // not carry; and the corpus holds every size from 0 to 12 and the long
+    // lists, so it asks what the output fixture's three sizes do not.
+    for seed in [1u64, 7] {
+        let mut buf = Vec::new();
+        gen_push_strs(&mut buf, seed, 3000);
+        let text = String::from_utf8_lossy(&buf);
+        let mut sizes = std::collections::BTreeSet::new();
+        let (mut lines, mut wrong, mut uncarried) = (0usize, None, None);
+        for l in text.lines() {
+            lines += 1;
+            let f: Vec<&str> = l.split('\t').collect();
+            let (strs, got) = (unhex_csv(f[0]), unhex_csv(f.get(1).copied().unwrap_or("")));
+            let n = strs.len();
+            if f.len() != 2 || got.len() != n || (0..n).any(|k| got[k] != strs[n - 1 - k]) {
+                wrong = wrong.or(Some(f[0].to_string()));
+            }
+            if strs.iter().any(|s| s.is_empty() || s.contains(&0)) {
+                uncarried = uncarried.or(Some(f[0].to_string()));
+            }
+            sizes.insert(n);
+        }
+        if let Some(l) = wrong {
+            eprintln!("CHECK FAIL c12 push_strs seed {}: the list for {:?} is not the subject's", seed, l);
+            fails += 1;
+        }
+        if let Some(l) = uncarried {
+            eprintln!("CHECK FAIL c12 push_strs seed {}: a string the C reader cannot carry in {:?}", seed, l);
+            fails += 1;
+        }
+        if lines != 3000 || (0..=12).any(|n| !sizes.contains(&n)) || !LONG_LISTS.iter().all(|n| sizes.contains(n)) {
+            eprintln!("CHECK FAIL c12 push_strs seed {}: {} lines, sizes {:?}", seed, lines, sizes);
+            fails += 1;
+        }
+    }
+    {
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        gen_push_strs(&mut a, 1, 3000);
+        gen_push_strs(&mut b, 7, 3000);
+        if a == b {
+            eprintln!("CHECK FAIL c12 push_strs: seeds 1 and 7 give the same corpus");
+            fails += 1;
+        }
     }
 
     // ---- sorted insert / merge (ex16, ex17) ----
@@ -511,8 +511,8 @@ pub fn check() -> usize {
         // sorted would pass a length check and fail this.
         let mut rng = Rng::new(11);
         for _ in 0..500 {
-            let a: Vec<i32> = (0..rng.below(9)).map(|_| ranged_val(&mut rng, -50, 50)).collect();
-            let b: Vec<i32> = (0..rng.below(9)).map(|_| ranged_val(&mut rng, -50, 50)).collect();
+            let a = rand_ints(&mut rng, 9, -50, 50);
+            let b = rand_ints(&mut rng, 9, -50, 50);
             let m = o_list_merge(&a, &b);
             if m.len() != a.len() + b.len()
                 || m[..a.len()] != a[..]
@@ -528,9 +528,9 @@ pub fn check() -> usize {
     {
         let mut rng = Rng::new(7);
         for _ in 0..500 {
-            let a = o_sort(&(0..rng.below(9)).map(|_| ranged_val(&mut rng, -50, 50)).collect::<Vec<i32>>());
-            let b = o_sort(&(0..rng.below(9)).map(|_| ranged_val(&mut rng, -50, 50)).collect::<Vec<i32>>());
-            let x = ranged_val(&mut rng, -50, 50);
+            let a = o_sort(&rand_ints(&mut rng, 9, -50, 50));
+            let b = o_sort(&rand_ints(&mut rng, 9, -50, 50));
+            let x = rng.range_i32(-50, 50);
 
             // Insert: one longer, still ordered, and the same multiset plus x.
             let ins = o_sorted_insert(&a, x);
@@ -612,7 +612,7 @@ pub fn check() -> usize {
         let size = rng.below(13);
 
         // sort: ascending AND a permutation of the input
-        let sv: Vec<i32> = (0..size).map(|_| ranged_val(&mut rng, -100_000, 100_000)).collect();
+        let sv: Vec<i32> = (0..size).map(|_| rng.range_i32(-100_000, 100_000)).collect();
         let s = o_sort(&sv);
         if s.windows(2).any(|w| w[0] > w[1]) {
             eprintln!("CHECK FAIL c12 sort not ordered");
@@ -628,7 +628,7 @@ pub fn check() -> usize {
         }
 
         // foreach: length preserved, each element transformed independently
-        let fv: Vec<i32> = (0..size).map(|_| ranged_val(&mut rng, -1_000_000, 1_000_000)).collect();
+        let fv: Vec<i32> = (0..size).map(|_| rng.range_i32(-1_000_000, 1_000_000)).collect();
         let fr = o_foreach(&fv);
         if fr.len() != fv.len() || fr.iter().zip(&fv).any(|(&y, &x)| y != x * 3 - 1) {
             eprintln!("CHECK FAIL c12 foreach prop");
@@ -636,8 +636,8 @@ pub fn check() -> usize {
         }
 
         // remove_if: result is exactly the elements != ref, order preserved
-        let rv: Vec<i32> = (0..size).map(|_| ranged_val(&mut rng, 0, 20)).collect();
-        let rf = ranged_val(&mut rng, 0, 20);
+        let rv: Vec<i32> = (0..size).map(|_| rng.range_i32(0, 20)).collect();
+        let rf = rng.range_i32(0, 20);
         let rr = o_remove_if(&rv, rf);
         let expect: Vec<i32> = rv.iter().copied().filter(|&x| x != rf).collect();
         if rr != expect || rr.iter().any(|&x| x == rf) {
@@ -676,9 +676,13 @@ pub fn bench(name: &str) -> bool {
         | "c12_push_front" | "c12_push_back" | "c12_list_reverse" | "c12_list_sort"
         | "c12_list_clear" | "c12_foreach" | "c12_foreach_if" | "c12_remove_if"
         | "c12_sorted_list_insert" | "c12_sorted_list_merge"
-        | "c12_list_merge") { return false; }
+        | "c12_list_merge" | "c12_push_strs") { return false; }
     for l in bench_lines() {
         let f: Vec<&str> = l.split('\t').collect();
+        if name == "c12_push_strs" {
+            sink(o_push_strs(&unhex_csv(f[0])));
+            continue;
+        }
         let v = ints_csv(f[0]);
         match name {
             "c12_create_elem" => sink(f[0].parse::<i32>().ok()),

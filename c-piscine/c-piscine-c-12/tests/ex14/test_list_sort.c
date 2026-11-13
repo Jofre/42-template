@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 
+void	ft_list_sort(t_list **begin_list, int (*cmp)());
+
 /* The comparator handed to the function: libc strcmp, which a test is free to
  * use. The fixture never prints what it returns, only what the function did
  * with it. */

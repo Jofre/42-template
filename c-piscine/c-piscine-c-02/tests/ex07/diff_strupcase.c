@@ -21,8 +21,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		s = dio_unhex(f[0], &slen, 0);
 		ret = ft_strupcase((char *)s);
 		printf("%s\t", f[0]);

@@ -19,8 +19,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		s = dio_unhex(f[0], NULL, 0);
 		printf("%s\t%d\n", f[0], ft_atoi((char *)s));
 		free(s);

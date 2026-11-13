@@ -15,9 +15,20 @@
 # and something else may own it.
 set -u
 
+# The external commands this script takes from PATH, declared and probed
+# like the runners' (diff_output.sh says why): exit 2 when one is missing.
+require() {
+	for _t in "$@"; do
+		command -v "$_t" > /dev/null 2>&1 && continue
+		echo "install.sh: required command '$_t' is not on PATH" >&2
+		exit 2
+	done
+}
+require cat chmod dirname grep mkdir mv rm sed
+
 MARK='# 42 shim, written by tools/fortytwo/install.sh'
 
-WS=$(cd "$(dirname "$0")/../.." && pwd) || exit 2
+WS=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd) || exit 2
 [ -f "$WS/tools/42.sh" ] || { echo "install.sh: $WS/tools/42.sh is missing" >&2; exit 2; }
 BINDIR=${1:-${HOME:?install.sh: HOME is not set}/.local/bin}
 SHIM="$BINDIR/42"

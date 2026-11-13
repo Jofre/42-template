@@ -68,6 +68,7 @@ mod shell01;
 
 use std::env;
 use std::ffi::OsString;
+use std::os::unix::ffi::OsStrExt;
 use std::process::exit;
 
 /// `oracle bench <fn>` — read a corpus on stdin and compute the reference
@@ -169,7 +170,12 @@ fn check_all() -> usize {
 /// back unread: an unknown name, which every module is asked about (exit 2),
 /// and c05_ten_queens, an arm asked after c01 that reads no corpus (exit 0).
 /// And c01_swap, a guarded arm, must take a line too short for it as no
-/// case, not as no arm (exit 0, where "no baseline" is exit 2).
+/// case, not as no arm (exit 0, where "no baseline" is exit 2). And an arm
+/// must replay its whole corpus, to the end of the file: c01_putstr's lines
+/// carry their string raw after the tab, so one is not UTF-8, and a reader
+/// that ended there would time a few lines and call the reference too fast
+/// to time. Its file is longer than the 8 KiB stdin reads at a time, so a
+/// reader that stopped early leaves the offset short of the end.
 fn check_bench_stdin() -> usize {
     use std::io::{Read, Seek};
     use std::process::{Command, Stdio};
@@ -178,13 +184,26 @@ fn check_bench_stdin() -> usize {
         return 1;
     };
     let dir = env::temp_dir().join(format!("oracle-check-bench-{}", std::process::id()));
-    let cases: [(&str, &[u8], i32, bool); 3] = [
-        ("no_such_arm", b"1\t2\n3\t4\n", 2, true),
-        ("c05_ten_queens", b"1\t2\n3\t4\n", 0, true),
-        ("c01_swap", b"1\n", 0, false),
+    // What a run must do with its stdin: leave it unread, read what it
+    // likes, or read it to the end.
+    #[derive(PartialEq)]
+    enum Reads {
+        Nothing,
+        Any,
+        All,
+    }
+    let mut raw = b"\t\n80\t\x80\n".to_vec();
+    for _ in 0..4000 {
+        raw.extend_from_slice(b"61\ta\n");
+    }
+    let cases: [(&str, &[u8], i32, Reads); 4] = [
+        ("no_such_arm", b"1\t2\n3\t4\n", 2, Reads::Nothing),
+        ("c05_ten_queens", b"1\t2\n3\t4\n", 0, Reads::Nothing),
+        ("c01_swap", b"1\n", 0, Reads::Any),
+        ("c01_putstr", &raw, 0, Reads::All),
     ];
     let mut fails = 0;
-    for (arm, corpus, want, unread) in cases {
+    for (arm, corpus, want, reads) in cases {
         let path = dir.join("corpus");
         let run = std::fs::create_dir_all(&dir)
             .and_then(|_| std::fs::write(&path, corpus))
@@ -208,10 +227,20 @@ fn check_bench_stdin() -> usize {
                     eprintln!("main: `oracle bench {}` ended with {} (want exit {})", arm, o, want);
                     fails += 1;
                 }
-                if unread && rest != corpus {
+                if reads == Reads::Nothing && rest != corpus {
                     eprintln!(
                         "main: `oracle bench {}` read {} of its {}-byte stdin, which it has no use for: a \
                          module read the corpus before it knew the arm was its own",
+                        arm,
+                        at,
+                        corpus.len()
+                    );
+                    fails += 1;
+                }
+                if reads == Reads::All && !rest.is_empty() {
+                    eprintln!(
+                        "main: `oracle bench {}` stopped at byte {} of its {}-byte stdin: an arm replays \
+                         every line of its corpus, and a line that is not UTF-8 is still one of them",
                         arm,
                         at,
                         corpus.len()
@@ -233,9 +262,13 @@ fn check_bench_stdin() -> usize {
 /// argument that is not UTF-8, and `env::args()` panics on one (exit 101), which
 /// a runner reads as the reference crashing. So this binary runs itself on such
 /// an argument: once for each program `oracle run` knows, for c-06's and
-/// c-10's, for `run --has` and a name `run` does not know, and once where the
-/// commands that take words read one. Each run is held to a status of its
-/// own: the program's answer, its "no answer", or a refusal, never a panic.
+/// c-10's, for `run --has` and a name `run` does not know, for the two Shell
+/// 01 commands that take a login (shell01_groups, shell01_multigroup), which
+/// is the user database's bytes, and once where the commands that take words
+/// read one. Each run is held to a status of its own: the program's answer,
+/// its "no answer", or a refusal, never a panic. Two more runs hold the
+/// numbers to the same: a seed that is not a number, and an unknown length
+/// arm at a count of 0, are each a usage error (exit 2), never a corpus.
 /// check_args_bytes holds the two rush programs to their output as well.
 fn check_args() -> usize {
     use std::ffi::OsStr;
@@ -246,7 +279,7 @@ fn check_args() -> usize {
         return 1;
     };
     let bad = OsStr::from_bytes(b"1\xff");
-    let runs: [(&[&OsStr], &[i32]); 9] = [
+    let runs: [(&[&OsStr], &[i32]); 13] = [
         (&[OsStr::new("run"), OsStr::new("do-op"), bad, OsStr::new("+"), OsStr::new("1")], &[0, 2]),
         (&[OsStr::new("run"), OsStr::new("rush-02"), bad], &[0]),
         (&[OsStr::new("run"), OsStr::new("rush01"), bad], &[0]),
@@ -255,7 +288,13 @@ fn check_args() -> usize {
         (&[OsStr::new("run"), bad], &[2]),
         (&[OsStr::new("c10_run"), OsStr::new("cat"), bad], &[2]),
         (&[OsStr::new("c06_run"), OsStr::new("print"), bad], &[0]),
+        (&[OsStr::new("shell01_groups"), bad], &[1]),
+        (&[OsStr::new("shell01_multigroup"), bad], &[0, 1]),
         (&[bad, OsStr::new("1"), OsStr::new("1")], &[2]),
+        // A seed, count or length that is not a number is a usage error, never
+        // a corpus of seed 0; and an unknown length arm is one at a count of 0.
+        (&[OsStr::new("libft_atoi"), OsStr::new("12a"), OsStr::new("100")], &[2]),
+        (&[OsStr::new("bogus_len"), OsStr::new("1"), OsStr::new("0"), OsStr::new("5")], &[2]),
     ];
     let mut fails = 0;
     for (args, want) in runs {
@@ -372,12 +411,33 @@ fn program(name: &str) -> Option<fn(&[OsString]) -> i32> {
     }
 }
 
+/// A seed, count or length from the command line. One that is not a number
+/// is a usage error (exit 2): read as 0, as it once was, a typo in a BUILD
+/// file wrote a valid corpus of seed 0 and exited 0.
+fn num<T: std::str::FromStr>(s: &str) -> T {
+    match s.parse() {
+        Ok(v) => v,
+        Err(_) => {
+            eprintln!("oracle: '{}' is not a number", s);
+            exit(2);
+        }
+    }
+}
+
 fn main() {
     // The commands that run a program read its arguments as the OS gave them:
     // an argument a table or a case hands the program need not be UTF-8, and
-    // env::args() panics on one (check_args). Every other command takes words,
-    // and a word that is not UTF-8 is a usage error there, never a panic.
+    // env::args() panics on one (check_args). So do the two that take a login,
+    // which is the user database's bytes, as `id` reads it. Every other
+    // command takes words, and a word that is not UTF-8 is a usage error
+    // there, never a panic.
     let raw: Vec<OsString> = env::args_os().collect();
+    if raw.len() == 3 && raw[1] == "shell01_groups" {
+        shell01::groups(raw[2].as_bytes());
+    }
+    if (raw.len() == 2 || raw.len() == 3) && raw[1] == "shell01_multigroup" {
+        shell01::multigroup_cmd(raw.get(2).map(|a| a.as_bytes()));
+    }
     if raw.len() >= 3 && raw[1] == "c06_run" {
         c06::run_cmd(&raw[2..]);
     }
@@ -410,12 +470,6 @@ fn main() {
         }
         eprintln!("oracle bench: no baseline for {}", args[2]);
         exit(2);
-    }
-    if args.len() == 3 && args[1] == "shell01_groups" {
-        shell01::groups(&args[2]);
-    }
-    if (args.len() == 2 || args.len() == 3) && args[1] == "shell01_multigroup" {
-        shell01::multigroup_cmd(args.get(2).map(String::as_str));
     }
     if args.len() == 2 && args[1] == "shell01_hwaddr" {
         shell01::hwaddr_cmd(false);
@@ -451,9 +505,7 @@ fn main() {
         exit(1);
     }
     if args.len() == 5 {
-        let seed: u64 = args[2].parse().unwrap_or(0);
-        let count: usize = args[3].parse().unwrap_or(0);
-        let len: usize = args[4].parse().unwrap_or(0);
+        let (seed, count, len): (u64, usize, usize) = (num(&args[2]), num(&args[3]), num(&args[4]));
         if !length::gen(&args[1], seed, count, len) {
             eprintln!("unknown length arm: {}", args[1]);
             exit(2);
@@ -465,8 +517,7 @@ fn main() {
         exit(2);
     }
     let func = args[1].as_str();
-    let seed: u64 = args[2].parse().unwrap_or(0);
-    let count: usize = args[3].parse().unwrap_or(0);
+    let (seed, count): (u64, usize) = (num(&args[2]), num(&args[3]));
     if !dispatch(func, seed, count) {
         eprintln!("unknown fn: {}", func);
         exit(2);

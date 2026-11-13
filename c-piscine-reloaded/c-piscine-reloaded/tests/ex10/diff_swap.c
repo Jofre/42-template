@@ -14,8 +14,7 @@ int	main(void)
 
 	while (dio_line(line, sizeof(line)))
 	{
-		if (dio_split(line, f, 4) < 2)
-			continue ;
+		dio_fields(line, f, 4, 2);
 		a = (int)strtol(f[0], NULL, 10);
 		b = (int)strtol(f[1], NULL, 10);
 		ft_swap(&a, &b);

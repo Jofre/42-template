@@ -145,4 +145,7 @@ c_cycles(
     # saying how to get there.
     budget = 4.5,
     syscall_budget = 1.0,
+    # It writes the string it was handed, as it is: the one kind of function
+    # a write() budget may be set on (c_cycles' syscall_budget).
+    output_is_input = True,
 )

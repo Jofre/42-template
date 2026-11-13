@@ -6,6 +6,8 @@
 #include "diffio.h"
 #include "ft_btree.h"
 
+int		btree_level_count(t_btree *root);
+
 /* The tree is built BY CONSTRUCTION from the oracle's shape: pool[i] holds
  * items[i] and is linked under pool[parent] on the side the shape names. The
  * pool comes zeroed, so every link the shape does not set stays empty. Nothing
@@ -59,8 +61,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		printf("%s\t%s\t", f[0], f[1]);
 		items = dio_hex_list(f[0], &n);
 		pool = calloc(n, sizeof(t_btree));

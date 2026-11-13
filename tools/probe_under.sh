@@ -21,6 +21,15 @@
 # runner is then started exactly as it would have been. The targets that go
 # red are the ones that catch the stand-in's mistake.
 #
+# Those four flags are how every runner that checks for a stand-in takes its
+# program (//tools:conventions holds each one listed in tools/defs_test.bzl's
+# _STANDIN_RUNNERS to a --bin or --student-bin): a program handed over as a
+# plain argument would run in the stand-in's place, as progname_test.sh's did.
+# perf_test.sh's --length-bin is left alone, as --baseline-bin is: it is a
+# second harness over the student's code, fed the length arm's lines, which a
+# stand-in for the program under test does not read, and the length series it
+# is timed in is reported, never gated (perf_test.sh, "length mode").
+#
 # --nocache_test_results, always: the stand-in is no input Bazel tracks, so a
 # stand-in changed at the same path would otherwise get the last one's
 # verdicts back from the cache.
@@ -103,6 +112,6 @@ done
 # and its verdict says nothing about the stand-in: said, so that a probe
 # reading "green" never counts it.
 if [ "$_swapped" = 0 ]; then
-	echo "probe_under.sh: this test is handed no program to run (no --bin, --student-bin, --gate-bin or --gate-asan-bin): its verdict is not the stand-in's" >&2
+	echo "probe_under.sh: this test hands its runner no program behind a flag this probe knows (--bin, --student-bin, --gate-bin or --gate-asan-bin): its verdict is not the stand-in's" >&2
 fi
 exec "$@"

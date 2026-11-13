@@ -32,14 +32,14 @@
 # pattern (relative to the directory, as the shell globs it: '*.txt' is the
 # directory's own .txt files, 'fixtures/*.map' those under fixtures/) names
 # files the reference writes, and a file it matches that no record names
-# fails, UNOWNED. A pattern that matches no file at all is refused (exit 2):
-# a typo there would own nothing and check nothing. Under `bazel test` the
-# directory holds what the test's data lists, so the data glob and the
-# --owns patterns say the same thing. The other half -- a file a named case
-# reads that NO pattern matches, which this runner never sees -- is
-# c_levels()' audit's: it reads --in-dir-of and --owns from this test's
-# arguments, so pass each as its own argument, the directory as
-# "$(location tests/exNN/<a file>)" (tools/defs.bzl, _oracle_owner).
+# fails, UNOWNED. A pattern that matches no file, and no record's path globbed
+# the same way, is refused (exit 2): a typo there would own nothing and check
+# nothing. Under `bazel test` the directory holds what the test's data lists,
+# so the data glob and the --owns patterns say the same thing. The other half
+# -- a file a named case reads that NO pattern matches, which this runner
+# never sees -- is c_levels()' audit's: it reads --in-dir-of and --owns from
+# this test's arguments, so pass each as its own argument, the directory as
+# "$(location tests/exNN/<a file>)" (tools/defs_toolchain.bzl, _oracle_owner).
 #
 # Usage:
 #   oracle_fixtures.sh --oracle PATH --fn NAME --in-dir-of FILE --owns GLOB...
@@ -76,14 +76,14 @@ require() {
 		exit 2
 	done
 }
-require cmp cp dirname grep mkdir mktemp rm sed tr
+require cmp cp dirname grep mkdir mktemp rm tr
 
 # The shared runner helpers -- exiting signal traps, and the one byte renderer
 # every table and excerpt uses -- written once in tools/runner_lib.sh.
 RL_NAME=oracle_fixtures
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "oracle_fixtures.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "oracle_fixtures.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 
@@ -96,15 +96,13 @@ ANCHOR=""
 WRITE=0
 OWNS=""
 
-need() { [ "$2" -ge 2 ] || { echo "oracle_fixtures.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
-		--fn) need "$1" "$#"; FN="$2"; shift 2 ;;
-		--in-dir-of) need "$1" "$#"; ANCHOR="$2"; shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--fn) rl_need "$1" "$#"; FN="$2"; shift 2 ;;
+		--in-dir-of) rl_need "$1" "$#"; ANCHOR="$2"; shift 2 ;;
 		--owns)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				"" | /* | *//* | */ | *[!A-Za-z0-9_./*?-]* | .. | ../* | */.. | */../*)
 					echo "oracle_fixtures.sh: --owns '$2': a pattern is relative, with no empty or" >&2
@@ -144,7 +142,7 @@ rl_traps 'rm -rf "$WORK"'
 
 if ! "$ORACLE" "$FN" 0 0 > "$WORK/records" 2> "$WORK/err"; then
 	echo "oracle_fixtures.sh: the reference could not print '$FN':" >&2
-	sed 's/^/    /' "$WORK/err" >&2
+	rl_excerpt "$WORK/err" 10 oracle-stderr.txt >&2
 	exit 2
 fi
 [ -s "$WORK/records" ] || { echo "oracle_fixtures.sh: '$FN' printed no record" >&2; exit 2; }
@@ -152,7 +150,10 @@ fi
 TAB=$(printf '\t')
 N=0
 BAD=0
-while IFS= read -r line; do
+# `|| [ -n "$line" ]`: a last record with no newline after it is still one.
+# Without it `read` returns false on it and the loop dropped it unsaid: never
+# written, compared or named, so --owns called its file unowned.
+while IFS= read -r line || [ -n "$line" ]; do
 	[ -n "$line" ] || continue
 	path=${line%%"$TAB"*}
 	esc=${line#*"$TAB"}
@@ -197,19 +198,35 @@ done < "$WORK/records"
 # pattern at a time, so a pattern that matches nothing is seen as one.
 UNOWNED=0
 OWNED_LIST=$(printf '%s' "$OWNS" | tr '\n' ' ')
+# named_tree -- $WORK/named_tree, an empty file at each path a record names,
+# made once: the paths were refused above unless each segment is letters,
+# digits, '_', '-' and '.', none empty or "..", so each lands inside it.
+named_tree() {
+	[ ! -d "$WORK/named_tree" ] || return 0
+	mkdir "$WORK/named_tree"
+	while IFS= read -r _p; do
+		case $_p in */*) mkdir -p "$WORK/named_tree/${_p%/*}" 2> /dev/null ;; esac
+		: > "$WORK/named_tree/$_p" 2> /dev/null
+	done < "$WORK/named"
+}
 while IFS= read -r _g; do
 	[ -n "$_g" ] || continue
 	# $_g unquoted on purpose: it is the pattern, and the shell globs it.
 	(cd "$DIR" && for _f in $_g; do [ -f "$_f" ] && printf '%s\n' "$_f"; done) > "$WORK/hits"
 	if [ ! -s "$WORK/hits" ]; then
 		# No file on disk: still a pattern that owns something when a record
-		# falls under it (that file is MISSING, reported above).
-		_named=0
-		while IFS= read -r _p; do
-			# shellcheck disable=SC2254 # $_g is the pattern, unquoted on purpose.
-			case "$_p" in $_g) _named=1; break ;; esac
-		done < "$WORK/named"
-		if [ "$_named" -eq 0 ]; then
+		# falls under it (that file is MISSING, reported above). Asked of the
+		# records the way it was asked of the directory, by the shell's own
+		# glob, over a tree of empty files at the paths the records name: it
+		# was a case pattern, where '*' crosses a '/', so '*.map' "owned"
+		# fixtures/a.map, the refusal never came, and a hand-typed
+		# fixtures/hand.map was never UNOWNED. The glob is also the one
+		# tools/defs_toolchain.bzl's _path_glob_match follows, segment by
+		# segment, in c_levels()' half of this audit.
+		named_tree
+		# $_g unquoted on purpose, as above.
+		_named=$(cd "$WORK/named_tree" && for _f in $_g; do [ -f "$_f" ] && echo 1 && break; done)
+		if [ -z "$_named" ]; then
 			echo "oracle_fixtures.sh: --owns '$_g' matches no file in $DIR and no record," >&2
 			echo "  so it owns nothing and checks nothing. Fix the pattern, or the test's data." >&2
 			exit 2

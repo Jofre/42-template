@@ -59,7 +59,12 @@
 # -- without sh or sleep there is a first and a last sample and nothing between
 # them; without sync a sample may be lost with the machine; without ps there
 # is no RSS -- and a trace that cannot be written is skipped without a word. A
-# script wired into a login shell must never refuse over it.
+# script wired into a login shell must never refuse over it. Each tool of
+# //tools:conventions' list it takes, named with what goes without it:
+# conventions: optional sleep -- probed; without it there is a first and a last sample and nothing between them
+# conventions: optional uname -- probed; without it, and without /proc's host name, the machine's folder is "unknown"
+# conventions: optional mkdir -- without it no trace folder is made, and the trace is skipped without a word
+# conventions: optional rm -- without it a machine keeps more than its five newest traces
 #
 # THE SAMPLER is a separate `sh` that watches the process that started it, its
 # $PPID, and stops when that process is gone. A loop in a subshell could not:

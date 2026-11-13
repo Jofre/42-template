@@ -20,8 +20,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		s = dio_unhex(f[0], NULL, 0);
 		base = dio_unhex(f[1], NULL, 0);
 		printf("%s\t%s\t%d\n", f[0], f[1], ft_atoi_base((char *)s, (char *)base));

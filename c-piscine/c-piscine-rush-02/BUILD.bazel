@@ -1,4 +1,4 @@
-load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_issued", "c_levels", "c_make", "c_program", "corpus_memory", "exercise", "hand_test", "stderr_ignored", "subject")
+load("//tools:defs.bzl", "NORM_NO_WILDCARDS", "c_issued", "c_levels", "c_make", "c_program", "corpus_memory", "exercise", "hand_test", "oracle_fixtures", "stderr_ignored", "subject")
 
 # THE SUBJECT CONTRACT (tools/subject.bzl), from the header box on page 6:
 # "Turn-in directory: ex00/", "Files to turn in: Makefile and all the necessary
@@ -713,40 +713,22 @@ c_levels()
 # The named cases' files are the reference's (layer oracle, complete): every
 # dictionary, argument file and expected output under tests/ex00/ that
 # `oracle rush02_fixtures` writes, byte for byte, and no file of those kinds
-# that it does not write (--owns). It runs nothing of yours. After a change
-# to the reference:
+# that it does not write (owns): what is staged is what is owned, so a case
+# added with a hand-typed dictionary or output fails here until the
+# reference writes it. It runs nothing of yours. After a change to the
+# reference:
 #
 #     bazel run //c-piscine/c-piscine-rush-02:ex00_oracle_fixtures -- --write
-hand_test(
+oracle_fixtures(
     name = "ex00_oracle_fixtures",
-    layer = "oracle",
-    size = "small",
-    srcs = ["//tools:oracle_fixtures.sh"],
-    args = [
-        "--oracle",
-        "$(location //oracle:oracle)",
-        "--fn",
-        "rush02_fixtures",
-        "--in-dir-of",
-        "$(location tests/ex00/error.txt)",
-        # The same patterns as the data below: what is staged is what is owned,
-        # so a case added with a hand-typed dictionary or output fails here
-        # until the reference writes it.
-        "--owns",
+    fn = "rush02_fixtures",
+    dir = "tests/ex00/",
+    in_dir_of = "error.txt",
+    owns = [
         "*.txt",
-        "--owns",
         "*.argv",
-        "--owns",
         "fixtures/*.dict",
     ],
-    data = [
-        "//oracle:oracle",
-        "//tools:oracle_fixtures.sh",
-    ] + glob([
-        "tests/ex00/*.txt",
-        "tests/ex00/*.argv",
-        "tests/ex00/fixtures/*.dict",
-    ]),
 )
 
 # ---------------------------------------------------------------------------
@@ -773,7 +755,7 @@ hand_test(
 
 # That run's output test, by name (`waits` on both targets, and --gate-label,
 # which their SKIP line names): five cases print forty_two.txt, so the gate's
-# program and file alone do not say which (tools/defs.bzl, _waits_for). Its
+# program and file alone do not say which (tools/defs_contract.bzl, _waits_for). Its
 # red log lists both.
 RUSH02_WAITS = "ex00_dict_arg_42_output"
 
@@ -790,7 +772,7 @@ RUSH02_GATE = [
     RUSH02_WAITS,
 ]
 
-# A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the Run
+# A choice at every call (tools/defs_test.bzl's _RUNNER_CHOICES), and the Run
 # contract's: ignored, unless the subject requires something of it.
 RUSH02_STDERR = stderr_ignored("Rush 02's subject names no message for standard error")
 
@@ -820,8 +802,6 @@ hand_test(
     data = [
         ":ex00_bin",
         "//oracle:oracle",
-        "//tools:exit_status",
-        "//tools:runner_lib.sh",
         "tests/ex00/fixtures/ref.dict",
     ] + RUSH02_GATE_DATA,
     waits = RUSH02_WAITS,
@@ -848,8 +828,6 @@ hand_test(
     data = [
         ":ex00_bin",
         "//oracle:oracle",
-        "//tools:exit_status",
-        "//tools:runner_lib.sh",
         "tests/ex00/fixtures/ref.dict",
     ] + RUSH02_GATE_DATA,
     waits = RUSH02_WAITS,
@@ -899,14 +877,12 @@ hand_test(
         "--count",
         "200",
     ] +
-    # A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the Run
+    # A choice at every call (tools/defs_test.bzl's _RUNNER_CHOICES), and the Run
     # contract's: ignored, unless the subject requires something of it.
     stderr_ignored("Rush 02's subject names no message for standard error"),
     data = [
         ":ex00_bin",
         "//oracle:oracle",
-        "//tools:exit_status",
-        "//tools:runner_lib.sh",
         "tests/ex00/fixtures/ref.dict",
     ],
 )
@@ -948,8 +924,6 @@ hand_test(
     data = [
         ":ex00_bin",
         "//oracle:oracle",
-        "//tools:exit_status",
-        "//tools:runner_lib.sh",
         "tests/ex00/fixtures/ref.dict",
     ],
 )

@@ -48,7 +48,7 @@
 //!   * anything about EXIT STATUS or stderr. The subject pins neither, and
 //!     three of these four exercises have no error path at all.
 
-use crate::common::{esc_posix, long_text, o_strcmp, strcmp_signed, Rng};
+use crate::common::{esc_posix, long_text, o_strcmp, sort_readings_agree, sorted_by, Rng};
 
 /// One case: the arguments after argv[0], and what the program must print.
 ///
@@ -107,20 +107,10 @@ fn o_rev(args: &[Vec<u8>]) -> Vec<u8> {
 /// subject does not settle what happens to duplicates -- but any correct
 /// answer prints the same MULTISET, and since equal strings are
 /// indistinguishable in the output, stability is a property of the reference
-/// rather than a demand on the student.
+/// rather than a demand on the student. The sort is common.rs's sorted_by,
+/// written out there.
 fn o_sort(args: &[Vec<u8>]) -> Vec<u8> {
-    let mut v: Vec<Vec<u8>> = args.to_vec();
-    // Insertion sort, written out rather than taken from the standard library:
-    // this file is the definition of the answer, and `sort_by` would put the
-    // comparison one level away from the property being defined.
-    for i in 1..v.len() {
-        let mut j = i;
-        while j > 0 && o_strcmp(&v[j - 1], &v[j]) > 0 {
-            v.swap(j - 1, j);
-            j -= 1;
-        }
-    }
-    o_print(&v)
+    o_print(&sorted_by(args, o_strcmp))
 }
 
 /// Arguments a person would never type, which is the point.
@@ -164,18 +154,26 @@ fn fixed_cases() -> Vec<Vec<Vec<u8>>> {
         // byte, which only ex03 tells apart; and 1100 arguments, "a0" to
         // "a1099" in an order of their own, prefixes of each other among
         // them. From a seed of their own and the index alone.
-        long_args(),
-        (0..1100).map(|i| format!("a{}", (i * 7919) % 1100).into_bytes()).collect(),
+        long_args(b'b'),
+        many_args(),
     ]
 }
 
-/// The capacity case of one long argument (see fixed_cases).
-fn long_args() -> Vec<Vec<u8>> {
+/// The capacity case of one long argument (see fixed_cases): "m", 5000
+/// bytes, then two of 4101 that share their first 4100 and end in `last`
+/// and in 'a', then "m".
+fn long_args(last: u8) -> Vec<Vec<u8>> {
     let mut b = long_text(4100, 4100);
     let mut a = b.clone();
-    b.push(b'b');
+    b.push(last);
     a.push(b'a');
     vec![b"m".to_vec(), long_text(5000, 5000), b, a, b"m".to_vec()]
+}
+
+/// The capacity case of many arguments (see fixed_cases): "a0" to "a1099",
+/// in the order i * 7919 mod 1100 gives them.
+fn many_args() -> Vec<Vec<u8>> {
+    (0..1100).map(|i| format!("a{}", (i * 7919) % 1100).into_bytes()).collect()
 }
 
 /// A random argument: length 0..12, bytes drawn to hit the boundaries that
@@ -206,27 +204,6 @@ fn rand_arg(rng: &mut Rng) -> Vec<u8> {
 
 fn corpus(rng: &mut Rng, count: usize) -> Vec<Vec<Vec<u8>>> {
     corpus_where(rng, count, |_| true, true)
-}
-
-/// `args` sorted by `cmp`, as o_sort sorts them (a stable insertion sort).
-fn sorted_by(args: &[Vec<u8>], cmp: fn(&[u8], &[u8]) -> i64) -> Vec<Vec<u8>> {
-    let mut v: Vec<Vec<u8>> = args.to_vec();
-    for i in 1..v.len() {
-        let mut j = i;
-        while j > 0 && cmp(&v[j - 1], &v[j]) > 0 {
-            v.swap(j - 1, j);
-            j -= 1;
-        }
-    }
-    v
-}
-
-/// Whether the two readings of "ASCII order" print one order for `args`:
-/// the reference's, unsigned as strcmp, and a comparison of `char`s, signed
-/// on x86, under which every byte above 0x7f sorts below 0x00. They part
-/// only where such a byte is the first one two arguments differ in.
-fn sort_readings_agree(args: &[Vec<u8>]) -> bool {
-    sorted_by(args, strcmp_signed) == sorted_by(args, o_strcmp)
 }
 
 /// The fixed cases `keep` takes, then random ones it takes, until there are
@@ -297,13 +274,9 @@ fn sort_high_corpus(rng: &mut Rng, count: usize) -> Vec<Vec<Vec<u8>>> {
 /// the other, among one of 5000 bytes and two short ones. From the index
 /// alone, as fixed_cases' are.
 fn high_long_cases() -> Vec<Vec<Vec<u8>>> {
-    let mut many: Vec<Vec<u8>> = (0..1100).map(|i| format!("a{}", (i * 7919) % 1100).into_bytes()).collect();
+    let mut many = many_args();
     many.insert(550, vec![b'a', 0x80]);
-    let mut b = long_text(4100, 4100);
-    let mut a = b.clone();
-    b.push(0x80);
-    a.push(b'a');
-    vec![many, vec![b"m".to_vec(), long_text(5000, 5000), b, a, b"m".to_vec()]]
+    vec![many, long_args(0x80)]
 }
 
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
@@ -448,15 +421,8 @@ pub fn check() -> usize {
         let out = o_sort(&c);
         // An argument may contain a newline, so the output cannot be split on
         // one to recover the arguments. Sortedness is checked on the sorted
-        // VECTOR instead, rebuilt the same way o_sort builds it.
-        let mut v = c.clone();
-        for i in 1..v.len() {
-            let mut j = i;
-            while j > 0 && o_strcmp(&v[j - 1], &v[j]) > 0 {
-                v.swap(j - 1, j);
-                j -= 1;
-            }
-        }
+        // VECTOR instead, the one o_sort prints (sorted_by), against cmp.
+        let v = sorted_by(&c, o_strcmp);
         for w in v.windows(2) {
             if !cmp(&w[0], &w[1]) {
                 eprintln!("c06: sort produced an out-of-order pair");

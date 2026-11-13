@@ -26,7 +26,7 @@ if [ "${MAC_CHECK_IFCONFIG+set}" = set ]; then
 else
 	_ifc_given=0
 fi
-ORACLE=${ORACLE:?this check needs //oracle: declare the exercise with oracle = True}
+ck_oracle
 
 # ifconfig lives in /usr/sbin (on a 42 machine it's on the user's PATH), and
 # MAC.sh is run with this PATH.
@@ -122,6 +122,15 @@ ck "prints at least one MAC address" test -n "$out"
 # interfaces' addresses, and nothing else.
 printf '%s\n' "$out" | "$ORACLE" shell01_hwaddr --loopback 2>/dev/null
 verdict=$?
+# Any other answer is the reference failing: a broken harness, as at
+# --machine above, never a verdict on MAC.sh.
+case "$verdict" in
+	0 | 1 | 3 | 4 | 5) ;;
+	*)
+		rm -f "$raw" "$raw.err"
+		ck_broken "//oracle shell01_hwaddr --loopback answered $verdict, not 0, 1, 3, 4 or 5: the reference could not judge this output"
+		;;
+esac
 ck "every line is a valid MAC (XX:XX:XX:XX:XX:XX)" \
 	test "$verdict" -eq 0 -o "$verdict" -eq 3 -o "$verdict" -eq 4 -o "$verdict" -eq 5
 if [ "$verdict" -eq 4 ]; then
@@ -142,7 +151,17 @@ else
 		broadcast=0
 		while IFS= read -r line; do
 			printf '%s\n' "$line" | "$ORACLE" shell01_hwaddr --loopback 2>/dev/null
-			[ $? -eq 3 ] || continue
+			# 3 refuses the line; 0 and 5 accept it, and 4 is a machine that
+			# lost its last address meanwhile. Anything else: as above.
+			_line_rc=$?
+			case "$_line_rc" in
+				3) ;;
+				0 | 4 | 5) continue ;;
+				*)
+					rm -f "$raw" "$raw.err"
+					ck_broken "//oracle shell01_hwaddr --loopback answered $_line_rc for one line of this output, not 0, 3, 4 or 5"
+					;;
+			esac
 			refused="$refused${refused:+
 }not one of this machine's interface addresses: $line"
 			case "$line" in

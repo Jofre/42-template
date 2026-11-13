@@ -93,6 +93,7 @@
 #                      --harness FILE
 #                      --label TEXT [--max-inject N]
 #                      [--gate-differ F --gate-bin P --gate-expected F
+#                       [--gate-expected-alt F]...
 #                       [--gate-stdin F] [--gate-stream NAME]
 #                       [--gate-sanitize] [--gate-labeled]
 #                       [--gate-label NAME]]
@@ -145,6 +146,13 @@
 #                 same file, as valgrind_test.sh's --rule.
 #   --bin PROG    a PROGRAM, run on ARG... (and --stdin), instead of a
 #                 function's probe: see "A PROGRAM" below.
+#   --gate-expected-alt F
+#                 another output the gated case accepts (a case's "any_of"),
+#                 handed to the differ as --expected-alt. It and the other
+#                 options after --gate-expected describe a gate: given without
+#                 all of --gate-differ, --gate-bin and --gate-expected, they
+#                 are refused as a wiring mistake (runner_lib.sh's
+#                 rl_gate_whole).
 #   --gate-label NAME
 #                 the output test the gate stands for, named in the SKIP
 #                 line (c_levels()' audit holds it to that test,
@@ -207,7 +215,7 @@ require awk basename cat cp dirname grep mktemp rm sed tr wc
 RL_NAME=allocfail_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "allocfail_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "allocfail_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -268,50 +276,45 @@ _dir() {
 	if [ -d "$1" ]; then printf '%s\n' "$1"; else dirname "$1"; fi
 }
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "allocfail_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--harness) need "$1" "$#"; HARNESS="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--inc) need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
-		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
-		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
-		--max-inject) need "$1" "$#"; MAX_INJECT="$2"; shift 2 ;;
-		--shim) need "$1" "$#"; SHIM="$2"; shift 2 ;;
-		--timeout) need "$1" "$#"; TIMEOUT="$2"; shift 2 ;;
+		--src) rl_need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--harness) rl_need "$1" "$#"; HARNESS="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--inc) rl_need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
+		--inc-file) rl_need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
+		--label) rl_need "$1" "$#"; LABEL="$2"; shift 2 ;;
+		--max-inject) rl_need "$1" "$#"; MAX_INJECT="$2"; shift 2 ;;
+		--shim) rl_need "$1" "$#"; SHIM="$2"; shift 2 ;;
+		--timeout) rl_need "$1" "$#"; TIMEOUT="$2"; shift 2 ;;
 		--leaks) LEAKS=1; shift ;;
 		--rule)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			[ -s "$2" ] || { echo "allocfail_check.sh: no sentence in --rule $2" >&2; exit 2; }
 			RULE="$2"; shift 2 ;;
-		--bin) need "$1" "$#"; PROG="$2"; shift 2 ;;
-		--stdin) need "$1" "$#"; PSTDIN="$2"; shift 2 ;;
-		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; rl_list_add GATE_RUN --argv-file "$2"; shift 2 ;;
-		--run-as) need "$1" "$#"; RUN_AS="$2"; rl_list_add GATE_RUN --run-as "$2"; shift 2 ;;
-		--cwd-file) need "$1" "$#"; CWD_FILES="$CWD_FILES
+		--bin) rl_need "$1" "$#"; PROG="$2"; shift 2 ;;
+		--stdin) rl_need "$1" "$#"; PSTDIN="$2"; shift 2 ;;
+		--argv-file) rl_need "$1" "$#"; ARGV_FILE="$2"; rl_list_add GATE_RUN --argv-file "$2"; shift 2 ;;
+		--run-as) rl_need "$1" "$#"; RUN_AS="$2"; rl_list_add GATE_RUN --run-as "$2"; shift 2 ;;
+		--cwd-file) rl_need "$1" "$#"; CWD_FILES="$CWD_FILES
 $2"; rl_list_add GATE_RUN --cwd-file "$2"; shift 2 ;;
-		--show-run) need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
-		--gate-expected-alt) need "$1" "$#"; rl_list_add GATE_PASS --expected-alt "$2"; GATE_SAID=1; shift 2 ;;
+		--show-run) rl_need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
+		--gate-expected-alt) rl_need "$1" "$#"; rl_list_add GATE_PASS --expected-alt "$2"; GATE_SAID=1; shift 2 ;;
 		--) shift; break ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; GATE_SAID=1; shift 2 ;;
-		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-stdin) rl_need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-stream) rl_need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; GATE_SAID=1; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; GATE_SAID=1; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; GATE_SAID=1; shift ;;
-		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; GATE_SAID=1; shift 2 ;;
-		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; GATE_LABEL="$2"; GATE_SAID=1; shift 2 ;;
+		--gate-arg) rl_need "$1" "$#"; rl_list_add GATE_ARGS "$2"; GATE_SAID=1; shift 2 ;;
 		--survive) SURVIVE=1; shift ;;
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
-		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
-		--cc-under) need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
-		--ld) need "$1" "$#"; LD="$2"; shift 2 ;;
-		--ld-lib) need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--cc-under) rl_need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
+		--ld) rl_need "$1" "$#"; LD="$2"; shift 2 ;;
+		--ld-lib) rl_need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
 		*) echo "allocfail_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -347,20 +350,8 @@ if [ -n "$PROG" ]; then
 		echo "allocfail_check.sh: no such --stdin file: $PSTDIN (a wiring problem)" >&2
 		exit 2
 	}
-	# The run as the case describes it, or no run (diff_output.sh says why).
-	[ -z "$ARGV_FILE" ] || [ -r "$ARGV_FILE" ] || {
-		echo "allocfail_check.sh: --argv-file '$ARGV_FILE' is not readable" >&2
-		exit 2
-	}
-	if [ -n "$CWD_FILES" ] && [ -z "$RUN_AS" ]; then
-		echo "allocfail_check.sh: --cwd-file stages a file in the folder --run-as runs the program from" >&2
-		exit 2
-	fi
-	case "$RUN_AS" in
-		*/* | . | ..)
-			echo "allocfail_check.sh: --run-as takes the program's file name, not '$RUN_AS'" >&2
-			exit 2 ;;
-	esac
+	# The run as the case describes it, or no run (rl_case_check says why).
+	rl_case_check "$ARGV_FILE" "$RUN_AS" "$CWD_FILES"
 	[ -n "$LABEL" ] || LABEL="$(basename "$PROG")"
 	[ -z "$CC$LD" ] || {
 		echo "allocfail_check.sh: --bin runs a program as it was built; --cc and --ld" >&2
@@ -436,25 +427,29 @@ if [ "$MAX_INJECT" -lt 1 ]; then
 	echo "                    BUILD file where it is visible, not with a cap." >&2
 	exit 2
 fi
-# --timeout is validated for the same reason and with more urgency than it looks
-# to need: it is passed straight to timeout(1), which answers a malformed
-# duration with exit 125 WITHOUT running anything. That status lands on the
-# discovery run, which reads it as "the deliverable did not survive a plain
-# run", and the layer then emits a SKIP that tells the student to go read the
-# output and ASan layers. A typo in a BUILD file would be reported as a silent
-# green pointing at the wrong exercise. Measured before this check existed.
+# --timeout is validated for the same reason: it is handed to tools/exit_status
+# (rl_run), which reads it with atoi and arms no alarm for 0, so a malformed
+# value or a 0 is no limit at all, and the ceiling, checked only when that
+# alarm fires, goes with it. A run that never ends then runs until Bazel kills
+# the test, leaving an empty log: the outcome the limit exists to prevent.
 case "$TIMEOUT" in
 	''|*[!0-9]*)
 		echo "allocfail_check.sh: --timeout must be a whole number of seconds:" >&2
 		echo "                    $TIMEOUT" >&2
 		exit 2 ;;
 esac
+if [ "$TIMEOUT" -lt 1 ]; then
+	echo "allocfail_check.sh: --timeout must be at least 1 (got $TIMEOUT): a limit of" >&2
+	echo "                    0 seconds is no limit, and a run that never ended" >&2
+	echo "                    would run until the test itself was killed." >&2
+	exit 2
+fi
 
 # What the report calls the thing under test.
 WHAT=function
 [ -z "$PROG" ] || WHAT=program
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 # Absolute: a program's run may be made from a folder of its own (--run-as),
 # and the shim's report and the captured streams are named from here.
 case "$WORK" in /*) ;; *) WORK="$PWD/$WORK" ;; esac
@@ -577,23 +572,35 @@ run_arm() {
 	[ -n "$SEEN" ] || SEEN=0
 } 2>/dev/null
 
+# arm_fault WHAT -- right after run_arm, never inside it (its stderr is
+# /dev/null): the endings that say nothing about the program. A run the
+# TEST's own time limit cut short (RL_CLAMPED) is that limit running out:
+# rl_overrun, exit 1. It was a green SKIP in discovery ("did not end by
+# itself") and a HUNG row in the sweep, which tells the student their code
+# never ends. A run that could not start, or was stopped from outside, is
+# no verdict at all: rl_unjudged, exit 2. Function mode had no noexec arm,
+# so a probe exec could not start was a SKIP there, and a NORETURN row.
+arm_fault() {
+	if [ "$RL_CAUSE" = timeout ] && [ "$RL_CLAMPED" = 1 ]; then
+		rl_overrun "$1"
+		exit 1
+	fi
+	rl_unjudged "$1"
+}
+
 # How a run that did not return is described, from rl_classify: under
 # injection the overwhelmingly likely signal is the one you get for using an
 # address the allocator never gave you.
 signal_name() {
-	# Kept short on purpose: these strings go in a table column, and the report
-	# has to stay inside 80 columns to be readable in a terminal. What SIGSEGV
-	# means on THIS path is explained once, below the table, instead of being
-	# repeated on every row.
-	case "$RL_SIG" in
-		4) echo "SIGILL (illegal instruction)" ;;
-		6) echo "SIGABRT (abort: heap error or assertion)" ;;
-		8) echo "SIGFPE (arithmetic error)" ;;
-		11) echo "SIGSEGV (invalid memory access)" ;;
-		9) echo "SIGKILL (killed)" ;;
-		"") echo "a stop from outside" ;;
-		*) echo "signal $RL_SIG" ;;
-	esac
+	# Short on purpose (rl_signame --short): these strings go in a table
+	# column, and the report has to stay inside 80 columns to be readable in
+	# a terminal. What SIGSEGV means on THIS path is explained once, below the
+	# table, instead of being repeated on every row.
+	if [ -z "$RL_SIG" ]; then
+		echo "a stop from outside"
+	else
+		rl_signame --short "$RL_SIG"
+	fi
 }
 
 # How to describe a run that ended without the call ever returning. Status 0 is
@@ -604,8 +611,14 @@ signal_name() {
 ended_how() {
 	case "$RL_CAUSE" in
 		"timeout") echo "it did not finish within ${RL_TMO}s" ;;
-		signal | runaway | stopped) signal_name ;;
-		noexec) echo "it $RL_WHY" ;;
+		# A flood is said as the flood it was, never as the SIGXFSZ that
+		# stopped it: the signal is the budget's, not the program's.
+		runaway | noexec) echo "it $RL_WHY" ;;
+		signal) signal_name ;;
+		# Never reached: every caller runs after arm_fault, which refuses
+		# a run stopped from outside (rl_unjudged). Named all the same, so
+		# a new caller cannot call it an exit status.
+		stopped) signal_name ;;
 		ok) echo "it exited 0 without returning" ;;
 		*) echo "exit status $1" ;;
 	esac
@@ -649,8 +662,8 @@ rows() {
 
 # ---------------------------------------------------------------------------
 # Correctness gate: run the exercise's own curated fixture first and SKIP while
-# it is still red. Same shape, same flag names and the same fail-open rule as
-# valgrind_test.sh and cycles_check.sh, so defs.bzl wires all three identically.
+# it is still red, through tools/runner_lib.sh's rl_gate, as cycles_check.sh
+# and the corpus runners do, so defs.bzl wires them identically.
 #
 # The reason this layer in particular must be gated: a stub that returns NULL
 # without allocating anything passes an allocation-failure sweep trivially and
@@ -659,91 +672,40 @@ rows() {
 # not having written the function yet. It is neither; it is "come back when the
 # output layer is green", which is what the skip says.
 #
-# Fails OPEN by design: no gate, or a gate that cannot run, means the sweep
-# still runs. A gate that wrongly suppressed this layer would turn a real
-# finding green, which is worse than duplicating a red.
+# Fails OPEN by design (rl_gate): no gate, NO_SKIP=1, or a gate that cannot
+# run means the sweep still runs. A gate that wrongly suppressed this layer
+# would turn a real finding green, which is worse than duplicating a red.
 #
 # A program's gate replays its case: gate "$@" hands the program's arguments
-# to the differ after --, with its run (GATE_RUN), as valgrind_test.sh's gate
-# does -- but a survive case's (--survive), whose gate is the case --gate-arg
-# writes out.
+# to the differ after --, with its run (GATE_RUN) among the differ's options,
+# as valgrind_test.sh's gate does -- but a survive case's (--survive), whose
+# gate is the case --gate-arg writes out, and which is handed nothing of this
+# run. GATE_PASS, GATE_RUN and GATE_ARGS are lists (runner_lib.sh's LISTS OF
+# WORDS).
 gate() {
-if [ "${NO_SKIP:-0}" = "1" ]; then
-	GATE_DIFFER=""
-fi
-
-if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
-	# WHY THE STATUS IS CAPTURED RATHER THAN TESTED WITH `if !`.
-	#
-	# `if ! <gate>` treats EVERY non-zero the same, and the differ has two
-	# meanings for non-zero: 1 is "the student's fixture is red", which is what
-	# this gate is for, and 2 is "the differ could not run at all" -- a missing
-	# tool, an unreadable expected file, a wiring mistake. Conflating them meant
-	# a BROKEN gate silenced the layer it guards and printed a false sentence
-	# while doing it.
-	#
-	# Demonstrated: a program whose fixture PASSES but which leaks 64 bytes was
-	# reported as "SKIP -- this exercise's own output fixture is not passing
-	# yet", exit 0, burying a real leak. At scale, the entire perf layer went
-	# 77/77 green under a PATH shim missing `mv`, because diff_output.sh
-	# requires it and exits 2.
-	#
-	# So: skip on 1, and on 2-or-more say so and RUN ANYWAY. A gate that cannot
-	# answer must never be the reason a layer stayed quiet. GATE_PASS is a
-	# list (runner_lib.sh's LISTS OF WORDS).
-	#
-	# A survive case's gate is another case (--survive): its words are
-	# --gate-arg's, and nothing of this run reaches it.
-	rl_split_on
 	if [ "$SURVIVE" = 1 ]; then
-		# shellcheck disable=SC2086 # lists, one word per line (rl_list_add)
-		sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
-				$GATE_PASS -- $GATE_ARGS >/dev/null 2>&1
+		RL_GATE_PASS=$GATE_PASS
+		RL_GATE_LABEL=$GATE_LABEL
+		RL_GATE_SURVIVE=1
+		RL_GATE_WHY="  This case asks only that the program ends by itself, and a program
+  that does nothing yet allocates nothing: a sweep of it refuses no
+  allocation, and green here would say nothing. Get that case green
+  and this one starts checking."
+		rl_split_on
+		# shellcheck disable=SC2086 # a list, one word per line (rl_list_add)
+		rl_gate allocfail_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" $GATE_ARGS
+		rl_split_off
 	else
-		# shellcheck disable=SC2086 # lists, one word per line (rl_list_add)
-		sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
-				$GATE_PASS $GATE_RUN -- "$@" >/dev/null 2>&1
+		RL_GATE_PASS="$GATE_PASS$RL_NL$GATE_RUN"
+		RL_GATE_NAME=$GATE_LABEL
+		RL_GATE_WHY="  This layer asks what your ${WHAT} does when an allocation fails.
+  That question only means something once it does the right thing
+  when the allocation SUCCEEDS — and a stub passes an allocation-
+  failure sweep for the empty reason that it never allocates. Get
+  the *_output layer green and this one starts checking something no
+  other layer in this suite checks."
+		rl_gate allocfail_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED" "$@"
 	fi
-	_gate_rc=$?
-	rl_split_off
-	if [ "$_gate_rc" -ge 2 ]; then
-		echo "allocfail_check: the output gate could not be evaluated (exit $_gate_rc),"
-		echo "                 so this layer is running anyway rather than going quiet."
-	elif [ "$_gate_rc" -eq 1 ] && [ "$SURVIVE" = 1 ]; then
-		if [ -n "$GATE_LABEL" ]; then
-			echo "allocfail_check: SKIP — $GATE_LABEL, this exercise's own case, is not passing yet."
-		else
-			echo "allocfail_check: SKIP — this exercise's own case is not passing yet."
-		fi
-		echo ""
-		echo "  This case asks only that the program ends by itself, and a program"
-		echo "  that does nothing yet allocates nothing: a sweep of it refuses no"
-		echo "  allocation, and green here would say nothing. Get that case green"
-		echo "  and this one starts checking."
-		echo ""
-		echo "  (NO_SKIP=1 runs a waiting layer anyway:"
-		echo "   $(rl_noskip_cmd))"
-		exit 0
-	elif [ "$_gate_rc" -eq 1 ]; then
-		if [ -n "$GATE_LABEL" ]; then
-			echo "allocfail_check: SKIP — $GATE_LABEL, this exercise's own output fixture, is not passing yet."
-		else
-			echo "allocfail_check: SKIP — this exercise's own output fixture is not"
-			echo "                 passing yet."
-		fi
-		echo ""
-		echo "  This layer asks what your ${WHAT} does when an allocation fails."
-		echo "  That question only means something once it does the right thing"
-		echo "  when the allocation SUCCEEDS — and a stub passes an allocation-"
-		echo "  failure sweep for the empty reason that it never allocates. Get"
-		echo "  the *_output layer green and this one starts checking something no"
-		echo "  other layer in this suite checks."
-		echo ""
-		echo "  (NO_SKIP=1 runs a waiting layer anyway:"
-		echo "   $(rl_noskip_cmd))"
-		exit 0
-	fi
-fi
 }
 
 # untracked WHAT -- WHAT's report says live=untracked: the shim could not
@@ -774,18 +736,7 @@ whose_rule() {
 
 # print_rule -- the call site's --rule file, wrapped to the report's width.
 print_rule() {
-	awk '{
-		n = split($0, w, " ")
-		line = ""
-		for (i = 1; i <= n; i++) {
-			if (line != "" && length(line) + 1 + length(w[i]) > 68) {
-				print "    " line
-				line = w[i]
-			} else
-				line = (line == "" ? w[i] : line " " w[i])
-		}
-		if (line != "") print "    " line
-	}' "$RULE"
+	rl_wrap 68 "    " < "$RULE"
 }
 
 # ---------------------------------------------------------------------------
@@ -838,46 +789,29 @@ program_mode() {
 	# standin.sh). Checked after the gate, as valgrind_test.sh does: a red gate
 	# has already skipped, and past a green one a stand-in is a failure told in
 	# the compiler's words.
-	case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-	for _sl in "$_sl_dir/standin.sh" \
-		"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-		[ -f "$_sl" ] && break
-	done
-	[ -f "$_sl" ] || { echo "allocfail_check.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+	rl_tool standin.sh
 	# shellcheck source=tools/standin.sh
-	. "$_sl"
+	. "$RL_TOOL"
 	standin_check allocfail_check "$PROG" fail "$LABEL"
 	# The run the case describes, as diff_output.sh makes it: the argument
 	# file's words after the arguments after -- (the gate above was handed
 	# the file itself), and the case's own folder when it has one.
-	if [ -n "$ARGV_FILE" ]; then
-		_aw=$(rl_argv_words "$ARGV_FILE") || {
-			echo "allocfail_check.sh: cannot read --argv-file '$ARGV_FILE'" >&2
-			exit 2
-		}
-		eval "set -- \"\$@\" $_aw"
+	rl_case_run "$WORK/run" "$ARGV_FILE" "$RUN_AS" "$PROG" "$CWD_FILES" "$SHOW_RUN" "$PSTDIN"
+	eval "set -- \"\$@\" $RL_CASE_WORDS"
+	RUN_BIN=$RL_RUN_BIN
+	RUN_DIR=$RL_RUN_DIR
+	# Every run is made from RUN_DIR (run_arm), this folder without
+	# --run-as: the program and the stdin path absolute either way.
+	if [ -z "$RUN_AS" ]; then
+		RUN_DIR=$PWD
+		case "$RUN_BIN" in /*) ;; *) RUN_BIN="$PWD/$RUN_BIN" ;; esac
 	fi
-	RUN_BIN=$PROG
-	RUN_DIR=$PWD
-	_ran_prog=$SHOW_RUN
-	_ran_in=$PSTDIN
-	_ran_specs=""
-	case "$RUN_BIN" in /*) ;; *) RUN_BIN="$PWD/$RUN_BIN" ;; esac
-	if [ -n "$RUN_AS" ]; then
-		RUN_DIR="$WORK/run"
-		rl_rundir "$RUN_DIR" "$RUN_AS" "$PROG" "$CWD_FILES" || exit 2
-		RUN_BIN="./$RUN_AS"
-		_ran_prog=$RUN_BIN
-		_ran_specs="$RUN_AS=${SHOW_RUN:-$PROG}$CWD_FILES"
-	fi
+	[ -z "$SHOW_RUN" ] || { rl_ran "$RL_RAN_PROG" "$PSTDIN" "$RL_RAN_SPECS" "$@"; echo ""; }
 	case "$PSTDIN" in "" | /*) ;; *) PSTDIN="$PWD/$PSTDIN" ;; esac
-	[ -z "$SHOW_RUN" ] || { rl_ran "$_ran_prog" "$_ran_in" "$_ran_specs" "$@"; echo ""; }
 	run_arm 0 "$@"
+	arm_fault "the plain run"
 	case "$RL_CAUSE" in
-		noexec)
-			echo "allocfail_check.sh: the program could not be started: $RL_WHY" >&2
-			exit 2 ;;
-		"timeout" | signal | runaway | stopped)
+		"timeout" | signal | runaway)
 			[ "${NO_SKIP:-0}" != "1" ] || {
 				echo "NO_SKIP set: the plain run, with nothing refused, did not end by"
 				echo "             itself ($(ended_how "$RC")), so no refusal was tested."
@@ -959,6 +893,7 @@ program_mode() {
 	FIRST=""
 	while IFS= read -r n; do
 		run_arm "$n" "$@"
+		arm_fault "injection #$n"
 		_bad=1
 		case "$RL_CAUSE" in
 			"timeout")
@@ -968,12 +903,9 @@ program_mode() {
 				printf '%s\tFLOOD\twrote more than %s bytes and was stopped\n' \
 					"$n" "$CAP" >> "$WORK/sweep"
 				FLOODED=1 ;;
-			signal | stopped)
+			signal)
 				printf '%s\tCRASH\tkilled by %s\n' "$n" "$(signal_name)" >> "$WORK/sweep"
 				CRASHED=1 ;;
-			noexec)
-				echo "allocfail_check.sh: injection #$n could not start: $RL_WHY" >&2
-				exit 2 ;;
 			*)
 				_bad=0
 				if [ -z "$RESULT" ]; then
@@ -1010,6 +942,9 @@ program_mode() {
 	# must end as the plain one did.
 	if [ "$HUNG" = 0 ]; then
 		run_arm $((K + 1)) "$@"
+		# Cut by the test's own limit, never started or stopped from
+		# outside: no word on the sweep's repeatability (arm_fault).
+		arm_fault "the control run"
 		if [ "$RL_CAUSE" != ok ] && [ "$RL_CAUSE" != exit ] || [ "$RC" != "$BASE_STATUS" ] ||
 			[ -z "$RESULT" ]; then
 			echo "allocfail_check.sh: the control run is not trustworthy for $LABEL." >&2
@@ -1145,8 +1080,9 @@ fi
 # this used to take `cc` from the box, then gcc, clang, clang-12 or gcc-10 --
 # so the one layer that executes the error path ran on whatever the machine
 # had (TO VERIFY V38: LD_DEBUG showed the box's `cc`, its clang-12, and
-# /bin/ld under C 07 ex00_allocfail). Bazel hands both over, tools/defs.bzl refuses a test that
-# does not (pinned_cc_problem), and a missing one is exit 2, above.
+# /bin/ld under one module's test of this layer). Bazel hands both over, _test() in
+# tools/defs_test.bzl refuses a test that does not (pinned_cc_problem), and
+# a missing one is exit 2, above.
 rl_cc_pin "$CC" "$CC_LIBS" "$CC_UNDER"
 rl_ld_pin "$CC" "$LD" "$LD_LIBS" "$WORK/ld"
 
@@ -1178,18 +1114,16 @@ PROBE
 # conventions: harness tool -- wrapprobe is the probe written above, never the student's code
 if ! "$CC" "$RL_LDFLAG" -O0 "$WORK/wrapprobe.c" -o "$WORK/wrapprobe" \
 		-Wl,--wrap=malloc > "$WORK/wrap.err" 2>&1 || ! "$WORK/wrapprobe"; then
-	[ "${NO_SKIP:-0}" != "1" ] || {
-		echo "NO_SKIP set: this toolchain's linker does not honour"
-		echo "             -Wl,--wrap=malloc, so no allocation was ever failed"
-		echo "             and nothing was checked. What it said:"
+	# Exit 2, never a SKIP: the pin above has proven the toolchain starts
+	# and links, so what is left is the harness's own fault, and a green
+	# SKIP here was a PASSED target that had refused no allocation.
+	{
+		echo "allocfail_check.sh: this linker does not honour -Wl,--wrap=malloc, so"
+		echo "                    no allocation could be made to fail. That is the"
+		echo "                    toolchain, not the deliverable. What it said:"
 		rl_excerpt "$WORK/wrap.err" 5 wrap-probe.txt
-		exit 1
-	}
-	echo "allocfail_check: SKIP — this linker does not honour -Wl,--wrap=malloc,"
-	echo "                 which is how this layer makes an allocation fail."
-	echo "                 WARNING: the error path this target asks about was not"
-	echo "                 executed. No other layer executes it either."
-	exit 0
+	} >&2
+	exit 2
 fi
 
 # With --leaks, free() must be wrapped too, and the same rule applies: a linker
@@ -1322,6 +1256,7 @@ fi
 # ---------------------------------------------------------------------------
 # Phase 1 — DISCOVER. Nothing armed: how many allocations does this input cost?
 run_arm 0
+arm_fault "the plain run"
 BASE_RC=$RC
 BASE_WHY="$(ended_how "$BASE_RC")"
 if [ "$BASE_RC" -ne 0 ] || [ -z "$RESULT" ]; then
@@ -1334,7 +1269,7 @@ if [ "$BASE_RC" -ne 0 ] || [ -z "$RESULT" ]; then
 		echo "NO_SKIP set: the harness did not complete a plain run with nothing"
 		echo "             injected ($BASE_WHY), so no allocation"
 		echo "             failure was ever tested. Read the output/ASan layers"
-		echo "             for this exercise first."
+		echo "             for this $(rl_noun) first."
 		exit 1
 	}
 	echo "allocfail_check: SKIP — the harness did not complete even with nothing"
@@ -1400,6 +1335,7 @@ NOT_JUDGED=0
 INCONCLUSIVE=""
 while IFS= read -r n; do
 	run_arm "$n"
+	arm_fault "injection #$n"
 	if [ "$RL_CAUSE" = timeout ]; then
 		printf '%s\tHUNG\tnever returned — still running after %ss\n' \
 			"$n" "$RL_TMO" >> "$WORK/sweep"
@@ -1413,7 +1349,7 @@ while IFS= read -r n; do
 		printf '%s\tFLOOD\twrote more than %s bytes and was stopped\n' \
 			"$n" "$CAP" >> "$WORK/sweep"
 		FAILURES=$(( FAILURES + 1 ))
-	elif [ "$RL_CAUSE" = signal ] || [ "$RL_CAUSE" = stopped ]; then
+	elif [ "$RL_CAUSE" = signal ]; then
 		printf '%s\tCRASH\tkilled by %s\n' "$n" "$(signal_name)" \
 			>> "$WORK/sweep"
 		FAILURES=$(( FAILURES + 1 ))
@@ -1518,6 +1454,9 @@ fi
 # is where it shows.
 if [ "$HUNG" -eq 0 ]; then
 	run_arm $(( K + 1 ))
+	# Cut by the test's own limit, never started or stopped from outside:
+	# no word on the sweep's bounds (arm_fault).
+	arm_fault "the control run"
 	if [ "$RC" -ne 0 ] || [ "$RESULT" != "ptr" ]; then
 		echo "allocfail_check.sh: the control run is not trustworthy for $LABEL." >&2
 		echo "                    Arming allocation #$(( K + 1 )) cannot refuse anything," >&2
@@ -1547,7 +1486,7 @@ if [ "$LEAKS" = 1 ]; then
 		echo ""
 		rows
 		echo ""
-		echo "  The allocfail target for this exercise asks the question before this"
+		echo "  The allocfail target for this $(rl_noun) asks the question before this"
 		echo "  one -- whether the call reports a refused allocation at all -- and it"
 		echo "  is red. This target starts counting once it is green."
 		exit 0

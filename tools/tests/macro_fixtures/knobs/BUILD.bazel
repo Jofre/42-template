@@ -13,7 +13,6 @@ load(
     "c_reference_cost",
     "corpus_memory",
     "exercise",
-    "mandatory_exercises",
     "rush_common",
     "rush_variant",
     "shell_exercise",
@@ -33,8 +32,8 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 # what it does, and the first project that needs it will believe that. With no
 # caller, nothing ever ran the branch -- a knob broken by a refactor stayed
 # green everywhere, and a fixture that only checked the macro ACCEPTED the key
-# (starlark_selftest's "every documented key is accepted") never emitted a
-# target from it.
+# (starlark_selftest_arms()'s "every documented key is accepted") never
+# emitted a target from it.
 #
 # So this package calls the macros on invented exercises with each such knob
 # set to something other than its default, and :knobs below lists, per knob,
@@ -44,7 +43,7 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 # knobs.expected beside this file, so a knob whose branch stops emitting what
 # its docstring says is a red test.
 #
-# Every test here is tagged manual (tools/defs.bzl's _test, as everywhere
+# Every test here is tagged manual (tools/defs_test.bzl's _test, as everywhere
 # under tools/tests/macro_fixtures), and none is ever RUN: the toys name an
 # //oracle arm that does not exist, and a verdict is not what this package is
 # about. That every target it emits analyses -- each label it names is there
@@ -56,7 +55,7 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 # is not listed; one only another fixture passes is proven there (c_function's
 # hdrs and exports, c_program's malloc, no_missing_file_case and refusals,
 # rush_common's num and clues, a case's "valgrind": tools/tests/macro_fixtures
-# and its ./root). `name`, which every macro takes for buildifier's sake and
+# and its ./named_prog). `name`, which every macro takes for buildifier's sake and
 # none reads, controls nothing and is not a knob.
 #
 # The toy project. subject(strict = False) and exercise(strict = True) are
@@ -125,7 +124,10 @@ TOY_NO_PROTOTYPE = "none: a toy harness, which no prototype test checks"
 # c_function: srcs and hdrs by hand (toy_extra.c left out); another expected
 # file; prototype = False with no tests/ex00/prototype.h, so no prototype
 # layer and no fail(); no 32-bit replay; and an allocfail layer raised to
-# complete. Its fixture binary's harness then names no prototype test.
+# complete. Its fixture binary's harness then names no prototype test. Its
+# output is read as a dump's, labeled (sanitize, labeled): every gate on ex00
+# below reads both off ex00_output, where ex01's c_reference_cost, whose
+# output test says neither, reads neither.
 c_function(
     num = "00",
     fn = "toy_unit_00",
@@ -140,6 +142,8 @@ c_function(
     allocfail = "af_toy.c",
     allocfail_rule = TOY_RULE,
     allocfail_level = 4,
+    sanitize = True,
+    labeled = True,
 )
 
 # c_mem_check: the same srcs and hdrs by hand, and a reason for no prototype.
@@ -153,7 +157,7 @@ c_mem_check(
 )
 
 # c_cycles: srcs, hdrs, its own count, and a gate run against another file,
-# under --sanitize, fed a file on stdin.
+# fed a file on stdin.
 c_cycles(
     num = "00",
     fn = "toy_twice",
@@ -163,7 +167,6 @@ c_cycles(
     hdrs = [turnin_file("00", "toy_knob.h")],
     count = 77,
     gate_expected = "expected_knob.txt",
-    gate_sanitize = True,
     gate_stdin = "tests/ex00/stdin.txt",
 )
 
@@ -220,9 +223,21 @@ c_diff(
     gate_bin = "",
 )
 
+# c_reference_cost at its defaults, for the gate it reads off ex01_output,
+# which compares plainly: no --gate-sanitize, no --gate-labeled. Its harness
+# is the toy c_diff's, the same file as ex00's ref_toy.c.
+c_reference_cost(
+    num = "01",
+    fn = "toy_twice",
+    oracle_fn = "toy_arm",
+    harness = "diff_toy.c",
+    units = 3,
+)
+
 # c_perf written out by hand: a reader of its own, a baseline, every gate
-# threshold, no ASan stage (c_diff above built no twin), a gate corpus of its
-# own size, a seed, and `enabled` left at False.
+# threshold, no fixture stage and no ASan stage (c_diff above built no twin),
+# a gate corpus of its own size, which the stage left reads all the same, a
+# seed, and `enabled` left at False.
 c_perf(
     num = "01",
     fn = "toy_unit_01",
@@ -233,6 +248,7 @@ c_perf(
     gate_exponent = "1.5",
     gate_slowdown = "9",
     gate_memory = "3",
+    gate_bin = "",
     gate_asan_bin = "",
     gate_count = 99,
     prototype = TOY_NO_PROTOTYPE,
@@ -429,12 +445,25 @@ _PROBES = [
     ("c_cycles count", "ex00_cycles", "--count"),
     ("c_cycles gate_expected", "ex00_cycles", "--gate-expected"),
     ("c_cycles gate_expected", "ex00_cycles", "--gate-label"),
-    ("c_cycles gate_sanitize", "ex00_cycles", "?--gate-sanitize"),
     ("c_cycles gate_stdin", "ex00_cycles", "--gate-stdin"),
     ("c_cycles gate_stdin", "ex00_cycles", "data:stdin.txt"),
     # c_reference_cost.
     ("c_reference_cost srcs", "ex00_refcost", "--src"),
     ("c_reference_cost hdrs", "ex00_refcost", "data:toy_knob.h"),
+    ("c_reference_cost includes", "ex00_refcost", "--inc"),
+    # Every gate reads the fixture as the output test it waits for does:
+    # ex00's c_function says sanitize and labeled, ex01's neither.
+    ("gate read off ex00_output", "ex00_cycles", "?--gate-sanitize"),
+    ("gate read off ex00_output", "ex00_cycles", "?--gate-labeled"),
+    ("gate read off ex00_output", "ex00_refcost", "?--gate-sanitize"),
+    ("gate read off ex00_output", "ex00_refcost", "?--gate-labeled"),
+    ("gate read off ex00_output", "ex00_diff", "?--gate-sanitize"),
+    ("gate read off ex00_output", "ex00_diff", "?--gate-labeled"),
+    ("gate read off ex00_output", "ex00_perf", "?--gate-sanitize"),
+    ("gate read off ex00_output", "ex00_perf", "?--gate-labeled"),
+    ("gate read off ex01_output", "ex01_refcost", "--gate-label"),
+    ("gate read off ex01_output", "ex01_refcost", "?--gate-sanitize"),
+    ("gate read off ex01_output", "ex01_refcost", "?--gate-labeled"),
     # c_diff, ex00 against ex01.
     ("c_diff seed", "ex00_diff", "--seed"),
     ("c_diff seed", "ex00_diff_asan", "--seed"),
@@ -464,11 +493,14 @@ _PROBES = [
     ("c_perf gate_exponent", "ex01_perf", "--gate-exponent"),
     ("c_perf gate_slowdown", "ex01_perf", "--gate-slowdown"),
     ("c_perf gate_memory", "ex01_perf", "--gate-memory"),
+    ("c_perf gate_bin = \"\"", "ex01_perf", "?--gate-differ"),
     ("c_perf gate_asan_bin = \"\"", "ex01_perf", "--gate-asan-bin"),
     ("c_perf gate_asan_bin default", "ex00_perf", "--gate-asan-bin"),
     ("c_perf gate_count", "ex01_perf", "--gate-count"),
-    ("c_perf enabled = False", "ex01_perf", "tags:manual"),
-    ("c_perf enabled = True", "ex00_perf", "tags:manual"),
+    # Every test here is manual; the fixture's own tag says the macro did
+    # not make it so (fixture_hold, tools/defs_test.bzl's _test).
+    ("c_perf enabled = False", "ex01_perf", "tags:fixture_hold"),
+    ("c_perf enabled = True", "ex00_perf", "tags:fixture_hold"),
     # c_program, ex02.
     ("c_program srcs", "ex02_bin", "srcs:"),
     ("c_program srcs", "ex02_norm", "data:deliverable/"),
@@ -533,6 +565,8 @@ _PROBES = [
     ("rush_variant exports", "ex09_rush03_symbols", "--expect"),
     ("rush_variant seed", "ex09_rush03_diff", "--seed"),
     ("rush_variant seed", "ex09_rush03_diff_asan", "--seed"),
+    ("rush_variant harness-src", "ex09_rush03_diff", "--harness-src"),
+    ("rush_variant harness-src", "ex09_rush03_diff", "data:diff_rush.c"),
     ("rush_variant count", "ex09_rush03_diff", "--count"),
     ("rush_variant asan_count", "ex09_rush03_diff_asan", "--count"),
     ("rush_variant clues", "ex09_rush03_output", "--clues"),
@@ -564,17 +598,6 @@ _PROBES = [
 ]
 
 _RULES = existing_rules()
-
-# EVERY TOY ANALYSED: each manual target above, its test_suite included, as
-# a dependency of a target that is not manual, so a toy naming a label no
-# package declares, or one a macro no longer accepts, fails the build
-# instead of waiting for someone to name it by hand. testonly, since most of
-# them are tests; it builds nothing of them (tools/tests/analysed.bzl).
-analysed(
-    name = "toys_analysed",
-    testonly = True,
-    deps = sorted([":" + r for r, a in _RULES.items() if "manual" in a.get("tags", [])]),
-)
 
 names_file(
     name = "knobs",
@@ -614,16 +637,16 @@ filegroup(
     ]),
 )
 
-# Its turn-in folders as the macros compute them, for first_red's reading of
-# the contract above (see ../BUILD.bazel's :turnin_dirs).
-names_file(
-    name = "turnin_dirs",
-    names = ["ex%s %s" % (n, turnin_dir(n)) for n in ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09"]],
-)
-
-# Its mandatory part as the macros read it: none, for a contract that names
-# none, which first_red --written must read as none.
-names_file(
-    name = "mandatory",
-    names = mandatory_exercises(),
+# EVERY TOY ANALYSED: each manual target above, its test_suite included, as
+# a dependency of a target that is not manual, so a toy naming a label no
+# package declares, or one a macro no longer accepts, fails the build
+# instead of waiting for someone to name it by hand. testonly, since most of
+# them are tests; it builds nothing of them (tools/tests/analysed.bzl). The
+# last call of the file, as in every fixture package, and its deps are read
+# here, by existing_rules() itself: _RULES, read above for the knobs, would
+# miss a toy declared after it.
+analysed(
+    name = "toys_analysed",
+    testonly = True,
+    deps = sorted([":" + r for r, a in existing_rules().items() if "manual" in (a.get("tags") or [])]),
 )

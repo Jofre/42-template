@@ -162,28 +162,30 @@ def is_standin_log(path, marks=None):
     return False
 
 
-def pick_label(nxt, bep):
+def pick_label(nxt, bep, members=()):
     """The test whose log to show for what first_red names next, or None.
 
     first_red names a label for a red output and a timeout; for the other
-    buckets it names an exercise, and the label is that exercise's red test
-    of the layer PREFER puts first, else its first red test by name. An
-    exercise "ex00 ft_strlen" is one function of a library, whose tests are
-    named ex00_ft_strlen_<layer>.
+    buckets it names a unit, and the label is that unit's red test of the
+    layer PREFER puts first, else its first red test by name. A unit's tests
+    are <unit>_<layer>: exNN_<layer> for an exercise, and in a project whose
+    subject names its parts the unit's own name (ft_strlen, libft). A
+    library's functions are units of their own, named in members, and their
+    tests are the library's too.
 
     For a build failure, a test whose log holds a stand-in mark comes next,
     after the compile and files tests and before every other red: it is the
-    log that says why nothing was built. A library's prefix (ex00) matches
-    every test of it, and with its compile layers green -- one function's
-    link failure, which they never see -- the first red by name was another
-    function's wrong answer, or the Makefile's rules (V233). A test whose
-    own test program did not build (the build mark) ranks with them: its log
-    is the one that quotes the compiler.
+    log that says why nothing was built. A library's tests and its
+    functions' are all candidates, and with its compile layers green -- one
+    function's link failure, which they never see -- the first red by name
+    was another function's wrong answer, or the Makefile's rules (V233). A
+    test whose own test program did not build (the build mark) ranks with
+    them: its log is the one that quotes the compiler.
     """
     bucket, module, ex, label = nxt
     if label != "-":
         return label
-    prefix = module + ":" + "_".join(ex.split())
+    prefixes = [module + ":" + ex] + [module + ":" + m for m in members]
     order = PREFER.get(bucket, ())
     marks = standin_marks() if bucket == "build" else None
 
@@ -193,15 +195,27 @@ def pick_label(nxt, bep):
         if first is None:
             first = len(order) + (0 if marks and is_standin_log(bep.logs.get(l), marks) else 1)
         return (first, l)
-    mine = sorted((l for l in bep.failed() if l == prefix or l.startswith(prefix + "_")), key=rank)
+    mine = sorted((l for l in bep.failed() if any(l == p or l.startswith(p + "_") for p in prefixes)), key=rank)
     with_log = [l for l in mine if bep.logs.get(l)]
     return with_log[0] if with_log else None
 
 
-def clue_word(ex):
-    """The word `42 clues` takes for an exercise first_red names: exNN, or the
-    function alone for one function of a library ("ex00 ft_strlen")."""
-    return ex.split()[-1] if ex else ex
+def clue_word(ex, label=None, members=()):
+    """The word `42 clues` takes for a unit first_red names: exNN, or a unit's
+    own name in a project whose subject names its parts (ft_strlen, libft).
+
+    Given the label of the log shown and the functions of a library named
+    after it (pick_label's members), the function whose test that log is: a
+    library's own suite holds none of its functions' tests, so its word
+    would run none of the hints the log has hidden. The longest name the
+    label begins with wins, the library's own included."""
+    word = ex
+    if label and members:
+        name = label.split(":", 1)[-1]
+        mine = [w for w in [word] + list(members) if name.startswith(w + "_")]
+        if mine:
+            return max(mine, key=len)
+    return word
 
 
 def log_path(label, bep):

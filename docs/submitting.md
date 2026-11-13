@@ -46,7 +46,8 @@ editor. Its name starts with a dot, which hides it from most file browsers and
 from `ls`; `ls -a` shows it. It holds one `KEY=URL` line per module. The key
 is the module's path (`c-piscine/c-piscine-c-00`), its folder's name alone
 (`c-piscine-c-00`), or the short name `42` takes on the command line
-(`c-00`):
+(`c-00`; a Common Core project's is its folder's name in lower case, so
+Libft's is `libft`):
 
 ```
 c-piscine/c-piscine-c-00=git@vogsphere...:...c-piscine-c-00...
@@ -83,34 +84,49 @@ From any other folder, name the modules (`42 submit c-00 c-01`), or push every
 module that has a URL with `42 submit --all`.
 
 The gate runs every test of the module at your level, so a module with an
-exercise you have not started is `BLOCKED` too: an unwritten exercise is red.
-To push the exercises you have written anyway, add `--written-only`:
+exercise you have not started is `BLOCKED` too: an unwritten exercise, or
+part, is red. To push what you have written anyway, add `--written-only`:
 
 ```sh
 42 submit --written-only
 ```
 
-An exercise the test report calls *not written yet* (its files still the stub
-they started as, its output red) then does not block, and every other test of
-the module still has to pass: a red in an exercise you have written, or in a
-test of the whole module, still blocks it. The run names each exercise it let
-through, and those go to 42 as they are on disk, stubs included. A library
-counts the same way: one with some functions written, whose only reds are
-functions still a stub or its own tests over a Makefile or `README.md` that
-is still the stub, missing or empty, is let through, and goes to 42 with those
-files as they are. When the
-test report cannot be read, nothing is let through, and the run says so, with
-the command that shows the report. It is off unless you ask for it.
+An exercise, or a part, the test report calls *not written yet* (its files
+still the stub they started as, its output red) then does not block, and
+every other test of the module still has to pass: a red in what you have
+written, or in a test of the whole module, still blocks it. The run names
+each exercise or part it let through, and those go to 42 as they are on
+disk, stubs included. A library counts the same way: one with some
+functions written, whose only reds are functions still a stub or its own
+tests over a Makefile or `README.md` that is still the stub, missing or
+empty, is let through, and goes to 42 with those files as they are. When the
+test report cannot be read, nothing is let through, and the run says so,
+with the command that shows the report. It is off unless you ask for it.
 
-It pushes what you have written, never nothing: when every exercise of the
-module is still a stub, it refuses before any test runs. Some subjects say where
-their mandatory part ends (C 00, Shell 00 and Shell 01 each print a sentence
-saying so, right after that part's last exercise), and for those modules it also
-refuses while an exercise of that part is still a stub, naming it. A run without
-`--written-only` that is blocked says the same. And when that part is all
-written and only the exercises after it are not, the blocked run says so and
-names them: that is your warning, and `42 submit --written-only` pushes the
-module without them.
+It pushes what you have written, never nothing: when nothing in the module
+is written yet, every exercise or part still the stub it started as, it
+refuses before any test runs. Some subjects say where their mandatory part
+ends (C 00, Shell 00 and Shell 01 each print a sentence saying so, right
+after that part's last exercise), and for those modules it also refuses
+while an exercise of that part is still a stub, naming it. So does a
+project whose subject names its mandatory part (Libft's library, or one of
+several parts it turns in at the root): while that part is still a stub, it
+is refused, and the part named. A run without `--written-only` that is
+blocked says the same. And when that part is all written and only the
+exercises after it are not, the blocked run says so and names them: that is
+your warning, and `42 submit --written-only` pushes the module without them.
+
+Some projects divide their root among parts, as a mandatory part and a
+bonus, and their subject says which part is mandatory. Each part is judged
+on its own: by the files only it turns in, or, when it shares its files
+with another part, by whether the rule of your Makefile that builds it
+does anything yet. While the mandatory part reads as written and another
+part does not, a run without `--written-only` is blocked before any test
+runs, names each part not written yet, and says that
+`42 submit --written-only` pushes the project without waiting for them;
+every other test, the mandatory part's included, still has to pass then.
+Every file in `deliverable/` still goes as it is on disk, so the files of a
+part you have not written go as the stubs they are.
 
 To push without any gate, add `-- --no-gate` (`42 submit -- --no-gate`), and
 the module goes to 42 as it is, red exercises included. What follows `--` goes
@@ -147,19 +163,26 @@ is the repository's `Makefile`). Not
 what you committed: your own commits play no part. Files your `.gitignore`
 ignores are pushed too, on purpose, so that no ignore rule can quietly drop a
 file the subject asks for. The only files left out are build products by
-extension: `*.o`, `*.a`, `*.out` and `*.gch`.
+extension: `*.o`, `*.a`, `*.out` and `*.gch`. A `core.autocrlf` or a
+`core.attributesFile` in your own git configuration does not change a file's
+line endings on the way: submit switches both off. Two things still can: a
+`.gitattributes` kept in `deliverable/`, which is pushed with the other files
+and whose `text` and `eol` rules git applies to them as it stages them, and a
+machine-wide `/etc/gitattributes`.
 
 So everything in `deliverable/` goes to 42, asked for or not: a test `main.c`,
 a note to yourself, a copy kept in a subfolder. Remove what the subject does
 not ask for before you submit. The `files` layer fails on a file the subject
-does not ask for, in a subfolder too, and each module's `deliverable_files` on
-one outside every exercise folder; a gate they stop prints their report.
+does not ask for, in a subfolder too, and `deliverable_files` on one outside
+every exercise folder, in a module whose exercises have folders of their own,
+or on one no part names, where the root is divided into parts; a gate they
+stop prints their report.
 `42 submit -n` lists every file it would push: read that list before the real
 run. A file the subject does ask for is pushed even where `.gitignore` keeps
 it out of your commits: rush-02's `numbers.dict`, which is 42's and so ignored
 in the template, goes in `deliverable/ex00/` and is turned in from there
 (`ex00_numbers_dict_issued` is red until it is; see
-[rushes.md](rushes.md#rush-02--numbers-into-words)).
+[Rush 02's README](../c-piscine/c-piscine-rush-02/README.md)).
 
 **A built program blocks the module.** If `deliverable/` holds one — an ELF
 file under any name, or a file named like the program the subject names
@@ -188,7 +211,8 @@ when the module would be graded fine.
 ## Setting your own standard
 
 In precedence order — `--level`, then the variable `SUBMIT_GATE`, then a
-`.submit-level` file at the repo root, then `basic`. For one submit:
+`.submit-level` file at the repo root, then your user file, then `basic`. For
+one submit:
 
 ```sh
 42 submit --level robust
@@ -207,13 +231,26 @@ For this clone, permanently (it writes the `.submit-level` file):
 42 config set level complete
 ```
 
+For every clone of yours on this machine, unless a clone's own file says
+otherwise (it writes your user file, `~/.config/42/config.yaml`, described in
+[testing.md](testing.md#the-42-command)):
+
+```sh
+42 config set --global level strict
+```
+
+Only `42` reads your user file. `42 submit` passes its level on to
+`//tools:submit` as `--gate-level`; a `bazel run //tools:submit` you type
+yourself, with no level of its own, stops and says so rather than gate on
+`basic`.
+
 `42 test` chooses its level the same way, so the level it runs is the one the
 gate checks.
 
 `.submit-level` is **tracked** on the owner's working branch, so one owner working across
 several machines gets the same standard everywhere. It is not something to
 impose on anyone else, so the shareable `template` branch does not carry it and a
-fresh clone there falls back to `basic`. If you set up a copy of this for a group,
+fresh clone there falls back to your user file's level, or `basic`. If you set up a copy of this for a group,
 drop the file or gitignore it.
 
 ## Before you push, from a campus machine

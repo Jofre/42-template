@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 
+void	btree_apply_by_level(t_btree *root,
+			void (*applyf)(void *item, int current_level,
+				int is_first_elem));
+
 static void	apply(void *item, int level, int first)
 {
 	printf("level=%d first=%d item=%d\n", level, first, *(int *)item);

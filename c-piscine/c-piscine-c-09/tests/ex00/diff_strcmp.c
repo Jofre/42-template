@@ -1,4 +1,4 @@
-/* Live-differential reader harness for ft_strcmp (c-09 ex00 libft).
+/* Live-differential reader harness for ft_strcmp.
  * Line: <hexA>\t<hexB>\t<sign>. The two strings, two hex digits per
  * byte, then the SIGN of what ft_strcmp returned for them: -1, 0 or 1. man
  * strcmp promises a sign, and here only the sign is compared. See
@@ -9,16 +9,20 @@ int	ft_strcmp(char *s1, char *s2);
 
 int	main(void)
 {
-	char			line[8192];
+	char			*line;
+	size_t			linecap;
 	char			*f[3];
 	unsigned char	*a;
 	unsigned char	*b;
 	int				r;
 
-	while (dio_line(line, sizeof(line)))
+	/* A line of any length (tools/diffio.h, dio_getline): the corpus holds
+	 * strings past 4 KiB (finding 041), past what a line buffer holds. */
+	line = NULL;
+	linecap = 0;
+	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		a = dio_unhex(f[0], NULL, 0);
 		b = dio_unhex(f[1], NULL, 0);
 		r = ft_strcmp((char *)a, (char *)b);
@@ -26,5 +30,6 @@ int	main(void)
 		free(a);
 		free(b);
 	}
+	free(line);
 	return (0);
 }

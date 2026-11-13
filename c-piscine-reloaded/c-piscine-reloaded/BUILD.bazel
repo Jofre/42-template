@@ -283,9 +283,8 @@ c_diff(num = "14", fn = "ft_sqrt", harness = "diff_sqrt.c", oracle_fn = "c05_sqr
 c_cycles(
     num = "14",
     fn = "ft_sqrt",
-    oracle_fn = "c05_sqrt_cycles",
+    oracle_fn = "c05_sqrt",
     harness = "diff_sqrt.c",
-    budget = 90,
     syscall_budget = 0,
 )
 c_twin(num = "14", of = "//c-piscine/c-piscine-c-05:ex05")
@@ -441,15 +440,13 @@ RL_ARGV_GATES = {num: output_gate("ex%s_output" % num) for num in ["18", "19"]}
             "--count",
             count,
         ] + judging + RL_ARGV_GATES[num][0] +
-        # A choice at every call (tools/defs.bzl's _RUNNER_CHOICES), and the
+        # A choice at every call (tools/defs_test.bzl's _RUNNER_CHOICES), and the
         # Run contract's: ignored, unless the subject requires something of it.
         stderr_ignored("ex18's and ex19's subjects ask nothing of standard error"),
         data = [
             ":ex%s_bin" % num,
             "//oracle:oracle",
             "//tools:argv_check.sh",
-            "//tools:exit_status",
-            "//tools:runner_lib.sh",
         ] + RL_ARGV_GATES[num][1],
     )
     for stem, num, fn, count, judging, level in RL_ARGV_CORPORA
@@ -478,8 +475,6 @@ RL_ARGV_GATES = {num: output_gate("ex%s_output" % num) for num in ["18", "19"]}
             ":ex%s_bin" % num,
             "//oracle:oracle",
             "//tools:argv_check.sh",
-            "//tools:exit_status",
-            "//tools:runner_lib.sh",
         ] + RL_ARGV_GATES[num][1],
     )
     for stem, num, fn, count, _judging, _level in RL_ARGV_CORPORA
@@ -832,8 +827,6 @@ hand_test(
         ":ex27_bin",
         "//oracle:oracle",
         "//tools:file_check.sh",
-        "//tools:exit_status",
-        "//tools:runner_lib.sh",
     ] + RL_FILE_GATE[1],
 )
 

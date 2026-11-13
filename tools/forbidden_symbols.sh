@@ -127,14 +127,14 @@ require() {
 		exit 2
 	done
 }
-require awk cat dirname env grep head mkdir mktemp rm sed sort tr
+require awk cat dirname grep head mkdir mktemp rm sed sort tr
 
 # The shared runner helpers -- exiting signal traps and excerpts that say what
 # they left out -- written once in tools/runner_lib.sh.
 RL_NAME=forbidden_symbols
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "forbidden_symbols.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "forbidden_symbols.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -171,10 +171,6 @@ NM_LIBS=""
 # objdump, for --function alone, supplied the same way and for the same reason.
 OBJDUMP=""
 OBJDUMP_LIBS=""
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "forbidden_symbols.sh: $1 needs a value" >&2; exit 2; }; }
 # The directory a library flag's file is in, absolute.
 abs_dir() {
 	case "$1" in
@@ -191,48 +187,39 @@ abs_dir() {
 # which of them happen is the compiler's decision.
 #
 # FORBIDDEN_CC is the hand-run default only: every test is handed the pinned
-# clang-12 (--cc), campus's cc, which tools/defs.bzl requires of it
-# (_PINNED_CC_RUNNERS, pinned_cc_problem) -- so the folds above are the ones
-# campus's compiler makes.
+# clang-12 (--cc), campus's cc, which the macros require of it
+# (tools/defs_toolchain.bzl's _PINNED_CC_RUNNERS and pinned_cc_problem) -- so
+# the folds above are the ones campus's compiler makes.
 CC="${FORBIDDEN_CC:-cc}"
 CC_LIBS=""
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		# The directories the fetched compiler's own shared objects live in.
-		# A pinned clang that cannot find libclang-cpp does not fail: the loader
-		# falls back to this machine's copy and the layer reports on a compiler
-		# nobody pinned. Same flag, same reason, same shape as compile_check.sh.
-		--cc-lib)
-			need "$1" "$#"
-			# Absolute: a relative entry in LD_LIBRARY_PATH resolves against the
-			# process's cwd, which is not this script's to assume.
-			case "$2" in
-				/*) _d=$(dirname "$2") ;;
-				*) _d=$(dirname "$PWD/$2") ;;
-			esac
-			CC_LIBS="${CC_LIBS:+$CC_LIBS:}$_d"
-			shift 2 ;;
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
-		--nm) need "$1" "$#"; NM="$2"; shift 2 ;;
+		# The fetched compiler's own shared objects, one per line (LISTS OF
+		# WORDS). A pinned clang that cannot find libclang-cpp does not fail:
+		# the loader falls back to this machine's copy and the layer reports on
+		# a compiler nobody pinned. rl_cc_pin, below, proves them.
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
+		--nm) rl_need "$1" "$#"; NM="$2"; shift 2 ;;
 		# Absolute, as --cc-lib's: each tool runs with its directories on
-		# LD_LIBRARY_PATH (pin_binutils), where a relative one would be
+		# LD_LIBRARY_PATH (rl_binutils_pin), where a relative one would be
 		# resolved against whatever directory the tool runs in.
-		--nm-lib) need "$1" "$#"; NM_LIBS="${NM_LIBS:+$NM_LIBS:}$(abs_dir "$2")"; shift 2 ;;
-		--objdump) need "$1" "$#"; OBJDUMP="$2"; shift 2 ;;
-		--objdump-lib) need "$1" "$#"; OBJDUMP_LIBS="${OBJDUMP_LIBS:+$OBJDUMP_LIBS:}$(abs_dir "$2")"; shift 2 ;;
-		--allowed) need "$1" "$#"; ALLOWED="$2"; ALLOWED_GIVEN=1; shift 2 ;;
+		--nm-lib) rl_need "$1" "$#"; NM_LIBS="${NM_LIBS:+$NM_LIBS:}$(abs_dir "$2")"; shift 2 ;;
+		--objdump) rl_need "$1" "$#"; OBJDUMP="$2"; shift 2 ;;
+		--objdump-lib) rl_need "$1" "$#"; OBJDUMP_LIBS="${OBJDUMP_LIBS:+$OBJDUMP_LIBS:}$(abs_dir "$2")"; shift 2 ;;
+		--allowed) rl_need "$1" "$#"; ALLOWED="$2"; ALLOWED_GIVEN=1; shift 2 ;;
 		--globals) GLOBALS=1; shift ;;
-		--function) need "$1" "$#"; rl_list_add FUNCS "$2"; shift 2 ;;
+		--function) rl_need "$1" "$#"; rl_list_add FUNCS "$2"; shift 2 ;;
 		--through) THROUGH=1; shift ;;
-		--quotes) need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
+		--quotes) rl_need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
 		# A function the GRADER compiles in with the student's file (Piscine
 		# Reloaded's ft_putchar.c). Repeatable. Calling it is authorised;
 		# defining it is the mistake -- see the verdict below.
-		--provided) need "$1" "$#"; rl_list_add PROVIDED "$2"; shift 2 ;;
-		--hdr) need "$1" "$#"; rl_list_add INCS -I "$(dirname "$2")"; shift 2 ;;
-		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
-		--src) need "$1" "$#"; rl_list_add SRCS "$2"; shift 2 ;;
+		--provided) rl_need "$1" "$#"; rl_list_add PROVIDED "$2"; shift 2 ;;
+		--hdr) rl_need "$1" "$#"; rl_list_add INCS -I "$(dirname "$2")"; shift 2 ;;
+		--inc-file) rl_need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
+		--src) rl_need "$1" "$#"; rl_list_add SRCS "$2"; shift 2 ;;
 		*) echo "forbidden_symbols.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -291,7 +278,7 @@ if [ "$MODE" = function ]; then
 		echo "forbidden_symbols.sh: --objdump needs --objdump-lib, the directory of the" >&2
 		echo "  pinned objdump's own libbfd: without it the loader takes this machine's" >&2
 		echo "  (no fallback by design: see THE PINNED nm's OWN LIBRARIES in" >&2
-		echo "  forbidden_symbols.sh)." >&2
+		echo "  tools/runner_lib.sh)." >&2
 		exit 2
 	}
 fi
@@ -305,101 +292,28 @@ fi
 	exit 2
 }
 
-# THE PINNED nm's OWN LIBRARIES, and why this is not the same as pinning nm.
-#
-# binutils ships FRONTENDS. This nm is 44 KB; everything it does is in libbfd,
-# which it names as a bare soname with no RPATH and no RUNPATH. Without a path
-# to the fetched copy the loader answers from /lib/x86_64-linux-gnu and the
-# "pinned" nm is the box's binutils wearing a pinned name -- and it still
-# prints the pinned version, because that string is in the frontend's own
-# .rodata. On a campus box whose binutils is NOT 2.38 the version-stamped
-# soname does not exist at all and the tool would not start.
-#
-# Exit 2, never 1: a missing directory is a wiring error, not a finding about
-# the exercise. Copied deliberately from compile_check.sh's --cc-lib rather
-# than abbreviated -- the shape is the argument. objdump (--function) is the
-# same kind of frontend over the same libraries, so the same proof is made of
-# it: pin_binutils TOOL BINARY DIRS FLAG LIBRARY..., which sets PB_PATH.
-#
-# EACH TOOL ITS OWN PATH. Both used to go on one exported LD_LIBRARY_PATH,
-# objdump's directories ahead of nm's, so nm's proof was made under one path
-# and its runs under another: with --nm-lib and --objdump-lib in two folders,
-# nm proved its own libbfd and then ran on objdump's (V274). So the path a
-# tool is proved under -- its own directories, then the LD_LIBRARY_PATH this
-# runner was handed (LDP0) -- is the one every run of it is given (NM_PATH,
-# OBJDUMP_PATH), and nothing is exported: the compiler's --cc-lib, below,
-# reaches neither tool.
-LDP0=${LD_LIBRARY_PATH-}
-PB_PATH=""
-pin_binutils() {
-	_pb_tool=$1 _pb_bin=$2 _pb_dirs=$3 _pb_flag=$4
-	shift 4
-	_ifs=$IFS
-	IFS=:
-	for _d in $_pb_dirs; do
-		[ -d "$_d" ] || {
-			IFS=$_ifs
-			echo "forbidden_symbols.sh: $_pb_flag directory '$_d' does not exist." >&2
-			echo "  Without it the loader would fall back to this machine's own" >&2
-			echo "  binutils libraries and the pinned $_pb_tool would silently stop" >&2
-			echo "  being pinned, so this refuses to run rather than pass." >&2
-			exit 2
-		}
-	done
-	IFS=$_ifs
-	PB_PATH="$_pb_dirs${LDP0:+:$LDP0}"
-
-	# PROVE THE LOADER AGREED, rather than that the flag arrived: the libraries
-	# it loaded, read by runner_lib.sh's rl_libs_under, each under one of DIRS.
-	# The failure being guarded against is exactly one where the right file is
-	# exec'd and the wrong code runs, so checking which file we exec proves
-	# nothing. In a subshell, so that the scratch file goes whatever it finds.
-	_pb_dbg=$(mktemp) || { echo "forbidden_symbols.sh: cannot create a scratch file" >&2; exit 2; }
-	# conventions: harness tool -- the pinned nm or objdump, asked only for its version
-	env -u LD_DEBUG_OUTPUT LD_LIBRARY_PATH="$PB_PATH" LD_DEBUG=libs "$_pb_bin" --version \
-		> /dev/null 2> "$_pb_dbg"
-	(rl_libs_under "the pinned $_pb_tool" "$_pb_dbg" "$_pb_dirs" "$@")
-	_pb_rc=$?
-	rm -f "$_pb_dbg"
-	[ "$_pb_rc" -eq 0 ] || exit 2
-}
+# THE PINNED nm and objdump, each proved to load its own libraries, and
+# each with its own path (tools/runner_lib.sh, rl_binutils_pin: THE PINNED
+# nm's OWN LIBRARIES, EACH TOOL ITS OWN PATH). The path a tool is proved
+# under is the one every run of it is given (NM_PATH, OBJDUMP_PATH), and
+# nothing is exported: the compiler's --cc-lib, below, reaches neither.
 # nm's work is libbfd's; objdump's is libbfd's, libopcodes' and libctf's.
-pin_binutils nm "$NM" "$NM_LIBS" --nm-lib libbfd
-NM_PATH=$PB_PATH
+rl_binutils_pin nm "$NM" "$NM_LIBS" --nm-lib libbfd
+NM_PATH=$RL_PB_PATH
 OBJDUMP_PATH=""
 if [ "$MODE" = function ]; then
-	pin_binutils objdump "$OBJDUMP" "$OBJDUMP_LIBS" --objdump-lib libbfd libopcodes libctf
-	OBJDUMP_PATH=$PB_PATH
+	rl_binutils_pin objdump "$OBJDUMP" "$OBJDUMP_LIBS" --objdump-lib libbfd libopcodes libctf
+	OBJDUMP_PATH=$RL_PB_PATH
 fi
 
-# No compiler means no object, and this layer's whole verdict is the object's
-# undefined-symbol list -- an empty one reads as "calls nothing", which is a
-# PASS. That is the false green this repo treats as its worst defect class, so
-# it is a skip that NO_SKIP=1 can force, never a quiet success.
-
-# Each --cc-lib directory must EXIST. A moved or mistyped one is the quiet
-# failure this arrangement is exposed to: the loader falls back to the default
-# search path, finds the box's libraries, and the pinned compiler silently stops
-# being pinned. Exit 2 -- the harness is misconfigured, the exercise is not
-# wrong. Copied deliberately from compile_check.sh rather than abbreviated.
-if [ -n "$CC_LIBS" ]; then
-	_ifs=$IFS
-	IFS=:
-	for _d in $CC_LIBS; do
-		[ -d "$_d" ] || {
-			IFS=$_ifs
-			echo "forbidden_symbols.sh: --cc-lib directory '$_d' does not exist." >&2
-			echo "  Without it the loader would fall back to this machine's own" >&2
-			echo "  libraries and the pinned compiler would silently stop being" >&2
-			echo "  pinned, so this refuses to run rather than pass." >&2
-			exit 2
-		}
-	done
-	IFS=$_ifs
-	LD_LIBRARY_PATH="$CC_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-	export LD_LIBRARY_PATH
-fi
-
+# THE PINNED COMPILER, proved before the first compile (tools/runner_lib.sh,
+# rl_cc_pin): each --cc-lib directory exists and goes first on the exported
+# LD_LIBRARY_PATH, the compiler is there and starts, and the loader took its
+# libraries from those directories, with the libxml2 and ICU a libLLVM loads
+# (V321). Each failure is exit 2. This runner kept its own copy of the first
+# three, written before rl_cc_pin, and never made the last: a pinned clang on
+# this machine's libxml2 or ICU passed here while rl_cc_pin refused it.
+#
 # A COMPILER IS NOT OPTIONAL HERE. This layer compiles something and then reads
 # the result, so without a compiler it has checked nothing -- and it used to say
 # SKIP and exit 0, which is a PASS to Bazel.
@@ -415,18 +329,10 @@ fi
 # compiler is no longer a fact about the student's machine: it is a wiring
 # error. Exit 2, the code this repo reserves for "the harness is broken, the
 # exercise is not wrong" -- never exit 0.
-command -v "$CC" > /dev/null 2>&1 || {
-	echo "forbidden_symbols: the compiler '$CC' is not executable." >&2
-	echo "  This layer compiles before it inspects, so without one it would be" >&2
-	echo "  reporting on nothing. Bazel passes the pinned clang through --cc;" >&2
-	echo "  if that is missing the target's data is wrong, which is a harness" >&2
-	echo "  fault and not a finding about this exercise." >&2
-	exit 2
-}
-# And it must START: the --globals probe below read a compiler the loader
-# could not start as one that "leaves out of its object a static", with the
-# loader's words in no log (runner_lib.sh's rl_cc_starts, V241).
-rl_cc_starts "$CC"
+# And it must START (rl_cc_starts, V241): the --globals probe below read a
+# compiler the loader could not start as one that "leaves out of its object a
+# static", with the loader's words in no log.
+rl_cc_pin "$CC" "$CC_LIBS" ""
 
 if [ "$ALLOWED" = "-" ]; then
 	ALLOWED=""
@@ -438,7 +344,7 @@ fi
 
 BASELINE="memcpy memmove memset mempcpy bcopy bzero _GLOBAL_OFFSET_TABLE_ __stack_chk_fail"
 
-TMP=$(mktemp -d)
+TMP=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 # One trap instead of the three hand-written `rm -rf "$TMP"` that used to sit on
 # the exit paths: those covered the failures somebody remembered, and nothing
 # covered a signal or a path added later.
@@ -467,6 +373,33 @@ UND="$TMP/undefined"
 XFLAGS=""
 [ "$MODE" = union ] || rl_list_add XFLAGS -g -ffunction-sections -fdata-sections
 HERE_P=$(pwd -P)
+# A source's path as every record below spells it: less this folder -- its
+# logical path ($PWD, pwd's) or its physical one (HERE_P), which differ where
+# a symbolic link leads here -- and less a leading ./. objdump's places
+# (flocs), nm -l's (fdlocs) and the preprocessor's (isat) are matched by
+# FILE:LINE, so they must be cut alike: one function, put at the start of
+# each of those programs, which are handed pwd="$PWD/" and phys="$HERE_P/".
+# (place(), below, is the shell's own, with its fallback for an empty one.)
+FS_AWK_REL='function rel(p) {
+	if (index(p, pwd) == 1) p = substr(p, length(pwd) + 1)
+	else if (index(p, phys) == 1) p = substr(p, length(phys) + 1)
+	sub(/^\.\//, "", p)
+	return p
+}'
+# nm_read LABEL [FLAG...] -- the pinned nm, under the path it was proved
+# under, over this source's object into $TMP/nm.out. nm failing (absent, or
+# handed an object it cannot read) would leave every list read from it empty
+# and the verdict iterate over nothing -- a PASS having inspected no symbols
+# -- so it is a harness fault, exit 2, naming LABEL.
+nm_read() {
+	_nr_label=$1
+	shift
+	if ! LD_LIBRARY_PATH="$NM_PATH" LC_ALL=C "$NM" "$@" "$obj" > "$TMP/nm.out" 2> "$TMP/nm.err"; then
+		echo "forbidden_symbols: cannot read symbols from $src ($_nr_label failed)" >&2
+		rl_excerpt "$TMP/nm.err" 5 nm-output.txt "" >&2
+		exit 2
+	fi
+}
 
 # --globals: A COMPILE THAT KEEPS EVERY VARIABLE IT WAS GIVEN, proven before
 # it is trusted. clang, even with no -O, leaves out of the object a static it
@@ -549,15 +482,7 @@ for src in $SRCS; do
 		rl_excerpt "$TMP/cc.err" 25 compiler-output.txt "  " >&2
 		exit 2
 	fi
-	# nm failing (absent, or handed an object it cannot read) would leave both
-	# lists empty and make the verdict loop below iterate over nothing —
-	# reporting PASS having inspected no symbols. Treat it as infrastructure
-	# breakage, not as an exercise that calls nothing.
-	if ! LD_LIBRARY_PATH="$NM_PATH" LC_ALL=C "$NM" "$obj" > "$TMP/nm.out" 2> "$TMP/nm.err"; then
-		echo "forbidden_symbols: cannot read symbols from $src (nm failed)" >&2
-		rl_excerpt "$TMP/nm.err" 5 nm-output.txt "" >&2
-		exit 2
-	fi
+	nm_read nm
 	awk 'NF == 3 { print $3 }' "$TMP/nm.out" >> "$DEF"
 	awk '$1 == "U" { print $2 }' "$TMP/nm.out" >> "$UND"
 
@@ -566,11 +491,7 @@ for src in $SRCS; do
 	# with a '.' is one the compiler made for a static INSIDE a function
 	# (header), never one written at file scope.
 	if [ "$MODE" = globals ]; then
-		if ! LD_LIBRARY_PATH="$NM_PATH" LC_ALL=C "$NM" -l "$obj" > "$TMP/nm.out" 2> "$TMP/nm.err"; then
-			echo "forbidden_symbols: cannot read symbols from $src (nm -l failed)" >&2
-			rl_excerpt "$TMP/nm.err" 5 nm-output.txt "" >&2
-			exit 2
-		fi
+		nm_read "nm -l" -l
 		awk -F'\t' -v n="$n" '{
 			k = split($1, w, " ")
 			if (k != 3 || w[2] !~ /^[BbDdRrCVvGgSs]$/ || w[3] ~ /[.]/) next
@@ -622,7 +543,7 @@ for src in $SRCS; do
 				sub(/^0+/, "", o)
 				print n "\t" sec "\t" v "\t" (o == "" ? "0" : o)
 			}' "$TMP/od.r" >> "$TMP/frels"
-		awk -v n="$n" -v pwd="$PWD/" -v phys="$HERE_P/" '
+		awk -v n="$n" -v pwd="$PWD/" -v phys="$HERE_P/" "$FS_AWK_REL"'
 			/^Disassembly of section / {
 				sec = $4
 				sub(/:$/, "", sec)
@@ -632,9 +553,7 @@ for src in $SRCS; do
 			/^[^ \t].*:[0-9]+( \(discriminator [0-9]+\))?$/ {
 				loc = $0
 				sub(/ \(discriminator [0-9]+\)$/, "", loc)
-				if (index(loc, pwd) == 1) loc = substr(loc, length(pwd) + 1)
-				else if (index(loc, phys) == 1) loc = substr(loc, length(phys) + 1)
-				sub(/^\.\//, "", loc)
+				loc = rel(loc)
 				next
 			}
 			sec != "" && /^\t+[0-9a-f]+: R_/ {
@@ -646,19 +565,11 @@ for src in $SRCS; do
 		# And where each data object is defined (source, name, FILE:LINE),
 		# from `nm -l` as --globals reads it: a name reached through data
 		# has no line of code, and is reported at that definition (header).
-		if ! LD_LIBRARY_PATH="$NM_PATH" LC_ALL=C "$NM" -l "$obj" > "$TMP/nm.out" 2> "$TMP/nm.err"; then
-			echo "forbidden_symbols: cannot read symbols from $src (nm -l failed)" >&2
-			rl_excerpt "$TMP/nm.err" 5 nm-output.txt "" >&2
-			exit 2
-		fi
-		awk -F'\t' -v n="$n" -v pwd="$PWD/" -v phys="$HERE_P/" '{
+		nm_read "nm -l" -l
+		awk -F'\t' -v n="$n" -v pwd="$PWD/" -v phys="$HERE_P/" "$FS_AWK_REL"'{
 			k = split($1, w, " ")
 			if (k != 3 || w[2] !~ /^[BbDdRrCVvGgSs]$/ || $2 == "") next
-			l = $2
-			if (index(l, pwd) == 1) l = substr(l, length(pwd) + 1)
-			else if (index(l, phys) == 1) l = substr(l, length(phys) + 1)
-			sub(/^\.\//, "", l)
-			print n "\t" w[3] "\t" l
+			print n "\t" w[3] "\t" rel($2)
 		}' "$TMP/nm.out" >> "$TMP/fdlocs"
 	fi
 
@@ -694,14 +605,12 @@ for src in $SRCS; do
 	# relocation comes from says which classifier that call is (THE <ctype.h>
 	# CLASSIFIERS, below).
 	if [ "$MODE" = function ]; then
-		awk -v n="$n" -v pwd="$PWD/" -v phys="$HERE_P/" '
+		awk -v n="$n" -v pwd="$PWD/" -v phys="$HERE_P/" "$FS_AWK_REL"'
 			/^# [0-9]+ "/ {
 				ln = $2 - 1
 				f = $3
 				gsub(/"/, "", f)
-				if (index(f, pwd) == 1) f = substr(f, length(pwd) + 1)
-				else if (index(f, phys) == 1) f = substr(f, length(phys) + 1)
-				sub(/^\.\//, "", f)
+				f = rel(f)
 				next
 			}
 			{
@@ -835,7 +744,7 @@ in_list() {
 # __ctype_b_loc is the one row that is not one-to-one: isalpha, isdigit,
 # isspace and the rest all compile into that same call, so nm cannot say which
 # was written. The verdict asks the preprocessed source instead
-# (judge_classifiers below).
+# (judge, below).
 CTYPE_CLASSIFIERS="isalnum isalpha isblank iscntrl isdigit isgraph islower isprint ispunct isspace isupper isxdigit"
 public_of() {
 	case "$1" in
@@ -964,24 +873,65 @@ builtin_note() {
 # class constant shows at all (__ctype_b_loc reached by hand), the report
 # names the family rather than the symbol: refused, since nothing authorised
 # was seen to be used.
-judge_classifiers() {
-	_named=""
-	for _c in $CTYPE_CLASSIFIERS; do
-		grep -qxF "$_c" "$DEF" && continue
-		uses "_IS${_c#is}" || continue
-		if in_list "$_c" $ALLOWED_LIST; then
-			CTYPE_SEEN="${CTYPE_SEEN:+$CTYPE_SEEN, }$_c"
-			continue
-		fi
-		_named=1
-		printf '%s\t%s\n' "$_c" "$1" >> "$TMP/bad"
-	done
-	if [ -n "$CTYPE_SEEN" ]; then
-		# conventions: not-a-list -- symbol names nm printed, which hold no blank
-		ACCEPTED="$ACCEPTED $1"
-	elif [ -z "$_named" ]; then
-		printf '%s\t%s\n' "a <ctype.h> classifier" "$1" >> "$TMP/bad"
+#
+# judge SYM LIST USED -- the verdict on one symbol an object references, in
+# LIST's terms (a list of C names, one per word), for both modes: the whole
+# turn-in's list, and --function's per function. Each mode writes its own
+# row from what this sets, and says which classifiers count as used: USED
+# is ctype_used's HOW, below. The two modes kept a copy each, and a rule
+# found in one (the MYALPHA alias, a classifier the turn-in defines) had to
+# be made twice. Sets:
+#   JV_KIND   skip (on LIST, or EXEMPT), bad, accept, or ctype
+#   JV_PUB    the name the student wrote (public_of), or "" for one the
+#             alias table does not know (bad, under its own name)
+#   JV_SEEN   ctype: the classifiers used that LIST allows, ", " apart
+#   JV_NAMED  ctype: those used that it does not, one a line, in order
+# A classifier the turn-in defines is its own function, never glibc's.
+# Its own names start with _jv_: POSIX sh has no `local`, and the callers'
+# loops hold f, sym, list, pub, j, loc and _c.
+# shellcheck disable=SC2086 # LIST and EXEMPT: lists of C names, one per word
+judge() {
+	JV_KIND="" JV_PUB="" JV_SEEN="" JV_NAMED=""
+	if in_list "$1" $2 $EXEMPT; then
+		JV_KIND=skip
+		return 0
 	fi
+	JV_PUB=$(public_of "$1")
+	if [ -z "$JV_PUB" ]; then
+		JV_KIND=bad
+	elif [ "$1" = __ctype_b_loc ]; then
+		JV_KIND=ctype
+		for _jv_c in $CTYPE_CLASSIFIERS; do
+			grep -qxF "$_jv_c" "$DEF" && continue
+			ctype_used "$3" "$_jv_c" || continue
+			if in_list "$_jv_c" $2; then
+				JV_SEEN="${JV_SEEN:+$JV_SEEN, }$_jv_c"
+			else
+				JV_NAMED="$JV_NAMED$_jv_c$RL_NL"
+			fi
+		done
+	elif in_list "$JV_PUB" $2 $EXEMPT; then
+		JV_KIND=accept
+	else
+		JV_KIND=bad
+	fi
+	return 0
+}
+# ctype_used HOW CLASSIFIER -- whether CLASSIFIER counts as used: HOW is
+# code, the default mode's, for its class constant anywhere in the code the
+# compiler saw, the whole turn-in's; or line, --function's, for the
+# classifiers on the reference's own line (_on, from isat), or where there
+# is none, its class constant in its source's code ($TMP/code.$j).
+ctype_used() {
+	case "$1" in
+		code) uses "_IS${2#is}" ;;
+		line)
+			if [ -n "$_on" ]; then
+				printf '%s\n' "$_on" | grep -qxF "$2"
+			else
+				grep -qE "(^|[^A-Za-z0-9_])_IS${2#is}([^A-Za-z0-9_]|\$)" "$TMP/code.$j"
+			fi ;;
+	esac
 }
 
 TAB=$(printf '\t')
@@ -1207,50 +1157,39 @@ if [ "$MODE" = function ]; then
 	# family.
 	: > "$TMP/fbad"
 	FACCEPTED=""
-	# shellcheck disable=SC2086 # $list and $EXEMPT: lists of C names, one per word
 	while IFS="$TAB" read -r f sym chain j loc via; do
 		list=$(awk -F'\t' -v f="$f" '$1 == f { print $2 }' "$TMP/flist")
-		in_list "$sym" $list $EXEMPT && continue
-		pub=$(public_of "$sym")
-		if [ -z "$pub" ]; then
-			# "-": no other symbol. An empty field would vanish, since a
-			# TAB in IFS is white space and runs of it are one separator.
-			printf '%s\t%s\t-\t%s\t%s\t%s\n' "$f" "$sym" "$chain" "$loc" "$via" >> "$TMP/fbad"
-		elif [ "$sym" = __ctype_b_loc ]; then
-			_on=""
+		_on=""
+		if [ "$sym" = __ctype_b_loc ]; then
 			[ "$loc" = - ] || _on=$(awk -F'\t' -v j="$j" -v l="$loc" \
 				'$1 == j && $2 == l { print $3 }' "$TMP/isat")
 			if [ -z "$_on" ]; then
 				[ -f "$TMP/code.$j" ] || blank "$TMP/pp.$j" > "$TMP/code.$j"
 			fi
-			_seen=""
-			_named=""
-			for _c in $CTYPE_CLASSIFIERS; do
-				grep -qxF "$_c" "$DEF" && continue
-				if [ -n "$_on" ]; then
-					printf '%s\n' "$_on" | grep -qxF "$_c" || continue
-				else
-					grep -qE "(^|[^A-Za-z0-9_])_IS${_c#is}([^A-Za-z0-9_]|\$)" "$TMP/code.$j" || continue
-				fi
-				if in_list "$_c" $list; then
-					_seen="${_seen:+$_seen, }$_c"
-				else
-					_named=1
-					printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "$_c" "$sym" "$chain" "$loc" "$via" >> "$TMP/fbad"
-				fi
-			done
-			if [ -n "$_named" ]; then
-				:
-			elif [ -n "$_seen" ]; then
-				FACCEPTED="$FACCEPTED$f$TAB$sym$TAB$_seen$RL_NL"
-			else
-				printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "a <ctype.h> classifier" "$sym" "$chain" "$loc" "$via" >> "$TMP/fbad"
-			fi
-		elif in_list "$pub" $list $EXEMPT; then
-			FACCEPTED="$FACCEPTED$f$TAB$sym$TAB$pub$RL_NL"
-		else
-			printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "$pub" "$sym" "$chain" "$loc" "$via" >> "$TMP/fbad"
 		fi
+		judge "$sym" "$list" line
+		case "$JV_KIND" in
+			skip) ;;
+			accept) FACCEPTED="$FACCEPTED$f$TAB$sym$TAB$JV_PUB$RL_NL" ;;
+			bad)
+				# "-": no other symbol. An empty field would vanish, since a
+				# TAB in IFS is white space and runs of it are one separator.
+				if [ -z "$JV_PUB" ]; then
+					printf '%s\t%s\t-\t%s\t%s\t%s\n' "$f" "$sym" "$chain" "$loc" "$via" >> "$TMP/fbad"
+				else
+					printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "$JV_PUB" "$sym" "$chain" "$loc" "$via" >> "$TMP/fbad"
+				fi ;;
+			ctype)
+				if [ -n "$JV_NAMED" ]; then
+					printf '%s' "$JV_NAMED" | while IFS= read -r _c; do
+						printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "$_c" "$sym" "$chain" "$loc" "$via"
+					done >> "$TMP/fbad"
+				elif [ -n "$JV_SEEN" ]; then
+					FACCEPTED="$FACCEPTED$f$TAB$sym$TAB$JV_SEEN$RL_NL"
+				else
+					printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "a <ctype.h> classifier" "$sym" "$chain" "$loc" "$via" >> "$TMP/fbad"
+				fi ;;
+		esac
 	done < "$TMP/freach"
 
 	# The reading --through applies, said wherever its verdict is.
@@ -1365,17 +1304,29 @@ for sym in $(sort -u "$UND"); do
 	if grep -qxF "$sym" "$DEF"; then
 		continue
 	fi
-	in_list "$sym" $ALLOWED_LIST $EXEMPT && continue
-	pub=$(public_of "$sym")
-	if [ -z "$pub" ]; then
-		printf '%s\t\n' "$sym" >> "$TMP/bad"
-	elif [ "$sym" = "__ctype_b_loc" ]; then
-		judge_classifiers "$sym"
-	elif in_list "$pub" $ALLOWED_LIST $EXEMPT; then
-		ACCEPTED="$ACCEPTED $sym"
-	else
-		printf '%s\t%s\n' "$pub" "$sym" >> "$TMP/bad"
-	fi
+	judge "$sym" "$ALLOWED_LIST" code
+	case "$JV_KIND" in
+		skip) ;;
+		# conventions: not-a-list -- symbol names nm printed, which hold no blank
+		accept) ACCEPTED="$ACCEPTED $sym" ;;
+		bad)
+			if [ -z "$JV_PUB" ]; then
+				printf '%s\t\n' "$sym" >> "$TMP/bad"
+			else
+				printf '%s\t%s\n' "$JV_PUB" "$sym" >> "$TMP/bad"
+			fi ;;
+		ctype)
+			printf '%s' "$JV_NAMED" | while IFS= read -r _c; do
+				printf '%s\t%s\n' "$_c" "$sym"
+			done >> "$TMP/bad"
+			CTYPE_SEEN=$JV_SEEN
+			if [ -n "$CTYPE_SEEN" ]; then
+				# conventions: not-a-list -- symbol names nm printed, which hold no blank
+				ACCEPTED="$ACCEPTED $sym"
+			elif [ -z "$JV_NAMED" ]; then
+				printf '%s\t%s\n' "a <ctype.h> classifier" "$sym" >> "$TMP/bad"
+			fi ;;
+	esac
 done
 
 # The whole verdict used to be one bare line per symbol — "FORBIDDEN function
@@ -1397,7 +1348,7 @@ else
 fi
 
 if [ -s "$TMP/bad" ]; then
-	echo "forbidden_symbols: FAIL — this exercise calls a function it is not"
+	echo "forbidden_symbols: FAIL — this $(rl_noun) calls a function it is not"
 	echo "                   authorised to call."
 	echo ""
 	echo "  CALLED BUT NOT AUTHORISED:"
@@ -1422,10 +1373,10 @@ if [ -s "$TMP/bad" ]; then
 		fi
 	done < "$TMP/bad"
 	echo ""
-	echo "  AUTHORISED FOR THIS EXERCISE: $SHOWN"
+	echo "  AUTHORISED FOR THIS $(rl_noun | tr '[:lower:]' '[:upper:]'): $SHOWN"
 	echo ""
 	echo "  That list is not the harness's opinion: it is the \"Allowed functions\""
-	echo "  line of this exercise's subject, copied as written, plus any variable"
+	echo "  line of this $(rl_noun)'s subject, copied as written, plus any variable"
 	# conventions: the call site's --allowed -- the functions and variables the contract lists
 	echo "  the subject allows by name. Calling anything outside it is an outright"
 	echo "  KO $(rl_at) — a zero on the exercise no matter how right the output"
@@ -1445,7 +1396,7 @@ if [ -s "$TMP/bad" ]; then
 fi
 
 echo "forbidden_symbols: OK — every function called is either defined by this"
-echo "                   exercise itself or on the subject's authorised list."
+echo "                   $(rl_entry) itself or on the subject's authorised list."
 echo "                   Authorised: $SHOWN"
 # Said on the green path too, so a pass that relied on the alias table shows
 # what it read: "nothing forbidden" and "__errno_location read as errno" are

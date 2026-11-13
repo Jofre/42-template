@@ -86,8 +86,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		tab1 = dio_csv_ints(f[0], &n1);
 		tab2 = dio_csv_ints(f[1], &n2);
 		blk1 = build_int(tab1, n1);

@@ -62,9 +62,21 @@ require awk basename chmod cp dirname find mkdir mv rm sed
 
 # Repo root: from `bazel run` it's BUILD_WORKSPACE_DIRECTORY; run directly it's the
 # parent of tools/.
-WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+WS="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
 
 [ "$#" -gt 0 ] || { echo "generate.sh: need at least one module name" >&2; exit 2; }
+
+# The judge of whether a generator is still its skeleton (skeleton, below):
+# beside this script first, then the workspace's. `bazel run` starts this
+# from bazel-bin/tools/, where stub_check.sh is not.
+# conventions: harness tool STUB_CHECK -- tools/stub_check.sh, which reads a file and runs nothing
+STUB_CHECK="$(CDPATH='' cd "$(dirname "$0")" && pwd)/stub_check.sh"
+[ -f "$STUB_CHECK" ] || STUB_CHECK="$WS/tools/stub_check.sh"
+[ -f "$STUB_CHECK" ] || {
+	echo "generate.sh: no stub_check.sh beside this script or in $WS/tools, which tells a generator" >&2
+	echo "  still its skeleton from one with commands: nothing was generated" >&2
+	exit 2
+}
 
 # 42's files this module's tests read, one "NAME<TAB>PATH" line each, from
 # tools/resources.tsv: the rows for $1 whose role is harness. Nothing when the
@@ -75,15 +87,23 @@ harness_files() {
 		"$WS/tools/resources.tsv"
 }
 
-# Is generator $1 still a skeleton -- nothing in it but comments, blank lines
-# and the no-op `:` it ships with? Same reading as tools/stub_check.sh's.
+# skeleton GENERATOR -- 0 while it is still the skeleton it shipped as, 1
+# once it holds a command, 2 when that could not be told (stub_check's
+# words on stderr). The judge is tools/stub_check.sh --file, the one the
+# template build asks of the same file: a copy of its reading here was held
+# to it by nothing. An empty generator is a skeleton here, as it always was:
+# stub_check refuses one as no stub either, which is the template's concern.
 skeleton() {
-	awk '
-		{ l = $0; gsub(/^[ \t]+|[ \t]+$/, "", l) }
-		l == "" || l ~ /^#/ || l == ":" || l == "true" { next }
-		{ found = 1; exit }
-		END { exit found ? 1 : 0 }
-	' "$1"
+	_sk_out=$(sh "$STUB_CHECK" --file "$1" 2>&1)
+	case $? in
+		0) return 0 ;;
+		1) return 1 ;;
+	esac
+	case "$_sk_out" in
+		*"is empty: no line in it but blanks"*) return 0 ;;
+	esac
+	printf '%s\n' "$_sk_out" >&2
+	return 2
 }
 
 # What was not generated, one "MODULE exNN (why)" line each, for the summary,
@@ -143,7 +163,9 @@ unstage_harness_files() {
 # EXIT trap then removes the scratch dir of the one it stopped.
 SCRATCH=""
 trap 'wipe "$SCRATCH"' EXIT
-trap 'exit 2' INT TERM
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 
 for MOD in "$@"; do
 	# As the registry spells a project: no leading ./ and no trailing /, which
@@ -220,7 +242,14 @@ for MOD in "$@"; do
 			fi
 			refused; continue
 		fi
-		if skeleton "$g"; then
+		_skr=0
+		skeleton "$g" || _skr=$?
+		if [ "$_skr" -eq 2 ]; then
+			echo "generate.sh: tools/stub_check.sh could not judge $MOD/generators/$ex.sh (above)." >&2
+			echo "  Nothing was generated for $ex." >&2
+			refused; continue
+		fi
+		if [ "$_skr" -eq 0 ]; then
 			_left=""
 			for _f in "$out"/* "$out"/.[!.]* "$out"/..?*; do
 				[ -e "$_f" ] || [ -L "$_f" ] || continue

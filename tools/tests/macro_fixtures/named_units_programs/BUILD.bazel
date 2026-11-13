@@ -1,0 +1,200 @@
+load("//tools:defs.bzl", "c_levels", "c_make", "c_program", "subject", "unit")
+load("//tools:names_file.bzl", "names_file")
+load("//tools/tests:analysed.bzl", "analysed")
+
+# Its programs are the data of //tools/tests:macro_fixtures_test.
+package(default_visibility = ["//tools/tests:__pkg__"])
+
+# A TOY PROJECT IN TWO PARTS THAT SHARE ONE MAKEFILE: two programs, sorter,
+# the mandatory part, which a bare make builds, and checker, a bonus, which
+# the Makefile's bonus rule builds, both turned in at the root of
+# deliverable/ from the same folder of sources. No file can say which part
+# is written, so each is told written by the rule that builds it (its
+# goal). Invented, like the rest of ../ (see its BUILD file), every file
+# under deliverable/ a stub.
+#
+# What //tools/tests:macro_fixtures_test checks here, on every run:
+#
+#   * the package loads: subject() takes two parts at the root that may
+#     share their files, the second with a goal, and c_levels()' audit
+#     passed on every test below, each named after its part and tagged
+#     unit=<part>;
+#   * the tests and suites emitted are the ones layers.expected lists: one
+#     suite per part (:sorter, :checker), a c_make for each, and
+#     deliverable_files, which judges the tree against both parts' files at
+#     once (" union");
+#   * each program is built from what its own rule compiles: sorter_bin
+#     from what a bare make compiles, checker_bin from what make bonus
+#     compiles (their _sources.txt lists, and :goals).
+#
+# Measured by hand on 2026-10-24 with
+#
+#     bazel test $(bazel query 'tests(//tools/tests/macro_fixtures/named_units_programs:*)')
+#
+# (tagged manual, as every fixture test is): 24 tests, 2 red --
+# sorter_build and checker_build, the stub Makefile building no sorter
+# with make and no checker with make bonus. sorter_build_exit and
+# sorter_build_rules SKIP on sorter_build, checker_build_exit on
+# checker_build, and every other test is green. Re-measure after
+# changing a macro or a runner.
+subject(
+    grader = "both",
+    group = False,
+    units = {
+        "sorter": unit(
+            page = 1,
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = None,
+        ),
+        "checker": unit(
+            page = 2,
+            files = ["Makefile"],
+            optional = ["**/*.c", "**/*.h"],
+            allowed = None,
+            goal = "bonus",
+            goal_quote = "Toy, p.2: \"The checker is built by the bonus rule of your Makefile.\"",
+        ),
+    },
+    mandatory = ["sorter"],
+    mandatory_quote = "Toy, p.1: \"The bonus part is assessed only if the mandatory part is perfect.\"",
+)
+
+c_program(
+    unit = "sorter",
+    name = "sorter",
+    makefile = True,
+    no_allocfail = "a toy that proves a part is built by its own rule; it allocates nothing",
+    cases = [{
+        "name": "run",
+        "expected": "empty.txt",
+        "valgrind": False,
+    }],
+)
+
+# Built by make bonus, the contract's goal for this part.
+c_program(
+    unit = "checker",
+    name = "checker",
+    makefile = True,
+    no_allocfail = "a toy that proves a part is built by its own rule; it allocates nothing",
+    cases = [{
+        "name": "run",
+        "expected": "empty.txt",
+        "valgrind": False,
+    }],
+)
+
+c_make(
+    unit = "sorter",
+    artifact = "sorter",
+    not_checked = {
+        "recipe": "the toy subject says nothing about how its programs compile",
+        "wildcards": "the toy subject does not bind the Norm",
+    },
+)
+
+# The build of make bonus, judged by that build alone: the Makefile's other
+# rules, a relink and its recipes are the sorter's c_make's to judge.
+c_make(
+    unit = "checker",
+    artifact = "checker",
+    not_checked = {
+        "recipe": "the toy subject says nothing about how its programs compile",
+        "wildcards": "the toy subject does not bind the Norm",
+    },
+)
+
+c_levels()
+
+# What c_levels() and the macros emitted, as data: ../named_units_files'
+# :layers, which says what each word is.
+names_file(
+    name = "layers",
+    names = sorted([
+        "%s %s @%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s by:%s kind:%s" % (
+            r["name"],
+            r["srcs"][0].split(":")[-1],
+            [t for t in ["lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"] if t in r["tags"]][0][4:],
+            # The word after the flag (args is a tuple here: no .index).
+            "".join([" fn:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--oracle-fn"]),
+            "".join([" count:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--count"]),
+            "".join([
+                " bin:" + r["args"][i + 1][len("$(location "):-1] + "".join([
+                    " built:" + h.split("/")[-1]
+                    for h in existing_rule(r["args"][i + 1][len("$(location :"):-1])["harness"]
+                ]) + "".join([
+                    " reader:" + r["args"][j + 1][:-1].split("/")[-1]
+                    for j in range(len(r["args"]) - 1)
+                    if r["args"][j] == "--harness-src"
+                ])
+                for i in range(len(r["args"]) - 1)
+                if r["args"][i] == "--student-bin" and not r["args"][i + 1].endswith(("_diffbin)", "_diffbin_asan)"))
+            ]),
+            " any-of" if "--expected-alt" in r["args"] else "",
+            " survive" if "--survive" in r["args"] else "",
+            " stray" if "--stray" in r["args"] else "",
+            " outside" if "--outside" in r["args"] else "",
+            " reading" if [i for i in range(len(r["args"]) - 1) if r["args"][i] == "--exit-source" and r["args"][i + 1] == "reading"] else "",
+            " argv-file" if "--argv-file" in r["args"] else "",
+            " cwd" if "--run-as" in r["args"] else "",
+            " ran" if "--show-run" in r["args"] else "",
+            " case" if "--case" in r["args"] else "",
+            " clues" if "--clues" in r["args"] else "",
+            " stable" if "--stable" in r["args"] else "",
+            " sanitized" if "--sanitized" in r["args"] else "",
+            " sanitize" if "--sanitize" in r["args"] or "--gate-sanitize" in r["args"] else "",
+            " memcheck" if "--sample" in r["args"] else "",
+            " gated" if "--gate-expected" in r["args"] else "",
+            " gate-stdin" if "--gate-stdin" in r["args"] else "",
+            "".join([" gate-label:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--gate-label"]),
+            "".join([" suite:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--suite"]),
+            "".join([" sibling:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--sibling"]),
+            " extras-elsewhere" if "--extras-elsewhere" in r["args"] else "",
+            " union" if "--union" in r["args"] else "",
+            (" raised:" + (r["env"] or {})["RL_RAISED"]) if "RL_RAISED" in (r["env"] or {}) else "",
+            (" make-includes" if "--inc-file" in r["args"] else "") +
+            "".join([
+                " " + t
+                for t in r["tags"]
+                if t.startswith("unit=") or (t[:2] == "ex" and t[2:].isdigit())
+            ]),
+            (r["env"] or {}).get("RL_GRADER", "none"),
+            (r["env"] or {}).get("RL_UNIT_KIND", "none"),
+        )
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+    ] + [
+        "%s suite %s" % (r["name"], " ".join(r["tags"]))
+        for r in existing_rules().values()
+        if r["kind"] == "test_suite"
+    ]),
+)
+
+exports_files(["layers.expected"])
+
+# Which rule of the Makefile each program's build asks make for, as the
+# macros wrote it: the part's goal, or - for what a bare make builds.
+names_file(
+    name = "goals",
+    names = sorted([
+        "%s:%s" % (r["name"], r.get("make_goal") or "-")
+        for r in existing_rules().values()
+        if r["kind"] == "student_binary"
+    ]),
+)
+
+# EVERY TOY ANALYSED: each manual target above, its test_suite included,
+# as a dependency of this target, which //tools/tests:macro_fixtures_test
+# depends on, so a toy naming a label no package declares, or one a macro
+# no longer accepts, fails that test's build instead of waiting for
+# someone to name it by hand. It builds nothing of them
+# (tools/tests/analysed.bzl). The last call of the file, so that it sees
+# every test above it. c_levels()' own :manual suite is named by hand: its
+# finalizer declares it once the file has been read, and existing_rules()
+# here cannot see it yet.
+analysed(
+    name = "toys_analysed",
+    testonly = True,
+    deps = sorted([":" + r for r, a in existing_rules().items() if "manual" in (a.get("tags") or [])] + [":manual"]),
+)

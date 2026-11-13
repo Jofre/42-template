@@ -18,6 +18,10 @@ when the item is broken -- a refusal while the package loads, the audit
 means nothing does: a reviewer has to. `//tools:conventions` holds every item
 here to one of the two, and every check it names to one that exists.
 
+Where an item writes `exNN` -- `exNN_<what>`, `tests/exNN/` -- read the
+exercise's number or, in a contract of units (item 9), the unit's name:
+`bsq_oracle_fixtures`, `tests/ft_strlen/`.
+
 ---
 
 ## Before you write anything
@@ -41,10 +45,16 @@ here to one of the two, and every check it names to one that exists.
    folder (`cursus/Milestone_N/<Project>/`: Libft is
    `cursus/Milestone_0/Libft/`), holding one `BUILD.bazel` and the subject beside it
    as `en.subject.pdf` / `es.subject.pdf`. The template build replaces every
-   subject with a placeholder; nothing in the harness reads one. A new course
+   subject with a placeholder, written from the project's row of
+   `tools/subjects.tsv`: the version of the English subject the harness is
+   built from, its SHA-256, the project's intranet page and a direct link
+   (the file's header says how to fill one); no test reads a subject, and
+   only `//tools:conventions`, on `main`, hashes the English one against its
+   row. A new course
    folder goes on the `COURSE_NAMES` line of every script that walks the
    course folders by name. **Checked by:** `//tools:conventions` ("A script
-   that walks the course folders by name lists every one of them"); the
+   that walks the course folders by name lists every one of them", and
+   "Every project's subject is registered, and its row is that subject's"); the
    folder and its name **(unchecked)**.
 4. **Register the module** in two lists: a row `<path>=REPLACE_ME` in
    `tools/submit.sh`'s `REMOTES` table (never a URL: those live in
@@ -95,15 +105,48 @@ here to one of the two, and every check it names to one that exists.
    file only through `turnin_file()`. **Checked by:** `subject_problem`,
    `_turnin_file_problem`, and `//tools:conventions` ("Every project reads its
    turn-in from ONE subject contract").
-9. **One `"NN": exercise(...)` entry per exercise**, with `dir = "exNN/"` as
-   the "Turn-in directory" line says it, or `dir = None` where the subject has
-   no such line: the turn-in is then `deliverable/` itself, the root of the
-   repository that is pushed. Read each subject for it: libft's and most
-   Common Core subjects have none, and others print one per exercise.
-   `tools/first_red.sh` reads this form as text. **Checked by:**
-   `//tools:conventions` ("Every project reads its turn-in from ONE subject
-   contract"), and `//tools/tests:macro_fixtures_test`, which holds the
-   folders first_red reads to the macros' own.
+9. **Exercises or units, as the subject divides the work.** A subject that
+   prints "Turn-in directory: exNN/" over each exercise is a contract of
+   exercises: one `"NN": exercise(...)` entry per exercise, with
+   `dir = "exNN/"` as that line says it, the folder its key names. A
+   subject that prints no such line turns in at `deliverable/` itself, the
+   root of the repository that is pushed, and is a contract of units,
+   `units = {"<name>": unit(...)}`: `unit()` takes what `exercise()` takes
+   but `dir`. Read each subject's own header boxes for it: BSQ's and
+   Libft's print none. Name each unit by the subject's own words -- the
+   program it builds, the library it turns in, the part it names -- never
+   by a number: the name is the first word of its targets
+   (`<unit>_<what>`), its suite, its folder under `tests/` and the word a
+   student types after the project. It is a lowercase letter, then
+   lowercase letters, digits or `_`; never `ex` and a digit, which begin
+   only an exercise's; never one of the [reserved unit
+   names](reference.md#reserved-unit-names); and never, followed by `_`,
+   the start of another unit's or function's name. A library is a unit
+   with `functions = {...}`, one key per function the subject boxes, and
+   each function is then a unit of its own, named after itself. A project
+   that is one program is one unit. One whose subject divides its root
+   among parts, as a mandatory part and a bonus, has one unit per part,
+   none with `functions`: each lists its own files, and where two parts
+   share their files (one Makefile builds both), the part a bare `make`
+   does not build names the rule that does as `goal`, with the subject's
+   sentence naming it as `goal_quote`. The kind each unit is (library,
+   function, project, part) and how it is told written are derived from
+   this form, never declared. `tools/units.awk` reads it as text, for every
+   reader outside Bazel (first_red.sh, `42`, submit.sh, conventions,
+   answer_scan). **Checked by:** `exercise_problem`, which refuses
+   `dir = None` and `exercise(functions = ...)`, and `subject_problem`,
+   which refuses a folder that is not the key's, each sending the reader to
+   `units = {...}`; `unit_problem` (a `dir` on a unit, a goal and its
+   quote) and `_units_problem` (a name's shape, the reserved names, the
+   prefix rule, a goal on the only unit), and `_parts` (a goal on a part
+   whose files are its own, two parts with one goal); tools/units.awk,
+   which refuses the same forms but the reserved names and a goal's quote
+   (`//tools/tests:selftest`); `//tools:conventions` ("Every project reads
+   its turn-in from ONE subject contract"), and
+   `//tools/tests:units_parity`, which holds
+   tools/units.awk's reading of the contract, the folders first_red reads
+   through it and the file lists conventions and answer_scan read through
+   it, to the macros' own (`:units`, and the lists in `:subject`'s JSON).
 10. **`grader`, `group`, and a mandatory part.** Who grades -- `moulinette`,
     `defense` or `both` -- is the contract's to say, and every runner words its
     messages from it, never by naming the Moulinette. Where the subject itself
@@ -120,13 +163,13 @@ here to one of the two, and every check it names to one that exists.
     quoting the sentence its finding breaks; never written for a subject
     that does not say it. **Checked by:** `subject_problem` (a list of the
     contract's exercises, with the quote; `memory_graded` exactly those two
-    keys, each one line), `//tools/tests:macro_fixtures_test` (first_red
-    reads the list, and whether the contract declares `memory_graded`, as
-    the macros do; `./graded`'s valgrind tests at basic, each quoting the
-    access sentence and each that checks leaks the leak one), c_levels()'
-    audit (a valgrind test at basic only where the contract declares it;
-    there, `--access-rule` on every one, `--rule` on every one that checks
-    leaks and on none that does not), and
+    keys, each one line), `//tools/tests:units_parity` (first_red reads the
+    list, and whether the contract declares `memory_graded`, as the macros
+    do), `//tools/tests:macro_fixtures_test` (`./graded`'s valgrind tests at
+    basic, each quoting the access sentence and each that checks leaks the
+    leak one), c_levels()' audit (a valgrind test at basic only where the
+    contract declares it; there, `--access-rule` on every one, `--rule` on
+    every one that checks leaks and on none that does not), and
     `//tools:conventions` ("No runner names the grader; the project's
     contract does").
 11. **`files` and `optional`.** A pattern says what kind of file, never where,
@@ -151,30 +194,33 @@ here to one of the two, and every check it names to one that exists.
     `[]` for "None", `None` where the subject has no such line (a rush, a
     header exercise), which emits no forbidden layer. Whether a program may
     allocate, and so gets a leak check, is read from it, never passed again.
-    Where one exercise turns in a library whose functions each have a box of
-    their own, `functions` holds each box's list, and `allowed` is their
-    union. Such a library is declared once with `c_library(num)` -- its
-    unit, `c_make`, the Norm, the compilers, the prototypes, the forbidden
-    layer over the union, the symbols -- with a choice for each check a
-    library's subject may or may not make, a quoted sentence or
+    Where a project turns in a library whose functions each have a box of
+    their own, the library is a unit of a contract of units, `functions`
+    holds each box's list, and `allowed` is their union. Such a library is
+    declared once with `c_library(unit = "<library>")` -- its build target
+    `<library>_lib`, `c_make`, the Norm, the compilers, the prototypes, the
+    forbidden layer over the union, the symbols -- with a choice for each
+    check a library's subject may or may not make, a quoted sentence or
     `"none: <the reason>"`: `globals` (no variable outside every function),
     `function_lists` (each function held to its own box, a sentence per
     function), `restrict_rule` (no `restrict` in a prototype),
     `declares_reading` (the turned-in header declares every function, a
     reading at strict) and `helpers_rule` (every helper static in its own
-    file, one two files share included); and each function is tested by
-    member calls below it, `c_function`, `c_mem_check`, `c_diff`, `c_perf`
-    and `c_cycles` with `member = "<function>"`: targets
-    `exNN_<function>_*`, files under `tests/exNN/<function>/`, `malloc`
-    held to the function's own box ([Suites](reference.md#suites)).
+    file, one two files share included); and each function is a unit of
+    its own, tested by calls below it, `c_function`, `c_mem_check`,
+    `c_diff`, `c_perf` and `c_cycles` with `unit = "<function>"`: targets
+    `<function>_*`, files under `tests/<function>/`, `malloc` held to the
+    function's own box ([Suites](reference.md#suites)).
     **Checked by:** `_forbidden_allowed_problem`,
     `_function_malloc_problem`, `_malloc_argument_problem`, and
-    `exercise_problem` (`functions`: C names, each list inside `allowed`,
-    their union equal to it); `library_members_problem` and
-    `_member_problem` (a function whose targets would be ambiguous, a member
-    call on no function, or above `c_library`, or passing what is the
-    library's), and `_member_problems` (a function with no test, a test or a
-    `tests/exNN/` folder of no function).
+    `unit_problem` (`functions`: C names, each list inside `allowed`, their
+    union equal to it); `_units_problem` (a function named as the harness
+    reserves, or so that it and a `_` begin another name of the project),
+    `_member_problem` (a call on a function with another `fn`, passing what
+    is the library's, or above `c_library`), the audit, `_audit_problems`
+    (a unit with no test, a test of the library that is none of the whole
+    library's), and `_unit_folders_problems` (a folder under `tests/` of no
+    unit, or one under the library's own).
 
 ## How student code is built
 
@@ -190,7 +236,7 @@ here to one of the two, and every check it names to one that exists.
     `_standin_runner_problem`, from `_STANDIN_RUNNERS`.
 16. **Compile as the grader compiles**: its files, its include path, its
     working directory. Every layer of an exercise compiles the files the
-    contract names or allows and no other (`tools/defs.bzl`'s
+    contract names or allows and no other (`tools/defs_contract.bzl`'s
     `_turnin_files`): a file it does not let the turn-in hold is the files
     layer's report alone, never a red in the probe, ASan or 32-bit build that
     the output fixture does not share. A header in a subfolder is reached
@@ -220,25 +266,32 @@ here to one of the two, and every check it names to one that exists.
 
 ## Tests of a C function
 
-19. **A differential harness is `tests/exNN/diff_<what>.c`**, and its header
-    opens with a ` * Line:` paragraph naming every column it prints.
+19. **A differential harness is `diff_<what>.c` in its exercise's or unit's
+    folder under `tests/`**, and its header opens with a ` * Line:` paragraph
+    naming every column it prints. One that hands a function a descriptor
+    takes that file from `tools/diffio.h` (`dio_fdcap_open`), and an output
+    fixture that does from `tools/fd_capture.h` (`fc_start`).
     **Checked by:** `_diff_harness_problem`, and `//tools:conventions` ("A
     differential harness names its columns in the shape the diff layer
-    reads").
+    reads", "A reader harness takes the file it hands a function from
+    tools/diffio.h, and an output fixture from tools/fd_capture.h").
 20. **What a harness hands the function is not zeroed.** A destination comes
-    from `dio_garbage(cap)` or `dio_dest(s, len, cap)`, so a missing
-    terminator shows; one that must be zeroed says why
-    (`/* conventions: zeroed -- <why> */`). **Checked by:**
-    `//tools:conventions` ("A differential harness hands the function under
-    test no zeroed buffer").
+    from `dio_garbage(cap)` or `dio_dest(s, len, cap)` (`dio_dest_hex(hex,
+    cap)` from a corpus field), so a missing terminator shows; one that
+    must be zeroed says why (`/* conventions: zeroed -- <why> */`).
+    **Checked by:** `//tools:conventions` ("A differential harness hands the
+    function under test no zeroed buffer").
 21. **A harness sizes what it fills from the case**, never a fixed array
     (`dio_getline`, `dio_csv_ints`, `dio_split_all`), and every unbounded
     input has a case far past the round sizes a student picks (16, 64, 1024,
-    4096, 64 KiB). **Checked by:** `//tools:conventions` ("A harness sizes
-    what it fills from its input from the case"); the large cases
-    **(unchecked)**.
+    4096, 64 KiB). A line with fewer fields than the harness reads stops it
+    as a harness error (`dio_fields`), never a case it skips.
+    **Checked by:** `//tools:conventions` ("A harness sizes what it fills
+    from its input from the case", "A reader harness stops on a corpus line
+    with too few fields"); the large cases **(unchecked)**.
 22. **A harness that prints a byte a line cannot hold** writes
-    diff_output's notation and declares `escaped_values` (a reading's
+    diff_output's notation, through `tools/notation.h` (`nt_put`,
+    `nt_puts`, `nt_putc`, `nt_cell`), and declares `escaped_values` (a reading's
     harness in its own case, `"escaped_values": True`); **one that passes
     an address** publishes it as `@addr`, never normalised by the runner,
     and **checks it only on a block above 4 GiB**: a reader's heap sits
@@ -284,7 +337,7 @@ here to one of the two, and every check it names to one that exists.
 27. **Every program that links a harness over student code names the test of
     the signatures it calls** (`prototype`), and `_prototype_names` is added
     where the subject fixes parameter names. A library chooses it:
-    `c_library(prototype_names)` is a file under `tests/exNN/` holding the
+    `c_library(prototype_names)` is a file under `tests/<library>/` holding the
     named declarations alone, including nothing, or `"none: <the reason>"`
     (the reason alone where `prototype = False`).
     **Checked by:** `_harness_prototype_problem` and `_audit_problems`;
@@ -311,21 +364,26 @@ here to one of the two, and every check it names to one that exists.
     drop or split) **or `cwd_files`** (a file the program opens by a fixed
     name, from a folder of its own). **Checked by:** `_case_problem`.
 32. **A file whose bytes are the case** -- a CR, a NUL -- lives under its
-    exercise's `tests/exNN/`, and one holding a CR LF in that folder's
-    `fixtures/`, which `.gitattributes`' `-text` rule covers: anywhere else
-    git commits a CR LF as LF, and every clone tests bytes the checkout that
-    wrote the file never had (Rush 02's `crlf.dict`, once). **Checked by:**
-    `//tools:conventions` ("A CR IN A FILE GIT WOULD REWRITE"), for a CR,
-    and a CR in a clue, a script or a BUILD file; where a file with a NUL
-    lives **(unchecked)**: git keeps such a file as it is.
+    exercise's `tests/exNN/` (a unit's `tests/<unit>/`), and one holding a
+    CR LF in that folder's own `fixtures/`, which `.gitattributes`' `-text`
+    rule covers (as it covers every `fixtures/` folder one level below a
+    `tests/`): anywhere else git commits a CR LF as LF, and every clone
+    tests bytes the checkout that wrote the file never had (Rush 02's
+    `crlf.dict`, once). **Checked by:** `//tools:conventions` ("A CR IN A
+    FILE GIT WOULD REWRITE"), for a CR, a CR in a clue, a script or a BUILD
+    file, and an exercise's or a unit's `fixtures/` folder the rule does not
+    cover; where a file with a NUL lives **(unchecked)**: git keeps such a
+    file as it is.
 33. **A program that imitates a system tool** takes its expected files from
     an `//oracle` model of the pinned tool, named in `c_program(model = [...])`;
     the tool's messages and status are a reading where the subject does not
     state them. **Checked by:** `_model_problem`, and each case's
     `exNN_<case>_model` test.
 34. **The files a named case reads are written by an `//oracle` arm**
-    (`<x>_fixtures`) and held by `exNN_oracle_fixtures --owns`; where
-    `//oracle` has the program, `reference = True` runs every case with it.
+    (`<x>_fixtures`) and held by its `oracle_fixtures()` test,
+    `<unit>_oracle_fixtures` (`exNN_oracle_fixtures` for an exercise), whose
+    `owns` are both what it stages and its `--owns`; where `//oracle` has
+    the program, `reference = True` runs every case with it.
     An argument table (`c_argv_table`) names the `//oracle` command it was
     emitted from in `model`, and `exNN_model` holds the committed table to
     it, or says why there is none in `no_model`.
@@ -343,9 +401,9 @@ here to one of the two, and every check it names to one that exists.
     file breaking exactly one rule, from an input that is valid without it;
     every transport (arguments, standard input, several files) crossed with
     valid and invalid input. **(unchecked)**
-36. **A program keeps its hints in one keyed `clues.tsv` per exercise**: a
-    row names the cases it is about, or `valgrind`, and a target that replays
-    a corpus is handed the file with `--case`. **Checked by:**
+36. **A program keeps its hints in one keyed `clues.tsv` per exercise or
+    unit**: a row names the cases it is about, or `valgrind`, and a target
+    that replays a corpus is handed the file with `--case`. **Checked by:**
     `_keyed_clue_problems`, and `//tools:conventions` ("Every clue label names
     a case that actually exists").
 
@@ -360,20 +418,22 @@ here to one of the two, and every check it names to one that exists.
     **Checked by:** `//tools:conventions` ("A word of a test's `args` is
     quoted by shell_word(), and by nothing else") and ("A runner's list of
     words from its command line is one word per line").
-39. **A gate is one of its own exercise's output tests -- in a library,
-    of its own function's, or the whole library's for a test of the whole
-    library -- run as that test runs it** -- the same program, expected file, arguments, standard input
-    and folder -- through `rl_gate`; where two output tests share that run,
-    the call names the one it waits for (`waits`), and a runner that takes
-    `--gate-label` is handed that test's name for its SKIP line. Every
+39. **A gate is one of its own exercise's or unit's output tests -- in a
+    library, of its own function's, or the library's own for a test of the
+    whole library -- run as that test runs it** -- the same program,
+    expected file, arguments, standard input and folder -- through
+    `rl_gate`; where two output tests share that run, the call names the one
+    it waits for (`waits`), and a runner that takes `--gate-label` is handed
+    that test's name for its SKIP line. Every
     `diff` and `diff_asan` test that is not manual has one --
     `output_gate(<that test>)` reads it off the test -- or the macro that
     emits it says, beside the line, why it waits for nothing
     (`_NO_GATE_TAG`). **Checked by:** `_gate_problems`,
-    `_case_gate_problems`, `_waiting_problems`, `_ungated_diff_problems`,
-    `_gate_label_problems`, and
-    `//tools:conventions` ("A corpus runner's gate is tools/runner_lib.sh's
-    rl_gate").
+    `_case_gate_problems`, `_measure_gate_problems`, `_waiting_problems`,
+    `_ungated_diff_problems`, `_gate_label_problems`, and
+    `//tools:conventions` ("A runner's gate is tools/runner_lib.sh's
+    rl_gate"), which names the two runners that keep a copy of their own
+    and why.
 40. **Every plain corpus replay has its memory twins**, `corpus_memory()`
     over exactly its corpus; a twin that replays less names what it covers
     (`covers`), and one without memcheck says why (`no_valgrind`). **Checked
@@ -510,10 +570,17 @@ here to one of the two, and every check it names to one that exists.
 57. **A cycles budget is measured**, at `-O2` on two correct answers -- the
     owner's, or a consenting student's, never one an agent writes; with
     none, the budget waits, as three of C 13's do -- and there is none where
-    the cost follows the technique; a corpus with capacity cases sets
+    the cost follows the technique: none per call, no unit at all per a
+    column the reference's corpus adds of its own, and no `write()` budget
+    where the output is not the input; a corpus with capacity cases sets
     `c_cycles(max_unit)`. **Checked by:**
     `//tools:conventions` ("The cycles row names every exercise whose c_cycles
-    leaves cases out"), for `max_unit`; the budgets **(unchecked)**.
+    leaves cases out"), for `max_unit`; `_budget_problem`, which refuses a
+    budget with no `unit_expr` and a `write()` budget without
+    `output_is_input`; `//tools:conventions` ("A differential harness names
+    its columns in the shape the diff layer reads"), for a unit, with a
+    budget or without, per a column its harness does not name; the
+    measuring **(unchecked)**.
 
 ## Hints and messages
 
@@ -543,9 +610,12 @@ here to one of the two, and every check it names to one that exists.
 62. **A new layer** goes in `_LAYER_LEVEL` and reference.md's layer table, at
     the level that matches who needs it: one that informs but never gates
     belongs at the top. The ladder is written there once and nowhere else.
-    **Checked by:** `//tools:conventions` ("The documented layer table matches
-    the one the build actually uses") and ("The level ladder is written down
-    once").
+    Its macro goes in the `tools/defs_*.bzl` of its kind (reference.md's
+    Layout lists them), loaded and re-exported by `tools/defs.bzl`, whose
+    docstring maps it. **Checked by:** `//tools:conventions` ("The documented
+    layer table matches the one the build actually uses"), ("The level
+    ladder is written down once") and ("The macros' source is tools/defs.bzl
+    and the files it loads").
 63. **A knob a runner reads from the environment** has its row in
     reference.md's "Environment variables". A setting `tools/runner_lib.sh`
     reads with an empty default and no such row is reset where the library
@@ -582,8 +652,9 @@ here to one of the two, and every check it names to one that exists.
     layer passes it. **Checked by:** `//tools:conventions` ("A test's runner
     sources tools/runner_lib.sh"), ("Student code runs under the time
     budget"), ("How a program ended is read from tools/exit_status"), ("A
-    signal trap ENDS the script"), ("A runner cuts captured output with
-    rl_excerpt"), ("A clues.tsv is read by rl_clues"), ("Where two outputs
+    signal is named by rl_signame"), ("A signal trap ENDS the script"), ("A runner cuts captured output with
+    rl_excerpt"), ("A runner shows what a run wrote through the one
+    renderer"), ("A clues.tsv is read by rl_clues"), ("Where two outputs
     part is found and shown by tools/runner_lib.sh alone"), ("A diff a log
     shows is made and shown by tools/runner_lib.sh's rl_udiff"), ("A
     sanitizer's options are set by rl_sanitizers"), ("A sanitizer's report
@@ -617,20 +688,43 @@ here to one of the two, and every check it names to one that exists.
 71. **Every fix lands with a check that was red before it**: a selftest arm
     beside its runner's arms (`want_red` insists on exit 1, never 2), a
     `starlark_unit` or `macro_fixtures` case, or a conventions rule with its
-    reason. An arm calls only helpers its file defines; a selftest toy takes
-    an exercise number, and a fixture tree's TODO.md and HISTORY.md a
-    writer, no other block uses; a fixture tree under `$WORK` belongs to
-    one section, and none writes into a tree made before the first; a
-    fixture PATH is one an arm sets, holding every tool its runner needs. A
-    selftest_slow toy is built with its `toy_cc`, which fails a toy that did
-    not build. A section added to `selftest.sh`, or grown, is measured again
+    reason. An arm calls only helpers its file defines or
+    `tools/tests/selftest_lib.sh` does, the one home of the helpers that
+    judge and show an arm (`want_*`, `later_*`, `st_said_*`), which both
+    drivers source; a stand-in reference's rows go to its `st_oracle`.
+    An arm's verdict is the helper's: a refusal is `want_broken`'s, exit 2
+    and the refusal's own sentence, never a status an arm counts by hand. A selftest toy takes
+    an exercise number, and a fixture tree's records (its TODO.md,
+    HISTORY.md and each file under `todo/`) a writer, no other block uses;
+    a fixture tree under `$WORK` belongs to one section, and none writes
+    into a tree made before the first; a fixture PATH is one an arm sets,
+    holding every tool its runner needs. A saved run of the conventions
+    check is read through the library's `cv_saved`, `cv_block` or
+    `cvi_rule`, which take its status back from its verdict line, so a run
+    that stopped early fails the arms asking what it must not say; arms
+    that ask one tree read one run of it, saved where the tree is complete,
+    and never make a run each; a command line with a path in it is a
+    function, as `conv` is, and never a string run unquoted. Every
+    selftest toy, in either driver or a section, is built with the
+    library's `toy_cc`, which fails a toy that did not build (a probe of
+    what the box can build is marked as one), and a block of arms this run
+    cannot make says so with its `st_skipped`, through `st_unsupplied`
+    where `NO_SKIP=1` must turn that block's skip into a refusal (where the
+    driver refused it once, before the first section, as its sanitizer
+    probe does, `st_skipped` alone). A section of
+    `selftest.sh` is a file of its own in `tools/tests/selftest_sections/`,
+    opening with its `# ----- name` line and sourced by one line of the
+    driver; one added, or grown, is measured again
     into `tools/tests/selftest_costs.tsv` (`bazel run
     //tools/tests:selftest_costs` after a run of both selftest targets).
     **Checked by:** `//tools:conventions`
     ("A script that calls need() defines it"), whose rules report an arm
-    that "calls ... and never defines it", a toy exercise written "from two
+    that "calls ... and never defines it", a file that "defines an arm
+    helper outside tools/tests/selftest_lib.sh" or "writes a stand-in
+    reference by hand", one that "prints want_red's
+    verdict outside want_red", a toy exercise written "from two
     blocks", made "from two statements" or named "in two sections", a
-    fixture tree's TODO.md or HISTORY.md written "from two statements", a
+    fixture tree's record written "from two statements", a
     file that "names one fixture tree in two sections" (outright, through a
     variable or a loop, or through a helper and the words a call passes
     it), one that "writes from a section into a fixture tree made before
@@ -638,8 +732,13 @@ here to one of the two, and every check it names to one that exists.
     uses", one that "links a fixture PATH (...) into a folder this check
     cannot read", one that "runs the fixture PATH ... with a runner this
     check cannot name", one whose "fixture PATH (...) is missing what ...
-    requires", and a selftest_slow file that "builds a toy with its compiler's words thrown
-    away"; the rule ("docs/new-project.md says what holds each item") holds
+    requires", a selftest that "does not source its sections one file each,
+    once", one that "reads a conventions run without its status", "cuts a
+    rule's report out of a conventions run by hand", "runs conventions.sh
+    again over a tree nothing changed" or "runs a command line held in a
+    variable", and a selftest file
+    that "builds a toy without toy_cc" or "prints a skip line by hand", or a
+    section that "reads _st_mine"; the rule ("docs/new-project.md says what holds each item") holds
     this list to those rules' headlines, each quote here to one; that the
     check was red before it, and that a section's row was measured again,
     **(unchecked)**.

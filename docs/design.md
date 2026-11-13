@@ -4,7 +4,7 @@
 
 This page holds only the principles that are about the **whole repo**. Anything
 that explains one file lives in that file — a macro's reasoning is in its
-docstring in `tools/defs.bzl`, a runner's is in its header, an exercise's is in
+docstring in its `tools/defs_*.bzl`, a runner's is in its header, an exercise's is in
 its module `BUILD.bazel`, and the environment's is in `.bazelrc`. That is
 deliberate: the person who needs to know why is the one editing the thing, and
 prose kept away from its subject goes stale without anyone noticing.
@@ -24,7 +24,9 @@ SHA-256, at campus's exact build — and **nothing falls back to a copy on your
 quietly.
 
 Where a tool is deliberately *not* pinned, the reason is recorded beside the pin
-in `tools/pins.tsv`, not argued again here.
+in `tools/pins.tsv`, not argued again here. That includes the text tools every
+runner takes from the box, `awk`, `sed`, `grep` and coreutils, which have no
+pin at all.
 
 Pinning makes a verdict reproducible; it does not make it readable. A pinned tool
 reports at its own level — `nm` names `__errno_location` where the student wrote
@@ -177,13 +179,14 @@ are the `method` layer's — and listed as untested where none can — do-op's
 
 ## A rule about the whole module is checked on the whole module
 
-A rule every test of a module keeps -- its exercise's tag, one layer, the
-level that layer gives it -- was once checked inside the helper that emitted
-most of them, so the tests written by hand escaped it: twelve were in no
-per-exercise suite, and the manual ones were in no suite and no document. So
-such a rule is checked once the whole module is declared: `c_levels()` audits
-it (a finalizer, `tools/defs.bzl`'s `_audit_problems`), and a module that
-breaks one does not load -- on its author's machine, before anyone runs it.
+A rule every test of a module keeps -- its exercise's or unit's tag, one
+layer, the level that layer gives it -- was once checked inside the helper
+that emitted most of them, so the tests written by hand escaped it: twelve
+were in no per-exercise suite, and the manual ones were in no suite and no
+document. So such a rule is checked once the whole module is declared:
+`c_levels()` audits it (a finalizer, `tools/defs_module.bzl`'s `_audit_problems`),
+and a module that breaks one does not load -- on its author's machine, before
+anyone runs it.
 Every test is written through one path that derives what the audit reads
 (`hand_test()`, or a macro), and what a reader looks a target up in
 (docs/reference.md's target names, raised and manual tables) is checked

@@ -134,7 +134,7 @@ require awk grep mktemp rm
 RL_NAME=readme_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "readme_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "readme_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # conventions: runs no student code -- it reads one Markdown file of the turn-in
@@ -149,8 +149,6 @@ AI_SECTION=""
 AI_WORDS=""
 GIVEN_WORDING=""
 
-need() { [ "$2" -ge 2 ] || { echo "readme_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 # A value of a list option: one line of text, never empty.
 oneline() {
 	case "$2" in
@@ -162,15 +160,15 @@ oneline() {
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--path) need "$1" "$#"; WANT="$2"; shift 2 ;;
-		--found-list) need "$1" "$#"; FOUND="$2"; shift 2 ;;
-		--quotes) need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
-		--min-sections) need "$1" "$#"; MIN="$2"; shift 2 ;;
+		--path) rl_need "$1" "$#"; WANT="$2"; shift 2 ;;
+		--found-list) rl_need "$1" "$#"; FOUND="$2"; shift 2 ;;
+		--quotes) rl_need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
+		--min-sections) rl_need "$1" "$#"; MIN="$2"; shift 2 ;;
 		--wording) WORDING=1; shift ;;
-		--sentence) need "$1" "$#"; oneline "$1" "$2"; rl_list_add SENTENCES "$2"; GIVEN_WORDING="$1"; shift 2 ;;
-		--section) need "$1" "$#"; oneline "$1" "$2"; rl_list_add SECTIONS "$2"; GIVEN_WORDING="$1"; shift 2 ;;
-		--ai-section) need "$1" "$#"; oneline "$1" "$2"; AI_SECTION="$2"; GIVEN_WORDING="$1"; shift 2 ;;
-		--ai-word) need "$1" "$#"; oneline "$1" "$2"; rl_list_add AI_WORDS "$2"; GIVEN_WORDING="$1"; shift 2 ;;
+		--sentence) rl_need "$1" "$#"; oneline "$1" "$2"; rl_list_add SENTENCES "$2"; GIVEN_WORDING="$1"; shift 2 ;;
+		--section) rl_need "$1" "$#"; oneline "$1" "$2"; rl_list_add SECTIONS "$2"; GIVEN_WORDING="$1"; shift 2 ;;
+		--ai-section) rl_need "$1" "$#"; oneline "$1" "$2"; AI_SECTION="$2"; GIVEN_WORDING="$1"; shift 2 ;;
+		--ai-word) rl_need "$1" "$#"; oneline "$1" "$2"; rl_list_add AI_WORDS "$2"; GIVEN_WORDING="$1"; shift 2 ;;
 		*) echo "readme_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -216,12 +214,23 @@ quoted() {
 	rl_quote "$1" | while IFS= read -r _q; do echo "    $_q"; done
 }
 
-# shown N -- line N of the README, every byte through the one renderer.
+# shown N -- line N of the README, every byte through the one renderer. It
+# is the line as the reading judged it: without its \r, and line 1 without
+# a byte-order mark, which the reading drops and so no verdict turns on.
 shown() {
-	_l=$(awk -v n="$1" 'NR == n { sub(/\r$/, ""); print; exit }' "$WANT")
+	_l=$(LC_ALL=C awk -v n="$1" 'NR == n { sub(/\r$/, ""); if (n == 1) sub(/^\357\273\277/, ""); print; exit }' "$WANT")
 	printf '    %s:%s: ' "$NAME" "$1"
-	printf '%s' "$_l" | rl_vis arg 1 160
+	vis "$_l"
 	echo ""
+}
+
+# vis TEXT -- TEXT through the one renderer, on one line, kept in
+# $WORK/shown: the key under a red report (rl_vis_legend) names the marks
+# these lines showed, and only those.
+vis() {
+	_v=$(printf '%s' "$1" | rl_vis arg 1 160)
+	printf '%s' "$_v"
+	printf '%s\n' "$_v" >> "$WORK/shown"
 }
 
 # What no check reads, said in words no subject owns: which parts a peer
@@ -775,6 +784,7 @@ if [ "$WORDING" = 0 ]; then
 		echo ""
 	fi
 	if [ "$BAD" -gt 0 ]; then
+		rl_vis_legend "$WORK/shown"
 		never_judged
 		exit 1
 	fi
@@ -799,7 +809,7 @@ accepted() {
 	for _s in $SENTENCES; do
 		rl_split_off
 		printf '      '
-		printf '%s' "$_s" | rl_vis arg 1 160
+		vis "$_s"
 		echo ""
 		rl_split_on
 	done
@@ -892,7 +902,7 @@ elif [ "${AIAT:-0}" -gt 0 ]; then
 	echo "$TAG: FAIL — the section $AI_SECTION of $NAME, from line $AIAT, never mentions AI."
 	echo "  None of these words is in it as a word of its own, in the case shown:"
 	printf '      '
-	printf '%s' "$_ws" | rl_vis arg 1 160
+	vis "$_ws"
 	echo ""
 	echo "  (The section runs from its heading to the next heading of the same"
 	echo "  level or a higher one.)"
@@ -918,6 +928,7 @@ if [ "${AIAT:-0}" -eq 0 ]; then
 fi
 
 if [ "$BAD" -gt 0 ]; then
+	rl_vis_legend "$WORK/shown"
 	never_judged
 	exit 1
 fi

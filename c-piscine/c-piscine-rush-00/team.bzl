@@ -10,7 +10,8 @@ required before //tools:submit pushes) and which files the files layer
 requires. It ships with all five, so a fresh clone has nothing ungated.
 
 This file is not part of deliverable/, so it never reaches the turned-in
-repository: every teammate's clone needs the same line. See docs/rushes.md.
+repository: every teammate's clone needs the same line. See this folder's
+README.md.
 """
 
 ASSIGNED = ["00", "01", "02", "03", "04"]

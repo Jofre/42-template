@@ -6,6 +6,7 @@ a file's mtime by hand, so no test depends on how fine the clock is.
 
 import io
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -199,7 +200,12 @@ class Tmux(unittest.TestCase):
             self.assertIn("$ tmux split-window -h -c %s 'sh %s/tools/42.sh watch c-05 ex03 --level basic'" % (cwd, WS), out)
             rc, out, err = run42(["watch", "--tmux", "--dry-run"], cwd, env)
             self.assertIn("$ tmux new-session -c %s ';' split-window -h" % cwd, out)
-            rc, out, err = run42(["watch", "--tmux", "--dry-run"], cwd, {"PATH": d + "/none", "HOME": d})
+            # A PATH with no tmux, and only awk, which 42 reads every
+            # contract with (tools/units.awk): the scope is resolved first.
+            awk_only = os.path.join(d, "awk-only")
+            os.makedirs(awk_only)
+            os.symlink(shutil.which("awk"), os.path.join(awk_only, "awk"))
+            rc, out, err = run42(["watch", "--tmux", "--dry-run"], cwd, {"PATH": awk_only, "HOME": d})
             self.assertEqual(rc, 2)
             self.assertIn("needs tmux", err)
 

@@ -37,8 +37,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		tab = dio_csv_ints(f[0], &size);
 		g_cap = size + 1;
 		g_buf = (int *)dio_alloc((size_t)g_cap, sizeof(int));

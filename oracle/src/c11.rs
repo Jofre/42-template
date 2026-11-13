@@ -32,7 +32,10 @@
 //! csv    = comma-joined decimal ints ("" for size 0)
 //! tokN   = lowercase-hex of a NUL-free C string (tokens comma-joined)
 
-use crate::common::{bench_lines, ints_csv, join_csv, largest_dec, longest_csv, rand_body, sink, strcmp_signed, to_hex, unhex_csv, Rng};
+use crate::common::{
+    bench_lines, head_then_drawn, ints_csv, is_space, join_csv, join_hex, largest_dec, longest_csv, rand_body, sink,
+    sort_readings_agree, unhex_csv, with_long, Rng,
+};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -82,34 +85,16 @@ fn o_sort_strings(v: &[Vec<u8>]) -> Vec<Vec<u8>> {
     r
 }
 
-/// Whether the two readings of ft_sort_string_tab's "ascii order" give one
-/// order for `v`. ASCII ends at 0x7f, so the subject says nothing of a byte
-/// above it: this reference orders strings as strcmp does, unsigned, and a
-/// comparison of `char`s, signed on x86, puts every such byte below 0x00.
-/// The two part only where the first byte two strings differ in is above
-/// 0x7f in one and not in the other. The order this reference gives them
-/// is no reading of the sentence, which does not reach them, but a
-/// convention this repo chose, as C 06 ex03's: C 11 ex06's ex06_readings
-/// replays it, at robust, and nothing else holds such an array.
-fn sort_readings_agree(v: &[Vec<u8>]) -> bool {
-    let mut r = v.to_vec();
-    r.sort_by(|a, b| strcmp_signed(a, b).cmp(&0));
-    r == o_sort_strings(v)
-}
+// Where the two readings of ft_sort_string_tab's "ascii order" part is
+// common.rs's sort_readings_agree. ASCII ends at 0x7f, so the subject says
+// nothing of a byte above it: this reference orders strings as strcmp
+// does, unsigned, and a comparison of `char`s, signed on x86, puts every
+// such byte below 0x00. The order this reference gives them is no reading
+// of the sentence, which does not reach them, but a convention this repo
+// chose, as C 06 ex03's: C 11 ex06's ex06_readings replays it, at robust,
+// and nothing else holds such an array.
 
 // ------------------------------------------------------------- helpers
-/// Comma-joined lowercase-hex of a token list ("" for an empty list).
-fn join_tokens(toks: &[Vec<u8>]) -> String {
-    let mut s = String::new();
-    for (i, t) in toks.iter().enumerate() {
-        if i != 0 {
-            s.push(',');
-        }
-        s.push_str(&to_hex(t));
-    }
-    s
-}
-
 /// A signed value in [-lim, lim], biased toward 0 and the two extremes.
 fn bounded_val(rng: &mut Rng, lim: i64) -> i32 {
     match rng.below(8) {
@@ -159,18 +144,17 @@ fn rand_tokens(rng: &mut Rng, maxn: usize, maxl: usize, high: bool) -> Vec<Vec<u
 // ---------------------------------------------------------- generators
 fn gen_foreach<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut tabs = bounded_tabs(&mut rng, count, i32::MAX as i64);
     // Capacity cases (finding 041): every other array holds 12 ints at most,
     // so a function that kept what it visits in room of a round size (16,
     // 64, 256, 1024, 4096) passed every case. Arrays of 300 and 5000 ints,
-    // each from its index alone, after the structured head (eight arrays);
-    // the corpus keeps its count.
+    // each from its index alone, after the structured head (eight arrays).
+    // The corpus keeps its count from 10 up; a smaller one keeps the head
+    // and both long arrays (with_long).
     let long: Vec<Vec<i32>> = [300usize, 5000]
         .iter()
         .map(|&n| (0..n).map(|i| ((i * 7919) % 20011) as i32 - 10005).collect())
         .collect();
-    tabs.splice(8..8, long);
-    tabs.truncate(count.max(10));
+    let tabs = with_long(bounded_tabs(&mut rng, count, i32::MAX as i64), 8, long, count);
     for v in &tabs {
         // foreach visits each element once, in order: the visited sequence == v.
         // The trailing field re-echoes the input: foreach must not mutate `tab`.
@@ -181,17 +165,15 @@ fn gen_foreach<W: Write>(w: &mut W, seed: u64, count: usize) {
 
 fn gen_map<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    // f(x)=x*3-1 must not overflow i32 => |x| <= 700_000_000.
-    let mut tabs = bounded_tabs(&mut rng, count, 700_000_000);
     // Capacity cases (finding 041), as gen_foreach's: arrays of 300 and 5000
     // ints, each from its index alone and within the same bound, after the
-    // structured head (eight arrays); the corpus keeps its count.
+    // structured head (eight arrays), with gen_foreach's count policy.
     let long: Vec<Vec<i32>> = [300usize, 5000]
         .iter()
         .map(|&n| (0..n).map(|i| ((i as i64 * 7_919_027) % 1_400_000_001 - 700_000_000) as i32).collect())
         .collect();
-    tabs.splice(8..8, long);
-    tabs.truncate(count.max(10));
+    // f(x)=x*3-1 must not overflow i32 => |x| <= 700_000_000.
+    let tabs = with_long(bounded_tabs(&mut rng, count, 700_000_000), 8, long, count);
     for v in &tabs {
         let mapped: Vec<i32> = v.iter().map(|&x| o_map(x)).collect();
         // trailing field: map returns a NEW array and must leave `tab` untouched.
@@ -208,16 +190,15 @@ fn short_tokens(n: usize) -> Vec<Vec<u8>> {
 
 fn gen_any<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut done = 0usize;
     // Capacity cases (finding 041): every other array holds 6 strings at
     // most. Arrays of 300 and 5000 strings that all fail the predicate (0),
     // and one of 5000 whose last string alone passes (1), so a walk that
-    // stops at a round size gives the wrong answer on one of them.
+    // stops at a round size gives the wrong answer on one of them. They
+    // follow the structured cases, and a count below the head cuts it short.
     let mut far = short_tokens(5000);
     far[4999] = b"abc".to_vec();
     let long: Vec<Vec<Vec<u8>>> = vec![short_tokens(300), short_tokens(5000), far];
-    // structured cases first
-    let structured: &[Vec<Vec<u8>>] = &[
+    let structured: Vec<Vec<Vec<u8>>> = vec![
         vec![],                                                  // empty array -> 0
         vec![b"".to_vec()],                                      // one empty string -> 0
         vec![b"ab".to_vec()],                                    // len 2, just under boundary
@@ -226,36 +207,28 @@ fn gen_any<W: Write>(w: &mut W, seed: u64, count: usize) {
         vec![b"x".to_vec(), b"yy".to_vec()],                     // all below boundary -> 0
         vec![b"a".to_vec(), b"bb".to_vec(), b"ccc".to_vec()],    // last one triggers -> 1
     ];
-    for toks in structured.iter().chain(long.iter()) {
-        if done >= count {
-            break;
-        }
-        let res = if toks.iter().any(|t| o_any_pred(t)) { 1 } else { 0 };
-        let tk = join_tokens(toks);
-        // trailing field: any must not mutate the array or the strings it holds.
-        let _ = writeln!(w, "{}\t{}\t{}\t{}", toks.len(), tk, res, tk);
-        done += 1;
-    }
-    while done < count {
+    let draw = || {
         let high = rng.below(4) == 0;
         // short strings around the length-3 boundary
-        let toks = rand_tokens(&mut rng, 6, 5, high);
+        rand_tokens(&mut rng, 6, 5, high)
+    };
+    for toks in head_then_drawn(structured.into_iter().chain(long).collect(), count, draw, |_| true) {
         let res = if toks.iter().any(|t| o_any_pred(t)) { 1 } else { 0 };
-        let tk = join_tokens(&toks);
+        let tk = join_hex(&toks);
+        // trailing field: any must not mutate the array or the strings it holds.
         let _ = writeln!(w, "{}\t{}\t{}\t{}", toks.len(), tk, res, tk);
-        done += 1;
     }
 }
 
 fn gen_count_if<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut done = 0usize;
     // Capacity cases (finding 041): every other array holds 8 strings at
     // most. Arrays of 300 and 5000 lowercase strings (many_tokens), the
     // longer with far more than 255 vowel-first strings, so a count kept in
     // a char -- signed (past 127) or unsigned (past 255) -- wraps there.
+    // They follow the structured cases, as gen_any's do.
     let long: Vec<Vec<Vec<u8>>> = vec![many_tokens(300), many_tokens(5000)];
-    let structured: &[Vec<Vec<u8>>] = &[
+    let structured: Vec<Vec<Vec<u8>>> = vec![
         vec![],                                                       // empty array -> 0
         vec![b"".to_vec()],                                           // one empty string -> 0
         vec![b"apple".to_vec()],                                      // vowel-first -> 1
@@ -264,23 +237,13 @@ fn gen_count_if<W: Write>(w: &mut W, seed: u64, count: usize) {
         // empty + vowel + consonant + vowel: exercises the empty-first edge and a count of 2
         vec![b"".to_vec(), b"echo".to_vec(), b"x".to_vec(), b"oak".to_vec()],
     ];
-    for toks in structured.iter().chain(long.iter()) {
-        if done >= count {
-            break;
-        }
+    // lowercase letters so the vowel predicate actually splits the input
+    let draw = || rand_tokens(&mut rng, 8, 6, false);
+    for toks in head_then_drawn(structured.into_iter().chain(long).collect(), count, draw, |_| true) {
         let c = toks.iter().filter(|t| o_vowel_first(t)).count();
-        let tk = join_tokens(toks);
+        let tk = join_hex(&toks);
         // trailing field: count_if is read-only over its array and strings.
         let _ = writeln!(w, "{}\t{}\t{}\t{}", toks.len(), tk, c, tk);
-        done += 1;
-    }
-    while done < count {
-        // lowercase letters so the vowel predicate actually splits the input
-        let toks = rand_tokens(&mut rng, 8, 6, false);
-        let c = toks.iter().filter(|t| o_vowel_first(t)).count();
-        let tk = join_tokens(&toks);
-        let _ = writeln!(w, "{}\t{}\t{}\t{}", toks.len(), tk, c, tk);
-        done += 1;
     }
 }
 
@@ -448,7 +411,7 @@ fn gen_sort_common(seed: u64, count: usize, keep: SortKeep) {
     let mut w = io::BufWriter::new(io::stdout());
     for toks in sort_corpus(seed, count, keep) {
         let sorted = o_sort_strings(&toks);
-        let _ = writeln!(w, "{}\t{}\t{}", toks.len(), join_tokens(&toks), join_tokens(&sorted));
+        let _ = writeln!(w, "{}\t{}\t{}", toks.len(), join_hex(&toks), join_hex(&sorted));
     }
 }
 
@@ -518,7 +481,7 @@ fn o_do_op(args: &[&[u8]]) -> Result<Vec<u8>, &'static str> {
 /// an odd number of '-' making it negative, then the digits up to the first
 /// other byte ("42amis" is 42, "--+-20toto12" is -20, "toto3" is 0).
 fn do_op_value(s: &[u8]) -> Result<i32, &'static str> {
-    if matches!(s.first(), Some(b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r')) {
+    if s.first().is_some_and(|&b| is_space(b)) {
         return Err("an operand starts with white space, which the subject's examples do not settle");
     }
     let mut i = 0;

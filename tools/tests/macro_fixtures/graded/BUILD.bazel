@@ -1,5 +1,6 @@
 load("//tools:defs.bzl", "c_function", "c_levels", "c_mem_check", "c_program", "corpus_memory", "exercise", "hand_test", "stderr_ignored", "subject")
 load("//tools:names_file.bzl", "names_file")
+load("//tools/tests:analysed.bzl", "analysed")
 
 # Its programs are the data of //tools/tests:macro_fixtures_test.
 package(default_visibility = ["//tools/tests:__pkg__"])
@@ -25,7 +26,7 @@ package(default_visibility = ["//tools/tests:__pkg__"])
 #     corpus_memory()'s ex02_argv_valgrind; every other layer where it sits
 #     anywhere (ex00_symbols at strict);
 #   * a case raised to strict keeps its valgrind arm at strict
-#     (ex02_open_valgrind), the case's floor (tools/defs.bzl's _raise), and so
+#     (ex02_open_valgrind), the case's floor (tools/defs_checks.bzl's _raise), and so
 #     both are in _RAISED, as a raise is;
 #   * each of them quotes the contract's sentence on an invalid access
 #     (" access:memory_graded_access": --access-rule, a file subject()
@@ -158,3 +159,18 @@ names_file(
 )
 
 exports_files(["layers.expected"])
+
+# EVERY TOY ANALYSED: each manual target above, its test_suite included,
+# as a dependency of this target, which //tools/tests:macro_fixtures_test
+# depends on, so a toy naming a label no package declares, or one a macro
+# no longer accepts, fails that test's build instead of waiting for
+# someone to name it by hand. It builds nothing of them
+# (tools/tests/analysed.bzl). The last call of the file, so that it sees
+# every test above it. c_levels()' own :manual suite is named by hand: its
+# finalizer declares it once the file has been read, and existing_rules()
+# here cannot see it yet.
+analysed(
+    name = "toys_analysed",
+    testonly = True,
+    deps = sorted([":" + r for r, a in existing_rules().items() if "manual" in (a.get("tags") or [])] + [":manual"]),
+)

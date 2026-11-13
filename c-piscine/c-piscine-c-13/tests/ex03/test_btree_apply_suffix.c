@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 
+void	btree_apply_suffix(t_btree *root, void (*applyf)(void *));
+
 static void	print_item(void *item)
 {
 	printf("%d\n", *(int *)item);

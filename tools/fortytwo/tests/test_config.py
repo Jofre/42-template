@@ -10,7 +10,9 @@ it, and the machine has 8 CPUs, so nothing on the host decides a result.
 import json
 import os
 import re
+import itertools
 import shutil
+import stat
 import subprocess
 import unittest
 from unittest import mock
@@ -36,7 +38,8 @@ class Toy(unittest.TestCase):
         self.env = Env()
         self.addCleanup(self.env.close)
         self.ws = os.path.join(self.env.tmp, "ws")
-        for f in ("submit.sh", "identity.sh", "drives.sh", "fortytwo/commands.tsv"):
+        for f in ("submit.sh", "identity.sh", "drives.sh", "units.awk", "userconfig_line.awk",
+                  "fortytwo/commands.tsv"):
             os.makedirs(os.path.dirname(os.path.join(self.ws, "tools", f)), exist_ok=True)
             shutil.copy(os.path.join(WS, "tools", f), os.path.join(self.ws, "tools", f))
         self.write(".bazelrc", BAZELRC)
@@ -104,8 +107,19 @@ class Help(Toy):
 
     def test_the_kind_of_every_setting_is_said(self):
         text = self.ok("list", "--all")
-        for title in ("42, this checkout:", "Bazel, this checkout", "Machine, read-only"):
+        for title in ("42, this checkout and your user file:", "Bazel, this checkout", "Machine, read-only"):
             self.assertIn(title, text)
+
+    def test_the_scopes_are_said_and_which_settings_your_user_file_may_hold(self):
+        rc, text, err = run42(["help", "config"], self.ws, self.environ, ws=self.ws)
+        flat = " ".join(text.split())
+        self.assertIn("with --global your user file, %s," % config.userconfig.WHERE, flat)
+        self.assertIn("`list` and `get` show every value that is set, the one in use on the setting's line; "
+                      "--local or --global shows that scope's alone.", flat)
+        self.assertNotIn("--local, the default", flat)
+        self.assertIn("when that is an absolute path", config.userconfig.WHERE)
+        self.assertIn("Your user file may hold level.", flat)
+        self.assertIn("Stored in .submit-level, or in your user file (--global).", flat)
 
 
 class Verbs(Toy):
@@ -189,10 +203,24 @@ class Level(Toy):
         self.ok("--dry-run", "unset", "level")
         self.assertEqual(self.read(".submit-level"), "strict\n")
 
-    def test_submit_gate_in_the_environment_is_named(self):
+    def test_submit_gate_in_the_environment_is_the_level_in_use(self):
+        # `42 test` and tools/submit.sh both take it over the file, so it is
+        # the value in use, the file's shown under it, not a note beside it.
+        gate = {"SUBMIT_GATE": "robust"}
         self.ok("set", "level", "strict")
-        self.assertIn("SUBMIT_GATE=robust", self.ok("get", "level", environ={"SUBMIT_GATE": "robust"}))
-        self.assertIn("SUBMIT_GATE=robust", self.ok("list", environ={"SUBMIT_GATE": "robust"}))
+        self.assertEqual(self.ok("get", "level", environ=gate).splitlines(),
+                         ["robust", "  (environment: SUBMIT_GATE)", "  not used: strict  (local: .submit-level)"])
+        self.assertIn("\n  level                  robust  (environment: SUBMIT_GATE)\n"
+                      "      not used: strict  (local: .submit-level)\n", self.ok("list", environ=gate))
+        self.assertEqual(config.workspace.resolve_level(None, gate, self.ws), ("robust", "SUBMIT_GATE"))
+        out = self.ok("set", "level", "complete", environ=gate)
+        self.assertIn("note: in use instead: robust  (environment: SUBMIT_GATE), which wins over it.", out)
+        # An empty one is unset to both readers.
+        self.assertEqual(self.ok("get", "level", environ={"SUBMIT_GATE": ""}).splitlines(),
+                         ["complete", "  (local: .submit-level)"])
+        self.ok("unset", "level")
+        self.assertIn("\n  level                  robust  (environment: SUBMIT_GATE)\n", self.ok("list", environ=gate))
+        self.assertIn("which is not a level", self.ok("get", "level", environ={"SUBMIT_GATE": "strct"}))
 
 
 class Identity(Toy):
@@ -808,10 +836,9 @@ class Remotes(Toy):
 class Bazel(Toy):
     def test_the_checked_in_value_is_shown_and_is_no_setting_of_yours(self):
         out = self.ok("get", "bazel.cpus")
-        self.assertEqual(out.splitlines()[0], "HOST_CPUS-2 (6 on this machine)")
-        self.assertIn("(.bazelrc, line 2)", out)
+        self.assertEqual(out.splitlines(), ["HOST_CPUS-2 (6 on this machine)", "  (checked in: .bazelrc, line 2)"])
         self.assertNotIn("bazel.cpus", self.ok("list"))
-        self.assertEqual(self.ok("get", "bazel.idle_secs").splitlines()[0], "10800")
+        self.assertEqual(self.ok("get", "bazel.idle_secs").splitlines(), ["10800", "  (Bazel's default)"])
         self.assertIsNone(self.read(".bazelrc.local"))
 
     def test_set_writes_one_block_and_a_second_set_replaces_it(self):
@@ -860,9 +887,11 @@ class Bazel(Toy):
             f.write("common --local_resources=cpu=2\ncommon --disk_cache=/tmp/home-cache\n")
         self.write(".bazelrc.local", "build --disk_cache=/goinfre/me/cache\n")
         out = self.ok("get", "bazel.cpus")
-        self.assertEqual(out.splitlines()[0], "HOST_CPUS-2 (6 on this machine)")
-        self.assertIn("(.bazelrc, line 2)", out)
-        self.assertEqual(self.ok("get", "machine.disk_cache").splitlines()[0], "/goinfre/me/cache")
+        self.assertEqual(out.splitlines(), ["HOST_CPUS-2 (6 on this machine)", "  (checked in: .bazelrc, line 2)",
+                                            "  not used: 2  (home: ~/.bazelrc, line 1)"])
+        self.assertEqual(self.ok("get", "machine.disk_cache").splitlines(),
+                         ["/goinfre/me/cache", "  (local: .bazelrc.local, line 1)",
+                          "  not used: /tmp/home-cache  (home: ~/.bazelrc, line 2)"])
 
     def test_set_leaves_every_other_flag_where_it_was(self):
         self.ok("set", "bazel.cpus", "4")
@@ -906,14 +935,54 @@ class Bazel(Toy):
         with open(os.path.join(self.home, ".bazelrc"), "w", encoding="utf-8") as f:
             f.write("build --local_resources=cpu=2\n")
         out = self.ok("set", "bazel.cpus", "4")
-        self.assertIn("~/.bazelrc, line 1 sets it too", out)
+        self.assertIn("note: in use instead: 2 (home: ~/.bazelrc, line 1;", " ".join(out.split()))
+        self.fits(out)
         out = self.ok("get", "bazel.cpus")
         self.assertEqual(out.splitlines()[0], "2")
-        self.assertIn("(~/.bazelrc, line 1;", out)
+        self.assertIn("(home: ~/.bazelrc, line 1;", out)
+
+    def test_every_rc_line_that_sets_it_is_listed_in_the_order_bazel_takes_them(self):
+        # The one Bazel takes on the setting's line; under it each other line,
+        # the next one Bazel would take first: ~/.bazelrc is read after
+        # .bazelrc.local, and a build line wins over a common line wherever.
+        with open(os.path.join(self.home, ".bazelrc"), "w", encoding="utf-8") as f:
+            f.write("build --local_resources=cpu=2\ncommon --local_resources=cpu=5\n")
+        self.write(".bazelrc.local", "build --local_resources=cpu=4\n")
+        want = ["  not used: 4  (local: .bazelrc.local, line 1)",
+                "  not used: HOST_CPUS-2 (6 on this machine)  (checked in: .bazelrc, line 2)",
+                "  not used: 5  (home: ~/.bazelrc, line 2)"]
+        out = self.ok("get", "bazel.cpus").splitlines()
+        self.assertEqual(out[0], "2")
+        self.assertEqual(out[2:], want)
+        listed = self.ok("list")
+        self.assertIn("\n".join("    " + line for line in want), listed)
+        self.fits(listed)
+
+    def test_local_is_this_checkouts_rc_files_and_one_that_wins_over_them_is_in_use(self):
+        with open(os.path.join(self.home, ".bazelrc"), "w", encoding="utf-8") as f:
+            f.write("build --local_resources=cpu=2\nstartup --max_idle_secs=600\n")
+        self.write(".bazelrc.local", "build --local_resources=cpu=4\n")
+        out = self.ok("get", "--local", "bazel.cpus").splitlines()
+        self.assertEqual(out[:2], ["4", "  (local: .bazelrc.local, line 1)"])
+        self.assertTrue(out[2].startswith("  in use: 2  (home: ~/.bazelrc, line 1"), out)
+        rc, out, err = self.config("get", "--local", "bazel.idle_secs")
+        self.assertEqual((rc, out), (1, ""), err)
+        self.assertEqual(err.splitlines(), ["42: bazel.idle_secs is not set in this checkout.",
+                                            "    `42 config set bazel.idle_secs VALUE` sets it.",
+                                            "  in use: 600  (home: ~/.bazelrc, line 2)"])
+        listed = " ".join(self.ok("list", "--local").split())
+        self.assertIn("bazel.cpus 4 (local: .bazelrc.local, line 1) in use: 2 (home: ~/.bazelrc, line 1", listed)
+        self.assertNotIn("600", listed)
+        self.assertIn("bazel.idle_secs (not set) in use: 600 (home: ~/.bazelrc, line 2)",
+                      " ".join(self.ok("list", "--local", "--all").split()))
+        nothing = os.path.join(self.env.tmp, "no-rc")
+        os.makedirs(nothing)
+        self.assertEqual(self.ok("get", "--local", "bazel.idle_secs", environ={"HOME": nothing}).splitlines(),
+                         ["10800", "  (Bazel's default)"])
 
     def test_a_named_config_or_a_comment_sets_nothing(self):
         self.write(".bazelrc.local", "build:fast --local_resources=cpu=1\n# build --local_resources=cpu=1\n")
-        self.assertIn("(.bazelrc, line 2)", self.ok("get", "bazel.cpus"))
+        self.assertEqual(self.ok("get", "bazel.cpus").splitlines()[1:], ["  (checked in: .bazelrc, line 2)"])
 
 
 class Machine(Toy):
@@ -922,8 +991,7 @@ class Machine(Toy):
         self.assertIn(".bazelrc", self.refused("set", "machine.heap", "2g"))
         self.refused("unset", "machine.disk_cache")
         out = self.ok("get", "machine.heap")
-        self.assertEqual(out.splitlines()[0], "1024m")
-        self.assertIn("(.bazelrc, line 4)", out)
+        self.assertEqual(out.splitlines(), ["1024m", "  (checked in: .bazelrc, line 4)"])
         self.assertEqual(self.ok("get", "machine.disk_cache").splitlines()[0], "none")
         self.assertEqual(self.ok("get", "machine.root").splitlines()[0],
                          config.report.state_root(self.ws, self.environ))
@@ -957,14 +1025,528 @@ class Machine(Toy):
 
 
 
+class Probe(config.Setting):
+    """A setting this checkout and your user file may both hold, for these tests alone: no real
+    one opts in yet. PROBE stands for a variable every reader honours."""
+
+    scopes = ("local", "global")
+    store = ".probe"
+    help = "A test's own setting: plain, fancy or loud."
+    VALUES = ("plain", "fancy", "loud")
+
+    def __init__(self):
+        config.Setting.__init__(self, "probe")
+
+    def path(self, cx):
+        return os.path.join(cx.ws, ".probe")
+
+    def get(self, cx):
+        try:
+            with open(self.path(cx), encoding="utf-8") as f:
+                v = f.read().strip()
+        except FileNotFoundError:
+            v = ""
+        if v:
+            return config.Found(v, ".probe", scope="local")
+        return config.Found("plain", "", user=False, scope="default")
+
+    def check_value(self, raw):
+        if raw not in self.VALUES:
+            raise config.refused("%r is no probe value: %s." % (raw, ", ".join(self.VALUES)))
+        return raw
+
+    def check(self, cx, raw):
+        return self.check_value(raw)
+
+    def write(self, cx, value):
+        config.write_file(self.path(cx), value + "\n")
+
+    def unset(self, cx):
+        os.remove(self.path(cx))
+
+    def environment(self, cx):
+        v = cx.env.get("PROBE")
+        return [config.Found(v, "PROBE", scope="environment")] if v else []
+
+
+class GlobalOnly(config.Setting):
+    """A setting only your user file may hold, as a later api.* would be; no default."""
+
+    scopes = ("global",)
+    help = "A test's own setting, in your user file only."
+
+    def __init__(self):
+        config.Setting.__init__(self, "probe.everywhere")
+
+    def get(self, cx):
+        return None
+
+    def check_value(self, raw):
+        return raw
+
+
+class Scopes(Toy):
+    """Your user file beside this checkout's files, over Probe and GlobalOnly."""
+
+    def setUp(self):
+        Toy.setUp(self)
+        real = config.settings
+        patch = mock.patch.object(config, "settings", lambda cx: real(cx) + [Probe(), GlobalOnly()])
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.folder = os.path.join(self.environ["XDG_CONFIG_HOME"], "42")
+        self.file = os.path.join(self.folder, "config.yaml")
+        self.shown = "~/config/42/config.yaml"  # HOME is self.env.tmp
+
+    def user(self, data):
+        os.makedirs(self.folder, exist_ok=True)
+        with open(self.file, "wb") as f:
+            f.write(data if isinstance(data, bytes) else data.encode())
+
+    def user_bytes(self):
+        try:
+            with open(self.file, "rb") as f:
+                return f.read()
+        except FileNotFoundError:
+            return None
+
+    def failed(self, *words, **kw):
+        rc, out, err = self.config(*words, **kw)
+        self.assertEqual(rc, 1, (words, out, err))
+        return err
+
+    def test_set_global_writes_your_user_file_and_every_checkout_reads_it(self):
+        out = self.ok("set", "--global", "probe", "fancy")
+        self.assertEqual(out, "probe (global): (not set) -> fancy\n  written to %s\n" % self.shown)
+        self.assertEqual(self.user_bytes(), (config.userconfig.HEADER + "probe: fancy\n").encode())
+        self.assertEqual(os.stat(self.folder).st_mode & 0o777, 0o700)
+        self.assertEqual(os.stat(self.file).st_mode & 0o777, 0o600)
+        self.assertEqual(self.ok("get", "probe").splitlines(), ["fancy", "  (global: %s, line 3)" % self.shown])
+        other = os.path.join(self.env.tmp, "ws2")
+        shutil.copytree(self.ws, other)
+        rc, out, err = run42(["config", "get", "probe"], other, self.environ, ws=other)
+        self.assertEqual((rc, out.splitlines()[0]), (0, "fancy"), err)
+        listed = self.ok("list")
+        self.assertIn("42, this checkout and your user file:\n", listed)
+        self.assertIn("\n  probe                  fancy  (global: %s, line 3)\n" % self.shown, listed)
+
+    def test_a_checkouts_own_value_wins_and_every_other_is_shown_not_used(self):
+        self.ok("set", "--global", "probe", "fancy")
+        self.ok("set", "probe", "loud")
+        g = "(global: %s, line 3)" % self.shown
+        self.assertEqual(self.ok("get", "probe").splitlines(),
+                         ["loud", "  (local: .probe)", "  not used: fancy  %s" % g])
+        self.assertIn("\n  probe                  loud  (local: .probe)\n      not used: fancy  %s\n" % g,
+                      self.ok("list"))
+        self.assertEqual(self.ok("get", "probe", environ={"PROBE": "plain"}).splitlines(),
+                         ["plain", "  (environment: PROBE)", "  not used: loud  (local: .probe)",
+                          "  not used: fancy  %s" % g])
+        self.assertIn("probe: loud -> fancy %s" % g, self.ok("unset", "probe"))
+        out = self.ok("unset", "probe")
+        self.assertIn("probe is not set here: nothing to unset. Its value fancy comes from %s, line 3: "
+                      "`42 config unset --global probe` removes it there." % self.shown, " ".join(out.split()))
+        self.assertIn("probe (global): fancy -> plain (default)", self.ok("unset", "--global", "probe"))
+        self.assertEqual(self.user_bytes(), config.userconfig.HEADER.encode())
+
+    def test_each_scope_alone(self):
+        self.ok("set", "--global", "probe", "fancy")
+        self.ok("set", "probe", "loud")
+        self.assertEqual(self.ok("get", "--global", "probe").splitlines(),
+                         ["fancy", "  (global: %s, line 3)" % self.shown, "  in use: loud  (local: .probe)"])
+        self.assertEqual(self.ok("get", "--local", "probe").splitlines(), ["loud", "  (local: .probe)"])
+        local = self.ok("list", "--local")
+        self.assertIn("\n  probe                  loud  (local: .probe)\n", local)
+        self.assertNotIn("fancy", local)
+        self.assertNotIn("probe.everywhere", self.ok("list", "--local", "--all"))
+        self.assertEqual(self.ok("list", "--global").split("\n\n")[0],
+                         "Your user file, which every checkout of yours reads (%s):\n"
+                         "  probe                  fancy  (line 3)\n"
+                         "      in use: loud  (local: .probe)" % self.shown)
+        self.assertIn("\n  probe.everywhere       (not set)", self.ok("list", "--global", "--all"))
+
+    def test_the_flag_goes_anywhere_after_config_and_one_scope_at_a_time(self):
+        for words in (("--global", "set", "probe", "fancy"), ("set", "probe", "--global", "loud"),
+                      ("set", "probe", "plain", "--global")):
+            self.ok(*words)
+            self.assertIn(b"probe: " + words[-1 if words[-1] != "--global" else -2].encode(), self.user_bytes())
+        err = self.refused("get", "--global", "--local", "probe")
+        self.assertIn("not allowed with argument --global", err)
+        self.assertIn("`42 help config`", err)
+
+    def test_dry_run_writes_nothing_in_either_scope(self):
+        out = self.ok("set", "--global", "--dry-run", "probe", "loud")
+        self.assertIn("probe (global): (not set) -> loud", out)
+        self.assertIn("nothing written; without it, %s is written." % self.shown, " ".join(out.split()))
+        self.assertFalse(os.path.exists(self.folder))
+        self.ok("set", "--global", "probe", "loud")
+        before = self.user_bytes()
+        self.assertIn("nothing written", self.ok("unset", "--global", "--dry-run", "probe"))
+        self.assertEqual(self.user_bytes(), before)
+
+    def test_a_setting_whose_readers_read_only_this_checkout_is_refused_global(self):
+        for words, says in ((("set", "--global", "login", "jdoe"),
+                             "VS Code's 42header extension reads only .vscode/settings.json"),
+                            (("get", "--global", "email"), "VS Code's 42header extension reads only"),
+                            (("set", "--global", "remote.c-05", URL), "tools/submit.sh reads only .submit-remotes"),
+                            (("set", "--global", "bazel.cpus", "2"), "~/.bazelrc is Bazel's own file"),
+                            (("set", "--global", "machine.heap", "2g"), "read-only")):
+            err = self.refused(*words)
+            self.assertIn(says, " ".join(err.split()), words)
+            self.fits(err)
+        for words, then in ((("set", "--global", "login", "jdoe"), "`42 config set login VALUE` sets it there"),
+                            (("get", "--global", "login"), "`42 config get login` shows it")):
+            err = " ".join(self.refused(*words).split())
+            self.assertIn("login lives in this checkout only:", err, words)
+            self.assertIn(then, err, words)
+        self.assertFalse(os.path.exists(self.folder))
+
+    def test_a_setting_only_your_user_file_holds(self):
+        self.assertIn("`42 config set --global probe.everywhere VALUE`",
+                      " ".join(self.refused("set", "probe.everywhere", "x").split()))
+        self.refused("get", "--local", "probe.everywhere")
+        self.refused("unset", "probe.everywhere")
+        self.assertEqual(self.config("get", "probe.everywhere")[0], 1)
+        self.ok("set", "--global", "probe.everywhere", "x y")
+        self.assertIn(b'probe.everywhere: "x y"\n', self.user_bytes())
+        self.assertEqual(self.ok("get", "probe.everywhere").splitlines()[0], "x y")
+        self.ok("unset", "--global", "probe.everywhere")
+        rc, out, err = self.config("get", "--global", "probe.everywhere")
+        self.assertEqual(rc, 1, (out, err))
+        self.assertIn("`42 config set --global probe.everywhere VALUE` sets it", " ".join(err.split()))
+
+    def test_the_scope_is_a_flag_not_part_of_the_name(self):
+        self.assertIn("`42 config set --global probe VALUE`", self.refused("set", "global.probe", "fancy"))
+        self.assertIn("`42 config get --local probe`", self.refused("get", "local.probe"))
+        self.assertFalse(os.path.exists(self.folder))
+
+    def test_a_value_it_refuses_writes_nothing(self):
+        self.assertIn("no probe value", self.refused("set", "--global", "probe", "nope"))
+        # What os.fsdecode makes of an argv byte that is no UTF-8.
+        self.assertIn("no UTF-8", self.refused("set", "--global", "probe.everywhere", "caf\udce9"))
+        self.assertFalse(os.path.exists(self.folder))
+
+    def test_a_value_written_by_hand_that_42_refuses_is_shown_refused(self):
+        self.user("probe: nope\n")
+        out = " ".join(self.ok("get", "probe").split())
+        self.assertIn("nope (global: %s, line 1, which 42 refuses: 'nope' is no probe value" % self.shown, out)
+        self.assertIn("42 refuses it: 'nope' is no probe value", " ".join(self.ok("list", "--global").split()))
+
+    def test_a_user_file_42_will_not_read_breaks_only_what_needs_it(self):
+        before = b"probe: fancy\nlevel:\tstrict\n"
+        self.user(before)
+        self.ok("set", "level", "strict")
+        self.assertEqual(self.ok("get", "level").splitlines()[0], "strict")
+        why = "%s, line 2: a tab, which YAML takes as no blank: use spaces." % self.shown
+        self.assertIn("note: %s Nothing is read from it until that is fixed." % why,
+                      " ".join(self.ok("list").split()))
+        self.assertEqual(self.ok("get", "probe").splitlines()[0], "plain")
+        self.assertIn(why, " ".join(self.ok("get", "probe").split()))
+        for words in (("set", "--global", "probe", "loud"), ("unset", "--global", "probe"), ("list", "--global"),
+                      ("get", "--global", "probe")):
+            err = self.failed(*words)
+            self.assertIn(why, " ".join(err.split()), words)
+            self.fits(err)
+        self.assertEqual(self.user_bytes(), before)
+
+    def test_names_no_setting_reads_there_are_kept_and_shown(self):
+        self.ok("set", "login", "marvin")
+        self.user("# mine\nprobe: fancy\nprobee: loud\nlogin: jdoe\nremote.c-05: x@y:z\n")
+        self.assertIn("%s holds 3 names no setting reads there: `42 config list --global` shows them." % self.shown,
+                      " ".join(self.ok("list").split()))
+        listed = " ".join(self.ok("list", "--global").split())
+        self.assertIn("probee loud (line 3) note: no setting of this 42 has that name: it is kept as it is. "
+                      "Did you mean probe?", listed)
+        self.assertIn("login jdoe (line 4) note: login lives in this checkout only, and nothing reads it here",
+                      listed)
+        self.assertIn("note: remote.c-05 lives in this checkout only", listed)
+        self.assertEqual(self.ok("get", "login").splitlines()[0], "marvin")
+        self.assertIn("%s, line 4 sets it too, and nothing reads it there" % self.shown,
+                      " ".join(self.ok("get", "login").split()))
+        self.ok("set", "--global", "probe", "loud")
+        self.ok("unset", "--global", "probee")
+        self.assertEqual(self.user_bytes(), b"# mine\nprobe: loud\nlogin: jdoe\nremote.c-05: x@y:z\n")
+        self.assertIn("nothing to unset", self.ok("unset", "--global", "probe.everywhere"))
+        self.assertIn("no setting 'nope'", self.refused("unset", "--global", "nope"))
+
+    def test_no_home_is_no_user_file_and_this_checkouts_settings_still_work(self):
+        bare = {"HOME": "", "XDG_CONFIG_HOME": ""}
+        self.assertIn("HOME is not set", self.failed("set", "--global", "probe", "fancy", environ=bare))
+        self.assertIn("HOME is not set", self.failed("list", "--global", environ=bare))
+        self.ok("set", "probe", "loud", environ=bare)
+        self.assertEqual(self.ok("get", "probe", environ=bare).splitlines(), ["loud", "  (local: .probe)"])
+
+    def test_a_user_file_inside_this_checkout_is_refused(self):
+        inside = {"XDG_CONFIG_HOME": self.path("cfg")}
+        self.assertIn("inside this checkout", self.failed("set", "--global", "probe", "fancy", environ=inside))
+        self.assertFalse(os.path.exists(self.path("cfg")))
+
+    def test_a_dry_run_refuses_what_the_write_would(self):
+        inside = {"XDG_CONFIG_HOME": self.path("cfg")}
+        real = self.failed("set", "--global", "probe", "fancy", environ=inside)
+        self.assertEqual(self.failed("set", "--global", "probe", "fancy", "--dry-run", environ=inside), real)
+        self.assertFalse(os.path.exists(self.path("cfg")))
+        os.makedirs(self.path("cfg/42"))
+        self.write("cfg/42/config.yaml", "probe: fancy\n")
+        real = self.failed("unset", "--global", "probe", environ=inside)
+        self.assertIn("inside this checkout", real)
+        self.assertEqual(self.failed("unset", "--global", "probe", "--dry-run", environ=inside), real)
+        self.assertEqual(self.read("cfg/42/config.yaml"), "probe: fancy\n")
+        with mock.patch.object(config.userconfig.os, "geteuid", return_value=os.geteuid() + 1):
+            real = self.failed("set", "--global", "probe", "fancy")
+            self.assertIn("belongs to another user", real)
+            self.assertEqual(self.failed("set", "--global", "probe", "fancy", "--dry-run"), real)
+        self.assertFalse(os.path.exists(self.folder))
+
+    @unittest.skipIf(os.geteuid() == 0, "root writes into a read-only folder")
+    def test_a_write_that_fails_names_your_user_file(self):
+        self.ok("set", "--global", "probe", "fancy")
+        os.chmod(self.folder, 0o500)
+        self.addCleanup(os.chmod, self.folder, 0o700)
+        err = self.failed("set", "--global", "probe", "loud")
+        self.assertEqual(" ".join(err.split()), "42: could not write %s: Permission denied" % self.shown)
+
+    def test_a_run_given_no_home_has_one_of_its_own_never_a_shared_tmp(self):
+        import main
+        seen = {}
+
+        def record(argv, env):
+            seen.update(env)
+            return 0
+
+        with mock.patch.dict(os.environ), mock.patch.object(main, "main", record):
+            os.environ.pop("TEST_TMPDIR", None)
+            run42(["config", "list"])
+        self.assertNotIn(seen["HOME"], ("/tmp", "/tmp/"))
+        st = os.stat(seen["HOME"])
+        self.assertEqual((st.st_uid, stat.S_IMODE(st.st_mode)), (os.geteuid(), 0o700))
+        self.assertEqual(seen["XDG_CONFIG_HOME"], os.path.join(seen["HOME"], ".config"))
+
+    def test_a_relative_xdg_config_home_is_named_as_ignored(self):
+        self.ok("set", "--global", "probe", "fancy", environ={"XDG_CONFIG_HOME": "cfg"})
+        self.assertTrue(os.path.exists(os.path.join(self.home, ".config", "42", "config.yaml")))
+        self.assertIn("XDG_CONFIG_HOME=cfg is no absolute path",
+                      " ".join(self.ok("list", environ={"XDG_CONFIG_HOME": "cfg"}).split()))
+
+    def test_help_names_the_settings_your_user_file_may_hold(self):
+        rc, text, err = run42(["help", "config"], self.ws, self.environ, ws=self.ws)
+        self.fits(text)
+        flat = " ".join(text.split())
+        self.assertIn("Your user file may hold level, probe, probe.everywhere.", flat)
+        self.assertIn("Stored in .probe, or in your user file (--global).", flat)
+        self.assertIn("Stored in your user file only (--global).", flat)
+
+    def test_every_list_fits_80_columns(self):
+        long_url = "git@git.example.com:you/" + "x" * 90 + ".git"
+        self.ok("set", "remote.c-05", long_url)
+        self.ok("set", "--global", "probe", "fancy")
+        self.ok("set", "probe", "loud")
+        self.ok("set", "--global", "probe.everywhere", "y" * 120)
+        self.user(self.user_bytes() + b"remote.c-05: " + long_url.encode() + b"\nz" * 1 + b": " + b"w" * 99 + b"\n")
+        for words in (("list",), ("list", "--all"), ("list", "--global"), ("list", "--global", "--all"),
+                      ("list", "--local")):
+            self.fits(self.ok(*words, environ={"PROBE": "plain"}))
+
+
+class GlobalLevel(Toy):
+    """level in your user file: 42 reads it, and the real tools/submit.sh, run with no level
+    of its own, stops on it rather than gate on basic. The script only finds the line
+    (tools/userconfig_line.awk); these hold what it finds to what 42 reads."""
+
+    def setUp(self):
+        Toy.setUp(self)
+        self.folder = os.path.join(self.environ["XDG_CONFIG_HOME"], "42")
+        self.file = os.path.join(self.folder, "config.yaml")
+        self.shown = "~/config/42/config.yaml"  # HOME is self.env.tmp
+
+    def user(self, data):
+        os.makedirs(self.folder, exist_ok=True)
+        with open(self.file, "wb") as f:
+            f.write(data if isinstance(data, bytes) else data.encode())
+
+    def line_of(self, path, name="level"):
+        """The line tools/userconfig_line.awk says sets name in path, or None."""
+        r = subprocess.run(["awk", "-v", "name=" + name, "-f", self.path("tools/userconfig_line.awk"), path],
+                           env=dict(self.environ, LC_ALL="C"), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, check=False)
+        self.assertIn(r.returncode, (0, 1), r.stderr)
+        self.assertEqual(r.stderr, "")
+        return int(r.stdout) if r.returncode == 0 else None
+
+    def script(self, *argv, **environ):
+        """tools/submit.sh -n ARGV over the toy, as `bazel run` would run it: (exit, output). A
+        variable given as None is unset."""
+        env = dict(self.environ, BUILD_WORKSPACE_DIRECTORY=self.ws, LOGIN42="marvin", EMAIL42="marvin@42.fr",
+                   **environ)
+        env = {k: v for k, v in env.items() if v is not None}
+        r = subprocess.run(["sh", self.path("tools/submit.sh"), "-n"] + list(argv), cwd=self.ws, env=env,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+                           errors="replace", check=False)
+        return r.returncode, r.stdout
+
+    def test_the_script_finds_the_line_42_reads_in_every_file_42_reads(self):
+        import userconfig
+        import userconfig_corpus
+        path = os.path.join(self.env.tmp, "file.yaml")
+        files = names = 0
+        for label, data, want in userconfig_corpus.CASES:
+            if isinstance(want, userconfig_corpus.Refused):
+                continue
+            with open(path, "wb") as f:
+                f.write(data)
+            entries = userconfig.parse(data)
+            for name in sorted(set(userconfig_corpus.NAMES) | set(entries)):
+                self.assertEqual(self.line_of(path, name), entries[name][1] if name in entries else None,
+                                 (label, name))
+                names += 1
+            files += 1
+        self.assertGreater(files, 40)
+        self.assertGreater(names, 400)
+
+    def test_a_level_line_42_refuses_is_found_too_and_a_line_that_only_mentions_it_is_not(self):
+        import userconfig
+        path = os.path.join(self.env.tmp, "file.yaml")
+        # What someone could write meaning a level: 42 refuses each file, or
+        # reads the level, so neither of the two gates on basic over it.
+        for data in (b"  level: strict\n", b'"level": strict\n', b"'level': strict\n", b"- level: strict\n",
+                     b"{level: strict}\n", b"level : strict\n", b"level:\tstrict\n", b"level:strict\n",
+                     b"\xef\xbb\xbflevel: strict\n", b"level: strict\r\n", b"--- level: strict\n",
+                     b"probe: x\n\tlevel: strict\n", b"level: strict\nlevel: robust\n", b"level:\n",
+                     b"level: no\n", b"# mine\nlevel: \xff\n",
+                     # A line break YAML reads where awk sees none: CR, NEL, LS, PS.
+                     b"x: y\rlevel: strict\n", b"# mine\rlevel: strict\r", b"\xc2\x85level: strict\n",
+                     b"x: y\xe2\x80\xa8level: strict\n", b"x: y\xe2\x80\xa9level: strict\n",
+                     # A tag, an anchor, an explicit key, a flow mapping of two.
+                     b"!!str level: strict\n", b"&a level: strict\n", b"? level\n: strict\n",
+                     b"{a: 1, level: strict}\n"):
+            with open(path, "wb") as f:
+                f.write(data)
+            self.assertIsNotNone(self.line_of(path), data)
+            try:
+                self.assertIn("level", userconfig.parse(data), data)
+            except userconfig.Bad:
+                pass
+        for data in (b"# level: strict\n", b"  # level: strict\n", b"levels: strict\n", b"Level: strict\n",
+                     b'probe: "level: x"\n', b"probe: x # level: y\n", b"remote.c-05: level@host:level\n",
+                     b"mylevel: strict\n", b"level.x: strict\n", b"---\n", b"",
+                     b"probe: x\r\n# level: y\r\n", b"probe: level\r\n",
+                     # In a line 42 refuses, too: a word that holds it, a comment after ---.
+                     b"  mylevel: strict\n", b"{my-level: strict}\n", b"--- # level: strict\n"):
+            with open(path, "wb") as f:
+                f.write(data)
+            self.assertIsNone(self.line_of(path), data)
+
+    def test_the_script_run_with_no_level_of_its_own_stops_on_a_level_in_your_user_file(self):
+        self.assertEqual(self.script()[0], 0)
+        self.user("# mine\nprobe: x\nlevel: strict\n")
+        rc, out = self.script()
+        self.assertEqual(rc, 2, out)
+        flat = " ".join(out.split())
+        self.assertIn("submit.sh: your user file sets a level, and only 42 reads that file: %s, line 3 "
+                      "`42 submit` passes the level on as --gate-level." % self.shown, flat)
+        self.fits(out)
+        for argv, environ in ((["--gate-level", "strict"], {}), ([], {"SUBMIT_GATE": "robust"}), (["--no-gate"], {})):
+            rc, out = self.script(*argv, **environ)
+            self.assertEqual(rc, 0, (argv, environ, out))
+            self.assertNotIn("user file", out)
+        self.write(".submit-level", "complete\n")
+        self.assertEqual(self.script()[0], 0)
+        self.write(".submit-level", "\n")
+        self.assertEqual(self.script()[0], 2)
+        self.user(b"# mine\rlevel: strict\r")
+        self.assertEqual(self.script()[0], 2)
+
+    def test_a_user_file_the_script_cannot_look_into_stops_it_too(self):
+        # A finder that failed is no "no level line": the gate would run on
+        # basic over a file that may say otherwise.
+        self.user("level: strict\n")
+        os.remove(self.path("tools/userconfig_line.awk"))
+        rc, out = self.script()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("submit.sh: could not look for a level in your user file (above): %s" % self.shown,
+                      " ".join(out.split()))
+        self.fits(out)
+
+    def test_the_script_looks_for_your_user_file_where_42_does(self):
+        self.user("level: strict\n")
+        here = {"HOME": self.env.tmp, "XDG_CONFIG_HOME": self.environ["XDG_CONFIG_HOME"]}
+        elsewhere = os.path.join(self.env.tmp, "elsewhere")
+        os.makedirs(os.path.join(elsewhere, ".config", "42"))
+        shutil.copy(self.file, os.path.join(elsewhere, ".config", "42", "config.yaml"))
+        for environ, stops in ((here, True),
+                               ({"HOME": elsewhere, "XDG_CONFIG_HOME": ""}, True),
+                               ({"HOME": elsewhere, "XDG_CONFIG_HOME": "relative"}, True),
+                               ({"HOME": self.env.tmp, "XDG_CONFIG_HOME": ""}, False),
+                               ({"HOME": "relative", "XDG_CONFIG_HOME": ""}, False),
+                               ({"HOME": "", "XDG_CONFIG_HOME": ""}, False),
+                               ({"HOME": None, "XDG_CONFIG_HOME": self.environ["XDG_CONFIG_HOME"]}, True),
+                               ({"HOME": None, "XDG_CONFIG_HOME": None}, False)):
+            rc, out = self.script(**environ)
+            self.assertEqual(rc, 2 if stops else 0, (environ, out))
+            self.assertEqual("your user file sets a level" in out, stops, (environ, out))
+            # run42 gives a HOME of its own to an env with none: "" is none to 42.
+            given = {k: "" if v is None else v for k, v in environ.items()}
+            rc, got, err = run42(["config", "get", "level"], self.ws, dict(self.environ, **given), ws=self.ws)
+            self.assertEqual("(global: " in " ".join(got.split()), stops, (environ, got, err))
+
+    def test_42_config_shows_the_level_42_test_runs_wherever_it_is_set(self):
+        # Two writers of one order: Setting.layers over SCOPES, and
+        # workspace.level_source, which cannot import config.
+        import workspace
+        for local, user, gate in itertools.product((None, "robust"), (None, "strict"), (None, "complete")):
+            if local:
+                self.write(".submit-level", local + "\n")
+            elif os.path.exists(self.path(".submit-level")):
+                os.remove(self.path(".submit-level"))
+            if user:
+                self.user("level: %s\n" % user)
+            elif os.path.exists(self.file):
+                os.remove(self.file)
+            environ = dict(self.environ, **({"SUBMIT_GATE": gate} if gate else {}))
+            want = workspace.resolve_level(None, environ, self.ws)
+            rc, out, err = run42(["config", "get", "level"], self.ws, environ, ws=self.ws)
+            self.assertEqual(out.splitlines()[0], want[0], (local, user, gate, out, err))
+
+    def test_level_set_global_is_checked_and_shown_below_what_wins_over_it(self):
+        err = " ".join(self.refused("set", "--global", "level", "strct").split())
+        self.assertIn("'strct' is not a level. The levels are basic, strict, robust, complete, all. "
+                      "Did you mean strict?", err)
+        self.assertFalse(os.path.exists(self.folder))
+        self.ok("set", "--global", "level", "strict")
+        g = "(global: %s, line 3)" % self.shown
+        self.assertEqual(self.ok("get", "level").splitlines(), ["strict", "  " + g])
+        self.ok("set", "level", "complete")
+        self.assertEqual(self.ok("get", "level").splitlines(),
+                         ["complete", "  (local: .submit-level)", "  not used: strict  " + g])
+        self.assertEqual(self.ok("get", "level", environ={"SUBMIT_GATE": "robust"}).splitlines(),
+                         ["robust", "  (environment: SUBMIT_GATE)", "  not used: complete  (local: .submit-level)",
+                          "  not used: strict  " + g])
+        self.assertIn("level: complete -> strict " + g, self.ok("unset", "level"))
+        self.assertIn("level (global): strict -> basic (default)", self.ok("unset", "--global", "level"))
+
+    def test_a_user_file_42_cannot_read_says_what_stops_while_it_would_decide(self):
+        self.user("level: no\n")
+        stops = ("`42 test`, `42 submit`, `42 watch`, `42 clues` and a bare `42 norm` stop until it is "
+                 "fixed, since nothing nearer sets level.")
+        self.assertIn(stops, " ".join(self.ok("list").split()))
+        self.assertIn(stops, " ".join(self.ok("get", "level").split()))
+        self.ok("set", "level", "robust")
+        self.assertNotIn(stops, " ".join(self.ok("list").split()))
+        self.assertNotIn(stops, " ".join(self.ok("get", "level").split()))
+        out = self.ok("unset", "level")
+        self.assertIn(stops, " ".join(out.split()))
+        self.fits(out)
+        self.ok("set", "level", "robust")
+        self.assertIn("Nothing is read from it until that is fixed.", " ".join(self.ok("list").split()))
+
+
 class Submit(Toy):
     """`42 submit c-05 URL` saves the URL through config's writer, then pushes there."""
 
     def setUp(self):
         Toy.setUp(self)
-        shutil.copy(os.path.join(WS, "tools", "defs.bzl"), self.path("tools/defs.bzl"))
+        shutil.copy(os.path.join(WS, "tools", "defs_levels.bzl"), self.path("tools/defs_levels.bzl"))
         for mod in (C05, "c-piscine/c-piscine-c-06"):
-            self.write(mod + "/BUILD.bazel", "subject(\n)\nc_levels(\n)\n")
+            self.write(mod + "/BUILD.bazel", "subject(\n    exercises = {},\n)\nc_levels(\n)\n")
         # `bazel run` replaces 42's process: recorded here instead.
         self.ran = []
         patch = mock.patch.object(config.bazel, "exec_foreground", lambda argv, ws, env: self.ran.append(argv))
@@ -1002,6 +1584,31 @@ class Submit(Toy):
             self.assertIn(says, out)
             self.assertIsNone(self.read(".submit-remotes"))
         self.assertEqual(self.pushed(), ["run //tools:submit -- %s --url %s -n" % (C05, URL)])
+
+    def test_a_level_from_your_user_file_is_passed_on_and_no_other_is(self):
+        # The script reads SUBMIT_GATE and .submit-level itself, and so says
+        # what they hold; your user file only 42 reads.
+        self.assertEqual(self.submit()[0], 0)
+        folder = os.path.join(self.environ["XDG_CONFIG_HOME"], "42")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "config.yaml"), "w") as f:
+            f.write("level: strict\n")
+        self.assertEqual(self.submit()[0], 0)
+        self.assertEqual(self.submit("--level", "robust")[0], 0)
+        self.write(".submit-level", "robust\n")
+        self.assertEqual(self.submit()[0], 0)
+        self.assertEqual(self.pushed(), ["run //tools:submit -- " + C05,
+                                         "run //tools:submit -- %s --gate-level strict" % C05,
+                                         "run //tools:submit -- %s --gate-level robust" % C05,
+                                         "run //tools:submit -- " + C05])
+        os.remove(self.path(".submit-level"))
+        with open(os.path.join(folder, "config.yaml"), "w") as f:
+            f.write("level: no\n")
+        rc, out, err = self.submit()
+        self.assertEqual(rc, 2, (out, err))
+        self.assertIn("~/config/42/config.yaml, line 1: YAML reads no", " ".join(err.split()))
+        self.fits(err)
+        self.assertEqual(len(self.ran), 4)
 
     def test_a_file_it_cannot_write_stops_the_push(self):
         if os.geteuid() == 0:

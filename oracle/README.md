@@ -30,7 +30,8 @@ does: `shell01_rdwssap` (shell-01 ex07) and `shell01_chelou` (shell-01 ex08).
 
 - `oracle shell01_groups <user>` prints a user's groups in the order `id` gives
   them, from the machine's user database, through the same glibc calls `id`
-  makes. shell-01 ex01's check compares against it.
+  makes, and byte for byte as `id` prints them, a name that is not UTF-8
+  included. shell-01 ex01's check compares against it.
 - `oracle shell01_multigroup [<except>]` names the first user in the user
   database who is in two groups or more, so shell-01 ex01's check can drive
   one: a list of one group has no comma to see.
@@ -310,8 +311,8 @@ that silently breaks the shell side.
 | --- | --- | --- |
 | `bsq_maps` | bsq | a valid map file, and the map with the square drawn |
 | `bsq_mixed` | bsq | valid and invalid files interleaved by the reference |
-| `bsq_readings` | bsq | the same, under this harness's reading of what the subject leaves open (a count written `09`, `+9`, ` 9` or `9 `, a map with no final newline, a row holding the full character): the strict `ex00_readings` only |
-| `bsq_fixtures` | bsq | not a corpus: `<path>\t<bytes>` for every file BSQ's named cases read, which `ex00_oracle_fixtures` holds `tests/ex00/` to |
+| `bsq_readings` | bsq | the same, under this harness's reading of what the subject leaves open (a count written `09`, `+9`, ` 9` or `9 `, a map with no final newline, a row holding the full character): the strict `bsq_readings` only |
+| `bsq_fixtures` | bsq | not a corpus: `<path>\t<bytes>` for every file BSQ's named cases read, which `bsq_oracle_fixtures` holds `tests/bsq/` to |
 | `rush00_fixtures` | rush-00 | not a corpus: `<path>\t<bytes>` for the files the `ex00_rush0N_defense` targets read -- the subject's defense case, `rush(123, 42)`, drawn by each variant, and the row its table expects -- which rush-00's `ex00_oracle_fixtures` holds `tests/ex00/` to |
 | `bsq_long` | bsq | a FIXED list of three maps past every capacity a program might pick, whose biggest square is one cell at most (seed and `count` are not read; `bsq_check.sh --fixed 3`) |
 | `bsq_big` | bsq | a FIXED list of four maps where the method matters: a million cells, ten thousand lines, a million cells with three obstacles, and the map with no empty cell (`count` is not read; `bsq_check.sh --fixed 4`) |
@@ -344,6 +345,10 @@ real paths and answers with the tool's standard output, standard error and exit
 status, NAME standing for the program's name in its messages. `check()` holds
 it to the tools' pasted transcripts; it reproduces every older c-10 fixture,
 and agreed with coreutils 8.32 and util-linux 2.37.2 on every named case.
+An argument it does not read has no answer there (exit 2, the reason on
+standard error), never one made up: any option but tail's `-c` and hexdump's
+`-C`, and a tail count that is not all digits (`-c +5`, which GNU tail reads
+as "from byte 5 on").
 
 **c-10's corpus carries NUL bytes**, which is why `tools/file_check.sh` decodes
 each file straight into a file with `printf '%b' "$field" > "$dest"` and never
@@ -468,17 +473,18 @@ backwards would leave the layer with nothing to say.
   These exercises authorise exactly one function, `write()`, and the natural
   first solution calls it once per character. So each arm here emits its whole
   output in **one `write()`**, which is the floor, and the distance to it is the
-  message. These are recorded figures, taken against finished c-00
-  implementations; `ref_compare.sh --kind output` prints both counts side by
-  side, so you can read your own row once yours is written:
+  message. An answer that writes one byte per call makes N calls for N bytes;
+  the reference makes one. `ref_compare.sh --kind output` prints both counts
+  side by side, so you can read your own once yours is written; the bytes are
+  the ones every answer writes:
 
-  | exercise | student `write()` | reference `write()` | bytes |
-  | --- | --- | --- | --- |
-  | ex01 | 26 | 1 | 26 |
-  | ex02 | 26 | 1 | 26 |
-  | ex03 | 10 | 1 | 10 |
-  | ex05 | 479 | 1 | 598 |
-  | ex06 | 9 899 | 1 | 34 648 |
+  | exercise | reference `write()` | bytes |
+  | --- | --- | --- |
+  | ex01 | 1 | 26 |
+  | ex02 | 1 | 26 |
+  | ex03 | 1 | 10 |
+  | ex05 | 1 | 598 |
+  | ex06 | 1 | 34 648 |
 
   That is the gap `AGENTS.md` names for `ft_putstr` — *"a perfectly correct
   `ft_putstr` was running at 16x the syscall budget and nobody knew, because
@@ -562,12 +568,12 @@ another. lstlast's corpus leaves the empty list out and has no twin.
 | `libft_strtrim` | ft_strtrim | s1, set, and the trimmed string |
 | `libft_split` | ft_split | s, the delimiter (one byte), the word count, each word, and 1; s never empty, the delimiter never NUL, and never at either end of s or beside another |
 | `libft_split_readings` | ft_split | the same, with only the other cases: an empty s, a NUL delimiter, or one at either end of s or beside another |
-| `libft_itoa` | ft_itoa | n, and its decimal text (raw, not hex) |
+| `libft_itoa` | ft_itoa | n, and its decimal text (raw, not hex); the ints are C 00's `c00_putnbr`'s, cut at the count |
 | `libft_strmapi` | ft_strmapi | s, its result under a fixed f the reader implements too, and 1 |
 | `libft_striteri` | ft_striteri | s, s afterwards under the same f, and 1 |
 | `libft_putstr_fd` | ft_putstr_fd | s, and the bytes written to the fd |
 | `libft_putendl_fd` | ft_putendl_fd | s, and the bytes written: s, then one newline |
-| `libft_putnbr_fd` | ft_putnbr_fd | n, and the bytes written |
+| `libft_putnbr_fd` | ft_putnbr_fd | n, and the bytes written; the ints are C 00's `c00_putnbr`'s, cut at the count |
 | `c12_create_elem` | ft_lstnew | C 12's arm, reused as it is: a value, the content stored, and 1 |
 | `libft_lstadd_front` | ft_lstadd_front | a list, and the list once a node per value is added at the front, in order, from the empty list: the input reversed |
 | `libft_lstsize` | ft_lstsize | a list, and its size |
@@ -658,9 +664,9 @@ only in the modules item 3 names, so do not read it as blanket coverage:
    input rather than for a listed one: sort output is ordered **and** a multiset
    permutation of its input; `swap` and `rev` are involutions; `div_mod`
    satisfies `a == (a/b)*b + a%b` with `|a%b| < |b|` and the C remainder sign;
-   `atoi`/`putnbr` and `convert_base` round-trip; `strlcat`'s return agrees
-   with the definition in `man strlcat` for every size, including a size below
-   the length of `dest`; `strncmp` agrees in sign with `strcmp`;
+   `atoi`/`putnbr` and `convert_base` round-trip; `strlcat`'s return and buffer
+   agree with the definition in `man strlcat` for every size, including a size
+   below the length of `dest`; `strncmp` agrees in sign with `strcmp`;
    `split`'s tokens contain no separator and concatenate back to the input with
    its separators removed; the btree traversals are permutations of one multiset
    and infix equals sorted order; the `<shape>` field the c-13 harnesses link
@@ -744,20 +750,24 @@ only in the modules item 3 names, so do not read it as blanket coverage:
    values included.
 3. **Generator self-checks** — that the *corpus* still contains what it claims,
    which nothing else in the suite would notice. **Only `c00`, `c01`, `c02`,
-   `c03`, `c04`, `c06`, `c07`, `c08`, `c10`, `c11`, `c12`, `c13`, `libft_mem`,
-   `libft_str`, `libft_part2`, `libft_fd`, `libft_list`, `shell01`, `rush00`,
-   `rush01`, `rush01_bonus`, `bsq`, `rush02` and `length` do this.** `c01`,
-   `c02`, `c03`, `c04`, `c06`, `c07` and `c11` read back what
+   `c03`, `c04`, `c06`, `c07`, `c08`, `c09`, `c10`, `c11`, `c12`, `c13`,
+   `libft_mem`, `libft_str`, `libft_part2`, `libft_fd`, `libft_list`,
+   `shell01`, `rush00`, `rush01`, `rush01_bonus`, `bsq`, `rush02` and `length`
+   do this.** `c01`, `c02`, `c03`, `c04`, `c06`, `c07`, `c09` and `c11` read back what
    their generators write and assert that the corpora they name for an
    input with no bound still hold a case past every round capacity (16, 64, 256, 1024 and
    4096): a string longer than 4096 bytes, a list of more than 4096 ints, a
-   count or a size past 4096, an argument list longer than 1024, and for a
+   count or a size past 4096, a string that splits into more than 4096 words,
+   a join of more than 1024 strings, an argument list longer than 1024, and for a
    base, which C 04's subject forbids to repeat a symbol, a valid one past 64 symbols beside an
    invalid one past 4096 bytes, so that a
    function working through room of its own of one of those sizes cannot pass
    the corpus. `c12` and `c13` assert that the lists `int_lists` draws and the
    trees `gen_seqs` draws still carry two long ones, of 600 and 2000 elements,
-   the same whatever the seed. `c08` asserts its corner cases still hold a byte
+   the same whatever the seed. `c12` also reads `c12_push_strs` back at two
+   seeds: each line's list, checked index by index in the order the subject
+   gives, no string empty or holding a NUL (which the C reader could not
+   carry), and every size from 0 to 12 beside the long ones. `c08` asserts its corner cases still hold a byte
    of `0x80` or above, an empty array and an empty string, and no NUL, which an argument cannot carry.
    `c10` asserts its file corpus still holds an empty file, a file with a NUL, a
    file with no final newline, one past 4096 bytes and one that makes `hexdump`
@@ -771,8 +781,11 @@ only in the modules item 3 names, so do not read it as blanket coverage:
    solution solves the vector it is filed under, a line that claims its list is
    whole is solved again to the same count, and every size up to 9 but 4,
    which is `rush01`'s, is emitted.
-   `c00` asserts its corpus head still pins `0`, `±1` and the
-   `i32` boundaries instead of letting them drift into the random tail; `rush00`
+   `c00`, `libft_fd` and `libft_part2` assert, from the lines each arm
+   writes, that the int corpus they share (ft_putnbr's, which C 00 ex07 and
+   C 04 ex02 replay, ft_is_negative's, ft_putnbr_fd's and ft_itoa's) still pins
+   `0`, `±1`, the `i32` boundaries and every 10^k−1, 10^k and 10^k+1 of both
+   signs instead of letting them drift into the random tail; `rush00`
    asserts its size table stays inside the contract, holds no duplicates, and
    still covers both the subject's sizes and the ceiling dimensions, and that
    its corpus head and its fixtures still hold the defense case; `rush01`
@@ -802,9 +815,10 @@ only in the modules item 3 names, so do not read it as blanket coverage:
    that is one key, a one-word group other than one before its scale, a
    unit missing mid-number, every value replaced).
    `length` asserts that each series arm writes `count` lines of exactly `len`
-   elements, an empty line for length 0, the same lines from the same seed,
-   strstr's needle found first at the end of its line, and `c12`'s list values
-   inside the comparator's range.
+   elements (at length 0 no element, which is not an empty line: the word
+   arms write a lone tab there), the same lines from the same seed, strstr's
+   needle found first at the end of its line, and `c12`'s list values inside
+   the comparator's range.
 
    `libft_mem` reads back each of its eight corpora at 3 000 lines and
    recomputes every line by a second construction (a slice fill,
@@ -853,10 +867,12 @@ only in the modules item 3 names, so do not read it as blanket coverage:
    red.
 
    `libft_part2` (300 lines a corpus) and `libft_fd` (200) read every corpus
-   back: the same seed gives the same bytes and another seed others, a count of
-   3 is a prefix of it, it has as many lines as asked, no string in a line's
-   first field holds a NUL, and every line is the reference's own answer for
-   its inputs. Some lines are also held to a property derived apart from the
+   back, itoa's and putnbr_fd's past the int head they share with C 00 (its
+   length and 300, or 200, more): the same seed gives the same bytes and
+   another seed others, a count of 3 is a prefix of it, it has as many lines
+   as asked, no string the reader passes as a C string holds a NUL (a line's
+   first field, and strjoin's and strtrim's second too), and every line is
+   the reference's own answer for its inputs. Some lines are also held to a property derived apart from the
    reference: the plain substr result is the slice of s at start, min(len,
    strlen(s) - start) bytes long; strmapi's and striteri's results are as long
    as s, hold no NUL, and give s back through f's inverse at every index;
@@ -876,9 +892,10 @@ only in the modules item 3 names, so do not read it as blanket coverage:
    only and a set byte kept in the middle; for split, a delimiter above 0x7f
    and one absent from s, and for its `_readings`, an empty s, a NUL delimiter,
    a string of delimiters only, a doubled delimiter and one at either end; for
-   itoa, 0, INT_MIN and INT_MAX; for strmapi, the empty string and an index
-   past 255; for striteri, the empty string; for putstr and putendl, the empty
-   string and a byte above 0x7f; for putnbr, 0, -1, INT_MIN and INT_MAX.
+   itoa, the int corners `c00` holds its head to; for strmapi, the empty
+   string and an index past 255; for striteri, the empty string; for putstr
+   and putendl, the empty string and a byte above 0x7f; for putnbr, the same
+   int corners as itoa.
    Neither module claims the made-up name `libft_nope`.
 
    `libft_list` reads back each of its seven corpora at 200 lines: each arm is
@@ -914,17 +931,26 @@ crate writes, which `main.rs` creates, fills (the `numbers.dict` that
 Beside the modules' checks, `oracle check` runs this binary itself
 (`env::current_exe`, in `main.rs`'s `check_args`) with an argument that is not
 UTF-8 -- to each reference program `oracle run` knows, to c-06's and c-10's,
-and once to the commands that take words -- and holds each run to a status of
-that command's own, never Rust's panic; those runs open what their command
-would, the dictionary `run rush-02` reads from the working directory and the
-path `run bsq` is given. `check_args_bytes` holds Rush 01 and Rush 02 to their
-bytes as well: each one's output on an argument holding 0xff is its output on
+to `shell01_groups` and `shell01_multigroup`, whose login is the user
+database's bytes, and once to the commands that take words -- and holds each
+run to a status of that command's own, never Rust's panic; those runs open
+what their command would, the dictionary `run rush-02` reads from the working
+directory and the path `run bsq` is given. Two more runs hold the numbers to
+a usage error (exit 2), never a corpus: a seed that is not a number, and a
+length-series arm it does not know at a count of 0. `check_args_bytes` holds
+Rush 01 and Rush 02 to their bytes as well: each one's output on an argument holding 0xff is its output on
 the same argument with an ASCII `x` in its place, run in a temporary folder
 holding a `numbers.dict` the check writes there from `rush02::big_dict`.
 `check_bench_stdin` runs `bench` with a regular file as its stdin: an unknown
 arm, which every module is asked about, and `c05_ten_queens`, which reads no
 corpus, must leave the file unread, since a module that read stdin before it
 knew the arm was its own would eat the first line of every arm asked after it.
+And `c01_putstr` must read its file to the end: that corpus carries each
+string raw after the tab, so a line can be one that is not UTF-8, and a reader
+that stopped there would replay a few lines, exit 0, and leave the perf layer
+calling the reference too fast to time. The file is longer than the 8 KiB
+stdin reads at a time, so a reader that stopped early shows as an offset
+short of the end.
 No line count here, deliberately: it would rot, and the property it was
 supporting does not depend on one.
 No C exercise's library function is the reference for any comparison here.
@@ -935,8 +961,9 @@ bsq_fixtures`, Rush 00's defense pictures by `oracle rush00_fixtures`, and
 Rush 02's named fixtures -- its dictionaries, argument files and expected
 outputs -- by `oracle rush02_fixtures`, each output as the reference's answer
 to the dictionary and number of the cases that name it; each project's
-`ex00_oracle_fixtures` (`tools/oracle_fixtures.sh`) fails when a file in its
-`tests/ex00/` differs.)
+oracle_fixtures target (`tools/oracle_fixtures.sh`; BSQ's
+`bsq_oracle_fixtures`, the rushes' `ex00_oracle_fixtures`) fails when a file
+in the folder it holds differs.)
 Where a hand-written case above happens to
 match a curated `expected.txt` line, it was **transcribed by hand** — the two
 are a snapshot, not a link, so editing a fixture does not make `oracle check` go
@@ -1048,7 +1075,8 @@ case it has), and above the head how the count maps to lines is the arm's own:
 an arm may print more lines than the count, fewer, a capped number, or the
 same lines whatever the count. So a runner takes its case count from the
 corpus it got (`wc -l`, as `tools/rust_diff.sh` and `tools/cycles_check.sh`
-do), never from the count it asked for.
+do), never from the count it asked for. A seed, count or length that is not a
+number is a usage error (exit 2), not a seed or count of 0.
 
 The zero-input arms ignore both numbers and print their exercise's expected
 output, so every one of them is its own regression test. These and the

@@ -35,6 +35,13 @@ unsafe fn c_str<'a>(s: *const u8) -> &'a [u8] {
 /// length of src, and the index the terminator went to (None for size 0,
 /// where nothing is written).
 ///
+/// Slices and indexes, under the rule at tools/grader_lib.bzl's _FLAGS: each
+/// bound follows from the check before it. size is not 0, so kept is at most
+/// size - 1 bytes of text, and both window[..kept.len()] and
+/// window[kept.len()] lie inside window's size; tail_zeroed's `at` is that
+/// same kept.len(). At opt-level 2 the optimiser proves all of them, and this
+/// crate's object calls nothing of core.
+///
 /// # Safety
 /// `src` is NUL-terminated and `dst` holds at least `size` bytes.
 unsafe fn fixed(dst: *mut u8, src: *const u8, size: usize) -> (usize, Option<usize>) {

@@ -52,7 +52,7 @@ require() {
 # sed and tail are tools/drives.sh's, for reading the rc files; see its header.
 require cat dirname find id mkdir rm rmdir
 
-WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+WS="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
 cd "$WS" || { echo "prime.sh: cannot enter '$WS'" >&2; exit 1; }
 
 # WHERE THIS MACHINE'S BUILD STATE LIVES has one answer, and setup.sh already
@@ -98,7 +98,7 @@ if [ "$HAVE_DRIVES" = 1 ]; then
 else
 	case "${C_PISCINE_SCRATCH:-}" in
 		/*) SCRATCH="$C_PISCINE_SCRATCH" ;;
-		*) SCRATCH="/tmp/${USER:-$(id -un)}" ;;
+		*) SCRATCH="/tmp/${USER:-$(id -un 2> /dev/null || id -u)}" ;;
 	esac
 fi
 

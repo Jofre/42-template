@@ -16,7 +16,7 @@ cc_binary(
 # How a run ended, from waitpid(): "exit N" or "signal N". The shell's 128+N
 # cannot tell `return (-1);` (255) from a death by signal 127, and every runner
 # that judges how a student's program ended reads this instead. See
-# tools/exit_status.c. defs.bzl's _test() adds it to the data of every test
+# tools/exit_status.c. defs_test.bzl's _test() adds it to the data of every test
 # whose runner needs it (_EXIT_STATUS_RUNNERS); the runners refuse to run
 # without it.
 cc_binary(
@@ -64,7 +64,7 @@ cc_library(
 # Makes stdout unbuffered in the harness's own output fixtures, so the rows a
 # fixture printed before a crash reach diff_output.sh. alwayslink: nothing
 # references the object by name, and without it the linker drops the
-# constructor. Linked only through defs.bzl's _output_fixture_binary; the two
+# constructor. Linked only through defs_test.bzl's _output_fixture_binary; the two
 # runners that compile a fixture at test time get the source (exported below)
 # through --harness-src. See the file for where it must never go.
 cc_library(
@@ -75,18 +75,39 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
+# The escaped-value notation diff_output.sh reads, written once (notation.h
+# says what it writes and why), and the descriptor capture of the ft_put*_fd
+# fixtures, which writes its rows in it (fd_capture.h). Headers alone: no
+# srcs, no linkopts, never //tools:diffio, whose malloc no memcheck layer may
+# run. Linked by every output fixture through defs_test.bzl's
+# _output_fixture_binary, beside unbuffered_stdout; the runners that compile
+# a fixture themselves get the headers (exported below) on their include
+# path.
+cc_library(
+    name = "notation",
+    hdrs = [
+        "fd_capture.h",
+        "notation.h",
+    ],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+
 # Runner scripts used by the test macros in defs.bzl.
 exports_files([
     # The same library as a source file, for header_check.sh and ilp32_test.sh,
     # which compile the fixture themselves.
     "unbuffered_stdout.c",
+    # And the notation's headers, for the same runners and method_check.sh.
+    "notation.h",
+    "fd_capture.h",
     # diffio's malloc, as a source file: the selftest builds a toy reader with
     # it, as //tools:diffio links it.
     "dirty_malloc.c",
     # Sourced by every runner that runs student code or prints clues: the time
     # budget, signal traps, byte rendering, excerpts, the clues.tsv rule and how
-    # a run ended, written once. defs.bzl's _test() adds it to every test it
-    # emits; a hand-written sh_test lists it in its own data.
+    # a run ended, written once. defs_test.bzl's _test() adds it to every test it
+    # emits, hand_test()'s too, and a BUILD file declares no sh_test of its own.
     "runner_lib.sh",
     "norminette_test.sh",
     "compile_check.sh",
@@ -98,10 +119,14 @@ exports_files([
     # exported for //tools/tests:selftest, which covers it because a triage that
     # names the wrong exercise sends someone to the wrong file.
     "first_red.sh",
+    # The one reader of a subject() call's text outside Bazel: first_red.sh,
+    # conventions.sh, answer_scan.sh and 42 read contracts through it, beside
+    # them, and submit.sh from the checkout's tools/.
+    "units.awk",
     # Read by first_red.sh, beside it: _SUFFIX_LAYER, _LAYER_LEVEL and _RAISED
     # say which layer a red target is and at which level it sits, so a red is
     # filed by the level c_levels()' audit gives it, never by a list of its own.
-    "defs.bzl",
+    "defs_levels.bzl",
     # Grid VALIDATOR for c-piscine-rush-01 ex00. Not a diff: rush01's subject
     # asks for "the first solution you encounter", so 66 of the 438 solvable clue
     # vectors have several correct answers and a byte fixture would fail correct
@@ -179,14 +204,18 @@ exports_files([
     # that runs a built program. See both headers.
     "student_build.sh",
     "standin.sh",
+    # The readers of make's database (make -p), found beside student_build.sh
+    # and make_test.sh, which both ask it whether a Makefile has a rule.
+    "make_db.awk",
     # The test a layer becomes when the files it checks were not turned in:
-    # defs.bzl's _test(turnin = ...). See its header.
+    # defs_test.bzl's _test(turnin = ...). See its header.
     "no_turnin.sh",
     # Exported for //tools/tests:selftest. Not a layer either -- it is the
     # maintainer's "has campus upgraded anything?" -- but its grading is
     # comparison logic, and comparison logic that stops comparing is what this
-    # whole repo is careful about.
+    # whole repo is careful about. The launcher, and the Python it starts.
     "env_drift.sh",
+    "env_drift.py",
     # Exported for //tools/tests:selftest. Not a layer: Bazel's --run_under,
     # which stands a program with one mistake in for the student's, to measure
     # which targets catch it. See its header.
@@ -205,6 +234,10 @@ exports_files([
     # subject was. Exported for //tools/tests:selftest, which checks the one
     # thing a PDF reader is strict about: every cross-reference offset.
     "placeholder_pdf.sh",
+    # Reads and checks tools/subjects.tsv, the rows the placeholders are
+    # written from. Exported for //tools/tests:selftest, which drives it over
+    # a toy checkout, and which conventions.sh runs from beside itself there.
+    "subjects.sh",
     # Builds the study guide's page and PDF, and its --check refuses a
     # rendering whose stamp is not the build inputs' as they are now; the
     # template build runs it. Exported for //tools/tests:selftest, which
@@ -249,8 +282,9 @@ exports_files([
     # the one writer of the identity, exported for the selftest's init arms.
     "identity.sh",
     # Sourced, never run: which machine this is, and where Bazel's state may
-    # go on it. setup.sh, prime.sh, init.sh, env_drift.sh, env-audit.sh and the
-    # wrapper below all ask it, so they cannot disagree (finding 001).
+    # go on it. setup.sh, prime.sh, init.sh, env_drift.py (through /bin/sh),
+    # env-audit.sh and the wrapper below all ask it, so they cannot disagree
+    # (finding 001).
     "drives.sh",
     # Sourced, never run: the trace prime.sh writes of what the machine did
     # while it primed, and env-audit.sh reads back. Exported for the selftest,
@@ -347,7 +381,7 @@ exports_files(["setup.sh"])
 # The gate. Per file KIND it accepts an explicit whitelist and
 # calls everything else an answer: inside a C body only `(void)x;` and a trivial
 # return; in a deliverable header only include guards, unless the header's
-# CONTENT hash is one of the two approved in the script; in a Makefile only
+# CONTENT hash is one of those approved in the script; in a Makefile only
 # recipes that echo; in a shell deliverable or generator no command at all. A
 # shape-matching heuristic cannot do this — one waved through three real c-01
 # answers whose solutions are a single line.
@@ -413,11 +447,12 @@ py_binary(
 
 # bazel run //tools:env_audit [-- --commit --push]
 #
-# CAPTURE what this machine has, into tools/env-reports/<hostname>.txt. The
-# script is also runnable bare -- `sh tools/env-audit.sh` -- and that is the
-# form its own header leads with, because it is meant to run on a box where
-# nothing is set up yet. This target exists so that "is it a bazel target or a
-# script?" stops being a question anyone has to ask.
+# CAPTURE what this machine has, into tools/env-reports/<machine>.txt, the
+# machine named as tools/prime_trace.sh names it (C_PISCINE_HOST, else the
+# kernel's name). The script is also runnable bare -- `sh tools/env-audit.sh`
+# -- and that is the form its own header leads with, because it is meant to
+# run on a box where nothing is set up yet. This target exists so that "is it
+# a bazel target or a script?" stops being a question anyone has to ask.
 #
 # Not to be confused with env_drift below: this one records what a machine has,
 # env_drift compares a machine against tools/pins.tsv.
@@ -426,7 +461,7 @@ sh_binary(name = "env_audit", srcs = ["env-audit.sh"])
 # For //tools/tests:selftest, which runs it in a sandbox repository.
 exports_files(["env-audit.sh"])
 
-# bazel run //tools:env_drift [-- --strict] [-- --report]
+# bazel run //tools:env_drift [-- [--strict] [--report]]
 #
 # Has this machine drifted from tools/pins.tsv? Run on a CAMPUS box it answers
 # the only question that matters: have they upgraded anything the Moulinette
@@ -446,10 +481,14 @@ exports_files(["env-audit.sh"])
 # stops coming from the host.
 sh_binary(
     name = "env_drift",
+    # A launcher: the logic is env_drift.py, which it starts on the fetched
+    # Python below (ENV_DRIFT_PYTHON), never on a python3 from PATH, so
+    # that it runs on a machine with none (tools/env_drift.sh says why).
     srcs = ["env_drift.sh"],
     # tools/drives.sh, which says which machine this is, is read from the
     # workspace like init's, so it is not listed here.
     data = [
+        "env_drift.py",
         "norminette",
         "pins.tsv",
         "@binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-nm",
@@ -488,9 +527,9 @@ sh_binary(
     # something else: <VAR>_LIBS, files whose directories go first on the
     # loader's path, <VAR>_TOOLS, a file in valgrind's tool directory, which
     # becomes $VALGRIND_LIB, and <VAR>_COMPILE, the words a compiler is also
-    # run with (tools/env_drift.sh says why each). The binutils frontends
+    # run with (tools/env_drift.py says why each). The binutils frontends
     # name libbfd, libopcodes and libctf by bare soname with no RUNPATH, and
-    # one directory holds all three: the file is defs.bzl's _PINNED_LD_LIBS
+    # one directory holds all three: the file is defs_toolchain.bzl's _PINNED_LD_LIBS
     # and _PINNED_NM_LIBS, repeated because a name with a leading underscore
     # cannot be loaded. //tools:conventions holds each binary of a
     # repository whose libraries or tool directory the macros hand over to
@@ -536,10 +575,15 @@ sh_binary(
         "HERMETIC_VALGRIND": "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
         "HERMETIC_VALGRIND_TOOLS": "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux)",
         "HERMETIC_ZIG": "$(rootpath @zig_linux_x86_64//:zig)",
+        # Not a row's: what the launcher runs, and runs it on. It takes both
+        # out of the environment before the probes see it.
+        "ENV_DRIFT_MAIN": "$(rootpath env_drift.py)",
+        "ENV_DRIFT_PYTHON": "$(rootpath @python_3_13_1//:python3)",
     },
 )
 
-# Every shell script and Starlark file in this package, for //tools/tests:conventions.
+# Every shell script, awk program and Starlark file in this package, for
+# //tools/tests:conventions.
 # A glob, not a list: the objection to grading the style gate was always that a
 # hand-written file list drifts, and this is the answer to it. The .patch is
 # the doc passages the template build takes out, which checks read (see the
@@ -552,16 +596,24 @@ filegroup(
         "bazel",
         # The registry of 42's own files, whose wording checks read it.
         "resources.tsv",
+        # The registry of each project's subject, which tools/subjects.sh
+        # (globbed below) checks against each module's en.subject.pdf.
+        "subjects.tsv",
         # The pinned Python requirements, each held to its files' hashes.
         "requirements.txt",
         # The 42 command's registry, held to the run targets of this file.
         "fortytwo/commands.tsv",
         # The pinned versions, each held to the files that install it.
         "pins.tsv",
+        # //tools:env_drift's logic, which the launcher (*.sh below) starts:
+        # what it prints is held to the runners' words, and 42's tests read
+        # the summary line from it.
+        "env_drift.py",
     ] + glob(
         [
             "*.sh",
             "*.bzl",
+            "*.awk",
             # 42: its entry is *.sh above; these are what it hands over to,
             # and its tests, which the template ships too (one named the
             # private build script, and only `bazel run` saw it).

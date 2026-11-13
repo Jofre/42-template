@@ -115,33 +115,33 @@ class Next(unittest.TestCase):
 
     def test_a_function_of_a_library_is_its_own_prefix(self):
         b = self.run_bep()
-        # first_red names a label of its own for one function's red (a
-        # function can be a prefix of another, ft_one of ft_one_more, which
-        # no prefix tells apart); this is the reading where it names none.
-        for label, layer in (("//course/lib:ex00_ft_one_valgrind", "valgrind"),
-                             ("//course/lib:ex00_ft_two_output", "output"),
-                             ("//course/lib:ex00_norm", "norm")):
+        # first_red names a label of its own for one function's red; this is
+        # the reading where it names none: a function's prefix finds its own
+        # tests, never another function's, nor the library's.
+        for label, layer, unit in (("//course/lib:ft_one_valgrind", "valgrind", "ft_one"),
+                                   ("//course/lib:ft_two_output", "output", "ft_two"),
+                                   ("//course/lib:libtoy_norm", "norm", "libtoy")):
             b.selected.append(label)
-            b.tags[label] = [layer, "ex00"]
+            b.tags[label] = [layer, "unit=" + unit]
             b.status[label] = "FAILED"
             b.logs[label] = "/l/" + layer
-        nxt = ("rigour", "//course/lib", "ex00 ft_one", "-")
-        self.assertEqual(report.pick_label(nxt, b), "//course/lib:ex00_ft_one_valgrind")
-        nxt = ("ko", "//course/lib", "ex00", "-")
-        self.assertEqual(report.pick_label(nxt, b), "//course/lib:ex00_norm")
+        nxt = ("rigour", "//course/lib", "ft_one", "-")
+        self.assertEqual(report.pick_label(nxt, b), "//course/lib:ft_one_valgrind")
+        nxt = ("ko", "//course/lib", "libtoy", "-")
+        self.assertEqual(report.pick_label(nxt, b), "//course/lib:libtoy_norm")
 
     def test_a_library_own_red_shows_its_own_log(self):
         # A red of the library as a whole (no function) in the rigour bucket,
-        # beside a function's: every function test's name begins ex00_ too,
-        # and sorts first, so with no label from first_red the log shown under
-        # the library's line was the function's. first_red.sh itself, over a
-        # toy library, names the label 42 picks.
+        # beside a function's: with no label from first_red, the log shown
+        # under the library's line was the first red its prefix found, and
+        # that could be the function's. first_red.sh itself, over a toy
+        # library, names the label 42 picks.
         lib = "//course/lib"
-        reds = ((lib + ":ex00_ft_one_diff", "diff"), (lib + ":ex00_symbols", "symbols"))
+        reds = ((lib + ":ft_one_diff", "diff"), (lib + ":libtoy_symbols", "symbols"))
         with tempfile.TemporaryDirectory() as d:
             write(os.path.join(d, "course", "lib", "BUILD.bazel"),
-                  'subject(\n    grader = "both",\n    group = False,\n    exercises = {\n'
-                  '        "00": exercise(page = 1, dir = None, files = ["Makefile"], allowed = [],\n'
+                  'subject(\n    grader = "both",\n    group = False,\n    units = {\n'
+                  '        "libtoy": unit(page = 1, files = ["Makefile"], allowed = [],\n'
                   '            functions = {\n                "ft_one": [],\n            }),\n'
                   '    },\n)\n')
             summary = os.path.join(d, "summary.log")
@@ -151,24 +151,25 @@ class Next(unittest.TestCase):
                 subprocess.run(["sh", os.path.join(common.WS, "tools", "first_red.sh"), "--next", nxt_path],
                                cwd=d, stdin=f, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
             nxt = report.read_next(nxt_path)
-        self.assertEqual(nxt[:3], ("rigour", lib, "ex00"))
+        self.assertEqual(nxt[:3], ("rigour", lib, "libtoy"))
         b = bazel.Bep()
         for label, layer in reds:
             b.selected.append(label)
-            b.tags[label] = [layer, "ex00"]
+            b.tags[label] = [layer]
             b.status[label] = "FAILED"
             b.logs[label] = "/l/" + layer
-        self.assertEqual(report.pick_label(nxt, b), lib + ":ex00_symbols")
+        self.assertEqual(report.pick_label(nxt, b, ["ft_one"]), lib + ":libtoy_symbols")
 
     def test_a_library_that_does_not_build_shows_the_stand_in_log(self):
         # first_red names no label for the build bucket, and a library's
-        # exercise prefix (ex00_) matches every red of it: with no compile or
-        # files test red -- a link failure on one function, which the compile
-        # layers never see -- 42 showed whatever red sorted first, another
-        # function's wrong-output table or the Makefile's rules, under one
-        # function's DOES NOT BUILD line (V233). The stand-in's own log is
-        # what that line quotes. first_red.sh itself, over a toy library,
-        # files the bucket; the marks are read from tools/standin.sh.
+        # prefixes, its own and its functions', match every red of it: with
+        # no compile or files test red -- a link failure on one function,
+        # which the compile layers never see -- 42 showed whatever red sorted
+        # first, another function's wrong-output table or the Makefile's
+        # rules, under one function's DOES NOT BUILD line (V233). The
+        # stand-in's own log is what that line quotes. first_red.sh itself,
+        # over a toy library, files the bucket; the marks are read from
+        # tools/standin.sh.
         lib = "//course/lib"
         marks = subprocess.run(
             ["sh", "-c", '. "$1"; printf "%s\\n%s" "$STANDIN_MARK" "$NOTURNIN_MARK"', "sh",
@@ -177,14 +178,14 @@ class Next(unittest.TestCase):
         standin = "%s\nYOUR CODE DID NOT BUILD\ncourse/lib/deliverable/ft_zeta.c:3:1: error: toy\n" % marks[0]
         noturnin = "%sthe toy library has no ft_zeta.c\n" % marks[1]
         wrong = " CASE | EXPECTED | GOT | STATUS\n x    | 1        | 2   | FAIL <\n"
-        rules = "ex00_build_rules: the toy Makefile has no clean rule\n"
-        member = (lib + ":ex00_ft_zeta_output", "output")
+        rules = "libtoy_build_rules: the toy Makefile has no clean rule\n"
+        member = (lib + ":ft_zeta_output", "output")
 
         def pick(reds, body):
             with tempfile.TemporaryDirectory() as d:
                 write(os.path.join(d, "course", "lib", "BUILD.bazel"),
-                      'subject(\n    grader = "both",\n    group = False,\n    exercises = {\n'
-                      '        "00": exercise(page = 1, dir = None, files = ["Makefile"], allowed = [],\n'
+                      'subject(\n    grader = "both",\n    group = False,\n    units = {\n'
+                      '        "libtoy": unit(page = 1, files = ["Makefile"], allowed = [],\n'
                       '            functions = {\n                "ft_alpha": [],\n                "ft_zeta": [],\n'
                       '            }),\n    },\n)\n')
                 b = bazel.Bep()
@@ -194,7 +195,7 @@ class Next(unittest.TestCase):
                     write(path, text)
                     summary += "%s  FAILED in 0.1s\n  %s\n" % (label, path)
                     b.selected.append(label)
-                    b.tags[label] = [layer, "ex00"]
+                    b.tags[label] = [layer]
                     b.status[label] = "FAILED"
                     b.logs[label] = path
                 write(os.path.join(d, "summary.log"), summary)
@@ -203,18 +204,18 @@ class Next(unittest.TestCase):
                     subprocess.run(["sh", os.path.join(common.WS, "tools", "first_red.sh"), "--next", nxt_path],
                                    cwd=d, stdin=f, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
                 nxt = report.read_next(nxt_path)
-                self.assertEqual(nxt, ("build", lib, "ex00", "-"))
-                return report.pick_label(nxt, b)
+                self.assertEqual(nxt, ("build", lib, "libtoy", "-"))
+                return report.pick_label(nxt, b, ["ft_alpha", "ft_zeta"])
         # Another function's wrong answer, which sorts first by name.
-        self.assertEqual(pick([(lib + ":ex00_ft_alpha_output", "output", wrong)], standin), member[0])
+        self.assertEqual(pick([(lib + ":ft_alpha_output", "output", wrong)], standin), member[0])
         # A test of the whole library that sorts first.
-        self.assertEqual(pick([(lib + ":ex00_build_rules", "output", rules)], standin), member[0])
+        self.assertEqual(pick([(lib + ":libtoy_build_rules", "output", rules)], standin), member[0])
         # A file not turned in is the same news.
-        self.assertEqual(pick([(lib + ":ex00_build_rules", "output", rules)], noturnin), member[0])
+        self.assertEqual(pick([(lib + ":libtoy_build_rules", "output", rules)], noturnin), member[0])
         # A red compile test still quotes the compiler most fully, and wins.
-        self.assertEqual(pick([(lib + ":ex00_ft_alpha_output", "output", wrong),
-                               (lib + ":ex00_compile_gcc", "compile", "toy compiler words\n")], standin),
-                         lib + ":ex00_compile_gcc")
+        self.assertEqual(pick([(lib + ":ft_alpha_output", "output", wrong),
+                               (lib + ":libtoy_compile_gcc", "compile", "toy compiler words\n")], standin),
+                         lib + ":libtoy_compile_gcc")
 
     def test_a_test_program_that_does_not_build_shows_its_log(self):
         # A test that builds its own test program against the turn-in and
@@ -273,8 +274,34 @@ class Next(unittest.TestCase):
                          "//course/proj:ex07_issued")
 
     def test_the_clue_word_of_a_function_is_the_function(self):
-        self.assertEqual(report.clue_word("ex00 ft_one"), "ft_one")
         self.assertEqual(report.clue_word("ex07"), "ex07")
+        self.assertEqual(report.clue_word("toy_len"), "toy_len")
+        self.assertEqual(report.clue_word("libtoy"), "libtoy")
+        # The log shown is one function's: its word, not its library's.
+        M = ["toy_len", "toy_len_x"]
+        self.assertEqual(report.clue_word("libtoy", "//c/n:toy_len_output", M), "toy_len")
+        self.assertEqual(report.clue_word("libtoy", "//c/n:toy_len_x_output", M), "toy_len_x")
+        self.assertEqual(report.clue_word("libtoy", "//c/n:libtoy_norm", M), "libtoy")
+        self.assertEqual(report.clue_word("toy", "//c/n:toy_len_norm", ["toy_len"]), "toy_len")
+        self.assertEqual(report.clue_word("ex00", "//c/n:ex00_output"), "ex00")
+
+    def test_a_named_library_holds_its_functions_tests(self):
+        # In a project whose subject names its parts, a function's tests are
+        # named after it (toy_len_output), not after its library (libtoy_):
+        # the library's own prefix finds none of them, and its members do.
+        b = bazel.Bep()
+        for label, layer in (("//course/named:toy_len_valgrind", "valgrind"),
+                             ("//course/named:toy_len_compile_gcc", "compile"),
+                             ("//course/named:libtoy_norm", "norm")):
+            b.selected.append(label)
+            b.tags[label] = [layer, "unit=" + label.split(":")[1].rsplit("_", 1)[0]]
+            b.status[label] = "FAILED"
+            b.logs[label] = "/nonexistent/" + layer
+        nxt = ("build", "//course/named", "libtoy", "-")
+        self.assertEqual(report.pick_label(nxt, b), "//course/named:libtoy_norm")
+        self.assertEqual(report.pick_label(nxt, b, ["toy_len", "toy_up"]), "//course/named:toy_len_compile_gcc")
+        nxt = ("rigour", "//course/named", "toy_len", "-")
+        self.assertEqual(report.pick_label(nxt, b), "//course/named:toy_len_compile_gcc")
 
     def test_read_next(self):
         with tempfile.TemporaryDirectory() as d:

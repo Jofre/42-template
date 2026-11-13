@@ -1,5 +1,5 @@
-# Shared test/build tooling lives in //tools (see //tools:defs.bzl).
-# This module's exercises are under c-piscine/c-piscine-c-*/BUILD.bazel.
+# Shared tooling is //tools: its defs.bzl re-exports what the defs_*.bzl files define.
+# Each course's projects, one BUILD.bazel each, are mapped in docs/reference.md#layout.
 
 # The files //tools:conventions reads that belong to no module and no package of
 # their own: the devcontainer (its setup script, and the Dockerfile whose
@@ -33,8 +33,8 @@ filegroup(
         [
             # The top-level Markdown: README.md, AGENTS.md, the CHANGELOG.md
             # a publish adds a line to, and, where the checkout has them, the
-            # maintainer's TODO.md (whose TO VERIFY leads conventions holds to
-            # a number each) and HISTORY.md, which the template ships without.
+            # maintainer's TODO.md and HISTORY.md, whose lead numbers
+            # conventions reads, and which the template ships without.
             "*.md",
             # The setup script, the Dockerfile whose versions and man pages
             # the pin checks compare, and devcontainer.json, which the rules
@@ -59,6 +59,13 @@ filegroup(
         # with the template: its Markdown is read as every page is, and
         # every file by the rules that read them all (a private name, a CR).
         [".github/**"],
+        allow_empty = True,
+    ) + glob(
+        # The rest of the maintainer's records, where the checkout has them:
+        # the folder TODO.md keeps its plans and its leads' index in. The
+        # template ships none, hence allow_empty; on main, conventions
+        # reports the index missing if this is gone.
+        ["todo/**"],
         allow_empty = True,
     ) + glob(
         # Every other rc file, which conventions checks for a shared path the
@@ -88,8 +95,20 @@ exports_files(
     visibility = ["//tools/tests:__pkg__"],
 )
 
+# The study guide's two build scripts (c-piscine/c-piscine-exam-prep is no
+# package), whose exit statuses tools/exam_guide.sh reads apart: 1 a fault
+# they found, 2 a check that broke. //tools/tests:selftest runs copies of
+# both on calls and inputs that break them.
+exports_files(
+    [
+        "c-piscine/c-piscine-exam-prep/build/guide_post.py",
+        "c-piscine/c-piscine-exam-prep/build/render_check.py",
+    ],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
 # The page whose table says why a test sits above its layer's level ("Targets
-# raised above their layer"), staged beside every test tools/defs.bzl's
+# raised above their layer"), staged beside every test tools/defs_levels.bzl's
 # _RAISED lists, whose runner prints that row under a red
 # (tools/runner_lib.sh, rl__raised).
 exports_files(["docs/reference.md"])
@@ -100,4 +119,22 @@ exports_files(["docs/reference.md"])
 exports_files(
     ["docs/environment.md"],
     visibility = ["//tools/tests:__pkg__"],
+)
+
+# The fast gate: the harness's own tests that take seconds, run by `42 gate`
+# before a push, and held to under 60 s with a warm cache. It never replaces
+# `bazel test //...`, the whole suite. Each was measured on its own with a
+# warm cache and its result not cached (2026-10-30, at load 2-3):
+# fortytwo_test 16 s, starlark_unit under 1 s; env_drift_test 1 s
+# (2026-10-31, at load 20). Left out: //tools:conventions
+# and //tools/tests:selftest, minutes each; and the projects' norm tests,
+# which grade the student's own files, red while they are being written,
+# which a gate of the harness must not wait on.
+test_suite(
+    name = "gate_fast",
+    tests = [
+        "//tools/tests:env_drift_test",
+        "//tools/tests:fortytwo_test",
+        "//tools/tests:starlark_unit",
+    ],
 )

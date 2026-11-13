@@ -1,7 +1,7 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//tools:defs.bzl", "hand_test", "lvl_tags", "starlark_selftest")
+load("//tools:defs.bzl", "hand_test", "lvl_tags")
 load(":starlark_unit.bzl", "starlark_unit")
 
 # Shared for the same reason as SELFTEST_DATA below, and it earned it: these
@@ -26,8 +26,6 @@ SELFTEST_ARGS = [
         "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
         "--valgrind-callgrind-tools",
         "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux)",
-        "--callgrind-annotate",
-        "$(rootpath @valgrind_ubuntu//:usr/bin/callgrind_annotate)",
         # The pinned shellcheck. Two runners take one now: shell_test.sh's norm
         # mode, which grades the shell modules, and conventions.sh. Both refuse
         # to fall back to a host copy, so the selftest has to hand one over the
@@ -50,7 +48,7 @@ SELFTEST_ARGS = [
         "--gcc",
         "$(rootpath @gcc_10_ubuntu//:usr/bin/x86_64-linux-gnu-gcc-10)",
         # The pinned llvm-symbolizer and the library it loads, handed to the
-        # sanitizer runners' arms as defs.bzl hands them to every layer.
+        # sanitizer runners' arms as defs_toolchain.bzl hands them to every layer.
         "--symbolizer",
         "$(rootpath @clang_12_ubuntu//:usr/lib/llvm-12/bin/llvm-symbolizer)",
         "--symbolizer-lib",
@@ -58,7 +56,7 @@ SELFTEST_ARGS = [
         # The pinned ld.bfd and a library beside the libbfd it loads, for the
         # runners that link what they compile (asan_check, allocfail_check,
         # cycles_check, ref_compare, header_check, method_check --expect), as
-        # tools/defs.bzl hands them over (_pinned_ld_args, TO VERIFY V38).
+        # tools/defs_toolchain.bzl hands them over (_pinned_ld_args).
         "--ld",
         "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ld.bfd)",
         "--ld-lib",
@@ -75,13 +73,17 @@ SELFTEST_ARGS = [
         "--as",
         "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-as)",
         # The pinned ar and ranlib, for make_test.sh's pinned arms: with the
-        # build above, gcc-10 and as, what tools/defs.bzl hands every
+        # build above, gcc-10 and as, what tools/defs_toolchain.bzl hands every
         # make_test.sh test (_pinned_make_args, TO VERIFY V60). Their
         # libraries are --ld-lib's.
         "--ar",
         "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ar)",
         "--ranlib",
         "$(rootpath @binutils_x86_64_linux_gnu//:usr/bin/x86_64-linux-gnu-ranlib)",
+        # The fetched python3, which //tools:env_drift's launcher runs
+        # tools/env_drift.py on, handed to its arms as that target hands it.
+        "--python",
+        "$(rootpath @python_3_13_1//:python3)",
 ]
 
 # Shared so :selftest and :selftest_bash cannot drift apart: the second exists
@@ -89,6 +91,9 @@ SELFTEST_ARGS = [
 # the moment its inputs differ.
 SELFTEST_DATA = [
         "@clang_12_ubuntu//:runtime",
+        # The interpreter --python names and the library tree it starts on.
+        "@python_3_13_1//:files",
+        "@python_3_13_1//:python3",
         # What a sanitized link by the pinned clang pulls from its own tree:
         # asan_check.sh's arms build with it (TO VERIFY V38).
         "@clang_12_ubuntu//:sanitizer_runtime",
@@ -109,7 +114,6 @@ SELFTEST_DATA = [
         "@binutils_x86_64_linux_gnu//:usr/lib/x86_64-linux-gnu/libbfd-2.38-system.so",
         "@shellcheck_linux_x86_64//:shellcheck",
         "@valgrind_ubuntu//:runtime",
-        "@valgrind_ubuntu//:usr/bin/callgrind_annotate",
         "@valgrind_ubuntu//:usr/bin/valgrind.bin",
         "@valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux",
         "//tools:allocfail_check.sh",
@@ -132,10 +136,12 @@ SELFTEST_DATA = [
         # which Rush 00's judging harnesses below include too, and which the
         # diff_asan arms compile a toy harness against.
         "//tools:diffio.h",
-        # Not a runner: how a run ended, from waitpid(). diff_output.sh,
-        # argv_table.sh, progname_test.sh and asan_run.sh refuse to run
-        # without it (tools/exit_status.c).
-        "//tools:exit_status",
+        # Not listed, and needed: //tools:exit_status, how a run ended, from
+        # waitpid(), which diff_output.sh, argv_table.sh, progname_test.sh and
+        # asan_run.sh refuse to run without (tools/exit_status.c), and
+        # //tools:runner_lib.sh, which every runner sources. _test() stages
+        # both -- exit_status because this list names runners of
+        # _EXIT_STATUS_RUNNERS -- and refuses a copy listed by hand.
         # Not a runner: the preload library shell_test.sh's --redirect loads
         # into a check's runs (tools/path_redirect.c).
         "//tools:path_redirect.so",
@@ -153,10 +159,14 @@ SELFTEST_DATA = [
         "//tools:method_shim.c",
         "//tools:ilp32_test.sh",
         "//tools:env_drift.sh",
+        # Not a runner: what env_drift.sh starts, on --python.
+        "//tools:env_drift.py",
         # Not a runner: the campus report, run in a sandbox repository.
         "//tools:env-audit.sh",
         "//tools:standin.sh",
         "//tools:student_build.sh",
+        # Found beside student_build.sh (and make_test.sh): the readers of make's database.
+        "//tools:make_db.awk",
         "//tools:no_turnin.sh",
         "//tools:make_test.sh",
         "//tools:norminette",
@@ -175,11 +185,10 @@ SELFTEST_DATA = [
         "//tools:run_check.sh",
         "//tools:rush01_check.sh",
         "//tools:rush02_check.sh",
-        "//tools:runner_lib.sh",
         "//tools:rust_diff.sh",
         "//tools:shell_check.sh",
         "//tools:setup.sh",
-        # Sourced by setup.sh, prime.sh, init.sh and env_drift.sh; and the
+        # Sourced by setup.sh, prime.sh, init.sh and env_drift.py; and the
         # wrapper bazelisk runs, which the arms drive with a fake Bazel.
         "//tools:drives.sh",
         "//tools:bazel",
@@ -188,6 +197,10 @@ SELFTEST_DATA = [
         "//tools:prime_trace.sh",
         "//tools:shell_test.sh",
         "//tools:first_red.sh",
+        "//tools:units.awk",
+        # Not a runner: provenance_test's template, which the compiler pin's
+        # arms fill in with link flags of their own.
+        "//tools/cc_toolchain:provenance_test.sh",
         # Not runners: 42's entry and the installer that puts it on PATH.
         "//tools:42.sh",
         "//tools:fortytwo/install.sh",
@@ -197,10 +210,15 @@ SELFTEST_DATA = [
         # Not a runner: the editor's tasks, whose default task's command is
         # run in a toy checkout for the module it finds from a folder.
         "//:.vscode/tasks.json",
-        "//tools:defs.bzl",
+        "//tools:defs_levels.bzl",
         "//tools:stub_check.sh",
         "//tools:placeholder_pdf.sh",
+        "//tools:subjects.sh",
         "//tools:exam_guide.sh",
+        # Not runners: the study guide's build scripts, whose status on a
+        # call or an input that breaks them is 2, never a fault they found.
+        "//:c-piscine/c-piscine-exam-prep/build/guide_post.py",
+        "//:c-piscine/c-piscine-exam-prep/build/render_check.py",
         "//tools:answer_scan.sh",
         "//tools:submit.sh",
         "//tools:symbols_test.sh",
@@ -214,6 +232,9 @@ SELFTEST_DATA = [
         # Not a runner: the library every harness output fixture links, so
         # the arms that crash a fixture mid-table test it with what it ships.
         "//tools:unbuffered_stdout.c",
+        # Nor this: the notation header every output fixture may include
+        # (//tools:notation), for the arms that build one by hand.
+        "//tools:notation.h",
         # Not a runner: the malloc every reader harness links (//tools:diffio),
         # which the arms build a toy reader with.
         "//tools:dirty_malloc.c",
@@ -235,8 +256,10 @@ SELFTEST_DATA = [
         "//c-piscine/c-piscine-shell-00:tests/ex02/check.sh",
         "//c-piscine/c-piscine-shell-00:tests/ex04/check.sh",
         "//c-piscine/c-piscine-shell-00:tests/ex04/newest_first.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex05/check.sh",
         "//c-piscine/c-piscine-shell-00:tests/ex06/check.sh",
         "//c-piscine/c-piscine-shell-00:tests/ex06/literal.sh",
+        "//c-piscine/c-piscine-shell-00:tests/ex07/check.sh",
         "//c-piscine/c-piscine-shell-00:tests/ex08/check.sh",
         "//c-piscine/c-piscine-shell-00:tests/ex08/literal.sh",
         "//c-piscine/c-piscine-shell-00:tests/ex08/regular.sh",
@@ -253,6 +276,8 @@ SELFTEST_DATA = [
         "//c-piscine/c-piscine-shell-01:tests/ex01/check.sh",
         "//c-piscine/c-piscine-shell-01:tests/ex04/check.sh",
         "//c-piscine/c-piscine-shell-01:tests/ex04/literal.sh",
+        # ex05's, over a toy file found under an exported QUOTING_STYLE.
+        "//c-piscine/c-piscine-shell-01:tests/ex05/check.sh",
         "//c-piscine/c-piscine-shell-01:tests/ex07/check.sh",
         "//c-piscine/c-piscine-shell-01:tests/ex07/literal.sh",
         "//c-piscine/c-piscine-shell-01:tests/ex08/check.sh",
@@ -272,13 +297,39 @@ SELFTEST_DATA = [
         # marked on that call's last row (V303).
         "//c-piscine/c-piscine-c-13:tests/ex00/test_btree_create_node.c",
         "//c-piscine/c-piscine-c-13:tests/ex00/expected.txt",
+        # And Libft's ft_lstiter fixture, over a toy that calls f once more
+        # than the list has nodes: its 5000-node row must name the extra call.
+        "//cursus/Milestone_0/Libft:tests/ft_lstiter/test_ft_lstiter.c",
+        # And C 03 ex05's, over a toy that writes a backslash, an n and a tab
+        # into dest: every printer must write them in the notation it declares.
+        "//c-piscine/c-piscine-c-03:tests/ex05/test_strlcat.c",
         # And Libft's three fd readers, built over a toy that writes to fd 1
         # (V217).
-        "//cursus/Milestone_0/Libft:tests/ex00/ft_putendl_fd/diff_ft_putendl_fd.c",
-        "//cursus/Milestone_0/Libft:tests/ex00/ft_putnbr_fd/diff_ft_putnbr_fd.c",
-        "//cursus/Milestone_0/Libft:tests/ex00/ft_putstr_fd/diff_ft_putstr_fd.c",
+        "//cursus/Milestone_0/Libft:tests/ft_putendl_fd/diff_ft_putendl_fd.c",
+        "//cursus/Milestone_0/Libft:tests/ft_putnbr_fd/diff_ft_putnbr_fd.c",
+        "//cursus/Milestone_0/Libft:tests/ft_putstr_fd/diff_ft_putstr_fd.c",
+        # And its two memory probes that write to a scratch file, run with
+        # nowhere to make one: a harness error, never the student's FAIL.
+        "//cursus/Milestone_0/Libft:tests/ft_putendl_fd/mem_ft_putendl_fd.c",
+        "//cursus/Milestone_0/Libft:tests/ft_putstr_fd/mem_ft_putstr_fd.c",
+        # And its ft_memchr reader, fed corpus lines with too few fields,
+        # which must stop it as a harness error in both of rust_diff's modes.
+        "//cursus/Milestone_0/Libft:tests/ft_memchr/diff_ft_memchr.c",
+        # And its ft_strdup reader, over a toy that returns its argument:
+        # SAME, never the source's own bytes as the copy.
+        "//cursus/Milestone_0/Libft:tests/ft_strdup/diff_ft_strdup.c",
+        # And its BUILD file, whose ft_strchr and ft_strnstr units the
+        # cycles_check arms sum over lines of a known floor.
+        "//cursus/Milestone_0/Libft:BUILD.bazel",
         "//c-piscine/c-piscine-c-13:tests/ex05/test_btree_search_item.c",
-        "//c-piscine/c-piscine-bsq:tests/ex00/clues.tsv",
+        # And C 13 ex05's reader, over toys that return an item equal to the
+        # query but not the one the reference returns: a divergence, by the
+        # index it prints, never a pass on the same bytes.
+        "//c-piscine/c-piscine-c-13:tests/ex05/diff_btree_search_item.c",
+        # And C 03 ex04's reader, over a toy that returns to_find: OUTSIDE,
+        # never a pass on the bytes it points at.
+        "//c-piscine/c-piscine-c-03:tests/ex04/diff_strstr.c",
+        "//c-piscine/c-piscine-bsq:tests/bsq/clues.tsv",
         "//c-piscine/c-piscine-rush-01:tests/ex00/clues.tsv",
         "//c-piscine/c-piscine-c-11:tests/ex05/clues.tsv",
         # Not runners either: Rush 00's two harnesses that JUDGE a size --
@@ -298,13 +349,32 @@ SELFTEST_DATA = [
         # Sourced before any arm: the replay under C on a machine without
         # the test locale, shared with selftest_slow.sh.
         "selftest_locale.sh",
+        # Sourced before any arm: the arm helpers, one copy shared with
+        # selftest_slow.sh.
+        "selftest_lib.sh",
         # Not a runner: :selftest_costs's script, run on a toy table and toy
         # shard logs by "the shard deal" arms.
         "selftest_costs.sh",
         # Not a runner: :fetched_needed's script, run on a toy tree and toy
         # pages by "the borrowed libraries" arms.
         "fetched_needed.sh",
-]
+        # Not a runner: :selftest_slow's script, whose refusals of a missing
+        # pinned option "the compiler pin" arms run; they exit before any arm.
+        "selftest_slow.sh",
+        # The units parity runner: the selftest's "units parity" section
+        # drives it on scratch packages.
+        "units_parity_test.sh",
+        # And macro_fixtures_test's, which its section drives on toy
+        # listings.
+        "macro_fixtures_test.sh",
+] + glob(
+    # The sections themselves, one file each, which selftest.sh sources in
+    # order (its THE SECTIONS); a shard reads them as one text beside it.
+    # Not tools/tests/selftest/: that path is this package's :selftest
+    # target, which a folder of its runfiles cannot share.
+    ["selftest_sections/*.sh"],
+    allow_empty = False,
+)
 
 # A toy reader harness linked through //tools:diffio, the library every c_diff
 # and c_perf reader links (tools/tests/diffio_probe.c says what it reads). The
@@ -349,7 +419,8 @@ hand_test(
     # expensive layers are already split into :selftest_slow for the separate
     # reason of what they cost per arm and pull in (see there).
     #
-    # SHARDED, and "long", because one process running every arm in turn
+    # SHARDED, and given "long" (it is "eternal" now: see the last
+    # paragraph), because one process running every arm in turn
     # stopped fitting any timeout on a loaded box. In four full-suite runs on
     # a 24-core machine running other suites too, it took 285.4s once and
     # TIMED OUT at 300-316s three times under "moderate"; under "long" it took
@@ -387,8 +458,23 @@ hand_test(
     # them (one scratch directory, the newline and binary facts read by the
     # awk that renders the table): 9 ms a run against 8 before and 16 in
     # between, measured on one passing case.
+    #
+    # "eternal" (3600s), not "long" (900s), since 2026-11-06, after
+    # :selftest_bash timed out in the full suite. A shard's arms take
+    # 430-585s with nothing else running, but a full `bazel test //...` runs
+    # these sixteen shards beside every other target, and there the slowest
+    # :selftest_bash shard went 678s, 848s, 901s on three successive branches
+    # whose arms cost only seconds more alone: twice a TIMEOUT. The wall clock
+    # under a full suite is the scheduler's, not the arms' cost, so the limit
+    # is raised rather than the arms trimmed, as above. What that gives up:
+    # this limit is now the only automatic bound on a shard. A cost that
+    # creeps is seen only by selftest_costs, which is run by hand (below) and
+    # compares sections on the run's own scale, so a rise shared by every
+    # section does not show; and a hang is cut early only in an arm wrapped
+    # in bounded (selftest.sh), where `timeout` exists. Any other hang holds
+    # its shard for the full 3600s.
     shard_count = 8,
-    timeout = "long",
+    timeout = "eternal",
     srcs = ["selftest.sh"],
     args = SELFTEST_ARGS,
     # Every runner the selftest drives has to be here, and the ones added most
@@ -464,7 +550,7 @@ hand_test(
     # The same arms as :selftest, so the same shards, the same timeout and the
     # same reasons.
     shard_count = 8,
-    timeout = "long",
+    timeout = "eternal",
     srcs = ["selftest.sh"],
     args = SELFTEST_ARGS,
     data = SELFTEST_DATA,
@@ -510,8 +596,6 @@ SLOW_ARGS = [
         "$(rootpath @valgrind_ubuntu//:usr/bin/valgrind.bin)",
         "--valgrind-tools",
         "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux)",
-        "--callgrind-annotate",
-        "$(rootpath @valgrind_ubuntu//:usr/bin/callgrind_annotate)",
         "--valgrind-callgrind-tools",
         "$(rootpath @valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux)",
         # The pinned 32-bit toolchain. The ilp32 layer's VERDICT -- build at
@@ -567,7 +651,8 @@ SLOW_DATA = [
         "@zig_linux_x86_64//:zig",
         "//tools:cycles_check.sh",
         "//tools:diff_output.sh",
-        "//tools:exit_status",
+        # exit_status and runner_lib.sh are not listed: _test() stages both,
+        # as SELFTEST_DATA says.
         "//tools:ilp32_test.sh",
         "//tools:perf_run",
         "//tools:perf_test.sh",
@@ -580,10 +665,14 @@ SLOW_DATA = [
         "//tools:file_check.sh",
         "//tools:standin.sh",
         "//tools:student_build.sh",
+        # Found beside student_build.sh (and make_test.sh): the readers of make's database.
+        "//tools:make_db.awk",
         "//tools:unbuffered_stdout.c",
+        # The notation header C 02 ex10's and C 03 ex05's fixtures include.
+        "//tools:notation.h",
         # Sourced before any arm, as selftest.sh does (SELFTEST_DATA).
         "selftest_locale.sh",
-        "//tools:runner_lib.sh",
+        "selftest_lib.sh",
         "//tools:valgrind_test.sh",
         "//tools:shell_check.sh",
         "//tools:shell_test.sh",
@@ -597,6 +686,10 @@ SLOW_DATA = [
         "//oracle:c03_strlcat_standins",
         "//c-piscine/c-piscine-c-03:tests/ex05/test_strlcat.c",
         "//c-piscine/c-piscine-c-03:tests/ex05/expected.txt",
+        # And C 03 ex02's and ex03's, built under ASan over a toy that
+        # leaves dest unterminated: no conversion may read past the array.
+        "//c-piscine/c-piscine-c-03:tests/ex02/test_strcat.c",
+        "//c-piscine/c-piscine-c-03:tests/ex03/test_strncat.c",
         # And the comparison exercises' corpora, run over toys by the
         # runner the diff layer runs (V206): each c_diff call is read from
         # its BUILD file, and each harness it may name is here, with the
@@ -620,6 +713,10 @@ SLOW_DATA = [
         "//c-piscine/c-piscine-c-09:tests/ex00/test_libft.c",
         "//c-piscine/c-piscine-c-09:tests/ex00/clues.tsv",
         "//c-piscine/c-piscine-c-09:tests/ex00/diff_clues.txt",
+        # And the two split length harnesses that freed a wrong result up to
+        # a NULL it may not have: exit 3, never a crash.
+        "//c-piscine/c-piscine-c-07:tests/ex05/len_split.c",
+        "//c-piscine/c-piscine-c-09:tests/ex02/len_split.c",
         "//c-piscine-reloaded/c-piscine-reloaded:BUILD.bazel",
         "//c-piscine-reloaded/c-piscine-reloaded:tests/ex17/diff_strcmp.c",
         "//c-piscine-reloaded/c-piscine-reloaded:tests/ex17/diff_strcmp_readings.c",
@@ -631,7 +728,6 @@ SLOW_DATA = [
         "//c-piscine/c-piscine-shell-01:tests/ex07/passwd",
         "//c-piscine/c-piscine-shell-01:tests/ex08/check.sh",
         "@valgrind_ubuntu//:runtime",
-        "@valgrind_ubuntu//:usr/bin/callgrind_annotate",
         "@valgrind_ubuntu//:usr/bin/valgrind.bin",
         "@valgrind_ubuntu//:usr/libexec/valgrind/callgrind-amd64-linux",
         "@valgrind_ubuntu//:usr/libexec/valgrind/memcheck-amd64-linux",
@@ -682,7 +778,7 @@ hand_test(
 # enforces "every SKIP honours NO_SKIP" was the one thing nothing checked.
 #
 # EVERY MODULE, by package: what //tools/tests:conventions reads, and the
-# modules whose turn-in folders :macro_fixtures_test holds first_red to.
+# modules //tools/tests:units_parity holds units.awk and first_red to.
 # Hand-written once, here; conventions.sh refuses to run when a module in
 # tools/submit.sh's REMOTES table is missing from what it can see, so a module
 # left out of this list fails loudly in both.
@@ -717,6 +813,26 @@ _MODULES = [
     ]
 ]
 
+# The macro fixtures' packages, each with a subject() contract the macros
+# read. units_parity holds each one's contract, as read from text, to what
+# the macros wrote, beside every module's, and the conventions test below
+# stages each one's BUILD file. A package added under macro_fixtures/ with a
+# contract joins this list: `bazel run //tools:conventions` reports one that
+# did not.
+_FIXTURE_PACKAGES = [
+    "//tools/tests/macro_fixtures",
+    "//tools/tests/macro_fixtures/levels",
+    "//tools/tests/macro_fixtures/knobs",
+    "//tools/tests/macro_fixtures/graded",
+    "//tools/tests/macro_fixtures/named_prog",
+    "//tools/tests/macro_fixtures/named_lib",
+    "//tools/tests/macro_fixtures/named_lib_make",
+    "//tools/tests/macro_fixtures/named_lib_broken",
+    "//tools/tests/macro_fixtures/named_units_files",
+    "//tools/tests/macro_fixtures/named_units_programs",
+    "//tools/tests/macro_fixtures/named_units_same",
+]
+
 # The file list is the part that used to make this impossible, and none of it is
 # hand-written per file: c_levels() emits a :conventions_srcs glob for every
 # module, //tools and this package glob their own, and the root package covers
@@ -736,7 +852,12 @@ hand_test(
     size = "medium",
     # 96-132s in a full suite, near half of "medium"'s 300: a second suite on
     # the machine took it past (finding 066). One process walks the tree, so
-    # the time is its own; a longer limit, not a smaller check.
+    # the time is its own; a longer limit, not a smaller check. Its one
+    # shellcheck over every script later made it 262-904 s (V439); in lanes
+    # beside the other rules it took 84 s alone on an idle machine
+    # (2026-10-30), the lint of tools/tests/selftest.sh its floor: a lane of
+    # its own, 66 s. With the selftest one file a section (2026-10-31), the
+    # slowest of the four lanes took 42 s on the same machine.
     timeout = "long",
     srcs = ["//tools:conventions.sh"],
     args = [
@@ -751,13 +872,12 @@ hand_test(
         "//tools/cc_toolchain:conventions_srcs",
         "//oracle:conventions_srcs",
         ":conventions_srcs",
-        # The toy exercises' package holds a turn-in too (deliverable/), so
-        # its BUILD file is held to the rules a module's is.
-        "//tools/tests/macro_fixtures:conventions_srcs",
-        "//tools/tests/macro_fixtures/root:conventions_srcs",
-        "//tools/tests/macro_fixtures/levels:conventions_srcs",
-        "//tools/tests/macro_fixtures/knobs:conventions_srcs",
-        "//tools/tests/macro_fixtures/graded:conventions_srcs",
+    ] + [
+        # The toy exercises' packages hold a turn-in too (deliverable/), so
+        # their BUILD files are held to the rules a module's is.
+        p + ":conventions_srcs"
+        for p in _FIXTURE_PACKAGES
+    ] + [
         "@buildifier_prebuilt//:buildifier",
         "@shellcheck_linux_x86_64//:shellcheck",
     ] + [m + ":conventions_srcs" for m in _MODULES],
@@ -785,6 +905,37 @@ py_test(
     ] + [m + ":conventions_srcs" for m in _MODULES],
     tags = lvl_tags("selftest"),
     deps = ["//tools:fortytwo"],
+)
+
+# The user file's grammar (tools/fortytwo/userconfig.py), held to two real
+# YAML readers, PyYAML and ruamel.yaml, which only this test brings: 42 never
+# imports them. Over the corpus 42's own tests read, every value it writes, and
+# a seeded fuzz; its log says how many files of each kind it checked.
+py_test(
+    name = "userconfig_oracle_test",
+    srcs = ["userconfig_oracle_test.py"],
+    data = ["//tools:fortytwo_tests"],
+    tags = lvl_tags("selftest"),
+    deps = [
+        "//tools:fortytwo",
+        "@pip_tools//pyyaml",
+        "@pip_tools//ruamel_yaml",
+    ],
+)
+
+# tools/env_drift.py, under unittest: the shell rules it keeps from the
+# script it was ported from, its grading, and whole runs of its launcher on
+# this test's interpreter with no python3 on PATH, in the C locale, and with
+# box tools that read their input or die by a signal.
+py_test(
+    name = "env_drift_test",
+    srcs = ["env_drift_test.py"],
+    data = [
+        "//tools:drives.sh",
+        "//tools:env_drift.py",
+        "//tools:env_drift.sh",
+    ],
+    tags = lvl_tags("selftest"),
 )
 
 # A macro's decisions, checked where they are made. shell_exercise decides at
@@ -923,15 +1074,11 @@ filegroup(
     srcs = ["BUILD.bazel"] + glob(
         ["*.sh"],
         allow_empty = False,
+    ) + glob(
+        ["selftest_sections/*.sh"],
+        allow_empty = False,
     ) + glob(["*.bzl"]) + glob(["*.py"]),
 )
-
-# The defs.bzl guards that fail() at loading -- an unknown case key, a
-# malformed exit, c_header's exit below robust -- have no runner to hand a bad
-# input to. starlark_selftest() calls each one on an input it must refuse and
-# on one it must accept while this package loads, and fail()s the load when a
-# guard answers wrong; the test it emits lists the arms.
-starlark_selftest(name = "starlark_selftest")
 
 # No deliverable can break the build graph: toy exercises in every broken state
 # a student's tree can be in, built through the same macros every module uses
@@ -942,10 +1089,14 @@ starlark_selftest(name = "starlark_selftest")
 # a stand-in of the right kind, that the ones that build are unaffected, that
 # the output layer reads a stand-in as a build failure (or, over an exercise
 # not started, as nothing to build) rather than as wrong output, and that the
-# macros emitted every test as layers.expected lists it. Its ./root package is
-# the toy turned in at the root of deliverable/, with srcs/ and includes/: its
-# program is real only if the tree was staged and the Makefile's -I was taken,
-# and the same -I list reaches its static layers. Its ./levels package is a
+# macros emitted every test as layers.expected lists it. Its ./named_prog
+# package is the toy turned in at the root of deliverable/, with srcs/ and
+# includes/: its program is real only if the tree was staged and the
+# Makefile's -I was taken, and the same -I list reaches its static layers.
+# Its ./named_lib, ./named_lib_make and ./named_lib_broken packages are toy
+# libraries whose functions are units of their own: each function has
+# exactly its own tests, and its programs are built from the library's
+# Makefile, or stand in when they cannot be. Its ./levels package is a
 # toy module for c_levels(): exercises found from the contract, tests/,
 # deliverable/ and generators/, a folder the subject has no exercise for
 # reported, and the audit passed on every test; and its c_function reading
@@ -960,6 +1111,14 @@ starlark_selftest(name = "starlark_selftest")
 # 60 s once while four checkouts ran Bazel at once on one machine (TO VERIFY
 # V235). Its time is spent waiting for CPU that other tests hold, which the
 # limit has to leave room for.
+#
+# The fixture packages that list their tests as :layers (knobs declares
+# none). Each one's :layers is compared with its layers.expected, a --toy row
+# for every package listed here: a package conventions makes join
+# _FIXTURE_PACKAGES is compared as soon as it does, with nothing written by
+# hand for it.
+_LAYERED_FIXTURES = [p for p in _FIXTURE_PACKAGES if p != "//tools/tests/macro_fixtures/knobs"]
+
 hand_test(
     name = "macro_fixtures_test",
     layer = "selftest",
@@ -970,36 +1129,17 @@ hand_test(
         "tools/tests/macro_fixtures",
         "--diff-output",
         "$(rootpath //tools:diff_output.sh)",
-        "--layers",
-        "$(rootpath //tools/tests/macro_fixtures:layers)",
-        "--expected-layers",
-        "$(rootpath //tools/tests/macro_fixtures:layers.expected)",
-        "--root-dir",
-        "tools/tests/macro_fixtures/root",
-        "--root-layers",
-        "$(rootpath //tools/tests/macro_fixtures/root:layers)",
-        "--root-expected-layers",
-        "$(rootpath //tools/tests/macro_fixtures/root:layers.expected)",
-        "--root-files-names",
-        "$(rootpath //tools/tests/macro_fixtures/root:ex00_files_names)",
-        "--root-includes",
-        "$(rootpath //tools/tests/macro_fixtures/root:ex00_bin_includes.txt)",
         "--ex14-files-names",
         "$(rootpath //tools/tests/macro_fixtures:ex14_files_names)",
         "--contract-problems",
         "$(rootpath //tools/tests/macro_fixtures:contract_problems)",
+        # The toys' own refusals, watched as the top fixture's are.
+        "--contract-problems",
+        "$(rootpath //tools/tests/macro_fixtures/named_prog:contract_problems)",
+        "--contract-problems",
+        "$(rootpath //tools/tests/macro_fixtures/named_lib_broken:contract_problems)",
         "--contract-expected",
         "$(rootpath //tools/tests/macro_fixtures:contract_problems.expected)",
-        "--levels-layers",
-        "$(rootpath //tools/tests/macro_fixtures/levels:layers)",
-        "--levels-expected-layers",
-        "$(rootpath //tools/tests/macro_fixtures/levels:layers.expected)",
-        "--levels-member-strays",
-        "$(rootpath //tools/tests/macro_fixtures/levels:member_strays)",
-        "--graded-layers",
-        "$(rootpath //tools/tests/macro_fixtures/graded:layers)",
-        "--graded-expected-layers",
-        "$(rootpath //tools/tests/macro_fixtures/graded:layers.expected)",
         "--harnesses",
         "$(rootpath //tools/tests/macro_fixtures:harnesses)",
         "--expected-harnesses",
@@ -1033,21 +1173,58 @@ hand_test(
         "deliverable/ex21/toy_switch.c",
         # No layer of ex04 reads a file its contract does not name -- the
         # stray main.c and toy_extra.c are ex04_files' report alone (tools/
-        # defs.bzl's _turnin_files; the mutation run of 2026-10-03).
+        # defs_contract.bzl's _turnin_files; the mutation run of 2026-10-03).
         "--lines",
         "$(rootpath //tools/tests/macro_fixtures:stray_reads)",
         "-",
         "--lines",
         "$(rootpath //tools/tests/macro_fixtures/levels:deliverable_files_names)",
         "old/toy_old.c,toy_loose.c",
-        # A library's Makefile's -I, which c_library() writes once for every
-        # layer that compiles its sources itself (V198): ex13's `-I inc`,
-        # and nothing for ex12, whose stub Makefile compiles nothing.
+        # The lists in the toys of named units, each named after its unit:
+        # a library's Makefile's -I, which c_library() writes once for every
+        # layer that compiles its sources itself (V198) -- none for libtoy,
+        # whose stub Makefile compiles nothing; inc/ for libtoy13 -- the root
+        # program's files by path and its -I, the files of the library with
+        # a stray main.c beside its sources, and no test or program of a
+        # function of any of the three libraries that points at another
+        # unit (:unit_strays).
         "--lines",
-        "$(rootpath //tools/tests/macro_fixtures/levels:ex13_make_bin_includes.txt)",
-        "tools/tests/macro_fixtures/levels/deliverable/ex13/inc",
+        "$(rootpath //tools/tests/macro_fixtures/named_lib:libtoy_make_bin_includes.txt)",
+        "-",
         "--lines",
-        "$(rootpath //tools/tests/macro_fixtures/levels:ex12_make_bin_includes.txt)",
+        "$(rootpath //tools/tests/macro_fixtures/named_lib_make:libtoy13_make_bin_includes.txt)",
+        "tools/tests/macro_fixtures/named_lib_make/deliverable/inc",
+        # And the order of each -I list that holds the Makefile's: tools/
+        # after it (named_lib_make's :include_order).
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_lib_make:include_order)",
+        ",".join([
+            "libtoy13_compile_clang:make",
+            "libtoy13_compile_gcc:make",
+            "libtoy13_forbidden:make",
+            "libtoy13_prototype:make",
+            "libtoy13_symbols:make",
+            "toy_down_ilp32:make-tools",
+            "toy_up_ilp32:make-tools",
+            "toy_up_method:make-tools",
+        ]),
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_prog:toy_root_files_names)",
+        "Makefile,includes/toy_root.h,srcs/main.c",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_prog:toy_root_bin_includes.txt)",
+        "tools/tests/macro_fixtures/named_prog/deliverable/includes",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_lib_broken:libtoy14_files_names)",
+        "Makefile,inc/toy14.h,main.c,toy_left.c,toy_right.c",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_lib:unit_strays)",
+        "-",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_lib_make:unit_strays)",
+        "-",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_lib_broken:unit_strays)",
         "-",
         # The status a sentence is READ as naming keeps that source in the
         # reference's run of the case too, not "subject" (V145). Quoted:
@@ -1056,15 +1233,15 @@ hand_test(
         "$(rootpath //tools/tests/macro_fixtures/levels:reference_exit_sources)",
         "'reading reading'",
         # Who waits for an output test, as subject()'s finalizer writes it
-        # (tools/defs.bzl, _WAITING): the toys' gated layers with their
+        # (tools/defs_contract.bzl, _WAITING): the toys' gated layers with their
         # level; one case's own memory arm, and the survive case its gate's
         # label names -- its output, and its runs under the sanitizer,
         # under memcheck (V253) and under the allocation sweep (V282),
         # which wait on the same case -- never another case's sharing the
         # file;
         # and nothing for a toy whose layers wait for nothing (the root toy,
-        # whose one case turns its valgrind arm off). Quoted: sh_test splits
-        # `args` at blanks.
+        # whose one case turns its valgrind arm off, and whose corpus waits
+        # on no case). Quoted: sh_test splits `args` at blanks.
         "--lines",
         "$(rootpath //tools/tests/macro_fixtures:waiting_ex00_output)",
         "'ex00_ilp32 (complete),ex00_memcheck (strict)'",
@@ -1074,44 +1251,43 @@ hand_test(
         "--lines",
         "$(rootpath //tools/tests/macro_fixtures/levels:waiting_ex00_raised_output)",
         "'ex00_raised_valgrind (strict)'",
-        # A library function's (a member's): every layer its member macros
-        # gate on its own output test, ex12_toy_len_output -- c_function's
-        # memcheck and ilp32, c_diff's two arms, the c_perf it hands
-        # `member` on to, and c_cycles -- and none on the library's.
+        # A library function's: every layer its macros gate on its own
+        # output test, toy_len_output -- c_function's memcheck and ilp32,
+        # c_diff's two arms, c_perf and c_cycles -- and none on the
+        # library's.
         "--lines",
-        "$(rootpath //tools/tests/macro_fixtures/levels:waiting_ex12_toy_len_output)",
-        "'ex12_toy_len_cycles (complete),ex12_toy_len_diff (strict),ex12_toy_len_diff_asan (robust),ex12_toy_len_ilp32 (complete),ex12_toy_len_memcheck (strict),ex12_toy_len_perf (complete)'",
-        # The member with every per-function knob (toy_cat): its allocfail
-        # pair, both readings corpora's arms and its perf series wait on its
-        # own output too, ex12_toy_cat_output.
+        "$(rootpath //tools/tests/macro_fixtures/named_lib:waiting_toy_len_output)",
+        "'toy_len_cycles (complete),toy_len_diff (strict),toy_len_diff_asan (robust),toy_len_ilp32 (complete),toy_len_memcheck (strict),toy_len_perf (complete)'",
+        # The function with every per-function knob (toy_cat): its
+        # allocfail pair, both readings corpora's arms and its perf series
+        # wait on its own output too, toy_cat_output.
         "--lines",
-        "$(rootpath //tools/tests/macro_fixtures/levels:waiting_ex12_toy_cat_output)",
-        "'ex12_toy_cat_allocfail (basic),ex12_toy_cat_allocfail_leaks (robust),ex12_toy_cat_diff (strict),ex12_toy_cat_diff_asan (robust),ex12_toy_cat_ilp32 (complete),ex12_toy_cat_perf (complete),ex12_toy_cat_readings (robust),ex12_toy_cat_readings_diff_asan (robust),ex12_toy_cat_valgrind (strict)'",
+        "$(rootpath //tools/tests/macro_fixtures/named_lib:waiting_toy_cat_output)",
+        "'toy_cat_allocfail (basic),toy_cat_allocfail_leaks (robust),toy_cat_diff (strict),toy_cat_diff_asan (robust),toy_cat_ilp32 (complete),toy_cat_perf (complete),toy_cat_readings (robust),toy_cat_readings_diff_asan (robust),toy_cat_valgrind (strict)'",
         "--lines",
-        "$(rootpath //tools/tests/macro_fixtures/root:waiting_ex00_output)",
+        "$(rootpath //tools/tests/macro_fixtures/named_prog:waiting_toy_root_output)",
         "-",
-        "--first-red",
-        "$(rootpath //tools:first_red.sh)",
-        "--turnin-dirs",
-        "$(rootpath //tools/tests/macro_fixtures:turnin_dirs)",
-        "--root-turnin-dirs",
-        "$(rootpath //tools/tests/macro_fixtures/root:turnin_dirs)",
-        # And every module's, as c_levels() emits them, with the toy
-        # module's; the module's BUILD.bazel is beside it (conventions_srcs).
-        "--module-turnin-dirs",
-        "$(rootpath //tools/tests/macro_fixtures/levels:turnin_dirs)",
-        "--module-turnin-dirs",
-        "$(rootpath //tools/tests/macro_fixtures/knobs:turnin_dirs)",
-        "--module-turnin-dirs",
-        "$(rootpath //tools/tests/macro_fixtures/graded:turnin_dirs)",
-    ] + [
-        a
-        for m in _MODULES
-        for a in [
-            "--module-turnin-dirs",
-            "$(rootpath %s:turnin_dirs)" % m,
-        ]
-    ] + [
+        # A root divided into parts: each program's sources as the rule
+        # that builds it plans them (a bare make's for sorter, make bonus's
+        # for checker), the rule each build asks make for, and every name
+        # at the root, toy_scratch.c among them, which deliverable_files
+        # judges once for the whole root.
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_units_programs:sorter_bin_sources.txt)",
+        "toy_sort.c,toy_order.c",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_units_programs:checker_bin_sources.txt)",
+        "toy_check.c,toy_order.c",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_units_programs:goals)",
+        "checker_bin:bonus,checker_bin_asan:bonus,sorter_bin:-,sorter_bin_asan:-",
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_units_files:deliverable_files_names)",
+        "toy_scratch.c,toy_tally.c,toy_tally.h,toy_tally_bonus.c,toy_tally_bonus.h",
+        # ...and each part's library target, from that part's .c sources alone.
+        "--lines",
+        "$(rootpath //tools/tests/macro_fixtures/named_units_files:units_srcs)",
+        "base_toy_tally:toy_tally.c,bonus_toy_tally:toy_tally_bonus.c",
         "--shell-tags",
         "$(rootpath //tools/tests/macro_fixtures:shell_tags)",
         "--redirect-args",
@@ -1122,6 +1298,17 @@ hand_test(
         "$(rootpath //tools/tests/macro_fixtures/knobs:knobs)",
         "--expected-knobs",
         "$(rootpath //tools/tests/macro_fixtures/knobs:knobs.expected)",
+    ] + [
+        # Every package that lists its tests: what its macros emitted,
+        # against its layers.expected.
+        a
+        for p in _LAYERED_FIXTURES
+        for a in [
+            "--toy",
+            p[2:],
+            "$(rootpath %s:layers)" % p,
+            "$(rootpath %s:layers.expected)" % p,
+        ]
     ],
     data = [
         "//tools:diff_output.sh",
@@ -1161,63 +1348,64 @@ hand_test(
         "//tools/tests/macro_fixtures:stray_reads",
         "//tools/tests/macro_fixtures:ex19_bin",
         "//tools/tests/macro_fixtures/levels:deliverable_files_names",
-        "//tools/tests/macro_fixtures/levels:ex12_make_bin_includes.txt",
-        "//tools/tests/macro_fixtures/levels:ex13_make_bin_includes.txt",
         "//tools/tests/macro_fixtures/levels:reference_exit_sources",
         "//tools/tests/macro_fixtures:contract_problems",
         "//tools/tests/macro_fixtures:contract_problems.expected",
-        "//tools/tests/macro_fixtures:layers",
-        "//tools/tests/macro_fixtures:layers.expected",
+        "//tools/tests/macro_fixtures/named_prog:contract_problems",
+        "//tools/tests/macro_fixtures/named_lib_broken:contract_problems",
         "//tools/tests/macro_fixtures:harnesses",
         "//tools/tests/macro_fixtures:harnesses.expected",
-        "//tools/tests/macro_fixtures/root:ex00_bin",
-        "//tools/tests/macro_fixtures/root:ex00_bin_includes.txt",
-        "//tools/tests/macro_fixtures/root:ex00_files_names",
-        "//tools/tests/macro_fixtures/root:layers",
-        "//tools/tests/macro_fixtures/root:layers.expected",
         "//tools/tests/macro_fixtures/levels:ex03_bin",
         "//tools/tests/macro_fixtures/levels:ex03_open_bin",
-        # A library's two members, each linking :ex12_lib through the stub
-        # Makefile: the library's sources stand in for it.
-        "//tools/tests/macro_fixtures/levels:ex12_toy_dup_bin",
-        "//tools/tests/macro_fixtures/levels:ex12_toy_len_bin",
-        # A library whose Makefile is written (ex13), its members built
-        # from what it compiles, -I and all; and the same with a source
-        # that does not compile (ex14), every member a stand-in.
-        "//tools/tests/macro_fixtures/levels:ex13_toy_up_bin",
-        "//tools/tests/macro_fixtures/levels:ex13_toy_down_bin",
-        "//tools/tests/macro_fixtures/levels:ex14_toy_left_bin",
-        "//tools/tests/macro_fixtures/levels:ex14_toy_right_bin",
-        "//tools/tests/macro_fixtures/levels:ex12_toy_cat_bin",
-        "//tools/tests/macro_fixtures/levels:ex12_toy_cat_open_bin",
-        "//tools/tests/macro_fixtures/levels:layers",
-        "//tools/tests/macro_fixtures/levels:layers.expected",
-        "//tools/tests/macro_fixtures/levels:member_strays",
-        "//tools/tests/macro_fixtures/graded:layers",
-        "//tools/tests/macro_fixtures/graded:layers.expected",
-        # first_red's reading of the contracts, held to turnin_dir(): the
-        # script, what it reads, and what the macros computed.
-        "//tools:first_red.sh",
+        # The toys of named units: their lists, and the programs
+        # macro_fixtures_test runs, each its unit's own.
+        "//tools/tests/macro_fixtures/named_prog:toy_root_bin",
+        "//tools/tests/macro_fixtures/named_prog:toy_root_bin_includes.txt",
+        "//tools/tests/macro_fixtures/named_prog:toy_root_files_names",
+        "//tools/tests/macro_fixtures/named_lib:libtoy_make_bin_includes.txt",
+        "//tools/tests/macro_fixtures/named_lib:toy_cat_bin",
+        "//tools/tests/macro_fixtures/named_lib:toy_cat_open_bin",
+        "//tools/tests/macro_fixtures/named_lib:toy_dup_bin",
+        "//tools/tests/macro_fixtures/named_lib:toy_len_bin",
+        "//tools/tests/macro_fixtures/named_lib:unit_strays",
+        "//tools/tests/macro_fixtures/named_lib_make:include_order",
+        "//tools/tests/macro_fixtures/named_lib_make:libtoy13_make_bin_includes.txt",
+        "//tools/tests/macro_fixtures/named_lib_make:toy_down_bin",
+        "//tools/tests/macro_fixtures/named_lib_make:toy_up_bin",
+        "//tools/tests/macro_fixtures/named_lib_make:unit_strays",
+        "//tools/tests/macro_fixtures/named_lib_broken:libtoy14_files_names",
+        "//tools/tests/macro_fixtures/named_lib_broken:toy_left_bin",
+        "//tools/tests/macro_fixtures/named_lib_broken:toy_right_bin",
+        "//tools/tests/macro_fixtures/named_lib_broken:unit_strays",
+        "//tools/tests/macro_fixtures/named_units_files:base_bin",
+        "//tools/tests/macro_fixtures/named_units_files:bonus_bin",
+        "//tools/tests/macro_fixtures/named_units_files:deliverable_files_names",
+        "//tools/tests/macro_fixtures/named_units_files:units_srcs",
+        "//tools/tests/macro_fixtures/named_units_programs:sorter_bin",
+        "//tools/tests/macro_fixtures/named_units_programs:checker_bin",
+        "//tools/tests/macro_fixtures/named_units_programs:sorter_bin_sources.txt",
+        "//tools/tests/macro_fixtures/named_units_programs:checker_bin_sources.txt",
+        "//tools/tests/macro_fixtures/named_units_programs:goals",
+        "//tools/tests/macro_fixtures/named_units_same:base_bin",
+        "//tools/tests/macro_fixtures/named_units_same:bonus_bin",
         "//tools/tests/macro_fixtures:conventions_srcs",
-        "//tools/tests/macro_fixtures:turnin_dirs",
-        "//tools/tests/macro_fixtures/root:conventions_srcs",
-        "//tools/tests/macro_fixtures/root:turnin_dirs",
         "//tools/tests/macro_fixtures/levels:conventions_srcs",
-        "//tools/tests/macro_fixtures/levels:turnin_dirs",
         "//tools/tests/macro_fixtures/knobs:conventions_srcs",
-        "//tools/tests/macro_fixtures/knobs:turnin_dirs",
-        # Every knob toy analysed, none built (V139): a toy that stopped
-        # analysing is a red here, not only in `bazel test //...`.
-        "//tools/tests/macro_fixtures/knobs:toys_analysed",
+    ] + [
+        # Every toy of every listed fixture package analysed, none built: a
+        # toy that stopped analysing is a red here, not only in a hand
+        # command. A listed package without its toys_analysed is a build
+        # error here too. The list holds every package with a contract
+        # (conventions reports one left off); a package with none could not
+        # be listed, and its toys would not be analysed here.
+        p + ":toys_analysed"
+        for p in _FIXTURE_PACKAGES
+    ] + [
+        f
+        for p in _LAYERED_FIXTURES
+        for f in [p + ":layers", p + ":layers.expected"]
+    ] + [
         "//tools/tests/macro_fixtures/graded:conventions_srcs",
-        "//tools/tests/macro_fixtures/graded:turnin_dirs",
-        # ...and its --written reading of each module's exercises and their
-        # mandatory part, held to the same lines and to c_levels()' own
-        # :mandatory, with the judge it runs on each turn-in.
-        "//tools:stub_check.sh",
-        "//tools/tests/macro_fixtures/levels:mandatory",
-        "//tools/tests/macro_fixtures/knobs:mandatory",
-        "//tools/tests/macro_fixtures/graded:mandatory",
         # What each knob no project turns gave its targets, and the one
         # program a knob is proven by.
         "//tools/tests/macro_fixtures/knobs:knobs",
@@ -1237,19 +1425,58 @@ hand_test(
         "//tools/tests/macro_fixtures:waiting_ex00_output",
         "//tools/tests/macro_fixtures/levels:waiting_ex00_exact_output",
         "//tools/tests/macro_fixtures/levels:waiting_ex00_raised_output",
-        "//tools/tests/macro_fixtures/levels:waiting_ex12_toy_len_output",
-        "//tools/tests/macro_fixtures/levels:waiting_ex12_toy_cat_output",
-        "//tools/tests/macro_fixtures/root:waiting_ex00_output",
+        "//tools/tests/macro_fixtures/named_lib:waiting_toy_len_output",
+        "//tools/tests/macro_fixtures/named_lib:waiting_toy_cat_output",
+        "//tools/tests/macro_fixtures/named_prog:waiting_toy_root_output",
         "//tools/tests/macro_fixtures:ex00_output",
-        "//tools/tests/macro_fixtures/root:ex00_output",
+        "//tools/tests/macro_fixtures/named_prog:toy_root_output",
         "//tools/tests/macro_fixtures/levels:ex00_survive_output",
-        # Every contract the macros read, as JSON beside its BUILD.bazel:
-        # first_red's reading of memory_graded is held to each one's.
-        "//tools/tests/macro_fixtures:subject",
-        "//tools/tests/macro_fixtures/root:subject",
-        "//tools/tests/macro_fixtures/levels:subject",
-        "//tools/tests/macro_fixtures/knobs:subject",
-        "//tools/tests/macro_fixtures/graded:subject",
-    ] + [m + ":turnin_dirs" for m in _MODULES] + [m + ":mandatory" for m in _MODULES] +
-    [m + ":conventions_srcs" for m in _MODULES] + [m + ":subject" for m in _MODULES],
+    ],
+)
+
+
+_UNIT_PACKAGES = _FIXTURE_PACKAGES + _MODULES
+
+# THE CONTRACT READ AS TEXT, HELD TO THE CONTRACT THE MACROS READ. Outside
+# Bazel, tools/units.awk is the only reader of a subject() call: first_red.sh
+# reads through it from a log, and conventions.sh, answer_scan.sh and `42`
+# from a checkout. In every package with a contract, this test holds that
+# reading to what the macros computed from the same call: :units and
+# :test_units, byte for byte, plus first_red's --turnin, --written and
+# --graded readings, and units.awk's file lists against the package's
+# subject.json. A drift names the wrong folder, files a red under another
+# unit, lets --written-only push without a mandatory unit, or hands
+# conventions and answer_scan a file the contract does not list. The
+# selftest's "units parity" section proves each arm can go red.
+# Medium (300 s), as macro_fixtures_test: it runs units.awk and first_red's
+# modes some hundreds of times, and under load its time is spent waiting
+# for CPU.
+hand_test(
+    name = "units_parity",
+    layer = "selftest",
+    size = "medium",
+    srcs = ["units_parity_test.sh"],
+    args = [
+        "--units-awk",
+        "$(rootpath //tools:units.awk)",
+        "--first-red",
+        "$(rootpath //tools:first_red.sh)",
+    ] + [
+        a
+        for p in _UNIT_PACKAGES
+        for a in ["--package", "$(rootpath %s:units)" % p]
+    ] + [
+        a
+        for p in _LAYERED_FIXTURES
+        for a in ["--layers", "$(rootpath %s:layers)" % p]
+    ],
+    data = [
+        "//tools:units.awk",
+        "//tools:first_red.sh",
+        "//tools:stub_check.sh",
+    ] + [p + ":units" for p in _UNIT_PACKAGES] +
+    [p + ":test_units" for p in _UNIT_PACKAGES] +
+    [p + ":subject" for p in _UNIT_PACKAGES] +
+    [p + ":conventions_srcs" for p in _UNIT_PACKAGES] +
+    [p + ":layers" for p in _LAYERED_FIXTURES],
 )

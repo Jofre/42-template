@@ -64,7 +64,7 @@ ck_executable "$D"
 # The subject: shell exercises must be executable with /bin/sh.
 ck_sh_parses "$D"
 
-ORACLE=${ORACLE:?this check needs //oracle: declare the exercise with oracle = True}
+ck_oracle
 
 raw=$(mktemp)
 
@@ -80,6 +80,21 @@ lacks() {
 		case " $V " in *" $_w "*) return 1 ;; esac
 	done
 	return 0
+}
+# two_logins -> 0 when this machine's own /etc/passwd keeps logins enough to
+# judge a list on (two), 1 when it does not. The reference has a third
+# answer, that it could not do its job, which was read as the second: a
+# machine with too few logins, a skip with the wrong reason. That one is the
+# harness's fault, shown in the reference's own words.
+two_logins() {
+	"$ORACLE" shell01_rdwssap reaches 2 2> "$raw.reach"
+	_tl=$?
+	case "$_tl" in
+		0 | 1) rm -f "$raw.reach"; return "$_tl" ;;
+	esac
+	ck_detail "$(cat "$raw.reach")"
+	rm -f "$raw" "$raw.err" "$raw.reach"
+	ck_broken "//oracle shell01_rdwssap reaches answered $_tl, not 0 or 1: the reference could not say whether this machine's /etc/passwd keeps two logins"
 }
 # names FILE -> how many names the output in FILE lists: its pieces between
 # commas, the final '.' left out. With the shell's own expansions, so it
@@ -169,7 +184,7 @@ if ck_redirected; then
 		# A question: the subject names `cat /etc/passwd`, and this settles
 		# nothing it leaves open.
 		HOST_READ=0
-		if ! lacks reversed lines && "$ORACLE" shell01_rdwssap reaches 2 2> /dev/null; then
+		if ! lacks reversed lines && two_logins; then
 			_fx=$V
 			judge 1 999
 			lacks reversed lines && HOST_READ=1
@@ -216,7 +231,7 @@ fi
 # names from memory would pass everything above. Asked of the file before the
 # program runs; a machine with fewer than two logins to keep has nothing to
 # show.
-if "$ORACLE" shell01_rdwssap reaches 2 2> /dev/null; then
+if two_logins; then
 	ck_run --no-redirect "$raw" env FT_LINE1=1 FT_LINE2=999 sh "$D"
 	ck_redirected || shape
 	judge 1 999

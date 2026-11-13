@@ -60,8 +60,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		tab = dio_csv_ints(f[0], &n);
 		node = (t_list **)dio_alloc((size_t)n, sizeof(t_list *));
 		begin = build_ip(node, tab, n);

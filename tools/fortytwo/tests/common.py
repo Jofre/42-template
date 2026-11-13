@@ -1,9 +1,12 @@
 """What every suite of 42's tests shares: where the checkout is, and how to run 42."""
 
+import atexit
 import contextlib
 import io
 import os
+import shutil
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "fixtures")
@@ -27,12 +30,36 @@ WS = checkout()
 sys.path.insert(0, os.path.join(WS, "tools", "fortytwo"))
 
 
+def tool_text(name):
+    """A file of the checkout's tools/, as text, for a toy checkout that runs it: tools/units.awk, which
+    42 reads every contract with (workspace.read_units)."""
+    with open(os.path.join(WS, "tools", name), encoding="utf-8") as f:
+        return f.read()
+
+
+_HOME = []
+
+
+def own_home():
+    """A HOME for a run given none: Bazel's TEST_TMPDIR, else a folder of this run's own,
+    never a shared /tmp, where anyone may leave a .config/42/config.yaml."""
+    if os.environ.get("TEST_TMPDIR"):
+        return os.environ["TEST_TMPDIR"]
+    if not _HOME:
+        _HOME.append(tempfile.mkdtemp(prefix="run42-home-"))
+        atexit.register(shutil.rmtree, _HOME[0], True)
+    return _HOME[0]
+
+
 def run42(argv, cwd=None, environ=None, ws=None):
     """main.main() in-process, in the checkout or ws: (exit status, stdout, stderr)."""
     import main
     env = dict(environ or {})
     env.setdefault("PATH", os.environ.get("PATH", ""))
-    env.setdefault("HOME", os.environ.get("TEST_TMPDIR", "/tmp"))
+    env.setdefault("HOME", own_home())
+    # The user file is under that HOME, never under the XDG_CONFIG_HOME of
+    # whoever runs the tests: env is built from environ alone.
+    env.setdefault("XDG_CONFIG_HOME", os.path.join(env["HOME"], ".config"))
     env["FT_WS"] = ws or WS
     env["FT_CWD"] = cwd or ws or WS
     out, err = io.StringIO(), io.StringIO()

@@ -1,7 +1,8 @@
 /* Live-differential reader harness for ft_strstr.
- * Line: <hexHay>\t<hexNeedle>\t<hexTail>. The haystack and the needle, two
- * hex digits per byte, then what the returned pointer points at, up to its
- * NUL, as hex -- or NULL when ft_strstr returned NULL. */
+ * Line: <hexHay>\t<hexNeedle>\t<off|NULL>. The haystack and the needle, two
+ * hex digits per byte, then where the returned pointer points: its offset
+ * from the start of the haystack, in decimal, NULL, or OUTSIDE for a pointer
+ * that is neither into the haystack nor at its terminator. */
 #include "diffio.h"
 
 char	*ft_strstr(char *str, char *to_find);
@@ -13,6 +14,7 @@ int	main(void)
 	char			*f[3];
 	unsigned char	*hay;
 	unsigned char	*needle;
+	size_t			hlen;
 	char			*p;
 
 	/* A line of any length (tools/diffio.h, dio_getline): the corpus holds
@@ -21,17 +23,17 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
-		hay = dio_unhex(f[0], NULL, 0);
+		dio_fields(line, f, 3, 2);
+		hay = dio_unhex(f[0], &hlen, 0);
 		needle = dio_unhex(f[1], NULL, 0);
 		p = ft_strstr((char *)hay, (char *)needle);
 		printf("%s\t%s\t", f[0], f[1]);
 		if (!p)
-			printf("NULL");
+			printf("NULL\n");
+		else if (p >= (char *)hay && p <= (char *)hay + hlen)
+			printf("%zu\n", (size_t)(p - (char *)hay));
 		else
-			dio_puthex((unsigned char *)p, strlen(p));
-		printf("\n");
+			printf("OUTSIDE\n");
 		free(hay);
 		free(needle);
 	}

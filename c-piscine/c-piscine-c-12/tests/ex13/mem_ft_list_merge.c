@@ -15,6 +15,8 @@
 #include "ft_list.h"
 #include <stdlib.h>
 
+void	ft_list_merge(t_list **begin_list1, t_list *begin_list2);
+
 /* One of the probe's lists, built by construction: n nodes, node i holding a
  * malloc'd int base + i and linked to node i + 1 by index; calloc leaves the
  * last node's next NULL. Each node and each int is its own heap block. */

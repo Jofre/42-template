@@ -45,7 +45,7 @@ require() {
 	done
 }
 
-WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+WS="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
 cd "$WS" || exit 2
 D=c-piscine/c-piscine-exam-prep
 MD=$D/FINAL_EXAM_GUIDE.md
@@ -103,22 +103,25 @@ fi
 require awk cat cut dirname grep mktemp pandoc pdftotext python3 rm sha256sum weasyprint
 stamp
 
-T=$(mktemp -d)
+T=$(mktemp -d) || { echo "exam_guide.sh: cannot create a scratch directory" >&2; exit 2; }
 trap 'rm -rf "$T"' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 
 # The rules the render gate cannot see broken on the guide as it is -- a
 # column never narrower than its longest word, a code block with a language
-# never folded, each answer at the end of its chapter in both renderings --
-# checked on planted input before every build (guide_post.py, self-check).
-python3 "$B/guide_post.py" self-check "$B/print.css" > "$T/self.err"
+# never folded, each answer at the end of its chapter in both renderings,
+# and a PDF template that fetches no web fonts and folds no contents --
+# checked before every build (guide_post.py, self-check).
+python3 "$B/guide_post.py" self-check "$B/print.css" "$B/page.html5" > "$T/self.err"
 case $? in
 0) ;;
 1)
 	echo "exam_guide.sh: FAIL — a layout rule of the renderings no longer holds; nothing was built:" >&2
 	cat "$T/self.err" >&2
-	echo "  The rules are build/guide_post.py's widths() and answers_last(), and build/print.css." >&2
+	echo "  The rules are build/guide_post.py's widths(), answers_last() and template_edits()," >&2
+	echo "  and build/print.css and build/page.html5." >&2
 	exit 1
 	;;
 *)

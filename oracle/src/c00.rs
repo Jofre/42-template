@@ -5,14 +5,16 @@
 //! * The SCALAR pair (is_negative, putnbr, i.e. ex04 and ex07). Each case is a
 //!   single decimal `int` input; the reference emits the exact text the function
 //!   must print. Corpus line: `<decimal-int>\t<reference-output>`. These feed
-//!   the differential layer in the ordinary way.
+//!   the differential layer in the ordinary way, and c00_putnbr C 04 ex02's
+//!   too, which asks for the same ft_putnbr.
 //! * The five ZERO-INPUT arms (ex01, ex02, ex03, ex05, ex06). `void f(void)`
 //!   with exactly one correct output each, so there is no corpus and no
 //!   differential layer — `gen` prints the answer itself. See the long section
 //!   below, and read c05.rs's ten-queens section first: most of the reasoning
 //!   is shared, and the one place it is NOT is the point of these arms.
 
-use crate::common::{bench_lines, sink, Rng};
+use crate::c04::o_putnbr;
+use crate::common::{bench_lines, int_cases, int_corners_missing, sink, Rng};
 use std::collections::HashSet;
 use std::io::{self, Write};
 
@@ -25,14 +27,6 @@ fn o_is_negative(n: i32) -> &'static str {
     } else {
         "P"
     }
-}
-
-/// ft_putnbr: the decimal text of n, with a leading '-' for negatives. This is
-/// the full 32-bit range including INT_MIN, whose magnitude does not fit in i32
-/// — Rust's own i32 formatting handles it correctly (independent of any C impl).
-#[inline(never)] // keep this attributable under callgrind (see tools/)
-fn o_putnbr(n: i32) -> String {
-    n.to_string()
 }
 
 // ------------------------------------- zero-input arms (ex01/02/03/05/06)
@@ -344,66 +338,23 @@ fn emit_once(bytes: &[u8]) {
 }
 
 // ---------------------------------------------------------- generators
-/// Exhaustive small band + every 32-bit boundary + power-of-ten neighbours,
-/// then a seeded random tail biased toward 0 / INT_MIN / INT_MAX / small.
-fn int_cases(rng: &mut Rng, count: usize) -> Vec<i32> {
-    let mut out: Vec<i32> = Vec::new();
-
-    let fixed: &[i32] = &[
-        0,
-        1,
-        -1,
-        i32::MAX,     // 2147483647
-        i32::MIN,     // -2147483648
-        i32::MAX - 1, // 2147483646
-        i32::MIN + 1, // -2147483647
-    ];
-    for &v in fixed {
-        out.push(v);
-    }
-    // Every value in a small band around zero (covers all 1-3 digit texts and
-    // the -/+ single-digit transitions).
-    for v in -1000i32..=1000 {
-        out.push(v);
-    }
-    // Powers of ten and their neighbours (carry / digit-count boundaries), both
-    // signs. Guarded through i64 so 10^9 * neighbours never overflow i32.
-    let mut p: i64 = 1;
-    while p <= 2_000_000_000 {
-        for d in [-1i64, 0, 1] {
-            let v = p + d;
-            if v >= i32::MIN as i64 && v <= i32::MAX as i64 {
-                out.push(v as i32);
-                let nv = -v;
-                if nv >= i32::MIN as i64 && nv <= i32::MAX as i64 {
-                    out.push(nv as i32);
-                }
-            }
-        }
-        p *= 10;
-    }
-
-    while out.len() < count {
-        out.push(rng.i32val());
-    }
-    out
-}
-
-fn gen_is_negative(seed: u64, count: usize) {
+// Both arms read common.rs's int corpus, which Libft's ft_putnbr_fd and
+// ft_itoa share, with its head whole at any count (cut false): a count of 1
+// is the head alone. c00_putnbr is ft_putnbr's one corpus: C 04 ex02 asks
+// for the same function and replays this arm too.
+fn gen_is_negative<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let cases = int_cases(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for n in &cases {
+    for n in &int_cases(&mut rng, count, false) {
         let _ = writeln!(w, "{}\t{}", n, o_is_negative(*n));
     }
 }
 
-fn gen_putnbr(seed: u64, count: usize) {
+fn gen_putnbr<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let cases = int_cases(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for n in &cases {
-        let _ = writeln!(w, "{}\t{}", n, o_putnbr(*n));
+    for n in &int_cases(&mut rng, count, false) {
+        let _ = write!(w, "{}\t", n);
+        let _ = w.write_all(&o_putnbr(*n));
+        let _ = w.write_all(b"\n");
     }
 }
 
@@ -423,8 +374,8 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
         return true;
     }
     match name {
-        "c00_is_negative" => gen_is_negative(seed, count),
-        "c00_putnbr" => gen_putnbr(seed, count),
+        "c00_is_negative" => gen_is_negative(&mut io::BufWriter::new(io::stdout()), seed, count),
+        "c00_putnbr" => gen_putnbr(&mut io::BufWriter::new(io::stdout()), seed, count),
         _ => return false,
     }
     true
@@ -483,18 +434,24 @@ fn naive_comb2() -> Vec<u8> {
 pub fn check() -> usize {
     let mut fails = 0usize;
 
-    // The structured HEAD of the corpus (count == 1 emits only the deterministic
-    // cases, no random tail) MUST always contain the contract corners for the
-    // numeric family: 0, +/-1, and every 32-bit boundary. Both void functions
-    // (is_negative sign flip at 0; putnbr INT_MIN whose magnitude overflows i32)
-    // are only reliably caught if these run every time — assert they are pinned
-    // so a regression that drops one fails `oracle check` instead of hiding in
-    // the 400k random tail.
-    let head = int_cases(&mut Rng::new(1), 1);
-    let required: &[i32] = &[0, 1, -1, i32::MAX, i32::MIN, i32::MAX - 1, i32::MIN + 1];
-    for &req in required {
-        if !head.contains(&req) {
-            eprintln!("CHECK FAIL c00 corpus head missing corner {}", req);
+    // Each arm's corpus MUST always contain the contract corners for the
+    // numeric family: 0, +/-1, every 32-bit boundary, and every 10^k-1, 10^k
+    // and 10^k+1 of both signs (common::int_corners_missing). Both void
+    // functions (is_negative's sign flip at 0; putnbr's INT_MIN, whose
+    // magnitude overflows i32, and a carry into a new digit) are only reliably
+    // caught if these run every time: the random tail reaches 1000 or -10000
+    // by chance, less than once in 600 000 draws. Read back from what each arm
+    // writes at a count of 1, its smallest corpus, so an arm that stops writing
+    // int_cases' head whole turns `oracle check` red. c00_putnbr's readers are
+    // C 00 ex07 and C 04 ex02 (one function, one corpus); c00_is_negative's,
+    // C 00 ex04 and Piscine Reloaded ex08.
+    let arms: [(&str, fn(&mut Vec<u8>, u64, usize)); 2] = [("is_negative", gen_is_negative), ("putnbr", gen_putnbr)];
+    for (arm, gen) in arms {
+        let mut c = Vec::new();
+        gen(&mut c, 1, 1);
+        let ns: Vec<i32> = String::from_utf8_lossy(&c).lines().filter_map(|l| l.split('\t').next()?.parse().ok()).collect();
+        for req in int_corners_missing(&ns) {
+            eprintln!("CHECK FAIL c00 {} corpus holds no {}", arm, req);
             fails += 1;
         }
     }
@@ -529,7 +486,7 @@ pub fn check() -> usize {
         (-2147483647, "-2147483647"),
     ];
     for (n, want) in pn {
-        if o_putnbr(*n) != *want {
+        if o_putnbr(*n) != want.as_bytes() {
             eprintln!("CHECK FAIL c00 putnbr({})", n);
             fails += 1;
         }
@@ -549,7 +506,7 @@ pub fn check() -> usize {
 
         // putnbr: round-trips through i32 parse, sign marker matches, no NUL/space,
         // and every non-sign byte is a decimal digit.
-        let t = o_putnbr(n);
+        let t = String::from_utf8(o_putnbr(n)).unwrap_or_default();
         if t.parse::<i32>() != Ok(n) {
             eprintln!("CHECK FAIL c00 putnbr roundtrip n={}", n);
             fails += 1;

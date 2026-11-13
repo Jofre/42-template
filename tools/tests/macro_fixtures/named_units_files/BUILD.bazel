@@ -1,0 +1,174 @@
+load("//tools:defs.bzl", "c_function", "c_levels", "subject", "unit")
+load("//tools:names_file.bzl", "names_file")
+load("//tools/tests:analysed.bzl", "analysed")
+
+# Its programs are the data of //tools/tests:macro_fixtures_test.
+package(default_visibility = ["//tools/tests:__pkg__"])
+
+# A TOY PROJECT IN TWO PARTS, EACH WITH FILES OF ITS OWN: a mandatory part,
+# base, and a bonus, both turned in at the root of deliverable/, each its
+# own set of named files and no Makefile. The bonus defines the same
+# function as the mandatory part, in files of its own, so each part's
+# library target must take that part's files alone. Every name no part
+# asks for is the module's to report, once. Invented, like the rest of ../
+# (see its BUILD file), every file under deliverable/ a stub.
+#
+# What //tools/tests:macro_fixtures_test checks here, on every run:
+#
+#   * the package loads: subject() takes two parts at the root, each judged
+#     written by its own files (no file of one is listed by the other), and
+#     c_levels()' audit passed on every test below, each named after its
+#     part and tagged unit=<part>;
+#   * the tests and suites emitted are the ones layers.expected lists: one
+#     suite per part (:base, :bonus); each part's files test names the other
+#     part's files as its sibling's (" sibling:") and leaves a file no part
+#     asks for to deliverable_files (" extras-elsewhere"), which judges the
+#     tree against both parts' files at once (" union");
+#   * each part's library target takes that part's .c sources and no
+#     other (:units_srcs, through --lines): the two stubs' bodies are the same,
+#     and a program links its library as an archive, which takes the first
+#     definition it needs, so no program's output could tell which part's
+#     sources it was built from;
+#   * base_bin runs its own test_toy_tally.c, and bonus_bin its own
+#     test_toy_tally_bonus.c, each built and run (is_program).
+#
+# Measured by hand on 2026-10-24 with
+#
+#     bazel test $(bazel query 'tests(//tools/tests/macro_fixtures/named_units_files:*)')
+#
+# (tagged manual, as every fixture test is): 23 tests, 1 red --
+# deliverable_files, which reports toy_scratch.c, a file no part asks
+# for. Every other test is green. Re-measure after changing a macro or a
+# runner.
+subject(
+    grader = "both",
+    group = False,
+    units = {
+        "base": unit(
+            page = 1,
+            files = ["toy_tally.c", "toy_tally.h"],
+            allowed = None,
+        ),
+        "bonus": unit(
+            page = 2,
+            files = ["toy_tally_bonus.c", "toy_tally_bonus.h"],
+            allowed = None,
+        ),
+    },
+    mandatory = ["base"],
+    mandatory_quote = "Toy, p.1: \"The bonus part is assessed only if the mandatory part is perfect.\"",
+)
+
+c_function(
+    unit = "base",
+    fn = "toy_tally",
+    test = "test_toy_tally.c",
+)
+
+# The bonus's own toy_tally, in the bonus's own files: the same function
+# name, so a library target that took the other part's files would build
+# this part's programs from that part's toy_tally.
+c_function(
+    unit = "bonus",
+    fn = "toy_tally",
+    test = "test_toy_tally_bonus.c",
+)
+
+c_levels()
+
+# Each part's library target and the .c sources it takes (its headers are
+# not listed), one line each: NAME:SOURCE+SOURCE..., in name order.
+names_file(
+    name = "units_srcs",
+    names = sorted([
+        "%s:%s" % (r["name"], "+".join([s.split("/")[-1].split(":")[-1] for s in r["srcs"]]))
+        for r in existing_rules().values()
+        if r["kind"] == "student_unit"
+    ]),
+)
+
+# What c_levels() and the macros emitted, as data: ../named_lib's :layers,
+# which says what each word is, and three words of a project divided into
+# parts at the root: " sibling:" and a file another part lists (files_test.sh
+# --sibling), " extras-elsewhere" on a part's files test, which leaves a
+# file no part asks for to the module's test (--extras-elsewhere), and
+# " union" on that test, deliverable_files, which judges the tree against
+# every part's files at once (--union).
+names_file(
+    name = "layers",
+    names = sorted([
+        "%s %s @%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s by:%s kind:%s" % (
+            r["name"],
+            r["srcs"][0].split(":")[-1],
+            [t for t in ["lvl_basic", "lvl_strict", "lvl_robust", "lvl_complete"] if t in r["tags"]][0][4:],
+            # The word after the flag (args is a tuple here: no .index).
+            "".join([" fn:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--oracle-fn"]),
+            "".join([" count:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--count"]),
+            "".join([
+                " bin:" + r["args"][i + 1][len("$(location "):-1] + "".join([
+                    " built:" + h.split("/")[-1]
+                    for h in existing_rule(r["args"][i + 1][len("$(location :"):-1])["harness"]
+                ]) + "".join([
+                    " reader:" + r["args"][j + 1][:-1].split("/")[-1]
+                    for j in range(len(r["args"]) - 1)
+                    if r["args"][j] == "--harness-src"
+                ])
+                for i in range(len(r["args"]) - 1)
+                if r["args"][i] == "--student-bin" and not r["args"][i + 1].endswith(("_diffbin)", "_diffbin_asan)"))
+            ]),
+            " any-of" if "--expected-alt" in r["args"] else "",
+            " survive" if "--survive" in r["args"] else "",
+            " stray" if "--stray" in r["args"] else "",
+            " outside" if "--outside" in r["args"] else "",
+            " reading" if [i for i in range(len(r["args"]) - 1) if r["args"][i] == "--exit-source" and r["args"][i + 1] == "reading"] else "",
+            " argv-file" if "--argv-file" in r["args"] else "",
+            " cwd" if "--run-as" in r["args"] else "",
+            " ran" if "--show-run" in r["args"] else "",
+            " case" if "--case" in r["args"] else "",
+            " clues" if "--clues" in r["args"] else "",
+            " stable" if "--stable" in r["args"] else "",
+            " sanitized" if "--sanitized" in r["args"] else "",
+            " sanitize" if "--sanitize" in r["args"] or "--gate-sanitize" in r["args"] else "",
+            " memcheck" if "--sample" in r["args"] else "",
+            " gated" if "--gate-expected" in r["args"] else "",
+            " gate-stdin" if "--gate-stdin" in r["args"] else "",
+            "".join([" gate-label:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--gate-label"]),
+            "".join([" suite:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--suite"]),
+            "".join([" sibling:" + r["args"][i + 1] for i in range(len(r["args"]) - 1) if r["args"][i] == "--sibling"]),
+            " extras-elsewhere" if "--extras-elsewhere" in r["args"] else "",
+            " union" if "--union" in r["args"] else "",
+            (" raised:" + (r["env"] or {})["RL_RAISED"]) if "RL_RAISED" in (r["env"] or {}) else "",
+            (" make-includes" if "--inc-file" in r["args"] else "") +
+            "".join([
+                " " + t
+                for t in r["tags"]
+                if t.startswith("unit=") or (t[:2] == "ex" and t[2:].isdigit())
+            ]),
+            (r["env"] or {}).get("RL_GRADER", "none"),
+            (r["env"] or {}).get("RL_UNIT_KIND", "none"),
+        )
+        for r in existing_rules().values()
+        if r["kind"] == "sh_test"
+    ] + [
+        "%s suite %s" % (r["name"], " ".join(r["tags"]))
+        for r in existing_rules().values()
+        if r["kind"] == "test_suite"
+    ]),
+)
+
+exports_files(["layers.expected"])
+
+# EVERY TOY ANALYSED: each manual target above, its test_suite included,
+# as a dependency of this target, which //tools/tests:macro_fixtures_test
+# depends on, so a toy naming a label no package declares, or one a macro
+# no longer accepts, fails that test's build instead of waiting for
+# someone to name it by hand. It builds nothing of them
+# (tools/tests/analysed.bzl). The last call of the file, so that it sees
+# every test above it. c_levels()' own :manual suite is named by hand: its
+# finalizer declares it once the file has been read, and existing_rules()
+# here cannot see it yet.
+analysed(
+    name = "toys_analysed",
+    testonly = True,
+    deps = sorted([":" + r for r, a in existing_rules().items() if "manual" in (a.get("tags") or [])] + [":manual"]),
+)

@@ -164,9 +164,10 @@ When the human is working on an exercise, help them **understand**, not finish:
   `man` (`man 2 read`,
   `man 3 strncat`, `man hexdump`), and the harness itself, which encodes the subject's
   hard constraints — the `subject()` contract at the top of each project's
-  `BUILD.bazel` (each exercise's files to turn in, its allowed functions, what the
-  grader brings), and the signature the `prototype` layer checks
-  (`tests/exNN/prototype.h`). Prefer these over the web.
+  `BUILD.bazel` (each exercise's or unit's files to turn in, its allowed functions,
+  what the grader brings), and the signature the `prototype` layer checks
+  (`tests/exNN/prototype.h`, or `tests/<library>/prototype.h` for a library
+  such as Libft). Prefer these over the web.
 - Help **read test output**: interpret the `CASE | EXPECTED | GOT | STATUS` tables and
   the `HINTS` blocks, and explain *why* a case fails and which concept to revisit —
   without writing the fix.
@@ -253,11 +254,11 @@ hands over the answer by another door.
 Everything that is *not* the pedagogical exercise solution is fair game, and help here
 is welcome:
 
-- **Test harness & build**: `tools/` (Bazel macros in `defs.bzl`, runner scripts),
-  `tests/exNN/` (expected outputs, cases, `clues.tsv`), `BUILD.bazel`. You may fix,
-  extend, and add coverage — **but tests and clues must contain hints, never answers**,
-  and a hint that can fire at the first red is a question, never a list of steps (§2,
-  *Shipped teaching prose*).
+- **Test harness & build**: `tools/` (Bazel macros in `defs.bzl` and the
+  `defs_*.bzl` files it loads, runner scripts), `tests/exNN/` or `tests/<unit>/`
+  (expected outputs, cases, `clues.tsv`), `BUILD.bazel`. You may fix, extend, and add coverage — **but tests and clues must
+  contain hints, never answers**, and a hint that can fire at the first red is a
+  question, never a list of steps (§2, *Shipped teaching prose*).
 - **Environment**: `.devcontainer/`, `.vscode/`, Bazel/MODULE files,
   `tools/env-audit.sh`, toolchain issues.
 - **Docs**: `README.md`, `docs/` and this file. (Deliverable filenames and `ft_*` names are
@@ -302,7 +303,10 @@ encouraged; fixing *the student's exercise so the test passes* is not.
     by name. It is not a pattern to repeat: another exception is the owner's to
     allow, never an agent's. A function the grader brings for a later exercise
     ("we'll use our `ft_create_elem`") is `linked`, never C (§6).
-  - `tests/exNN/` — Bazel test harness + expected output + `clues.tsv`. Never submitted.
+  - `tests/exNN/`, or `tests/<unit>/` where the contract is divided into units
+    (`tests/bsq/`; a library's own `tests/libft/`, and each of its functions'
+    `tests/ft_strlen/`) — Bazel test harness + expected output + `clues.tsv`.
+    Never submitted.
   - `BUILD.bazel` — targets declared via the `//tools` macros.
 - **Bazel is the single entry point:**
   - `bazel run //tools:init` — set the 42 login/email (writes `.vscode/settings.json`
@@ -318,8 +322,10 @@ encouraged; fixing *the student's exercise so the test passes* is not.
     layers whose failure is a KO wherever the project is graded (the Moulinette, or a
     rush's defense), which is what a watch loop wants. Naming a single
     target always runs it whatever its level. `//<module>:exNN` runs every test of
-    one exercise except its manual ones, and `//<module>:manual` runs the module's
-    manual targets, which no other suite and no `/...` pattern includes.
+    one exercise except its manual ones (`//<module>:<unit>` one unit's, where the
+    subject names its parts: `42 units` lists them), and `//<module>:manual` runs
+    the module's manual targets, which no other suite and no `/...` pattern
+    includes.
   - Layers that have nothing useful to say yet print `SKIP —` and exit 0.
     `--test_env=NO_SKIP=1` forces every one open.
   - **Before calling a layer's coverage a bug, prove the layer ran.** Its log says
@@ -356,10 +362,11 @@ encouraged; fixing *the student's exercise so the test passes* is not.
     the student; it never replaces one. A new action is a Bazel target plus a row
     in `tools/fortytwo/commands.tsv`, which `//tools:conventions` holds to the
     BUILD files (a target no `42` command runs gets an `internal` row saying why).
-    The one exception is `42 config`, which runs in `42` itself and no target: it
-    reads and writes the files the settings live in, and has to work when Bazel
-    does not (the owner's ruling, 2026-10-12). Another is the owner's to allow,
-    never an agent's.
+    Two exceptions run in `42` itself and no target: `42 config`, which reads
+    and writes the files the settings live in and has to work when Bazel does
+    not (the owner's ruling, 2026-10-12), and `42 units`, which lists what a
+    project is divided into from its contract, read as text (the owner's
+    ruling, 2026-10-22). A third is the owner's to allow, never an agent's.
 - **Shell exercises use a generator model**: the answer is `generators/exNN.sh`;
   never hand-edit a generated `deliverable/exNN/`.
 - **Grading**: each project's `subject()` contract names its grader. Evaluators at
@@ -368,7 +375,12 @@ encouraged; fixing *the student's exercise so the test passes* is not.
   defense, and Piscine Reloaded by the Moulinette alone. The contract says which.
   `norminette` enforces C style. `tests/**/clues.tsv` holds curated pedagogic hints —
   reading them is fair game (the no-answers rule above governs what may go in them).
-
+- **The map** of this repository is [`docs/reference.md#layout`](docs/reference.md#layout).
+  A change of structure (a folder, a project, a tool or a page added, moved or
+  removed) updates it in the same commit. Any file over about 50 KB is read
+  with grep and line ranges, never whole: `tools/conventions.sh`,
+  `docs/reference.md`, `docs/testing.md`, `tools/defs_*.bzl`,
+  `tools/make_test.sh` and `tools/runner_lib.sh`, for example.
 ---
 
 ## 5. Interaction rules
@@ -383,6 +395,11 @@ encouraged; fixing *the student's exercise so the test passes* is not.
   ask. Never skip a hook (`--no-verify`). Never force a push, or rewrite history
   that was pushed, unless the human asks for that one by name: a pushed commit is
   undone by `git revert`, which an ordinary push carries.
+- **The human's user file is not yours to read or change.** `42 config --global`
+  keeps their settings in `$XDG_CONFIG_HOME/42/`, else `~/.config/42/`, which
+  every checkout of theirs reads, and which is meant to hold credentials. Never
+  read, write or list the real one. A run of `42` or of its tests by hand sets
+  `HOME` and `XDG_CONFIG_HOME` to a scratch folder first, as the tests do.
 - **The subject and `man` first**: the subject PDF in the project's folder, and `man`; use
   the web only when neither has the answer or a system-specific detail is unclear.
 - **Be honest about test state.** If tests fail, say so with the output; never make an
@@ -392,7 +409,8 @@ encouraged; fixing *the student's exercise so the test passes* is not.
   docs, is one of two things. **Inside the scope of the task you are on**, it is
   part of that task: fix it in this session, with its check (§6), and write no lead
   for it. **Outside that scope**, it goes into the **TO VERIFY** list of `TODO.md`
-  at the repository root as soon as you notice it, unproven or small, and even when
+  at the repository root, an entry of its own for each lead, as soon as you
+  notice it, unproven or small, and even when
   the human changes the subject, instead of being chased on a side branch or
   forgotten. A later quality review takes each lead up in a session of its own, so
   a lead for work you are doing yourself invites that session to do it a second
@@ -404,7 +422,6 @@ encouraged; fixing *the student's exercise so the test passes* is not.
   student's own exercise code is not an entry: the tests report it, and writing it
   down would hand over the answer by another door (§0). The template ships without
   the maintainer's `TODO.md`, so in a fresh clone the first entry creates the file.
-
 ---
 
 ## 6. Building or changing the harness

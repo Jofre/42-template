@@ -123,115 +123,6 @@ fn o_find_next_prime(nb: i32) -> i32 {
     c
 }
 
-// ------------------------------------------------- work counts (cycles layer)
-//
-// WHY THESE EXIST. tools/cycles_check.sh divides an instruction count by a unit
-// of work taken straight off the corpus, so the per-unit figure means something
-// a student can reason about ("a byte scan is a load, a compare and an
-// increment"). For every other module that unit is derivable from the input --
-// c-09 uses length($1)/2. For the arithmetic family it is NOT: the work in
-// ft_sqrt or ft_is_prime is a function of the VALUE, through a loop bound
-// nothing in the corpus records. c-05 therefore lost its cycles layer rather
-// than report a figure per CASE, which mixed sqrt(4) and sqrt(2147395600) into
-// one average and produced numbers like "1419 instructions per division".
-//
-// So the unit is MEASURED instead of modelled: each function below returns the
-// iteration count its reference actually performed, and the generators emit it
-// as a third corpus column that unit_expr reads as $3.
-//
-// THE RISK, AND WHAT GUARDS IT. A counting copy of an algorithm can drift from
-// the algorithm. Every one of these therefore returns the ANSWER as well as the
-// count, and check() below asserts the answer equals the reference's for the
-// same input -- so a divergence is a self-check failure rather than a quietly
-// wrong unit. They are separate functions rather than a counter threaded
-// through the references because the references are also what the diff layer
-// runs, and neither their instruction counts nor their output may move.
-//
-// WHAT COUNTS AS ONE ITERATION is stated per function, because the number is
-// meaningless otherwise -- it is the denominator a student divides by.
-
-/// (answer, candidate roots examined) for o_sqrt.
-///
-/// THE ONE PLACE THE UNIT IS NOT THE REFERENCE'S OWN LOOP COUNT, and the reason
-/// is measured rather than argued. o_sqrt seeds from `(n as f64).sqrt()` and
-/// then corrects; on this corpus the f64 lands exactly every time, so BOTH
-/// correction loops run zero times -- 0 units over all 3000 cases, which as a
-/// denominator is not a small number, it is no number at all.
-///
-/// That is not a defect in o_sqrt: a generator may take any shortcut it likes
-/// to produce answers quickly. It just means the reference does not do the work
-/// the exercise is about. c-05 forbids every function, so a student has no
-/// sqrt() to call and must bracket the root with integer arithmetic.
-///
-/// So the unit here is floor(sqrt(n)): the number of candidate roots lying
-/// between 1 and the answer, which is what an ascending integer scan examines
-/// and the count a binary search is measured AGAINST. It is a property of the
-/// input, not of any one algorithm, and it is exact rather than estimated --
-/// the closed form of the loop count, not a model of it. A student whose scan
-/// descends, or bisects, is compared against the same honest denominator.
-fn o_sqrt_work(nb: i32) -> (i32, u64) {
-    if nb < 0 {
-        return (0, 0);
-    }
-    let n = nb as i64;
-    // The same bracketing o_sqrt does, kept because floor(sqrt) has to be exact
-    // here: an f64 that landed one low would understate the unit for that case.
-    let mut r = (n as f64).sqrt() as i64;
-    while r > 0 && r * r > n {
-        r -= 1;
-    }
-    while (r + 1) * (r + 1) <= n {
-        r += 1;
-    }
-    let ans = if r * r == n { r as i32 } else { 0 };
-    (ans, r as u64)
-}
-
-/// (answer, iterations) for o_is_prime. One iteration is one turn of the 6k+/-1
-/// wheel, i.e. one pair of trial divisions. The two constant-time divisibility
-/// tests before the loop are not iterations and are not counted; a zero here
-/// means the answer was decided without looping, which is the honest figure.
-fn o_is_prime_work(nb: i32) -> (i32, u64) {
-    if nb < 2 {
-        return (0, 0);
-    }
-    let n = nb as i64;
-    if n % 2 == 0 {
-        return ((n == 2) as i32, 0);
-    }
-    if n % 3 == 0 {
-        return ((n == 3) as i32, 0);
-    }
-    let mut iters: u64 = 0;
-    let mut i: i64 = 5;
-    while i * i <= n {
-        iters += 1;
-        if n % i == 0 || n % (i + 2) == 0 {
-            return (0, iters);
-        }
-        i += 6;
-    }
-    (1, iters)
-}
-
-/// (answer, iterations) for o_find_next_prime. The unit is the wheel turn
-/// again, summed over every candidate tested -- NOT the number of candidates.
-/// That is the whole point: "how many numbers did it try" hides the fact that
-/// testing a large candidate costs far more than testing a small one, which is
-/// exactly the cost this exercise is about.
-fn o_find_next_prime_work(nb: i32) -> (i32, u64) {
-    let mut c: i32 = if nb < 2 { 2 } else { nb };
-    let mut iters: u64 = 0;
-    loop {
-        let (is_p, k) = o_is_prime_work(c);
-        iters += k;
-        if is_p == 1 {
-            return (c, iters);
-        }
-        c += 1;
-    }
-}
-
 // --------------------------------------------------- ten queens (ex08)
 //
 // ex08 is the odd one out in this module, and in the crate. `int
@@ -597,93 +488,16 @@ fn find_next_prime_inputs(rng: &mut Rng, count: usize) -> Vec<i32> {
     v
 }
 
-fn gen_factorial(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let inputs = factorial_inputs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for nb in &inputs {
-        let _ = writeln!(w, "{}\t{}", nb, o_factorial(*nb));
-    }
-}
+/// The stdout every corpus arm writes to.
+type Out = io::BufWriter<io::Stdout>;
 
-fn gen_power(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let inputs = power_inputs(&mut rng, count);
+/// One corpus: the inputs `draw` makes from `seed` for `count`, one line
+/// each, as `row` writes it (the input fields, then the answer).
+fn emit<T>(seed: u64, count: usize, draw: fn(&mut Rng, usize) -> Vec<T>, row: impl Fn(&mut Out, &T)) {
+    let inputs = draw(&mut Rng::new(seed), count);
     let mut w = io::BufWriter::new(io::stdout());
-    for (nb, p) in &inputs {
-        let _ = writeln!(w, "{}\t{}\t{}", nb, p, o_power(*nb, *p));
-    }
-}
-
-fn gen_fibonacci(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let inputs = fibonacci_inputs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for idx in &inputs {
-        let _ = writeln!(w, "{}\t{}", idx, o_fibonacci(*idx));
-    }
-}
-
-fn gen_sqrt(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let inputs = sqrt_inputs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for nb in &inputs {
-        let _ = writeln!(w, "{}\t{}", nb, o_sqrt(*nb));
-    }
-}
-
-fn gen_is_prime(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let inputs = is_prime_inputs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for nb in &inputs {
-        let _ = writeln!(w, "{}\t{}", nb, o_is_prime(*nb));
-    }
-}
-
-fn gen_find_next_prime(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let inputs = find_next_prime_inputs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for nb in &inputs {
-        let _ = writeln!(w, "{}\t{}", nb, o_find_next_prime(*nb));
-    }
-}
-
-// The cycles-layer corpora: the same inputs as the diff corpora above, with the
-// measured iteration count as a third column. SEPARATE generators, so the diff
-// corpora stay byte-identical -- adding a column to those would have meant
-// touching all eight c-05 diff harnesses and every expected.txt in one commit,
-// for a layer that never gates. The harness that reads these takes field 0 and
-// ignores the rest, so one corpus shape serves both.
-fn gen_sqrt_cycles(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let inputs = sqrt_inputs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for nb in &inputs {
-        let (ans, iters) = o_sqrt_work(*nb);
-        let _ = writeln!(w, "{}\t{}\t{}", nb, ans, iters);
-    }
-}
-
-fn gen_is_prime_cycles(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let inputs = is_prime_inputs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for nb in &inputs {
-        let (ans, iters) = o_is_prime_work(*nb);
-        let _ = writeln!(w, "{}\t{}\t{}", nb, ans, iters);
-    }
-}
-
-fn gen_find_next_prime_cycles(seed: u64, count: usize) {
-    let mut rng = Rng::new(seed);
-    let inputs = find_next_prime_inputs(&mut rng, count);
-    let mut w = io::BufWriter::new(io::stdout());
-    for nb in &inputs {
-        let (ans, iters) = o_find_next_prime_work(*nb);
-        let _ = writeln!(w, "{}\t{}\t{}", nb, ans, iters);
+    for x in &inputs {
+        row(&mut w, x);
     }
 }
 
@@ -737,15 +551,24 @@ fn gen_ten_queens() {
 /// Dispatch: returns true if `name` belongs to this module.
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
-        "c05_iter_factorial" | "c05_rec_factorial" => gen_factorial(seed, count),
-        "c05_iter_power" | "c05_rec_power" => gen_power(seed, count),
-        "c05_fibonacci" => gen_fibonacci(seed, count),
-        "c05_sqrt" => gen_sqrt(seed, count),
-        "c05_is_prime" => gen_is_prime(seed, count),
-        "c05_find_next_prime" => gen_find_next_prime(seed, count),
-        "c05_sqrt_cycles" => gen_sqrt_cycles(seed, count),
-        "c05_is_prime_cycles" => gen_is_prime_cycles(seed, count),
-        "c05_find_next_prime_cycles" => gen_find_next_prime_cycles(seed, count),
+        "c05_iter_factorial" | "c05_rec_factorial" => emit(seed, count, factorial_inputs, |w, nb| {
+            let _ = writeln!(w, "{}\t{}", nb, o_factorial(*nb));
+        }),
+        "c05_iter_power" | "c05_rec_power" => emit(seed, count, power_inputs, |w, (nb, p)| {
+            let _ = writeln!(w, "{}\t{}\t{}", nb, p, o_power(*nb, *p));
+        }),
+        "c05_fibonacci" => emit(seed, count, fibonacci_inputs, |w, idx| {
+            let _ = writeln!(w, "{}\t{}", idx, o_fibonacci(*idx));
+        }),
+        "c05_sqrt" => emit(seed, count, sqrt_inputs, |w, nb| {
+            let _ = writeln!(w, "{}\t{}", nb, o_sqrt(*nb));
+        }),
+        "c05_is_prime" => emit(seed, count, is_prime_inputs, |w, nb| {
+            let _ = writeln!(w, "{}\t{}", nb, o_is_prime(*nb));
+        }),
+        "c05_find_next_prime" => emit(seed, count, find_next_prime_inputs, |w, nb| {
+            let _ = writeln!(w, "{}\t{}", nb, o_find_next_prime(*nb));
+        }),
         "c05_ten_queens" => gen_ten_queens(),
         _ => return false,
     }
@@ -1157,91 +980,6 @@ pub fn check() -> usize {
         fails += 1;
     }
 
-    // ---- the work counters agree with the references they count.
-    //
-    // These feed the cycles layer's denominator, and a counting copy that had
-    // drifted from the algorithm it counts would produce a per-unit figure that
-    // is confidently wrong -- worse than none, because the whole point of the
-    // number is that a student can reason about it. So each *_work is asserted
-    // to return the SAME ANSWER as its reference, across the same shapes the
-    // corpora draw from: the boundaries, a perfect square and its neighbours,
-    // small primes and composites, and INT_MAX (prime, and the worst case for
-    // find_next_prime).
-    let work_probe: &[i32] = &[
-        i32::MIN,
-        -7,
-        -1,
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        8,
-        9,
-        10,
-        24,
-        25,
-        26,
-        49,
-        97,
-        100,
-        101,
-        7919,
-        65535,
-        65536,
-        1000003,
-        2147395600,
-        i32::MAX - 1,
-        i32::MAX,
-    ];
-    for n in work_probe {
-        let (a, _) = o_sqrt_work(*n);
-        if a != o_sqrt(*n) {
-            eprintln!("CHECK FAIL c05 sqrt_work({}) = {}, o_sqrt = {}", n, a, o_sqrt(*n));
-            fails += 1;
-        }
-        let (a, _) = o_is_prime_work(*n);
-        if a != o_is_prime(*n) {
-            eprintln!(
-                "CHECK FAIL c05 is_prime_work({}) = {}, o_is_prime = {}",
-                n,
-                a,
-                o_is_prime(*n)
-            );
-            fails += 1;
-        }
-        let (a, _) = o_find_next_prime_work(*n);
-        if a != o_find_next_prime(*n) {
-            eprintln!(
-                "CHECK FAIL c05 next_prime_work({}) = {}, o_find_next_prime = {}",
-                n,
-                a,
-                o_find_next_prime(*n)
-            );
-            fails += 1;
-        }
-    }
-    // A count of zero for a value that demonstrably loops would make the whole
-    // layer divide by nothing, so the counts are asserted to be non-trivial
-    // where they must be. 2147395600 is 46340^2, the largest perfect square in
-    // an int -- if the sqrt correction loop ever counted zero there, every
-    // per-unit figure would be an accidental infinity.
-    // floor(sqrt) is the sqrt unit, so it must track the input rather than the
-    // ANSWER: a non-square still costs a scan, and returning 0 there (which is
-    // what o_sqrt answers) would zero the denominator for 2368 of 3000 cases.
-    if o_sqrt_work(2147395601).1 != 46340 || o_sqrt_work(26).1 != 5 {
-        eprintln!("CHECK FAIL c05 sqrt_work counts the answer, not the candidates");
-        fails += 1;
-    }
-    if o_is_prime_work(1000003).1 == 0 {
-        eprintln!("CHECK FAIL c05 is_prime_work(1000003) counted no wheel turns");
-        fails += 1;
-    }
-    if o_find_next_prime_work(1000000).1 == 0 {
-        eprintln!("CHECK FAIL c05 next_prime_work(1000000) counted no wheel turns");
-        fails += 1;
-    }
     fails
 }
 

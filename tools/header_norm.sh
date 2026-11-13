@@ -64,7 +64,7 @@
 #   header_norm.sh --cc PATH [--cc-lib FILE]... --header FILE...
 #                  [--grader-hdr FILE]...
 #
-#   --cc          the pinned clang (tools/defs.bzl's _pinned_cc_args)
+#   --cc          the pinned clang (tools/defs_toolchain.bzl's _pinned_cc_args)
 #   --cc-lib      a library it loads; its directory goes first on the loader's
 #                 path (runner_lib.sh's rl_cc_pin)
 #   --header      a header the project turns in: read by both rules, and its
@@ -74,7 +74,7 @@
 #
 # THE INCLUDE PATH is generous on purpose: every turned-in header's folder,
 # subfolders included, and the grader's. Whether the grader's compile line
-# reaches a header is the compile layers' question (tools/defs.bzl's
+# reaches a header is the compile layers' question (tools/defs_contract.bzl's
 # _inc_args); this one asks what a header says once it is reached, and a
 # header that includes a neighbour by name must not read as unreadable here
 # because of where the neighbour sits.
@@ -97,7 +97,7 @@ require awk cmp dirname mktemp rm wc
 RL_NAME=header_norm
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "header_norm.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "header_norm.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # conventions: runs no student code -- it preprocesses the headers and runs nothing it builds
@@ -108,17 +108,12 @@ CC_LIBS=""
 HDRS=""
 INCS=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "header_norm.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
-		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
-		--header) need "$1" "$#"; rl_list_add HDRS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--grader-hdr) need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--header) rl_need "$1" "$#"; rl_list_add HDRS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--grader-hdr) rl_need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
 		*) echo "header_norm.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done

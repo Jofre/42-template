@@ -7,7 +7,10 @@ the result. shell_exercise's twin guard was one: it was checked by hand, and
 it failed every target in Piscine Reloaded whenever vim had a README open.
 So such a decision is a function of its own, and this file calls it on
 inputs written here, in both directions, and emits one test that reports
-what disagreed.
+what disagreed. The fail() guards' arms are written beside the guards, in
+tools/defs_module.bzl, where their private names are in reach
+(starlark_selftest_arms()), and judged here with the rest: a guard that
+answers wrong is this test red, never a package that fails to load.
 
 Add a case beside the others when a macro gains a decision of this kind.
 """
@@ -18,28 +21,53 @@ load(
     "allocfail_rule_problem",
     "argv_guard_build",
     "argv_guard_problem",
+    "corpus_no_valgrind_problem",
     "diff_asan_count_problem",
     "diff_readings_problem",
     "fixed_array_problem",
+    "fixture_gate_problem",
     "hand_test",
-    "library_members_problem",
     "lvl_tags",
     "method_problem",
     "pinned_cc_problem",
     "program_allocfail_choice_problem",
     "program_allocfail_problem",
     "redirect_problem",
+    "reserved_unit_names_problem",
     "shell_call_problem",
     "shell_tags_problem",
     "shell_word",
+    "starlark_selftest_arms",
     "symbolizer_problem",
+    "test_unit_rows",
     "twin_fixture",
+    "twin_problem",
     "twin_strays",
+    "unit",
+    "units_order_problem",
+    "units_rows",
 )
 
 def _case(cases, what, got, want):
     """One check: WHAT, then got/want when they differ, into CASES."""
     cases.append(what if got == want else "FAIL %s: got %r, want %r" % (what, got, want))
+
+def _arm_case(cases, what, got, want):
+    """One guard arm into CASES: GOT None where WANT is None, else holding WANT.
+
+    Args:
+      cases: the list the row is appended to.
+      what: the arm's name.
+      got: the guard's answer, a refusal or None.
+      want: a substring the refusal must hold, or None for an input the
+        guard must accept.
+    """
+    if want == None:
+        cases.append(what if got == None else "FAIL %s: it refused: %s" % (what, got))
+    elif got == None or want not in got:
+        cases.append("FAIL %s: it answered %r, want a refusal holding %r" % (what, got, want))
+    else:
+        cases.append(what)
 
 def starlark_unit(name):
     """Emits NAME, a test that fails naming each case that disagreed.
@@ -407,6 +435,16 @@ def starlark_unit(name):
             {"srcs": (":a.c",), "makefile": None, "missing_makefile": "deliverable/Makefile"},
             {"makefile": "deliverable/Makefile", "srcs": [":a.c"]},
         ),
+        (
+            "a Makefile build of a part's own rule",
+            {"srcs": (), "makefile": ":deliverable/Makefile", "make_data": (":deliverable/a.c",), "missing_makefile": "", "make_goal": "bonus"},
+            {"make_data": [":deliverable/a.c"], "makefile": ":deliverable/Makefile", "make_goal": "bonus"},
+        ),
+        (
+            "a part's own rule with no Makefile yet",
+            {"srcs": (), "makefile": None, "missing_makefile": "deliverable/Makefile", "make_goal": "bonus"},
+            {"makefile": "deliverable/Makefile", "make_goal": "bonus"},
+        ),
     ]:
         _case(cases, "argv_guard_build: " + what, argv_guard_build(prog), want)
     d = "tests/ex03/"
@@ -608,82 +646,6 @@ def starlark_unit(name):
             True,
         )
 
-    # library_members_problem: a library's functions, each a member whose
-    # targets are exNN_<member>_<what> and whose suite is named after it.
-    # The names a Libft-shaped subject gives its boxes are all fine.
-    _case(
-        cases,
-        "library_members_problem: a Libft-shaped list of functions is fine",
-        library_members_problem("00", {f: [] for f in [
-            "ft_atoi",
-            "ft_bzero",
-            "ft_calloc",
-            "ft_isalnum",
-            "ft_isalpha",
-            "ft_isascii",
-            "ft_isdigit",
-            "ft_isprint",
-            "ft_itoa",
-            "ft_lstadd_back",
-            "ft_lstadd_front",
-            "ft_lstclear",
-            "ft_lstdelone",
-            "ft_lstiter",
-            "ft_lstlast",
-            "ft_lstmap",
-            "ft_lstnew",
-            "ft_lstsize",
-            "ft_memchr",
-            "ft_memcmp",
-            "ft_memcpy",
-            "ft_memmove",
-            "ft_memset",
-            "ft_putchar_fd",
-            "ft_putendl_fd",
-            "ft_putnbr_fd",
-            "ft_putstr_fd",
-            "ft_split",
-            "ft_strchr",
-            "ft_strdup",
-            "ft_striteri",
-            "ft_strjoin",
-            "ft_strlcat",
-            "ft_strlcpy",
-            "ft_strlen",
-            "ft_strmapi",
-            "ft_strncmp",
-            "ft_strnstr",
-            "ft_strrchr",
-            "ft_strtrim",
-            "ft_substr",
-            "ft_tolower",
-            "ft_toupper",
-        ]}),
-        None,
-    )
-    for functions, words in [
-        # Its memcheck test would end in _probe_memcheck, another layer's.
-        ({"toy_probe": []}, "ex32_toy_probe_memcheck, which ends in _probe_memcheck"),
-        # ex32_toy_two_output: toy's, or toy_two's?
-        ({"toy": [], "toy_two": []}, "toy_two begins with toy_"),
-        # The library's own: c_make's ex32_build_exit, its unit ex32_lib, the
-        # Makefile's ex32_make_bin, the Norm's ex32_norm.
-        ({"build": []}, "makes ex32_build_exit, a target of the whole library"),
-        ({"lib": []}, "makes ex32_lib, a target of the whole library"),
-        ({"make": []}, "makes ex32_make_bin, a target of the whole library"),
-        ({"norm": []}, "makes ex32_norm, a target of the whole library"),
-        # A suite every module has, an exercise's, a waiting list's.
-        ({"basic": []}, "the function basic names a target every module has"),
-        ({"ex01": []}, "the function ex01 names a target every module has"),
-        ({"waiting_x": []}, "the function waiting_x names a target every module has"),
-    ]:
-        _case(
-            cases,
-            "library_members_problem: %s is refused" % sorted(functions),
-            words in (library_members_problem("32", functions) or ""),
-            True,
-        )
-
     # lvl_tags: its `level` raises the one rule above its layer. No caller
     # passes it today, so this is what holds the branch.
     _case(
@@ -699,10 +661,253 @@ def starlark_unit(name):
         ["allocfail", "lvl_robust", "lvl_complete"],
     )
 
+    # units_rows: a contract's units in the order its call writes them, a
+    # library's functions right after it, "-" where a column has nothing to say.
+    # An exercise turns in at its own folder and has no functions; a library
+    # is a unit of a contract of units.
+    _toy = {
+        "exercises": {
+            "00": {"dir": "ex00/", "functions": {}},
+            "01": {"dir": "ex01/", "functions": {}},
+        },
+        "order": ["01", "00"],
+        "function_order": {"00": [], "01": []},
+        "mandatory": [],
+    }
+    _libtoy = {
+        "units": {"libtoy": {"dir": None, "functions": {"toy_b": [], "toy_a": []}}},
+        "order": ["libtoy"],
+        "function_order": {"libtoy": ["toy_b", "toy_a"]},
+        "mandatory": [],
+    }
+    _case(
+        cases,
+        "units_rows: the call's order, each exercise in its own folder, no mandatory part",
+        units_rows(_toy),
+        [
+            "ex01\texercise\t-\tdeliverable/ex01\tfolder\t-",
+            "ex00\texercise\t-\tdeliverable/ex00\tfolder\t-",
+        ],
+    )
+    _case(
+        cases,
+        "units_rows: a mandatory part makes every other exercise optional",
+        [r.split("\t")[2] for r in units_rows(dict(_toy, mandatory = ["00"]))],
+        ["optional", "mandatory"],
+    )
+    # A project divided into parts at the root: each part is of kind part,
+    # told written by its own files, or by the Makefile rule that builds it.
+    _pfiles = {
+        "units": {
+            "base": unit(page = 1, files = ["toy_tally.c", "toy_tally.h"], allowed = None),
+            "bonus": unit(page = 2, files = ["toy_tally_bonus.c", "toy_tally_bonus.h"], allowed = None),
+        },
+        "order": ["base", "bonus"],
+        "function_order": {"base": [], "bonus": []},
+        "mandatory": ["base"],
+    }
+    _case(
+        cases,
+        "units_rows: parts with files of their own, each judged by its files",
+        units_rows(_pfiles),
+        ["base\tpart\tmandatory\tdeliverable\tfiles\t-", "bonus\tpart\toptional\tdeliverable\tfiles\t-"],
+    )
+    _pgoal = {
+        "units": {
+            "sorter": unit(page = 1, files = ["Makefile"], optional = ["**/*.c", "**/*.h"], allowed = None),
+            "checker": unit(page = 2, files = ["Makefile"], optional = ["**/*.c", "**/*.h"], allowed = None,
+                            goal = "bonus", goal_quote = "Toy, p.2: \"make bonus builds the checker.\""),
+        },
+        "order": ["sorter", "checker"],
+        "function_order": {"sorter": [], "checker": []},
+        "mandatory": ["sorter"],
+    }
+    _case(
+        cases,
+        "units_rows: parts that share one Makefile, each judged by its rule",
+        units_rows(_pgoal),
+        ["sorter\tpart\tmandatory\tdeliverable\tgoal\t-", "checker\tpart\toptional\tdeliverable\tgoal\t-"],
+    )
+    _case(
+        cases,
+        "units_rows: the call's order, functions after their library",
+        units_rows(_libtoy),
+        [
+            "libtoy\tlibrary\t-\tdeliverable\tfolder\t-",
+            "toy_b\tfunction\t-\tdeliverable\tdefines\tlibtoy",
+            "toy_a\tfunction\t-\tdeliverable\tdefines\tlibtoy",
+        ],
+    )
+    _case(
+        cases,
+        "units_rows: a mandatory library, never its functions",
+        [r.split("\t")[2] for r in units_rows(dict(_libtoy, mandatory = ["libtoy"]))],
+        ["mandatory", "-", "-"],
+    )
+    _case(cases, "units_order_problem: the order subject() writes is fine", units_order_problem(_toy), None)
+    _case(cases, "units_order_problem: ...and a library's", units_order_problem(_libtoy), None)
+    for what, broken in [
+        ("no order", {k: v for k, v in _toy.items() if k != "order"}),
+        ("an exercise left out of the order", dict(_toy, order = ["01"])),
+        ("an exercise twice", dict(_toy, order = ["01", "00", "00"])),
+        ("no function_order", {k: v for k, v in _toy.items() if k != "function_order"}),
+        ("an exercise with no list", dict(_toy, function_order = {"00": []})),
+        ("an exercise with functions", dict(
+            _toy,
+            exercises = {
+                "00": {"dir": "ex00/", "functions": {"toy_a": []}},
+                "01": {"dir": "ex01/", "functions": {}},
+            },
+            function_order = {"00": ["toy_a"], "01": []},
+        )),
+        ("a function left out", dict(_libtoy, function_order = {"libtoy": ["toy_b"]})),
+        ("a library with no list", dict(_libtoy, function_order = {})),
+    ]:
+        _case(cases, "units_order_problem: %s is refused" % what, units_order_problem(broken) != None, True)
+
+    # test_unit_rows: the unit each test's tags give it, by name.
+    _case(
+        cases,
+        "test_unit_rows: two exercises' tests, a test of the whole module, sorted",
+        test_unit_rows({
+            "ex01_output": ["output", "ex01", "lvl_basic"],
+            "deliverable_files": ["files", "lvl_basic"],
+            "ex00_toy_a_output": ["output", "ex00"],
+            "ex00_build": ["build", "ex00", "ex00"],
+        }),
+        ["deliverable_files\t-", "ex00_build\tex00", "ex00_toy_a_output\tex00", "ex01_output\tex01"],
+    )
+    _case(
+        cases,
+        "test_unit_rows: two exercises' tags are both printed, never one picked",
+        test_unit_rows({"ex01_output": ["ex01", "ex02"]}),
+        ["ex01_output\tex01,ex02"],
+    )
+    _case(
+        cases,
+        "test_unit_rows: a unit's tag gives its unit, a function's included",
+        test_unit_rows({
+            "toy_a_output": ["output", "unit=toy_a"],
+            "libtoy_build": ["unit=libtoy"],
+            "deliverable_files": ["files"],
+        }),
+        ["deliverable_files\t-", "libtoy_build\tlibtoy", "toy_a_output\ttoy_a"],
+    )
+
+    # reserved_unit_names_problem: the names no unit may take are every
+    # level, layer and target of a module's own, and the words and prefixes
+    # beside them, each once: a layer added without its entry is refused here.
+    _case(
+        cases,
+        "reserved_unit_names_problem: tools/defs.bzl's own list is fine",
+        reserved_unit_names_problem(),
+        None,
+    )
+    _case(
+        cases,
+        "reserved_unit_names_problem: a list missing names is refused",
+        reserved_unit_names_problem(["basic"]) != None,
+        True,
+    )
+    _case(
+        cases,
+        "reserved_unit_names_problem: a name nothing reserves is named",
+        "frob" in (reserved_unit_names_problem(["frob"]) or ""),
+        True,
+    )
+    _case(
+        cases,
+        "reserved_unit_names_problem: an empty list is refused",
+        "missing:" in (reserved_unit_names_problem([]) or ""),
+        True,
+    )
+
+    # twin_problem: c_twin names a repeated exercise by its number, and a
+    # contract of units has none, so the call is refused there while loading.
+    _case(
+        cases,
+        "twin_problem: an exercise of a contract of exercises is fine",
+        twin_problem("27", {"exercises": {}}),
+        None,
+    )
+    _case(
+        cases,
+        "twin_problem: a contract of units refuses it",
+        twin_problem("00", {"units": {}}) != None,
+        True,
+    )
+    _case(
+        cases,
+        "twin_problem: ...naming the call",
+        'c_twin(num = "00")' in (twin_problem("00", {"units": {}}) or ""),
+        True,
+    )
+
+    # corpus_no_valgrind_problem: no_valgrind where the subject allows no
+    # malloc is refused, naming whose subject it is -- an exercise's in the
+    # words it always had, the entry's in a contract of units.
+    _case(
+        cases,
+        "corpus_no_valgrind_problem: malloc allowed is fine",
+        corpus_no_valgrind_problem("ex05_big", "exercise", "ex05", True),
+        None,
+    )
+    _case(
+        cases,
+        "corpus_no_valgrind_problem: an exercise's words are today's",
+        corpus_no_valgrind_problem("ex05_big", "exercise", "ex05", False),
+        ("corpus_memory(stem = \"ex05_big\"): no_valgrind, but exercise ex05's subject " +
+         "allows no malloc, so there is no memcheck arm to leave out."),
+    )
+    _case(
+        cases,
+        "corpus_no_valgrind_problem: a library's names the library",
+        "but library libtoy's subject" in (corpus_no_valgrind_problem("ft_toylen_big", "library", "libtoy", False) or ""),
+        True,
+    )
+
+    # fixture_gate_problem: a gate reads its comparison off the output test it
+    # waits for, so one with no such test above it is refused, by name.
+    _case(
+        cases,
+        "fixture_gate_problem: an output test declared above is fine",
+        fixture_gate_problem("ex05", {"kind": "sh_test"}),
+        None,
+    )
+    _case(
+        cases,
+        "fixture_gate_problem: none declared names the test",
+        "a gate on ex05_output: no test of that name" in (fixture_gate_problem("ex05", None) or ""),
+        True,
+    )
+    _case(
+        cases,
+        "fixture_gate_problem: a rule that is no test is none",
+        "no test of that name" in (fixture_gate_problem("ex05", {"kind": "filegroup"}) or ""),
+        True,
+    )
+
+    # The fail() guards, each on an input it must refuse and one it must
+    # accept (tools/defs_module.bzl, starlark_selftest_arms).
+    arms, apostrophe = starlark_selftest_arms()
+    for what, got, want in arms:
+        _arm_case(cases, what, got, want)
+
     hand_test(
         name = name,
         layer = "selftest",
         size = "small",
         srcs = ["starlark_unit.sh"],
-        args = [shell_word(c) for c in cases],
+        # Each case as one argument, through shell_word, as an exit_quote
+        # reaches diff_output.sh: Bazel expands args and then tokenises them
+        # like a shell. The script counts them, and checks that a sentence
+        # with apostrophes and '$' arrived whole -- quoted any other way, it
+        # splits, loses a '$', or the package fails to load on an
+        # unterminated quote or a '$' Bazel cannot expand.
+        args = [
+            "--cases",
+            str(len(cases)),
+            "--apostrophe",
+            shell_word(apostrophe),
+        ] + [shell_word(c) for c in cases],
     )

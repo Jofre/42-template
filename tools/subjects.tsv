@@ -1,0 +1,58 @@
+# subjects.tsv — each project's subject: the version this harness was built
+# from, and where a student downloads it.
+#
+# The subjects are 42's documents, so the public template does not carry them:
+# each project folder there holds a SUBJECT-PLACEHOLDER.pdf instead, and this
+# registry is what that page says. It names the project's page on the intranet
+# (every language is reached from there), the version of the English subject
+# the harness was built from, that PDF's SHA-256, and, where one is known, a
+# direct link that serves exactly those bytes. A student who has a subject can
+# tell whether it is the harness's version with `sha256sum en.subject.pdf`.
+#
+# One row per project: every module of tools/submit.sh's REMOTES table has one,
+# and nothing else does. tools/subjects.sh reads the rows and checks them, and in
+# the repository the subjects are tracked in, each project's en.subject.pdf must
+# have its row's SHA-256, so a subject replaced without its row is reported
+# (//tools:conventions, which also holds a project page that says "built from
+# version X" to the row). In a clone of the template that check opens no
+# subject: an en.subject.pdf there is the student's own, whatever its version.
+#
+# Columns, tab-separated:
+#
+#   project  the project folder, from the repo root
+#   version  as the English subject's cover prints it ("Version: 13" is 13)
+#   sha256   of that project's en.subject.pdf, 64 lowercase hex digits
+#   page     the project's page on the intranet,
+#            https://projects.intra.42.fr/projects/<slug>. It needs a 42 login,
+#            and it offers the subject in the reader's own language
+#   pdf      https://cdn.intra.42.fr/pdf/pdf/<id>/en.subject.pdf, checked to
+#            serve exactly the bytes of sha256, or - where none is known: the
+#            page of a group project shows no subject once it is over, and a
+#            link 42 serves today for a revised subject is another version
+#   checked  the day page and pdf were last checked, YYYY-MM-DD
+#
+# When a subject is replaced, its row changes with it: version, sha256, and pdf
+# checked again against the new bytes (in a browser: the CDN refuses a client
+# that is not one), or - .
+c-piscine/c-piscine-c-00	8	51aee9739450c0503c59cb99d0de6aa021ff0b32ac4f5dc54e6ecc1b13e5a27b	https://projects.intra.42.fr/projects/c-piscine-c-00	https://cdn.intra.42.fr/pdf/pdf/212903/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-c-01	6	4f3d23aad78880a32dd00c7b6a6a4835a84dec3e167a419cdb1476d86501870f	https://projects.intra.42.fr/projects/c-piscine-c-01	https://cdn.intra.42.fr/pdf/pdf/214150/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-c-02	6	1dd09650a4d08fc8b577b6da6218c13fb7f244117a520b4a4a1158f2dad817b9	https://projects.intra.42.fr/projects/c-piscine-c-02	https://cdn.intra.42.fr/pdf/pdf/213033/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-c-03	5	0bd00dcc6d4d98d208b2a9d7445eaeb16f8bda32a6a27251b342e1c0094d5fe4	https://projects.intra.42.fr/projects/c-piscine-c-03	https://cdn.intra.42.fr/pdf/pdf/216259/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-c-04	5	c973c4926879b02bb64c721d03ee2fe66d1a3626f4d0e48e4c8fcc73ef8dca85	https://projects.intra.42.fr/projects/c-piscine-c-04	https://cdn.intra.42.fr/pdf/pdf/211883/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-c-05	7	853af0d2947cf15d144afe4e13e7264aa60a727948b8aac8f95003e7566f1d76	https://projects.intra.42.fr/projects/c-piscine-c-05	https://cdn.intra.42.fr/pdf/pdf/211982/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-c-06	8	56468c07d53428b46636485bbf9894f6db59dbd833d43be6df124749ffd12686	https://projects.intra.42.fr/projects/c-piscine-c-06	https://cdn.intra.42.fr/pdf/pdf/212271/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-c-07	6	2531869c3dc02d2c908524e2731d9937442136b9f3229e91a9fffc3a9a992db5	https://projects.intra.42.fr/projects/c-piscine-c-07	https://cdn.intra.42.fr/pdf/pdf/220315/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-c-08	13	37d50c27926f7a4ae2ccceb41e82b643400ab8c8cb169da859903ce365bf93fc	https://projects.intra.42.fr/projects/c-piscine-c-08	-	2026-11-01
+c-piscine/c-piscine-c-09	4	0482d9c91836169007c446254cf14e32b3600d62647e4919b66dc84bd54eacfb	https://projects.intra.42.fr/projects/c-piscine-c-09	-	2026-11-01
+c-piscine/c-piscine-c-10	6	4661ce7d889564038804f37158d9eda79e6682f07c549a7e29bdaedc38418d16	https://projects.intra.42.fr/projects/c-piscine-c-10	-	2026-11-01
+c-piscine/c-piscine-c-11	6.2	c83f0512395cac7627c907f20b1ab5eb93226fd095287681ac7edb8561a52578	https://projects.intra.42.fr/projects/c-piscine-c-11	-	2026-11-01
+c-piscine/c-piscine-c-12	9.1	6ff810635cd40cba202198f6952827ef74376776f5dbe815cc210cd931fd69b1	https://projects.intra.42.fr/projects/c-piscine-c-12	https://cdn.intra.42.fr/pdf/pdf/208471/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-c-13	6.0	9d7e3655019b575ab1ca58acdefe3e238de2d459a01a6d8e05ca026de706e63a	https://projects.intra.42.fr/projects/c-piscine-c-13	https://cdn.intra.42.fr/pdf/pdf/208465/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-rush-00	8.0	171d2a09df5deb549a2b6eddf152ad9cb891306aa2d15b015ceafdf35d86492f	https://projects.intra.42.fr/projects/c-piscine-rush-00	-	2026-11-01
+c-piscine/c-piscine-rush-01	8.0	48e53dd542622edbedc7acaf5a813b6aa6617522f70dee244dfa0a5df2d289b6	https://projects.intra.42.fr/projects/c-piscine-rush-01	-	2026-11-01
+c-piscine/c-piscine-rush-02	11.0	fa91ab44229f6f2050426666a7e773815bf72a8bd66613a3d6b700aa8392e268	https://projects.intra.42.fr/projects/c-piscine-rush-02	-	2026-11-01
+c-piscine/c-piscine-bsq	9.2	1d2454074f3f31cd39b5d5853b9af3ecc480c53d03ed87d6470a9cc5d9402e49	https://projects.intra.42.fr/projects/c-piscine-bsq	-	2026-11-01
+c-piscine/c-piscine-shell-00	5.1	4a7f205813fd49354e88ac954f0e95d5b4bafd31665641ba9ac901145f5a7c5f	https://projects.intra.42.fr/projects/c-piscine-shell-00	https://cdn.intra.42.fr/pdf/pdf/223905/en.subject.pdf	2026-11-01
+c-piscine/c-piscine-shell-01	8.1	e79db9dbc6ac3d46524351a1cf1d7c9835b8c6d184830e4ccc68ba9d32e75084	https://projects.intra.42.fr/projects/c-piscine-shell-01	https://cdn.intra.42.fr/pdf/pdf/217001/en.subject.pdf	2026-11-01
+c-piscine-reloaded/c-piscine-reloaded	2.0	73670407fe2a7b40ccb59df925c0ec2a5f7a870bd6a8722f9fbe452608f9f135	https://projects.intra.42.fr/projects/c-piscine-reloaded	https://cdn.intra.42.fr/pdf/pdf/227427/en.subject.pdf	2026-11-01
+cursus/Milestone_0/Libft	19.3	2b26adfc389601cc1a0bf0c96e7546ccd1e6d4fefa8923c8a53abb59ce6f0e92	https://projects.intra.42.fr/projects/42cursus-libft	https://cdn.intra.42.fr/pdf/pdf/224016/en.subject.pdf	2026-11-01

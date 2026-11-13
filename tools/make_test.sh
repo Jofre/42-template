@@ -13,12 +13,13 @@
 #   make_test.sh --anchor PATH --artifact NAME [--script NAME] [--symbols a,b,c]
 #                [--rules a,b,c] [--graph] [--relink] [--overlay SRC DEST]...
 #                [--quotes FILE] [--recipe-cc any|ordered]
-#                [--foreign-object PATH] [--build-target NAME] [--clues FILE]
+#                [--foreign-object PATH] --build-target NAME [--clues FILE]
 #                [--archiver NAME] [--forbidden-command NAME]...
 #                [--forbidden-flag FLAG]...
 #                [--cc CC [--cc-lib LIB]... [--cc-under FILE] --ld LD
 #                 [--ld-lib LIB]... --gcc GCC --as AS --ar AR --ranlib RANLIB]
 #                [--exit-only | --rules-only | --recipe-only | --wildcards-only]
+#                [--make-goal G]
 #
 #   --anchor    $(location) of any file inside the exercise dir (its directory
 #               is the subtree that gets staged and built)
@@ -91,11 +92,25 @@
 #               key a row on, so every row fires, CLUE_MODE at a time. Reloaded
 #               ex24 and C 09 ex01 are a Makefile and nothing else, and their
 #               hints were printed by no test until this existed.
+#   --make-goal G
+#               the artifact is what `make G` builds, not what a bare `make`
+#               builds: one part of a project whose subject builds that part
+#               by a rule of its own, quoted as the `goal` sentence. Only the
+#               build and its exit status are judged (with --rules -, and none
+#               of --script, --graph, --relink, --recipe-cc, --archiver,
+#               --forbidden-command, --forbidden-flag, --foreign-object or the
+#               --rules-only, --recipe-only and --wildcards-only targets): the
+#               shared Makefile's rules and recipes are the questions of the
+#               part a bare `make` builds. A Makefile with no rule G is a FAIL
+#               (a SKIP in the exit twin), read from make's database, never
+#               from what `make G` did: a file named G, or a G.c a built-in
+#               rule compiles, lets `make G` answer without a rule of yours.
 #   --build-target NAME
-#               the basic target's name, for the messages that send a student
-#               from one twin to the other ('NAME' and 'NAME_exit'). c_make
-#               passes it, because the macro is what names both; run by hand,
-#               the exercise directory's exNN gives exNN_build. It is not read
+#               the basic target's name, required, for the messages that send
+#               a student from one twin to the other ('NAME' and 'NAME_exit').
+#               c_make passes it, because the macro is what names both; a name
+#               guessed from the folder is wrong where a project turns in at
+#               the root of deliverable/ or names its units. It is not read
 #               from Bazel's TEST_TARGET: a runner called from inside another
 #               test (the selftest) inherits that test's name.
 #   --quotes FILE
@@ -215,7 +230,13 @@
 #               A build that makes no '$ARTIFACT' names, under its FAIL, the
 #               forbidden command it calls, with the sentence: a box without
 #               the tool fails there. Repeatable. A Makefile only. Needs the
-#               `forbidden_command` quote.
+#               `forbidden_command` quote. A command that only runs another
+#               (env, ccache: MT_WRAPS) is read through to the one it runs,
+#               every time, so it is never a command word and is refused, as
+#               NAME here or for --archiver. A shell (sh, bash, dash) is read
+#               through only given -c STRING, whose command line is judged in
+#               its place; `bash build.sh` is a call of bash, which NAME can
+#               forbid.
 #   --forbidden-flag FLAG
 #               a word no compile command (as --recipe-cc counts them) may
 #               hold (-std=c99): the whole word, so -std=c11 and -std=gnu99
@@ -295,7 +316,7 @@ require() {
 		exit 2
 	done
 }
-require awk basename cat chmod cksum comm cp dirname env find fold grep head mkdir mktemp rm sed sleep sort touch tr wc
+require awk basename cat chmod cksum cmp comm cp dirname find fold grep head mkdir mktemp rm sed sleep sort touch tr wc
 
 # The shared runner helpers -- the time budget, how a run ended, exiting signal
 # traps and excerpts -- written once in tools/runner_lib.sh. The Makefile and
@@ -303,9 +324,15 @@ require awk basename cat chmod cksum comm cp dirname env find fold grep head mkd
 RL_NAME=make_test
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "make_test.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "make_test.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
+# The readers of make's database (goal_state, below), shared with
+# student_build.sh and found where runner_lib.sh was: _test() stages it for
+# every test whose runner is this one.
+# By an absolute path: goal_state reads from the folder make runs in.
+MAKE_DB=$(CDPATH='' cd "${RL_LIB%/*}" && pwd)/make_db.awk
+[ -f "$MAKE_DB" ] || { echo "make_test.sh: tools/make_db.awk is not staged beside tools/runner_lib.sh (tools/defs_test.bzl's _test() stages it for a test of this runner; by hand, run this by its path in the repository)" >&2; exit 2; }
 # The harness's own programs this runner starts by path, outside rl_run on
 # purpose: //tools:conventions holds every other one to rl_run.
 # conventions: harness tool NM -- the pinned nm: it reads symbols, and runs nothing
@@ -321,6 +348,9 @@ RELINK=0
 RELINK_SOURCE=subject
 EXITONLY=0
 T_BUILD=""
+# --make-goal: the rule that builds this part, and whether one was given.
+MAKE_GOAL=""
+GOAL_GIVEN=0
 # Which target this run is: build (exNN_build, basic), exit (--exit-only),
 # rules (--rules-only), recipe (--recipe-only) or wildcards (--wildcards-only).
 MODE=build
@@ -333,6 +363,17 @@ CLUES=""
 ARCHIVER=""
 FORBID_CMDS=""
 FORBID_FLAGS=""
+# The commands that only run the next word (MT_WRAPS): cmds_awk reads
+# through each of them every time, so none is ever the command word it
+# prints, and the archiver or a forbidden command named one would judge
+# nothing (refused at --archiver). _MAKE_LOOKED_THROUGH in
+# tools/defs_library.bzl lists the same names for c_make, and
+# tools/conventions.sh holds the two equal. The shells (MT_SHELLS) are read
+# through only given -c STRING, whose command line is read in their place:
+# any other call of one, `sh helper.sh`, is a command word like another, so
+# their names are not refused.
+MT_WRAPS="env exec command nice nohup xargs ccache distcc"
+MT_SHELLS="sh bash dash"
 # The pinned toolchain the recipes run (--cc ... --ranlib, "THE PINNED
 # TOOLCHAIN" below). Named PIN_* and never CC, AR or LD: make reads each
 # variable of its environment as one of its own, and an exported CC in the
@@ -369,10 +410,6 @@ NM_LIBS=""
 # that is running, path and all, so a sub-make inherits this one.
 MAKE_BIN="make"
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "make_test.sh: $1 needs a value" >&2; exit 2; }; }
 # One target, one mode: the four --*-only flags are four different targets.
 set_mode() {
 	[ "$MODE" = build ] || [ "$MODE" = "$1" ] || {
@@ -384,25 +421,25 @@ set_mode() {
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--nm) need "$1" "$#"; NM="$2"; shift 2 ;;
-		--nm-lib) need "$1" "$#"; NM_LIBS="${NM_LIBS:+$NM_LIBS:}$(dirname "$2")"; shift 2 ;;
-		--make) need "$1" "$#"; MAKE_BIN="$2"; shift 2 ;;
-		--cc) need "$1" "$#"; PIN_CC="$2"; shift 2 ;;
-		--cc-lib) need "$1" "$#"; rl_list_add PIN_CC_LIBS "$2"; shift 2 ;;
-		--cc-under) need "$1" "$#"; PIN_CC_UNDER="$2"; shift 2 ;;
-		--ld) need "$1" "$#"; PIN_LD="$2"; shift 2 ;;
-		--ld-lib) need "$1" "$#"; rl_list_add PIN_LD_LIBS "$2"; shift 2 ;;
-		--gcc) need "$1" "$#"; PIN_GCC="$2"; shift 2 ;;
-		--as) need "$1" "$#"; PIN_AS="$2"; shift 2 ;;
-		--ar) need "$1" "$#"; PIN_AR="$2"; shift 2 ;;
-		--ranlib) need "$1" "$#"; PIN_RANLIB="$2"; shift 2 ;;
-		--anchor) need "$1" "$#"; ANCHOR="$2"; shift 2 ;;
-		--artifact) need "$1" "$#"; ARTIFACT="$2"; shift 2 ;;
-		--script) need "$1" "$#"; SCRIPT="$2"; shift 2 ;;
-		--symbols) need "$1" "$#"; SYMS="$2"; shift 2 ;;
+		--nm) rl_need "$1" "$#"; NM="$2"; shift 2 ;;
+		--nm-lib) rl_need "$1" "$#"; NM_LIBS="${NM_LIBS:+$NM_LIBS:}$(dirname "$2")"; shift 2 ;;
+		--make) rl_need "$1" "$#"; MAKE_BIN="$2"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; PIN_CC="$2"; shift 2 ;;
+		--cc-lib) rl_need "$1" "$#"; rl_list_add PIN_CC_LIBS "$2"; shift 2 ;;
+		--cc-under) rl_need "$1" "$#"; PIN_CC_UNDER="$2"; shift 2 ;;
+		--ld) rl_need "$1" "$#"; PIN_LD="$2"; shift 2 ;;
+		--ld-lib) rl_need "$1" "$#"; rl_list_add PIN_LD_LIBS "$2"; shift 2 ;;
+		--gcc) rl_need "$1" "$#"; PIN_GCC="$2"; shift 2 ;;
+		--as) rl_need "$1" "$#"; PIN_AS="$2"; shift 2 ;;
+		--ar) rl_need "$1" "$#"; PIN_AR="$2"; shift 2 ;;
+		--ranlib) rl_need "$1" "$#"; PIN_RANLIB="$2"; shift 2 ;;
+		--anchor) rl_need "$1" "$#"; ANCHOR="$2"; shift 2 ;;
+		--artifact) rl_need "$1" "$#"; ARTIFACT="$2"; shift 2 ;;
+		--script) rl_need "$1" "$#"; SCRIPT="$2"; shift 2 ;;
+		--symbols) rl_need "$1" "$#"; SYMS="$2"; shift 2 ;;
 		# "-" is the empty set, spelled so it survives sh_test's tokenisation
 		# of `args`; see c_make in tools/defs.bzl.
-		--rules) need "$1" "$#"; RULES="$2"; [ "$RULES" = "-" ] && RULES=""; shift 2 ;;
+		--rules) rl_need "$1" "$#"; RULES="$2"; [ "$RULES" = "-" ] && RULES=""; shift 2 ;;
 		--overlay)
 			[ "$#" -ge 3 ] || { echo "make_test.sh: --overlay needs SRC and DEST" >&2; exit 2; }
 			# A leading ./ names the same file, so it goes: what the rest of
@@ -430,34 +467,40 @@ while [ $# -gt 0 ]; do
 		--recipe-only) set_mode recipe "$1"; shift ;;
 		--wildcards-only) set_mode wildcards "$1"; shift ;;
 		--quotes)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			[ -f "$2" ] || { echo "make_test.sh: no quotes file at $2" >&2; exit 2; }
 			case "$2" in /*) QUOTES="$2" ;; *) QUOTES="$PWD/$2" ;; esac
 			shift 2 ;;
 		--recipe-cc)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				any | ordered) RECIPE_CC="$2" ;;
 				*) echo "make_test.sh: --recipe-cc must be any or ordered: '$2'" >&2; exit 2 ;;
 			esac
 			shift 2 ;;
 		--foreign-object)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				"" | /* | . | .. | ../* | */.. | */../* | */. | */./* | */ | *//*)
 					echo "make_test.sh: --foreign-object must be a relative path to a file inside the exercise: '$2'" >&2
 					exit 2 ;;
 			esac
 			FOREIGN="${2#./}"; shift 2 ;;
-		--build-target) need "$1" "$#"; T_BUILD="$2"; shift 2 ;;
+		--build-target) rl_need "$1" "$#"; T_BUILD="$2"; shift 2 ;;
+		--make-goal) rl_need "$1" "$#"; MAKE_GOAL="$2"; GOAL_GIVEN=1; shift 2 ;;
 		# A command's name, matched against a command word less its path:
 		# a path or a blank in it would match nothing, and a check that
 		# matches nothing passes every Makefile.
 		--archiver | --forbidden-command)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				"" | */* | *[[:space:]]* | -*)
 					echo "make_test.sh: $1 is a command's name, with no path or blank in it: '$2'" >&2
+					exit 2 ;;
+			esac
+			case " $MT_WRAPS " in
+				*" $2 "*)
+					echo "make_test.sh: $1 '$2' names a command this check always reads through to the one it runs ($MT_WRAPS), so no command word it judges is ever '$2'" >&2
 					exit 2 ;;
 			esac
 			if [ "$1" = --archiver ]; then
@@ -467,7 +510,7 @@ while [ $# -gt 0 ]; do
 			fi
 			shift 2 ;;
 		--forbidden-flag)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				-?*) ;;
 				*)
@@ -484,13 +527,13 @@ while [ $# -gt 0 ]; do
 		# Absolute, like --quotes: the hints are printed after the `cd` into
 		# the scratch copy, where a runfiles-relative path names nothing.
 		--clues)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			[ -f "$2" ] || { echo "make_test.sh: no clues file at $2" >&2; exit 2; }
 			case "$2" in /*) CLUES="$2" ;; *) CLUES="$PWD/$2" ;; esac
 			shift 2 ;;
 		--relink) RELINK=1; shift ;;
 		--relink-source)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			case "$2" in
 				subject | norm) RELINK_SOURCE="$2" ;;
 				*) echo "make_test.sh: --relink-source must be subject or norm: '$2'" >&2; exit 2 ;;
@@ -509,6 +552,17 @@ done
 	echo "  this machine's, and the nm is pinned in name only (no fallback by design)." >&2
 	exit 2
 }
+# THE TARGET'S NAME IS THE MACRO'S. c_make passes it; a name guessed from the
+# folder (exNN) is wrong where a project turns in at the root of deliverable/
+# or names its units, so a run by hand passes it too.
+[ -n "$T_BUILD" ] || {
+	echo "make_test.sh: --build-target is required: the basic target's name, as c_make passes it (<unit>_build)" >&2
+	exit 2
+}
+case "$T_BUILD" in
+	*_build) ;;
+	*) echo "make_test.sh: --build-target names the basic target, which ends in _build" >&2; exit 2 ;;
+esac
 
 # Absolute before anything uses them, like --make below. Bazel hands both over
 # as runfiles-relative paths, and the symbols check runs nm after the `cd` into
@@ -535,48 +589,17 @@ if [ -n "$NM_LIBS" ]; then
 	NM_LIBS=$_abs
 fi
 
-# THE PINNED nm's OWN LIBRARIES, and why this is not the same as pinning nm.
-#
-# binutils ships FRONTENDS. This nm is 44 KB; everything it does is in libbfd,
-# which it names as a bare soname with no RPATH and no RUNPATH. Without a path
-# to the fetched copy the loader answers from /lib/x86_64-linux-gnu and the
-# "pinned" nm is the box's binutils wearing a pinned name -- and it still
-# prints the pinned version, because that string is in the frontend's own
-# .rodata. On a campus box whose binutils is NOT 2.38 the version-stamped
-# soname does not exist at all and the tool would not start.
-#
-# Exit 2, never 1: a missing directory is a wiring error, not a finding about
-# the exercise. Copied deliberately from compile_check.sh's --cc-lib rather
-# than abbreviated -- the shape is the argument.
+# THE PINNED nm, proved to load its own libbfd (tools/runner_lib.sh,
+# rl_binutils_pin: THE PINNED nm's OWN LIBRARIES), and only with --nm-lib,
+# which --symbols requires (above). The path it is proved under, NM_PATH, is
+# handed to the run of nm that reads the artifact, below, and to nothing
+# else, as in the other two runners that read symbols. It used to be
+# exported, and make and every recipe of the Makefile ran with the pinned
+# libbfd's folder on their loader's path.
+NM_PATH=${LD_LIBRARY_PATH-}
 if [ -n "$NM_LIBS" ]; then
-	_ifs=$IFS
-	IFS=:
-	for _d in $NM_LIBS; do
-		[ -d "$_d" ] || {
-			IFS=$_ifs
-			echo "make_test.sh: --nm-lib directory '$_d' does not exist." >&2
-			echo "  Without it the loader would fall back to this machine's own" >&2
-			echo "  binutils libraries and the pinned nm would silently stop" >&2
-			echo "  being pinned, so this refuses to run rather than pass." >&2
-			exit 2
-		}
-	done
-	IFS=$_ifs
-	LD_LIBRARY_PATH="$NM_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-	export LD_LIBRARY_PATH
-
-	# PROVE THE LOADER AGREED, rather than that the flag arrived: the libbfd
-	# nm loaded, read by runner_lib.sh's rl_libs_under, under one of
-	# --nm-lib's directories. The failure being guarded against is exactly
-	# one where the right file is exec'd and the wrong code runs, so checking
-	# which file we exec proves nothing. In a subshell, so that the scratch
-	# file goes whatever it finds.
-	_dbg=$(mktemp) || { echo "make_test.sh: cannot create a scratch file" >&2; exit 2; }
-	env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$NM" --version > /dev/null 2> "$_dbg"
-	(rl_libs_under "the pinned nm" "$_dbg" "$NM_LIBS" libbfd)
-	_rc=$?
-	rm -f "$_dbg"
-	[ "$_rc" -eq 0 ] || exit 2
+	rl_binutils_pin nm "$NM" "$NM_LIBS" --nm-lib libbfd
+	NM_PATH=$RL_PB_PATH
 fi
 
 # Does this subject mandate rule $1?
@@ -613,7 +636,7 @@ IFS=$_ifs
 # know is a sentence nothing quotes, and a check with no sentence behind it
 # is a requirement this layer would be inventing -- both are the call site's
 # mistake, so exit 2.
-QUOTE_KEYS='cc print unnecessary objects relink wildcards archiver forbidden_command forbidden_flag all clean fclean re'
+QUOTE_KEYS='cc print unnecessary objects relink wildcards archiver forbidden_command forbidden_flag all clean fclean re goal'
 if [ -n "$QUOTES" ]; then
 	_bad=$(awk -F'\t' -v keys=" $QUOTE_KEYS " '
 		/^[ \t]*(#|$)/ { next }
@@ -660,6 +683,41 @@ needs_quote() {
 [ -z "$ARCHIVER" ] || needs_quote --archiver archiver
 [ -z "$FORBID_CMDS" ] || needs_quote --forbidden-command forbidden_command
 [ -z "$FORBID_FLAGS" ] || needs_quote --forbidden-flag forbidden_flag
+# A PART BUILT BY A RULE OF ITS OWN (--make-goal G): one build, `make G`, and
+# how it ended. The shared Makefile's rules, its relink and its recipes are
+# the questions of the part a bare `make` builds, asked once there.
+if [ "$GOAL_GIVEN" = 1 ]; then
+	case "$MAKE_GOAL" in
+		"" | [-.]* | *[!A-Za-z0-9_.-]*)
+			echo "make_test.sh: --make-goal takes a Makefile rule's name (letters, digits, _ . and -, not - or . first), not '$MAKE_GOAL'" >&2
+			exit 2 ;;
+	esac
+	_mg_bad=""
+	[ -z "$SCRIPT" ] || _mg_bad="$_mg_bad --script"
+	[ "$GRAPH" = 0 ] || _mg_bad="$_mg_bad --graph"
+	[ "$RELINK" = 0 ] || _mg_bad="$_mg_bad --relink"
+	[ -z "$RECIPE_CC" ] || _mg_bad="$_mg_bad --recipe-cc"
+	[ -z "$ARCHIVER" ] || _mg_bad="$_mg_bad --archiver"
+	[ -z "$FORBID_CMDS" ] || _mg_bad="$_mg_bad --forbidden-command"
+	[ -z "$FORBID_FLAGS" ] || _mg_bad="$_mg_bad --forbidden-flag"
+	[ -z "$FOREIGN" ] || _mg_bad="$_mg_bad --foreign-object"
+	[ -z "$RULES" ] || _mg_bad="$_mg_bad --rules"
+	case "$MODE" in
+		build | exit) ;;
+		*) _mg_bad="$_mg_bad --$MODE-only" ;;
+	esac
+	if [ -n "$_mg_bad" ]; then
+		{
+			echo "make_test.sh: --make-goal judges one build, 'make $MAKE_GOAL', and how it ended; it cannot be combined with:$_mg_bad"
+			echo "  The shared Makefile's rules, relink and recipes are judged where a bare 'make' builds (and --rules - says there are none here)."
+		} >&2
+		exit 2
+	fi
+	needs_quote --make-goal goal
+elif has_quote goal; then
+	echo "make_test.sh: --quotes has a goal sentence, and there is no --make-goal for it to back" >&2
+	exit 2
+fi
 # What makes the artifact, and what a recipe may not run or pass, are read
 # from a Makefile's plan: a creator script has none.
 if [ -n "$SCRIPT" ] && [ -n "$ARCHIVER$FORBID_CMDS$FORBID_FLAGS" ]; then
@@ -691,20 +749,8 @@ case "$ANCHOR" in
 	*) A="$PWD/$ANCHOR" ;;
 esac
 SRCDIR=$(dirname "$A")
-# The two targets c_make emits, by name, for the messages that send a student
-# from one to the other. --build-target is the macro's own name for them; by
-# hand, the exercise directory is exNN. A turn-in at deliverable/ itself (BSQ,
-# a Common Core project) has no exNN to guess from, which is why the macro
-# says it.
-if [ -z "$T_BUILD" ]; then
-	EXDIR=$(basename "$SRCDIR")
-	case "$EXDIR" in
-		ex[0-9]*) T_BUILD="${EXDIR}_build" ;;
-		*) T_BUILD="exNN_build" ;;
-	esac
-fi
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 # Everything this runner scratches lives under $WORK and $AUX, and both are
 # removed on the way out however that happens. It used to have no cleanup at
 # all: a staged COPY OF THE WHOLE EXERCISE TREE, plus three loose mktemp files,
@@ -714,7 +760,7 @@ WORK=$(mktemp -d)
 # than letting it return. $AUX is a directory of its own, not a corner of
 # $WORK: $WORK is the tree make builds, and a file of ours there would be one
 # more thing a Makefile's wildcard or clean rule could find.
-AUX=$(mktemp -d)
+AUX=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 # THE HINTS, under any FAIL: this runner ends a failure with `exit 1` in some
 # thirty places, each after its own message, so they are printed on the way
 # out rather than at each. Only on 1: 0 passed (or stood down) and 2 is a
@@ -854,10 +900,6 @@ rl_ready
 # a build judged with some other toolchain says nothing about the Makefile.
 #
 # conventions: harness tool PIN_GCC -- the pinned gcc-10, proved below
-pin_wrap() {  # pin_wrap OUT TOOL DIRS: OUT runs TOOL with DIRS on the loader's path
-	printf "#!/bin/sh\nLD_LIBRARY_PATH='%s'\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\nexport LD_LIBRARY_PATH\nexec '%s' \"\$@\"\n" \
-		"$3" "$2" > "$1" && chmod +x "$1" || exit 2
-}
 pin_std() {  # pin_std NAME STD WORDS OURS...: pinbin/NAME runs pinbin/gcc with -std=STD, unless an argument is one of OURS
 	_ps_n=$1 _ps_std=$2 _ps_words=$3 _ps_ours=""
 	shift 3
@@ -882,7 +924,7 @@ pin_tools() {
 		[ -n "${_pt#*=}" ] && continue
 		echo "make_test.sh: ${_pt%%=*} is missing, and other pinned tools or their libraries" >&2
 		echo "  were given. The recipes would run this machine's ${_pt%%=*}: --cc, --ld, --gcc," >&2
-		echo "  --as, --ar and --ranlib go together (tools/defs.bzl's _pinned_make_args)." >&2
+		echo "  --as, --ar and --ranlib go together (tools/defs_toolchain.bzl's _pinned_make_args)." >&2
 		exit 2
 	done
 	[ -n "$PIN_LD_LIBS" ] || {
@@ -908,14 +950,9 @@ pin_tools() {
 	else
 		unset LD_LIBRARY_PATH
 	fi
+	# Their existence was proved by rl_ld_pin, above.
 	_pt_dirs=""
-	while IFS= read -r _pt; do
-		[ -n "$_pt" ] || continue
-		case "$_pt" in /*) _pt=$(dirname "$_pt") ;; *) _pt=$(dirname "$PWD/$_pt") ;; esac
-		_pt_dirs="${_pt_dirs:+$_pt_dirs:}$_pt"
-	done <<PIN_LIBS
-$PIN_LD_LIBS
-PIN_LIBS
+	rl__lib_dirs "$PIN_LD_LIBS" _pt_dirs || :
 	mkdir -p "$AUX/pinbin" || exit 2
 	for _pt in "as=$PIN_AS" "ar=$PIN_AR" "ranlib=$PIN_RANLIB" "gcc=$PIN_GCC"; do
 		_pt_n=${_pt%%=*}
@@ -924,7 +961,7 @@ PIN_LIBS
 		if ! [ -f "$_pt_f" ] || ! [ -x "$_pt_f" ]; then
 			echo "make_test.sh: --$_pt_n '$_pt_f' is not an executable file." >&2
 			echo "  Bazel passes the pinned one; if it is missing the target's data is" >&2
-			echo "  wrong, which is a harness fault and not a finding about this exercise." >&2
+			echo "  wrong, which is a harness fault and not a finding about this $(rl_noun)." >&2
 			exit 2
 		fi
 		case "$_pt_f$_pt_dirs" in
@@ -937,11 +974,12 @@ PIN_LIBS
 				printf "#!/bin/sh\nexec '%s' '-B%s/' \"\$@\"\n" "$_pt_f" "$AUX/pinld" \
 					> "$AUX/pinbin/gcc" && chmod +x "$AUX/pinbin/gcc" || exit 2 ;;
 			*)
-				pin_wrap "$AUX/pinbin/$_pt_n" "$_pt_f" "$_pt_dirs"
+				rl__wrap_tool "$AUX/pinbin/$_pt_n" "$_pt_dirs" "$_pt_f" yes
 				# PROVE THE LOADER AGREED: as loads libbfd and libopcodes,
-				# ar and ranlib libbfd.
-				# conventions: harness tool -- the pinned binutils' wrapper, written above
-				env -u LD_DEBUG_OUTPUT LD_DEBUG=libs "$AUX/pinbin/$_pt_n" --version > /dev/null 2> "$AUX/pinbin.debug"
+				# ar and ranlib libbfd -- once it has started at all.
+				rl_probe_libs "$RL_NAME.sh: the pinned $_pt_n" "$AUX/pinbin.debug" "$_pt_n-start.txt" \
+					"$AUX/pinbin/$_pt_n" ||
+					rl__start_tail "the pinned $_pt_n" "No Makefile is built here: nothing was checked."
 				if [ "$_pt_n" = as ]; then
 					rl_libs_under "the pinned as" "$AUX/pinbin.debug" "$_pt_dirs" libbfd libopcodes
 				else
@@ -1019,7 +1057,7 @@ if [ -n "$SCRIPT" ]; then
 	BUILDER="sh $SCRIPT"
 	BUILT_BY="script"
 else
-	BUILDER="make"
+	BUILDER="make${MAKE_GOAL:+ $MAKE_GOAL}"
 	BUILT_BY="Makefile"
 fi
 
@@ -1109,9 +1147,14 @@ default_goal() {
 # The line every "nothing was built" message ends on, in student_build.sh's
 # words, so the build layer and the run layers say the same thing about a stub.
 not_written_yet() {
-	echo "  If this exercise is not written yet, that is exactly what you should"
+	_nw=$(rl_noun)
+	[ -z "$MAKE_GOAL" ] || _nw=part
+	echo "  If this $_nw is not written yet, that is exactly what you should"
 	if [ -n "$SCRIPT" ]; then
 		echo "  expect to see: a stub script that holds only comments builds nothing."
+	elif [ -n "$MAKE_GOAL" ]; then
+		echo "  expect to see: a stub Makefile has no $MAKE_GOAL rule yet, or its"
+		echo "  recipes only echo."
 	else
 		echo "  expect to see: a stub Makefile builds nothing -- it has no rule yet,"
 		echo "  or its recipes only echo."
@@ -1282,10 +1325,12 @@ rm -f "$ARTIFACT"
 # another name is no compiler of any sentence here, so it is left unjudged.
 #
 # A command that only RUNS another -- env, exec, command, nice, nohup,
-# xargs, ccache, distcc -- is looked through to the one it runs, and `sh -c
-# 'STRING'` has STRING read as a command line of its own: these used to be in
-# the list of tools that compile nothing, so `env gcc -c x.c` was not judged
-# at all.
+# xargs, ccache, distcc (MT_WRAPS) -- is looked through to the one it runs,
+# and `sh -c 'STRING'` (MT_SHELLS) has STRING read as a command line of its
+# own: these used to be in the list of tools that compile nothing, so `env
+# gcc -c x.c` was not judged at all. So no wrapper is ever a command word,
+# and --archiver and --forbidden-command refuse their names; a shell is one
+# in any call but -c (`sh helper.sh`), and its name is not refused.
 #
 # EVERY COMMAND, NOT ONLY COMPILES (recipe_cmds FILE KIND): the same reading
 # -- the same words, wrappers looked through, `sh -c` strings read,
@@ -1307,18 +1352,19 @@ recipe_cmds() {
 	cmds_awk "$1" "$2" all
 }
 cmds_awk() {
-	awk -v kind="$2" -v emit="$3" -v ordered="$([ "$RECIPE_CC" = ordered ] && echo 1)" '
+	awk -v kind="$2" -v emit="$3" -v ordered="$([ "$RECIPE_CC" = ordered ] && echo 1)" \
+		-v wraps="$MT_WRAPS" -v shells="$MT_SHELLS" '
 		BEGIN {
 			n = split("do then else elif if ! { time", a, " ")
 			for (i = 1; i <= n; i++) lead[a[i]] = 1
-			# The commands that run the next word, and their options that
-			# take a value of their own.
-			n = split("env exec command nice nohup xargs ccache distcc", a, " ")
+			# The commands that run the next word (MT_WRAPS), and their
+			# options that take a value of their own.
+			n = split(wraps, a, " ")
 			for (i = 1; i <= n; i++) wrap[a[i]] = 1
 			n = split("env:-u env:-C env:-S nice:-n xargs:-n xargs:-I xargs:-L " \
 				"xargs:-P xargs:-d xargs:-s xargs:-a xargs:-E", a, " ")
 			for (i = 1; i <= n; i++) takes[a[i]] = 1
-			n = split("sh bash dash", a, " ")
+			n = split(shells, a, " ")
 			for (i = 1; i <= n; i++) shell[a[i]] = 1
 			# The lead words after which a command runs only on a
 			# condition, and the keywords that open and close a construct.
@@ -1350,7 +1396,7 @@ cmds_awk() {
 				sub(/.*\//, "", b)
 				if (W[s] in lead) {
 					if (W[s] == "if") depth++
-					else if (W[s] in branch) cond = 1
+					else if (W[s] in branch) { cond = 1; body[depth] = 1 }
 					else if (W[s] == "{") brace++
 					s++
 					continue
@@ -1367,8 +1413,8 @@ cmds_awk() {
 			# A shell keyword that opens or closes a construct, for the
 			# depth a line leaves open (oneline). A case runs its commands
 			# on a pattern: what follows it is conditional.
-			if (W[s] in opens) { depth++; if (W[s] == "case") cond = 1 }
-			else if (W[s] in closes) depth--
+			if (W[s] in opens) { depth++; if (W[s] == "case") { cond = 1; body[depth] = 1 } }
+			else if (W[s] in closes) { delete body[depth]; depth-- }
 			else if (W[s] == "}" && brace > 0) brace--
 			b = W[s]
 			sub(/.*\//, "", b)
@@ -1532,24 +1578,41 @@ cmds_awk() {
 		# not log may be one in a branch this box did not take (`if [
 		# "$$(uname)" = Darwin ]; then libtool ...`), and is never read as
 		# text, so the verdict is the same on a box that takes it
-		# (tool_phantoms). A line that leaves an if, a case
-		# or a loop open (DEPTH) carries COND to the next: a .ONESHELL
-		# recipe runs its lines in one shell, and elsewhere the shell
-		# refuses the line, so the build that would judge it stops there.
+		# (tool_phantoms). A line that leaves an if, a case or a loop open
+		# (DEPTH) once its then, else, elif, do or case has begun (BODY, a
+		# flag for each depth, which the fi, esac or done that closes that
+		# depth clears; inbody) carries COND to the next: a .ONESHELL recipe
+		# runs its lines in one shell, and elsewhere the shell refuses the
+		# line, so the build that would judge it stops there. An && or an
+		# || is over at the end of its line, open construct or not: text
+		# that opens one and no branch ($(info for x)) left COND set for
+		# every line after the first && (F0416), and a one-line if after
+		# that text, its then over at its fi, left BODY set for every line
+		# after it.
 		# So does a line in a branch left open at its end (CONT): one that
 		# ends on an && or an ||, or on a | or with a { or a ( still open
 		# once COND is set -- `false &&` with libtool on the next line of a
 		# .ONESHELL recipe was read as plain, and a call no build ran was
 		# set aside as text (V223). A } or ) that closes it ends the carry.
-		function oneline(l,    x, d, c, o, bd, pd) {
+		# inbody: whether a then, else, elif, do or case has begun at a depth
+		# still open.
+		function inbody(    i) {
+			for (i = 0; i <= depth; i++)
+				if (i in body) return 1
+			return 0
+		}
+		function oneline(l,    x, d, c, o, bd, pd, bo, i) {
 			ninner = 0
 			insh = 0
 			if (depth < 0) depth = 0
-			if (depth == 0 && !cont) { cond = 0; brace = 0; paren = 0 }
+			if (depth == 0 && !cont) { cond = 0; split("", body); brace = 0; paren = 0 }
+			else if (!cont) cond = inbody()
 			lastop = ""
 			cmdline(l, kind)
 			d = depth
 			c = cond
+			split("", bo)
+			for (i in body) bo[i] = 1
 			bd = brace
 			pd = paren
 			o = (lastop == "&&" || lastop == "||" ||
@@ -1561,6 +1624,8 @@ cmds_awk() {
 			}
 			depth = d
 			cond = c
+			split("", body)
+			for (i in bo) body[i] = 1
 			brace = bd
 			paren = pd
 			cont = o
@@ -1670,6 +1735,10 @@ tool_shims() {
 # stand-in: the tools' own once escaped a ' as ''' and not as '\'' -- a
 # word read back as another, so a call that ran matched no plan line, was
 # called text the Makefile prints, and its FAIL showed the mangled word.
+# Its set of bare characters is runner_lib.sh's rl_cmdline's, plus '^': a
+# copy, since a stand-in runs as a program of its own with no runner_lib.sh
+# loaded. The '^' changes nothing that is read: compile_cmds reads the line
+# back as the shell would, quotes taken off, so 'a^b' and a^b are one word.
 shim_log() {
 	echo "{ printf '+ %s' '$1'"
 	cat <<'SHIM_EOF'
@@ -1914,7 +1983,7 @@ AR_AWK='
 # wrapper or assignment before it, not in an `sh -c` string), in no branch
 # of the shell for a forbidden command (HOW2 is plain: a call this box did
 # not take is no text) and in a branch or not for the archiver, and
-# nothing on its line can have changed that PATH (no PATH in the line, no
+# nothing on its line can have changed that PATH (plan_moved: no PATH in the line, no
 # `.`, source or eval on it); the build of the copy ran to its end (it
 # made '$ARTIFACT' and returned 0) with some stand-in reached; and no
 # logged call of that tool has its words -- each logged call accounts for
@@ -1957,8 +2026,11 @@ tool_phantoms() {
 	done
 	rl_split_off
 	awk -F'\t' -v on="$_tp_on" -v shimmed=" $_tp_shimmed" -v phantom="$AUX/cmds_phantom" \
-		-v t="$ARCHIVER" -v written="$AUX/shim_written" "$AR_AWK"'
-		BEGIN { while ((getline l < written) > 0) wrote[l] = 1 }
+		-v t="$ARCHIVER" -v written="$AUX/shim_written" -v movedf="$AUX/plan_moved" "$AR_AWK"'
+		BEGIN {
+			while ((getline l < written) > 0) wrote[l] = 1
+			while ((getline l < movedf) > 0) moved[l] = 1
+		}
 		FNR == 1 { f++ }
 		f == 1 {
 			logged[$2 FS $4]++
@@ -1968,10 +2040,10 @@ tool_phantoms() {
 		}
 		# The plan, a first time: the files a command other than the
 		# archiver writes, by a redirection or as what cp, mv, ln or
-		# install puts in place; and the lines where the PATH a command
-		# is looked up in may not be the one the line started with.
+		# install puts in place. (The lines where the PATH a command is
+		# looked up in may not be the one the line started with are
+		# plan_moved, above.)
 		f == 2 {
-			if ($3 ~ /PATH/ || $2 == "." || $2 == "source" || $2 == "eval") moved[$3] = 1
 			if ($2 == t) next
 			n = split($5, w, " ")
 			for (i = 1; i <= n; i++) vis[last(w[i])] = 1
@@ -2056,11 +2128,14 @@ plan_compiles() {
 	mk "$DRY" - "make -n" "$MAKE_BIN" -n
 	DRY_RC=$RC
 	compile_cmds "$DRY" make > "$AUX/recipe_plan"
+	# Every command of the plan, once: tool_phantoms reads it, and the
+	# lines below are read from it.
+	recipe_cmds "$DRY" make > "$AUX/cmds_plan"
 	# The plan lines where the PATH a command is looked up in may not be the
 	# one the line started with: PATH in the line, or a `.`, source or eval
-	# on it (merge_compiles' phantoms, as tool_phantoms' moved).
-	recipe_cmds "$DRY" make | awk -F'\t' '$3 ~ /PATH/ || $2 == "." || $2 == "source" || $2 == "eval" { print $3 }' |
-		sort -u > "$AUX/plan_moved"
+	# on it. Read by merge_compiles and tool_phantoms both.
+	awk -F'\t' '$3 ~ /PATH/ || $2 == "." || $2 == "source" || $2 == "eval" { print $3 }' \
+		"$AUX/cmds_plan" | sort -u > "$AUX/plan_moved"
 	rm -rf "$AUX/shimtree"
 	mkdir "$AUX/shimtree" && cp -R "$WORK"/. "$AUX/shimtree"/ || {
 		echo "make_test.sh: cannot copy the tree to build it with the compilers logged" >&2
@@ -2097,7 +2172,6 @@ plan_compiles() {
 	# where one of those checks was asked for: a project that asked for none
 	# is told nothing new.
 	if [ -n "$ARCHIVER$FORBID_CMDS$FORBID_FLAGS" ]; then
-		recipe_cmds "$DRY" make > "$AUX/cmds_plan"
 		{
 			recipe_cmds "$AUX/toolshim.log" trace
 			recipe_cmds "$AUX/ccshim.log" trace
@@ -2635,18 +2709,276 @@ decoy_verdict() {
 	exit 1
 }
 
+# makefile_name: the makefile a bare make reads in this folder, the first
+# of GNUmakefile, makefile and Makefile there is; false when there is none.
+makefile_name() {
+	for _mn_f in GNUmakefile makefile Makefile; do
+		[ -f "$_mn_f" ] && printf '%s\n' "$_mn_f" && return 0
+	done
+	return 1
+}
+# stage_tree DIR: a copy of the tree make runs in ($WORK) in DIR, a new
+# folder, times kept; restore_tree DIR puts the tree back as DIR holds it.
+# Around every reading of make's database (goal_state, rule_db): make
+# passes the -p of a reading on to a sub-make that remakes an include, and
+# one whose output is the include leaves that database in the tree, where
+# every later make reads it.
+stage_tree() {
+	mkdir "$1" && cp -pR "$WORK"/. "$1"/ || {
+		echo "make_test.sh: could not copy the staged tree" >&2
+		exit 2
+	}
+}
+restore_tree() {
+	rm -rf "${WORK:?}"/* "${WORK:?}"/.[!.]* "${WORK:?}"/..?* && cp -pR "$1"/. "$WORK"/ || {
+		echo "make_test.sh: could not stage the tree again" >&2
+		exit 2
+	}
+}
+
+# A PART BUILT BY A RULE OF ITS OWN: whether the Makefile has the rule G,
+# asked of make's own database (-p, with the built-in rules and variables
+# `make G` reads, so a rule under a test of one, SUFFIXES too, is there)
+# before `make G` runs, never of what `make G` did -- a file or a folder named
+# G makes it answer "Nothing to be done", and a G.c makes a built-in rule
+# compile it. student_build.sh asks the same question the same way, so the
+# program every run layer tests and this build agree. GOAL_STATE: 0 a rule (or
+# a Makefile make could not read, which `make G` below reports), 1 none, 3 a
+# name with no prerequisite and no recipe, 4 a database not laid out as make
+# lays one out, 5 a database each reading leaves in a file of the tree, and
+# any other number awk's own status when the reader itself failed (exit 2,
+# below, saying nothing of the Makefile). The goal asked for is .DEFAULT,
+# which no rule step uses, so make reads every line, prints its database,
+# and stops on one error of its own: that .DEFAULT has no rule, or that a
+# prerequisite the Makefile gives it has none. The
+# database is trusted only when make read the whole Makefile, which stderr
+# alone cannot say: a $(error) whose text holds a newline ends in that
+# complaint, word for word. So make reads a makefile of this runner's after
+# the one it reads by itself (the first of GNUmakefile, makefile and
+# Makefile), and the variable that sets with override, so that no value the
+# Makefile gives it stands, printed in the last database as set from that
+# file, says the reading got there; its rule for itself keeps make from
+# remaking it with a rule of the student's. The last, because make prints a
+# database each time it reads the Makefile: once it has made a makefile the
+# Makefile includes, it starts again and reads every line anew, and that
+# reading is the one `make G` goes on with, so its database is the one read
+# below. That makefile asks for the database too, adding -pnq to MAKEFLAGS as
+# a Makefile does (with override only when the Makefile set its own MAKEFLAGS
+# with it, which a plain assignment cannot change): so whenever make reads the
+# Makefile, $(MAKEFLAGS) reads as it does under `make G`, and a sub-make that
+# remakes an include is not asked for a dry run, as make leaves -n and -q out
+# of what it passes on while it remakes them. A reading that stops before the
+# end prints no database, then, so a makefile of this runner's read first
+# prints a line each reading starts with, and only a database after the last
+# such line is read; it also empties MAKEFILE_LIST, which the Makefile then
+# reads as under `make G`. But make passes -p on to a sub-make that remakes an
+# include, so it prints a database too, and one whose output is the include
+# leaves that database there, for make to read as lines of the Makefile the
+# next time. So a reading after which a file of the tree holds a database it
+# did not hold before is not trusted: the tree is put back as it was staged, a
+# make asked for no database, and for a goal of this runner's whose rule runs
+# nothing, makes the includes as `make G` makes them, and make is read again,
+# told that the files the first reading made or changed are up to date (-o),
+# so that an include made each time make reads the Makefile is read as that
+# make made it. -o knows a file only by the name it is given, so each is given
+# as a path from the folder make runs in and as one from $(CURDIR); a file the
+# Makefile names another way is remade all the same. A second
+# reading that leaves a database too stops this runner, which says why: it is
+# not left to `make G` below, where a rule make has built in may answer for
+# one the Makefile lacks. A database left in a file outside the tree is not
+# seen. Whatever a reading made, `make G` runs in the tree as it was staged.
+# The makefile read last sets .RECIPEPREFIX back to a tab before any rule of
+# its own, so none of its lines reads as a recipe under a prefix the Makefile
+# set last. And make is given both names relative to the folder it runs in, so
+# a space, a # or a $ in the path of this runner's scratch folders is no part
+# of what make reads. Then make ended without an error, or the last line it
+# wrote ends in that complaint: make stops at its first error, so what it
+# printed on the way was none -- a recipe given twice, a $(warning) whose text
+# holds ***, what a $(shell) wrote to stderr (with no newline, the complaint
+# ends that line), a sub-make that failed to remake an optional include. Under
+# -k, from the Makefile's MAKEFLAGS or the environment's, make goes on past an
+# error and its complaint has no "Stop.", and may follow it with a warning of
+# a clock skew (a makefile it read is dated in the future): that is allowed,
+# but a makefile it failed to remake is not -- an include that is not there,
+# whose rules the database lacks. That is a makefile make names so on stderr
+# and its last database marks as failed to be updated: a sub-make that a
+# $(shell) runs says the same words of its own makefiles, which are in no
+# database of this make's. Any other end is an error that stopped the reading,
+# and is left to `make G` below, which reports it. The complaint is matched in
+# make's own English: make translates its messages, so this one call runs with
+# LC_ALL=C and no LANGUAGE. And make is given the MAKECMDGOALS that `make G`
+# sets, through the environment, so a Makefile that reads it (one that refuses
+# a goal it does not know, say) reads here as it does when G is asked for, and
+# one that sets it itself reads its own value, as under `make G`. The makefile
+# of this runner's read first takes it out of the environment make gives the
+# recipes, so a make a recipe runs reads its own goals, as under `make G`; a
+# $(shell) still passes it on. The database prints each variable with its
+# value, and a value
+# may hold any line, the "# Files" the rules are listed under among them. So
+# the makefile of this runner's also writes a pattern rule named for this run,
+# which make lists among its implicit rules, after every variable, and whose
+# recipes make prints with the tab that makefile set the prefix back to. Each
+# database is read from the line that names that rule on, block by block, as
+# make prints them: a recipe line by line, with each line that goes on in the
+# next (an odd number of backslashes at its end) and that next line, whatever
+# it holds; a target's own variables up to the target's own line; a block
+# after a line that names the Makefile's prefix, with that prefix; the blocks
+# of a :: rule as one; and the files up to the line make prints after them,
+# never the search paths it prints next. A database that strays from that
+# shape, or names a file twice, stops this runner, which says why: it is never
+# left to `make G`, which a Makefile made to stray from it on purpose would
+# reach with no rule G, and a built-in rule would then answer. The last
+# database is trusted only when it was read to that line. What may still read
+# as lines of it: a name that holds a newline, and a value of a target's own
+# made to print the lines of a block.
+goal_state() {
+	_gs_mf=$(makefile_name) || _gs_mf=Makefile
+	_gs_run=${AUX##*/}
+	printf '%s\n' "\$(info harness-reading-$_gs_run)" 'MAKEFILE_LIST :=' 'unexport MAKECMDGOALS' \
+		> "$AUX/pre.mk"
+	printf '%s\n' 'override HARNESS_READ_TO_THE_END := yes' 'override .RECIPEPREFIX :=' \
+		'ifeq ($(findstring override,$(origin MAKEFLAGS)),)' 'MAKEFLAGS += -pnq' 'else' \
+		'override MAKEFLAGS += -pnq' 'endif' "../$_gs_run/pre.mk ../$_gs_run/probe.mk: ;" \
+		"harness-anchor-$_gs_run%: ;" > "$AUX/probe.mk"
+	printf '%s\n' 'override .RECIPEPREFIX :=' "harness-remade-$_gs_run: override .EXTRA_PREREQS :=" \
+		".PHONY: harness-remade-$_gs_run" "harness-remade-$_gs_run: ;" \
+		"../$_gs_run/pre.mk ../$_gs_run/remake.mk: ;" > "$AUX/remake.mk"
+	stage_tree "$AUX/staged"
+	_gs_try=0
+	while :; do
+		# The second reading takes the files the first one made or changed
+		# as up to date, by both their names.
+		set --
+		if [ "$_gs_try" -eq 1 ]; then
+			_gs_cd=$(pwd -P)
+			while IFS= read -r _gs_l; do
+				set -- "$@" -o "$_gs_l" -o "$_gs_cd/$_gs_l"
+			done < "$AUX/made"
+		fi
+		mk "$AUX/gdb" "$AUX/gdb.err" "make -pnq .DEFAULT" \
+			env -u LANGUAGE LC_ALL=C MAKECMDGOALS="$MAKE_GOAL" "$MAKE_BIN" "$@" -f "../$_gs_run/pre.mk" \
+				-f "$_gs_mf" -f "../$_gs_run/probe.mk" .DEFAULT
+		_gs_leak=0
+		find . -type f -exec grep -l -e '^# Make data base, printed on' {} + 2> /dev/null | {
+			while IFS= read -r _gs_l; do
+				cmp -s "$_gs_l" "$AUX/staged/$_gs_l" || { echo leaked; break; }
+			done
+		} | grep -q leaked && _gs_leak=1
+		[ "$_gs_leak" -eq 0 ] || [ "$_gs_try" -ne 0 ] || find . -type f | {
+			while IFS= read -r _gs_l; do
+				cmp -s "$_gs_l" "$AUX/staged/$_gs_l" || printf '%s\n' "${_gs_l#./}"
+			done
+		} > "$AUX/made"
+		# The tree `make G` runs in below is the one staged, whatever a
+		# reading made in it.
+		restore_tree "$AUX/staged"
+		[ "$_gs_leak" -ne 0 ] && [ "$_gs_try" -eq 0 ] || break
+		_gs_try=1
+		mk /dev/null /dev/null "make, remaking the includes" \
+			env -u LANGUAGE LC_ALL=C MAKECMDGOALS="$MAKE_GOAL" "$MAKE_BIN" -f "../$_gs_run/pre.mk" \
+				-f "$_gs_mf" -f "../$_gs_run/remake.mk" "harness-remade-$_gs_run"
+	done
+	GOAL_STATE=0
+	_gs_rd=0
+	if [ "$_gs_leak" -ne 0 ]; then
+		GOAL_STATE=5
+		return 0
+	fi
+	READING="harness-reading-$_gs_run" ANCHOR="harness-anchor-$_gs_run%:" \
+		PROBE="# 'override' directive (from '../$_gs_run/probe.mk', line 1)" \
+		awk -v part=read -f "$MAKE_DB" "$AUX/gdb" > "$AUX/gdb.db" || _gs_rd=$?
+	if [ "$_gs_rd" -eq 3 ]; then
+		GOAL_STATE=4
+	elif [ "$_gs_rd" -gt 1 ]; then
+		# Not an answer of the reader's (0, 1 or 3): awk itself failed.
+		GOAL_STATE=$_gs_rd
+	elif [ "$_gs_rd" -eq 0 ] &&
+		! ERR="$AUX/gdb.err" awk -v part=remake -v q="'" -f "$MAKE_DB" "$AUX/gdb.db" &&
+		{ [ "$RC" -le 1 ] || { [ "$RC" -eq 2 ] &&
+			sed -e '$!b' -e '/^[^ :]*: warning:  Clock skew detected\.  Your build may be incomplete\.$/d' \
+				"$AUX/gdb.err" | sed -n '$p' |
+				grep -Eq "\*\*\* No rule to make target ('\.DEFAULT'|'.*', needed by '\.DEFAULT')\.(  Stop\.)?\$"; }; }; then
+		GOAL=/dev/null awk -v part=goal -v t="$MAKE_GOAL" -f "$MAKE_DB" "$AUX/gdb.db" ||
+			GOAL_STATE=$?
+	fi
+}
+if [ -n "$MAKE_GOAL" ]; then
+	goal_state
+	case "$GOAL_STATE" in
+		0) ;;
+		1 | 3)
+			if [ "$GOAL_STATE" = 1 ]; then
+				_gs_what="your Makefile has no $MAKE_GOAL rule"
+			else
+				_gs_what="your Makefile names $MAKE_GOAL and gives it no rule"
+			fi
+			if [ "$MODE" != build ]; then
+				[ "${NO_SKIP:-0}" != "1" ] || {
+					echo "NO_SKIP set: $_gs_what, so '$BUILDER' had no job to do that this target could judge; $T_BUILD says why." >&2
+					exit 1
+				}
+				echo "SKIP — $_gs_what, so '$BUILDER' had no job to do; $T_BUILD says why."
+				exit 0
+			fi
+			{
+				echo "make_test.sh: FAIL — $_gs_what."
+				echo "  '$ARTIFACT' is what '$BUILDER' builds. The sentence this applies:"
+				say goal
+				if [ "$GOAL_STATE" = 1 ]; then
+					echo "  make's own list of the rules your Makefile defines (make -p) has"
+					echo "  none named $MAKE_GOAL. Nothing else stands in for one here: a file or"
+					echo "  a folder named $MAKE_GOAL, or a source make can compile by itself,"
+					echo "  would let '$BUILDER' answer without a rule of yours."
+				else
+					echo "  Your Makefile names $MAKE_GOAL (in .PHONY, say, or as a target alone)"
+					echo "  but gives it no prerequisite and no recipe, so '$BUILDER' has"
+					echo "  nothing to do."
+				fi
+				not_written_yet
+			} >&2
+			exit 1 ;;
+		4)
+			echo "make_test.sh: cannot tell whether the Makefile has a rule $MAKE_GOAL:" \
+				"make's list of its rules (make -p) is not laid out as make lays one out," \
+				"which a value or a name that holds lines like make's own can do" >&2
+			exit 2 ;;
+		5)
+			echo "make_test.sh: cannot tell whether the Makefile has a rule $MAKE_GOAL:" \
+				"each time make reads it, a make it runs leaves make's database (make -p) in" \
+				"a file of the tree, which make may then read as lines of the Makefile" >&2
+			exit 2 ;;
+		*)
+			echo "make_test.sh: could not read make's database of the Makefile (awk exited $GOAL_STATE)" >&2
+			exit 2 ;;
+	esac
+fi
+
 # The tree as it stood before the build, so that "built nothing" can be told
 # apart from "built something under another name" afterwards.
 find . -type f | sort > "$BEFORE"
 
 # Into $LOG and then shown, rather than straight to the log: what it said is
-# read below, to name a Makefile with no rule at all.
+# read below, to name a Makefile with no rule at all. Shown through the one
+# renderer, with the whole kept in test.outputs as build-output.txt, a name
+# no other excerpt here saves under: a bare cat wrote a recipe's escapes,
+# carriage returns and NULs into the log as they were, and every line of a
+# build that printed without end, up to the 64 MiB the output cap allows
+# (F0673). A longer one shows its first MK_SHOWN lines and its last MK_TAIL:
+# make stops at the recipe that failed, so a failed build's error, and
+# make's own "*** ... Error" line, are its last lines, and a cut that kept
+# only the first hid them behind a build's echoes and warnings. Whatever
+# the status, since the steps below judge more than that, and a build's
+# end is where make stopped.
+MK_SHOWN=100
+MK_TAIL=100
 if [ -n "$SCRIPT" ]; then
 	mk "$LOG" - "sh $SCRIPT" sh "$SCRIPT"
 else
-	mk "$LOG" - "make" "$MAKE_BIN"
+	mk "$LOG" - "$BUILDER" "$MAKE_BIN" ${MAKE_GOAL:+"$MAKE_GOAL"}
 fi
-cat "$LOG"
+rl_excerpt --tail "$MK_TAIL" "$LOG" "$MK_SHOWN" build-output.txt "  "
+MK_LEFT_OUT=$RL_LEFT_OUT
+MK_SAVED=$RL_SAVED
 
 # The decoy, read first (exNN_build_wildcards): a build that stopped on it
 # compiled a source nobody named.
@@ -2671,11 +3003,19 @@ if [ "$MODE" != build ] && [ ! -f "$ARTIFACT" ]; then
 fi
 
 # Built nothing AND exited non-zero: the build failed, and make's own error
-# is above.
+# is above, in the excerpt's last lines.
 if [ "$RC" -ne 0 ] && [ ! -f "$ARTIFACT" ]; then
 	{
 		echo "make_test.sh: FAIL — '$BUILDER' exited with status $RC and did not produce"
-		echo "  '$ARTIFACT' (its output is above)."
+		if [ "$MK_LEFT_OUT" -eq 0 ]; then
+			echo "  '$ARTIFACT' (its output is above)."
+		elif [ -n "$MK_SAVED" ]; then
+			echo "  '$ARTIFACT' (its first and last lines are above; all of it is in"
+			echo "  $MK_SAVED)."
+		else
+			echo "  '$ARTIFACT' (its first and last lines are above; only a run under"
+			echo "  bazel test keeps the $MK_LEFT_OUT line(s) between them)."
+		fi
 		if [ -z "$SCRIPT" ] && grep -q 'No targets' "$LOG"; then
 			echo "  Your Makefile has no rule yet, so make has nothing to run."
 			not_written_yet
@@ -2689,7 +3029,7 @@ if [ ! -f "$ARTIFACT" ]; then
 	if [ -n "$SCRIPT" ]; then
 		echo "make_test.sh: FAIL — '$BUILDER' ran but did not produce '$ARTIFACT'." >&2
 	else
-		echo "make_test.sh: FAIL — 'make' succeeded but did not produce '$ARTIFACT'." >&2
+		echo "make_test.sh: FAIL — '$BUILDER' succeeded but did not produce '$ARTIFACT'." >&2
 		# A forbidden tool whose failure the Makefile ignored (-libtool).
 		[ -z "$FORBID_CMDS" ] || forbidden_on_failure >&2
 	fi
@@ -2741,7 +3081,10 @@ if [ ! -f "$ARTIFACT" ]; then
 		{
 			echo ""
 			echo "  It created no file at all: nothing was built."
-			if [ -z "$SCRIPT" ]; then
+			if [ -n "$MAKE_GOAL" ]; then
+				echo "  '$BUILDER' runs your Makefile's $MAKE_GOAL rule, and nothing it ran"
+				echo "  created a file. Is that the rule that builds '$ARTIFACT'?"
+			elif [ -z "$SCRIPT" ]; then
 				default_goal
 				echo "  A bare 'make' runs one rule, the default goal: the first rule in"
 				echo "  the file. Here the default goal is '$GOAL', and nothing it ran"
@@ -2803,7 +3146,7 @@ if [ -n "$SYMS" ] && [ "$MODE" = build ]; then
 			fi ;;
 	esac
 	for s in $(echo "$SYMS" | tr ',' ' '); do
-		if ! "$NM" "$ARTIFACT" 2> /dev/null | grep -qE "[Tt] $s\$"; then
+		if ! LD_LIBRARY_PATH="$NM_PATH" "$NM" "$ARTIFACT" 2> /dev/null | grep -qE "[Tt] $s\$"; then
 			echo "make_test.sh: symbol '$s' missing from '$ARTIFACT'" >&2
 			exit 1
 		fi
@@ -2997,7 +3340,10 @@ if [ -z "$SCRIPT" ]; then
 		#    above already has everything to say about that shape.
 		OBJS=$(find . -type f -name '*.o' 2> /dev/null | sed 's|^\./||' | sort)
 		MISPLACED=""
+		# One object a line: a path with a blank is one path.
+		rl_split_on
 		for o in $OBJS; do
+			rl_split_off
 			d=$(dirname "$o")
 			b=$(basename "$o" .o)
 			[ -f "$d/$b.c" ] && continue
@@ -3005,6 +3351,7 @@ if [ -z "$SCRIPT" ]; then
 			[ -n "$c" ] || continue
 			MISPLACED="$MISPLACED    $c  ->  $o$NL"
 		done
+		rl_split_off
 		if [ -n "$MISPLACED" ]; then
 			{
 				echo "make_test.sh: FAIL — the .o files are not near their .c files."
@@ -3042,13 +3389,16 @@ if [ -z "$SCRIPT" ]; then
 		# Every pair there is, touched or not: the cap is said only where
 		# it left one untouched, never for an object no source sits beside.
 		_npairs=0
+		rl_split_on
 		for o in $OBJS; do
+			rl_split_off
 			[ -f "${o%.o}.c" ] || continue
 			_npairs=$((_npairs + 1))
 			[ "$_np" -lt "$TOUCH_MAX" ] || continue
 			_np=$((_np + 1))
 			rl_list_add PAIRS "$o"
 		done
+		rl_split_off
 		_touched=""
 		# The sources whose touch rebuilt their own object and no other,
 		# which the FAIL names as what came before it -- not every source
@@ -3212,10 +3562,31 @@ if [ -z "$SCRIPT" ]; then
 		exit 1
 	}
 
-	# rule_is_empty RULE: 0 when make's database has RULE as a target with no
-	# prerequisite and no recipe. -p prints the database, -q runs no recipe,
-	# and the goal .DEFAULT is one no rule step uses; only its "# Files"
-	# section is read, and a "# Not a target:" entry is not one.
+	# rule_db DB RULE [MAKEFILE NAME]: make's database, as `make RULE` reads
+	# the Makefile (or MAKEFILE, a copy of the one called NAME), into DB. -p prints the database, -q runs no recipe, and the
+	# goal .DEFAULT is one no rule step uses; MAKECMDGOALS is RULE all the
+	# same, as goal_state sets it, kept from the makes it runs: a Makefile
+	# that refuses a goal it does not know stopped on .DEFAULT and printed
+	# none, and a re named only in .PHONY passed as a rule. The tree is put
+	# back after it (stage_tree): the steps after this one ran in a tree
+	# where a sub-make had left the reading's database in an include, and
+	# each of their makes printed one too, in place of what it ran.
+	rule_db() {
+		rm -rf "$AUX/rule_staged"
+		stage_tree "$AUX/rule_staged"
+		mk "$1" /dev/null "make -npq .DEFAULT${4:+, over a copy of $4}" \
+			env MAKECMDGOALS="$2" "$MAKE_BIN" --eval='unexport MAKECMDGOALS' ${3:+-f "$3"} \
+			-npq .DEFAULT
+		restore_tree "$AUX/rule_staged"
+	}
+	# rule_reads RULE recipe|phony DB: 0 when the database DB has RULE as a
+	# target, and none of WHAT: with recipe, no prerequisite and no recipe
+	# (rule_is_empty); with phony, no "Phony target" line (rule_is_written).
+	# Only its "# Files" section is read, and a "# Not a target:" entry is
+	# not one; only its last database, too, since make prints one each time
+	# it reads the Makefile again, having remade an include, and `make RULE`
+	# runs on the last: read from the first, a clean that only the first
+	# reading had passed as one.
 	#
 	# Each entry there is a block ended by a blank line, and only the first
 	# line of a block that is not a comment names its target. A recipe line
@@ -3227,13 +3598,19 @@ if [ -z "$SCRIPT" ]; then
 	# target's own `RULE:` line, in the same block, and is no header: read as
 	# one, `VAR = x` was a prerequisite, and a Makefile whose only clean was
 	# that variable passed as having a clean rule (V184).
-	rule_is_empty() {
-		mk "$AUX/db" /dev/null "make -npq .DEFAULT" "$MAKE_BIN" -npq .DEFAULT
-		awk -v t="$1" '
+	rule_reads() {
+		awk -v t="$1" -v want="$2" '
+			/^# Make data base, printed on/ {
+				files = 0; done = 0; inb = 0; blk = 0; nt = 0
+				found = 0; prereq = 0; hit = 0
+				next
+			}
+			done { next }
 			/^# Files/ { files = 1; next }
 			!files { next }
-			/^$/ { if (inb) exit; blk = 0; nt = 0; next }
-			inb && /^#  recipe to execute/ { recipe = 1; next }
+			/^$/ { if (inb) done = 1; blk = 0; nt = 0; next }
+			inb && want == "recipe" && /^#  recipe to execute/ { hit = 1; next }
+			inb && want == "phony" && /^#  Phony target/ { hit = 1; next }
 			inb { next }
 			/^# Not a target:/ { nt = 1; next }
 			/^#/ || blk { next }
@@ -3242,11 +3619,18 @@ if [ -z "$SCRIPT" ]; then
 			{ blk = 1 }
 			index($0, t ":") == 1 && !nt {
 				rest = substr($0, length(t) + 2)
-				if (rest ~ /^:/) exit
+				if (rest ~ /^:/) { done = 1; next }
 				inb = 1; found = 1
 				if (rest !~ /^[ \t]*$/) prereq = 1
 			}
-			END { exit !(found && !prereq && !recipe) }' "$AUX/db"
+			END { exit !(found && !hit && (want == "phony" || !prereq)) }' "$3"
+	}
+
+	# rule_is_empty RULE: 0 when make's database has RULE as a target with no
+	# prerequisite and no recipe.
+	rule_is_empty() {
+		rule_db "$AUX/db" "$1"
+		rule_reads "$1" recipe "$AUX/db"
 	}
 
 	# rule_is_written RULE: 0 when the Makefile writes a rule for RULE, however
@@ -3257,40 +3641,16 @@ if [ -z "$SCRIPT" ]; then
 	# is still a target. The copy is read from the tree, so its includes resolve
 	# as make's own do. A .PHONY the copy did not rename (an included
 	# makefile's) leaves the target phony there, and the answer stays no: the
-	# verdict this check gave before it existed. The database is read block by
-	# block, for rule_is_empty's reason, and a target-specific variable's line
-	# is skipped for it too: here the "# Not a target:" of a name only .PHONY
-	# gave comes after that line, so the line read as the header of a rule
-	# the Makefile writes.
+	# verdict this check gave before it existed. The database is read as
+	# rule_is_empty's is: here the "# Not a target:" of a name only .PHONY
+	# gave comes after a target-specific variable's line, so that line read as
+	# the header of a rule the Makefile writes.
 	rule_is_written() {
-		_rw_mf=
-		for _rw_f in GNUmakefile makefile Makefile; do
-			if [ -f "$_rw_f" ]; then
-				_rw_mf=$_rw_f
-				break
-			fi
-		done
-		[ -n "$_rw_mf" ] || return 1
+		_rw_mf=$(makefile_name) || return 1
 		sed 's/^\( *\)\.PHONY\([[:blank:]]*:\)/\1.MAKE_TEST_UNPHONY\2/' \
 			"$_rw_mf" > "$AUX/unphony.mk" || return 1
-		mk "$AUX/db2" /dev/null "make -npq .DEFAULT, over a copy of $_rw_mf" \
-			"$MAKE_BIN" -f "$AUX/unphony.mk" -npq .DEFAULT
-		awk -v t="$1" '
-			/^# Files/ { files = 1; next }
-			!files { next }
-			/^$/ { if (inb) exit; blk = 0; nt = 0; next }
-			inb && /^#  Phony target/ { phony = 1; next }
-			inb { next }
-			/^# Not a target:/ { nt = 1; next }
-			/^#/ || blk { next }
-			index($0, t ":") == 1 &&
-			    substr($0, length(t) + 2) ~ /^[ \t]*[^ \t:=#]+[ \t]*(::?|[+?!])?=/ { next }
-			{ blk = 1 }
-			index($0, t ":") == 1 && !nt {
-				if (substr($0, length(t) + 2) ~ /^:/) exit
-				inb = 1; found = 1
-			}
-			END { exit !(found && !phony) }' "$AUX/db2"
+		rule_db "$AUX/db2" "$1" "$AUX/unphony.mk" "$_rw_mf"
+		rule_reads "$1" phony "$AUX/db2"
 	}
 
 	# make_said RULE, inside a FAIL message: what make printed, so the student

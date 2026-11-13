@@ -3,7 +3,11 @@
 //! the reader harness allocates/frees on the C side. See oracle/README.md for
 //! the per-function corpus-line format.
 
-use crate::common::{bench_lines, long_text, longest_csv, many_words, o_split, rand_body, sink, to_hex, unhex, widest_hex, Rng};
+use crate::c04::{base_valid_display, base_valid_parse, encode_base, other_reading_refuses, parse_base};
+use crate::common::{
+    bench_lines, is_space, largest_dec, long_text, longest_csv, many_strs, many_words, o_split, or_null_with, rand_body,
+    sink, split_draw, split_prop, to_hex, unhex, widest_hex, Rng, ISSPACE, NULL, SPLIT_LARGE,
+};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -40,10 +44,26 @@ fn o_strjoin(size: usize, strs: &[Vec<u8>], sep: &[u8]) -> Vec<u8> {
 }
 
 // ----------------------------------------------------- convert_base helpers
-const WS: [u8; 6] = [b' ', 9, 10, 11, 12, 13];
+// Base validity, the reading of nbr and the writing of a magnitude are C
+// 04's (c04.rs): base_valid_parse, base_valid_display, parse_base,
+// encode_base, and other_reading_refuses for where the readings part.
 
-/// The two halves of base validity, kept apart because c-07's two base
-/// arguments are not doing the same job.
+/// Render a signed value in `base` (leading '-' for negatives).
+fn render_val(value: i64, base: &[u8]) -> Vec<u8> {
+    if value == 0 {
+        return vec![base[0]];
+    }
+    let neg = value < 0;
+    let mut v = encode_base(value.unsigned_abs(), base);
+    if neg {
+        v.insert(0, b'-');
+    }
+    v
+}
+
+/// Full convert_base: None when either base is unusable. Its two bases are
+/// held to the two halves of C 04's base validity, kept apart because c-07's
+/// two base arguments are not doing the same job.
 ///
 /// `ft_convert_base` says "nbr will follow the same rules as ft_atoi_base (from
 /// another module). Beware of the characters '+', '-', and whitespaces." So
@@ -71,94 +91,12 @@ const WS: [u8; 6] = [b' ', 9, 10, 11, 12, 13];
 /// are `c07_convert_base_readings`, C 07 ex04's `ex04_readings`, and the plain
 /// arm holds every case they agree on, bytes above 0x7f among them where they
 /// decide nothing.
-fn base_valid_display(base: &[u8]) -> bool {
-    if base.len() < 2 {
-        return false;
-    }
-    for (i, &c) in base.iter().enumerate() {
-        if c == b'+' || c == b'-' {
-            return false;
-        }
-        if base[..i].contains(&c) {
-            return false;
-        }
-    }
-    true
-}
-
-fn base_valid_parse(base: &[u8]) -> bool {
-    base_valid_display(base) && !base.iter().any(|c| WS.contains(c))
-}
-
-/// Render a magnitude (>=0) in `base`. mag 0 => the base's zero symbol.
-fn render_mag(mag: u64, base: &[u8]) -> Vec<u8> {
-    if mag == 0 {
-        return vec![base[0]];
-    }
-    let b = base.len() as u64;
-    let mut m = mag;
-    let mut out: Vec<u8> = Vec::new();
-    while m > 0 {
-        out.push(base[(m % b) as usize]);
-        m /= b;
-    }
-    out.reverse();
-    out
-}
-
-/// Render a signed value in `base` (leading '-' for negatives).
-fn render_val(value: i64, base: &[u8]) -> Vec<u8> {
-    if value == 0 {
-        return vec![base[0]];
-    }
-    let neg = value < 0;
-    let mut v = render_mag(value.unsigned_abs(), base);
-    if neg {
-        v.insert(0, b'-');
-    }
-    v
-}
-
-/// atoi_base: skip whitespace, fold sign runs, read leading digits in `base`.
-fn parse_base(nbr: &[u8], base: &[u8]) -> i64 {
-    let n = nbr.len();
-    let mut i = 0usize;
-    while i < n && WS.contains(&nbr[i]) {
-        i += 1;
-    }
-    let mut sign: i64 = 1;
-    while i < n && (nbr[i] == b'+' || nbr[i] == b'-') {
-        if nbr[i] == b'-' {
-            sign = -sign;
-        }
-        i += 1;
-    }
-    let b = base.len() as i64;
-    let mut res: i64 = 0;
-    while i < n {
-        if let Some(d) = base.iter().position(|&c| c == nbr[i]) {
-            res = res * b + d as i64;
-            i += 1;
-        } else {
-            break;
-        }
-    }
-    sign * res
-}
-
-/// Full convert_base: None when either base is unusable.
 #[inline(never)] // keep this attributable under callgrind (see tools/)
 fn o_convert_base(nbr: &[u8], from: &[u8], to: &[u8]) -> Option<Vec<u8>> {
     if !base_valid_parse(from) || !base_valid_display(to) {
         return None;
     }
     Some(render_val(parse_base(nbr, from), to))
-}
-
-/// A base the other reading refuses: it holds a byte above 0x7f, or a control
-/// byte (whitespace among them, which base_from may not hold under either).
-fn other_reading_refuses(base: &[u8]) -> bool {
-    base.iter().any(|&c| c >= 0x80 || c < 0x20 || c == 0x7f)
 }
 
 /// Whether the two readings give ft_convert_base one answer: every case but
@@ -251,14 +189,9 @@ fn gen_range<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
     let pairs = range_pairs(&mut rng, count);
     for (min, max) in pairs.iter().take(count) {
-        let res = match o_range(*min, *max) {
-            None => "NULL".to_string(),
-            Some(v) => v
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-                .join(","),
-        };
+        let res = or_null_with(o_range(*min, *max), |v| {
+            v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+        });
         let _ = writeln!(w, "{}\t{}\t{}", min, max, res);
     }
 }
@@ -268,7 +201,7 @@ fn gen_ultimate_range<W: Write>(w: &mut W, seed: u64, count: usize) {
     let pairs = range_pairs(&mut rng, count);
     for (min, max) in pairs.iter().take(count) {
         let (ret, res) = match o_range(*min, *max) {
-            None => (0i64, "NULL".to_string()),
+            None => (0i64, NULL.to_string()),
             Some(v) => (
                 v.len() as i64,
                 v.iter()
@@ -281,9 +214,8 @@ fn gen_ultimate_range<W: Write>(w: &mut W, seed: u64, count: usize) {
     }
 }
 
-fn gen_strjoin(seed: u64, count: usize) {
+fn gen_strjoin<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
 
     // structured mirrors of the curated cases.
@@ -315,18 +247,14 @@ fn gen_strjoin(seed: u64, count: usize) {
             break;
         }
         let size = strs.len();
-        emit_strjoin(&mut w, size, strs, sep);
+        emit_strjoin(w, size, strs, sep);
         done += 1;
     }
-    // Hundreds and thousands of strings (finding 041): every case above joins
-    // five at most, and a harness array of 32 once held 28 of them, so a
-    // function that kept its strings' lengths in an array of its own (32, 64,
-    // 512) passed every case. Built from the index alone (many_strs).
-    for (n, sep) in [(600usize, &b", "[..]), (1500, &b""[..])] {
+    for (n, sep) in JOIN_LARGE {
         if done >= count {
             break;
         }
-        emit_strjoin(&mut w, n, &many_strs(n), sep);
+        emit_strjoin(w, n, &many_strs(n), sep);
         done += 1;
     }
     while done < count {
@@ -339,17 +267,16 @@ fn gen_strjoin(seed: u64, count: usize) {
         }
         let sl = rng.below(4);
         let sep = body(&mut rng, sl, high);
-        emit_strjoin(&mut w, size, &strs, &sep);
+        emit_strjoin(w, size, &strs, &sep);
         done += 1;
     }
 }
 
-/// `n` strings for strjoin's large cases, "s0" to "s<n-1>", every seventh
-/// one empty: built from the index alone, so the head is the same for every
-/// seed.
-fn many_strs(n: usize) -> Vec<Vec<u8>> {
-    (0..n).map(|i| if i % 7 == 6 { Vec::new() } else { format!("s{}", i).into_bytes() }).collect()
-}
+/// strjoin's large cases, many_strs(n) joined by `sep` (finding 041): every
+/// other case joins five strings at most, and a harness array of 32 once
+/// held 28 of them, so a function that kept its strings' lengths in an
+/// array of its own (32, 64, 512) passed every case.
+const JOIN_LARGE: [(usize, &[u8]); 2] = [(600, b", "), (1500, b"")];
 
 fn emit_strjoin<W: Write>(w: &mut W, size: usize, strs: &[Vec<u8>], sep: &[u8]) {
     let res = o_strjoin(size, strs, sep);
@@ -441,7 +368,7 @@ fn build_nbr(rng: &mut Rng, v: i64, from: &[u8]) -> Vec<u8> {
     // leading whitespace
     let wsn = rng.below(3);
     for _ in 0..wsn {
-        out.push(WS[rng.below(6)]);
+        out.push(ISSPACE[rng.below(6)]);
     }
     // sign run with the right parity of '-'
     let mut signs: Vec<u8> = Vec::new();
@@ -463,7 +390,7 @@ fn build_nbr(rng: &mut Rng, v: i64, from: &[u8]) -> Vec<u8> {
     for _ in 0..rng.below(3) {
         out.push(from[0]);
     }
-    out.extend(render_mag(v.unsigned_abs(), from));
+    out.extend(encode_base(v.unsigned_abs(), from));
     // optional trailing junk (parse stops at the first non-digit)
     if rng.below(2) == 0 {
         out.push(junk_byte(from));
@@ -475,10 +402,7 @@ fn build_nbr(rng: &mut Rng, v: i64, from: &[u8]) -> Vec<u8> {
 }
 
 fn emit_convert<W: Write>(w: &mut W, nbr: &[u8], from: &[u8], to: &[u8]) {
-    let res = match o_convert_base(nbr, from, to) {
-        None => "NULL".to_string(),
-        Some(v) => to_hex(&v),
-    };
+    let res = or_null_with(o_convert_base(nbr, from, to), |v| to_hex(&v));
     let _ = writeln!(w, "{}\t{}\t{}\t{}", to_hex(nbr), to_hex(from), to_hex(to), res);
 }
 
@@ -572,7 +496,7 @@ fn convert_base_corpus<W: Write>(w: &mut W, seed: u64, count: usize, part: bool)
             let v = pick_i32(&mut rng);
             let mut nbr = build_nbr(&mut rng, v, from);
             let mut at = 0usize;
-            while at < nbr.len() && WS.contains(&nbr[at]) {
+            while at < nbr.len() && is_space(nbr[at]) {
                 at += 1;
             }
             let signs = at;
@@ -583,7 +507,7 @@ fn convert_base_corpus<W: Write>(w: &mut W, seed: u64, count: usize, part: bool)
                 nbr.insert(at, b'-');
                 at += 1;
             }
-            nbr.insert(at, WS[rng.below(6)]);
+            nbr.insert(at, ISSPACE[rng.below(6)]);
             (nbr, from.clone(), to.clone())
         } else {
             let from = &vb[rng.below(vb.len())];
@@ -601,9 +525,8 @@ fn convert_base_corpus<W: Write>(w: &mut W, seed: u64, count: usize, part: bool)
 }
 
 // --------------------------------------------------------- split generation
-fn gen_split(seed: u64, count: usize) {
+fn gen_split<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
 
     let fixed: Vec<(&[u8], &[u8])> = vec![
@@ -625,54 +548,19 @@ fn gen_split(seed: u64, count: usize) {
         if done >= count {
             break;
         }
-        emit_split(&mut w, s, cs);
+        emit_split(w, s, cs);
         done += 1;
     }
-    // Hundreds and thousands of words (common.rs, many_words; finding 041).
-    for (n, sep) in [(300usize, &b" "[..]), (5000, &b",; "[..])] {
+    for (n, sep) in SPLIT_LARGE {
         if done >= count {
             break;
         }
-        emit_split(&mut w, &many_words(n, sep), sep);
+        emit_split(w, &many_words(n, sep), sep);
         done += 1;
     }
-
-    let alpha: &[u8] = b"abcd ,;.";
     while done < count {
-        let mode = rng.below(3);
-        let (s, cs): (Vec<u8>, Vec<u8>) = match mode {
-            0 => {
-                // small alphabet that overlaps the charset -> real splits
-                let ls = rng.below(24);
-                let s: Vec<u8> = (0..ls).map(|_| alpha[rng.below(alpha.len())]).collect();
-                let seps: &[u8] = b" ,;.";
-                let lc = rng.below(4);
-                let cs: Vec<u8> = (0..lc).map(|_| seps[rng.below(seps.len())]).collect();
-                (s, cs)
-            }
-            1 => {
-                // full-range bytes, a few random separators
-                let high = rng.below(2) == 1;
-                let sl = rng.below(20);
-                let s = body(&mut rng, sl, high);
-                let lc = rng.below(4);
-                let cs = if lc == 0 || s.is_empty() {
-                    body(&mut rng, lc, high)
-                } else {
-                    // pick separators FROM s so at least some split
-                    (0..lc).map(|_| s[rng.below(s.len())]).collect()
-                };
-                (s, cs)
-            }
-            _ => {
-                // empty charset -> whole string is one token
-                let sl = rng.below(20);
-                let high = rng.below(2) == 1;
-                let s = body(&mut rng, sl, high);
-                (s, vec![])
-            }
-        };
-        emit_split(&mut w, &s, &cs);
+        let (s, cs) = split_draw(&mut rng);
+        emit_split(w, &s, &cs);
         done += 1;
     }
 }
@@ -695,10 +583,10 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
         "c07_strdup" => gen_strdup(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c07_range" => gen_range(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c07_ultimate_range" => gen_ultimate_range(&mut io::BufWriter::new(io::stdout()), seed, count),
-        "c07_strjoin" => gen_strjoin(seed, count),
+        "c07_strjoin" => gen_strjoin(&mut io::BufWriter::new(io::stdout()), seed, count),
         "c07_convert_base" => convert_base_corpus(&mut io::BufWriter::new(io::stdout()), seed, count, false),
         "c07_convert_base_readings" => convert_base_corpus(&mut io::BufWriter::new(io::stdout()), seed, count, true),
-        "c07_split" => gen_split(seed, count),
+        "c07_split" => gen_split(&mut io::BufWriter::new(io::stdout()), seed, count),
         _ => return false,
     }
     true
@@ -709,9 +597,10 @@ pub fn check() -> usize {
     let mut fails = 0usize;
 
     // ---- every unbounded input past the round capacities (finding 041) ----
-    // strdup's corpus holds a string, and range's and ultimate_range's a
-    // range, past every capacity a function is usually given room for (16,
-    // 64, 256, 1024, 4096), read back from what the generator writes.
+    // strdup's corpus holds a string, range's and ultimate_range's a range,
+    // split's a string of words and strjoin's a join of strings, past every
+    // capacity a function is usually given room for (16, 64, 256, 1024,
+    // 4096), read back from what the generator writes.
     {
         let past = 4096usize;
         let head = |g: &dyn Fn(&mut Vec<u8>)| -> Vec<u8> {
@@ -731,11 +620,28 @@ pub fn check() -> usize {
             eprintln!("CHECK FAIL c07 ultimate_range corpus holds no range of more than 4096 ints");
             fails += 1;
         }
+        if largest_dec(&head(&|w| gen_split(w, 1, 200)), 2) <= past as i64 {
+            eprintln!("CHECK FAIL c07 split corpus holds no string of more than 4096 words");
+            fails += 1;
+        }
+        // strjoin: a size past 1024 strings, and a result (the last field)
+        // past 4096 bytes.
+        let c = head(&|w| gen_strjoin(w, 1, 200));
+        let widest_result = c
+            .split(|&b| b == b'\n')
+            .filter_map(|l| l.rsplit(|&b| b == b'\t').next())
+            .map(|f| f.len() / 2)
+            .max()
+            .unwrap_or(0);
+        if largest_dec(&c, 0) <= 1024 || widest_result <= past {
+            eprintln!("CHECK FAIL c07 strjoin corpus holds no join of more than 1024 strings into more than 4096 bytes");
+            fails += 1;
+        }
     }
 
     // ---- the split corpora's large cases (c07 and c09) hold as many words as
     //      they say, each where many_words put it (finding 041).
-    for (n, sep) in [(300usize, &b" "[..]), (5000, &b",; "[..])] {
+    for (n, sep) in SPLIT_LARGE {
         let toks = o_split(&many_words(n, sep), sep);
         if toks.len() != n || toks.iter().enumerate().any(|(i, t)| *t != format!("w{}", i).into_bytes()) {
             eprintln!("CHECK FAIL c07 many_words({}) does not split into its {} words", n, n);
@@ -744,7 +650,7 @@ pub fn check() -> usize {
     }
 
     // ---- strjoin's large cases join as many strings as they say.
-    for (n, sep) in [(600usize, &b", "[..]), (1500, &b""[..])] {
+    for (n, sep) in JOIN_LARGE {
         let joined = o_strjoin(n, &many_strs(n), sep);
         let want: usize = many_strs(n).iter().map(|s| s.len()).sum::<usize>() + sep.len() * (n - 1);
         if many_strs(n).len() != n || joined.len() != want {
@@ -934,30 +840,8 @@ pub fn check() -> usize {
             }
         }
 
-        // split: tokens are non-empty, separator-free, and their concatenation
-        // (with a single sep between) is a subsequence-preserving reconstruction.
-        let sl = rng.below(16);
-        let s = body(&mut rng, sl, false);
-        let cs = if rng.below(2) == 0 {
-            let cl = rng.below(3);
-            body(&mut rng, cl, false)
-        } else {
-            vec![]
-        };
-        let toks = o_split(&s, &cs);
-        for t in &toks {
-            if t.is_empty() || t.iter().any(|c| cs.contains(c)) {
-                eprintln!("CHECK FAIL c07 split token invariant");
-                fails += 1;
-            }
-        }
-        // every non-separator byte of s appears across tokens in order.
-        let kept: Vec<u8> = s.iter().cloned().filter(|c| !cs.contains(c)).collect();
-        let joined: Vec<u8> = toks.concat();
-        if kept != joined {
-            eprintln!("CHECK FAIL c07 split reconstruction");
-            fails += 1;
-        }
+        // split: common::split_prop, one draw from this loop's rng.
+        fails += split_prop(&mut rng, "c07");
     }
 
 

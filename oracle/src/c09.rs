@@ -1,27 +1,27 @@
 //! c-09 references. c-09 is a libft rebuild of earlier modules, so its
 //! references mirror the documented contracts already covered elsewhere:
 //!   c09_split   ft_split(char *str, char *charset) -> char**  (== c-07 split)
-//!   c09_strcmp  ft_strcmp(char *s1, char *s2) -> int          (== c-03 strcmp)
-//!   c09_strcmp_sign  the same corpus, the value's sign alone (-1, 0 or 1):
-//!               ex00's plain corpus; the int is its `readings` target's (V206)
+//!
+//! ex00's ft_strcmp is C 03 ex00's function, so it has no arm here: its
+//! layers replay C 03's c03_strcmp_sign and c03_strcmp, one corpus for one
+//! function, capacity cases included (finding 041), as Piscine Reloaded
+//! ex17 does. This module's check() keeps its hand table of o_strcmp.
 //!
 //! Line formats (input fields, then reference output):
 //!   split   <hexStr>\t<hexCharset>\t<nonnull=1>\t<count>[\t<hexTok>...]
-//!   strcmp  <hexA>\t<hexB>\t<(uchar)a[k]-(uchar)b[k] at first diff>
 //!
 //! The `nonnull` field asserts ft_split returned a non-NULL array even when the
 //! result has 0 tokens — without it a NULL-returning stub matches every
 //! all-separator / empty case (both print count 0).
 
-use crate::common::{bench_lines, many_words, o_split, o_strcmp, rand_body, sink, string_pairs, to_hex, unhex, Rng};
+use crate::common::{
+    bench_lines, largest_dec, many_words, o_split, o_strcmp, rand_body, sink, split_draw, split_prop, to_hex, unhex, Rng,
+    SPLIT_LARGE,
+};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
 // ---------------------------------------------------------- generators
-fn body(rng: &mut Rng, len: usize, high: bool) -> Vec<u8> {
-    rand_body(rng, len, high)
-}
-
 fn emit_split<W: Write>(w: &mut W, s: &[u8], charset: &[u8]) {
     let toks = o_split(s, charset);
     // nonnull=1: ft_split must return a non-NULL array (even for 0 tokens).
@@ -32,9 +32,8 @@ fn emit_split<W: Write>(w: &mut W, s: &[u8], charset: &[u8]) {
     let _ = writeln!(w);
 }
 
-fn gen_split(seed: u64, count: usize) {
+fn gen_split<W: Write>(w: &mut W, seed: u64, count: usize) {
     let mut rng = Rng::new(seed);
-    let mut w = io::BufWriter::new(io::stdout());
     let mut done = 0usize;
 
     let fixed: Vec<(&[u8], &[u8])> = vec![
@@ -63,99 +62,27 @@ fn gen_split(seed: u64, count: usize) {
         if done >= count {
             break;
         }
-        emit_split(&mut w, s, cs);
+        emit_split(w, s, cs);
         done += 1;
     }
-    // Hundreds and thousands of words (common.rs, many_words; finding 041).
-    for (n, sep) in [(300usize, &b" "[..]), (5000, &b",; "[..])] {
+    for (n, sep) in SPLIT_LARGE {
         if done >= count {
             break;
         }
-        emit_split(&mut w, &many_words(n, sep), sep);
+        emit_split(w, &many_words(n, sep), sep);
         done += 1;
     }
-
-    let alpha: &[u8] = b"abcd ,;.";
     while done < count {
-        let mode = rng.below(3);
-        let (s, cs): (Vec<u8>, Vec<u8>) = match mode {
-            0 => {
-                // small alphabet that overlaps the charset -> real splits
-                let ls = rng.below(24);
-                let s: Vec<u8> = (0..ls).map(|_| alpha[rng.below(alpha.len())]).collect();
-                let seps: &[u8] = b" ,;.";
-                let lc = rng.below(4);
-                let cs: Vec<u8> = (0..lc).map(|_| seps[rng.below(seps.len())]).collect();
-                (s, cs)
-            }
-            1 => {
-                // full-range bytes, separators drawn from the string so some split
-                let high = rng.below(2) == 1;
-                let sl = rng.below(20);
-                let s = body(&mut rng, sl, high);
-                let lc = rng.below(4);
-                let cs = if lc == 0 || s.is_empty() {
-                    body(&mut rng, lc, high)
-                } else {
-                    (0..lc).map(|_| s[rng.below(s.len())]).collect()
-                };
-                (s, cs)
-            }
-            _ => {
-                // empty charset -> whole string is one token
-                let sl = rng.below(20);
-                let high = rng.below(2) == 1;
-                let s = body(&mut rng, sl, high);
-                (s, vec![])
-            }
-        };
-        emit_split(&mut w, &s, &cs);
+        let (s, cs) = split_draw(&mut rng);
+        emit_split(w, &s, &cs);
         done += 1;
-    }
-}
-
-fn gen_strcmp<W: Write>(w: &mut W, seed: u64, count: usize, sign: bool) {
-    let mut rng = Rng::new(seed);
-    let mut done = 0usize;
-    let shown = |v: i64| if sign { v.signum() } else { v };
-
-    // Module-pinned corners (string_pairs adds shorter variants; these fix the
-    // longer-string cases: differ only at a late byte, deep strict prefix, and
-    // high-vs-low signedness both orders).
-    let fixed: &[(&[u8], &[u8])] = &[
-        (b"", b""),
-        (b"", b"abcdef"),
-        (b"abcdef", b""),
-        (b"identical string here", b"identical string here"),
-        (b"prefix of a longer one", b"prefix of a longer one!"),
-        (b"differ at the last bytA", b"differ at the last bytB"),
-        (&[0x80], &[0x7f]),
-        (&[0x7f], &[0x80]),
-        (b"abc\xff", b"abc\x01"),
-        (b"abc\x01", b"abc\xff"),
-    ];
-    for (a, b) in fixed {
-        if done >= count {
-            break;
-        }
-        let _ = writeln!(w, "{}\t{}\t{}", to_hex(a), to_hex(b), shown(o_strcmp(a, b)));
-        done += 1;
-    }
-
-    if done < count {
-        let pairs = string_pairs(&mut rng, count - done);
-        for (a, b) in &pairs {
-            let _ = writeln!(w, "{}\t{}\t{}", to_hex(a), to_hex(b), shown(o_strcmp(a, b)));
-        }
     }
 }
 
 /// Dispatch: returns true if `name` belongs to this module.
 pub fn gen(name: &str, seed: u64, count: usize) -> bool {
     match name {
-        "c09_split" => gen_split(seed, count),
-        "c09_strcmp" => gen_strcmp(&mut io::BufWriter::new(io::stdout()), seed, count, false),
-        "c09_strcmp_sign" => gen_strcmp(&mut io::BufWriter::new(io::stdout()), seed, count, true),
+        "c09_split" => gen_split(&mut io::BufWriter::new(io::stdout()), seed, count),
         _ => return false,
     }
     true
@@ -164,6 +91,16 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
 /// Self-check: hand-verified cases + properties. Returns the failure count.
 pub fn check() -> usize {
     let mut fails = 0usize;
+
+    // ---- the split corpus holds a string of more than 4096 words (finding
+    //      041; c07's check holds SPLIT_LARGE to its words), read back from
+    //      what the generator writes.
+    let mut c = Vec::new();
+    gen_split(&mut c, 1, 200);
+    if largest_dec(&c, 3) <= 4096 {
+        eprintln!("CHECK FAIL c09 split corpus holds no string of more than 4096 words");
+        fails += 1;
+    }
 
     // ---- split hand cases.
     let sp: &[(&[u8], &[u8], &[&[u8]])] = &[
@@ -221,28 +158,8 @@ pub fn check() -> usize {
     // ---- property sweep.
     let mut rng = Rng::new(909);
     for _ in 0..20000 {
-        // split: tokens non-empty, separator-free, order-preserving reconstruction.
-        let sl = rng.below(16);
-        let s = body(&mut rng, sl, false);
-        let cs = if rng.below(2) == 0 {
-            let cl = rng.below(3);
-            body(&mut rng, cl, false)
-        } else {
-            vec![]
-        };
-        let toks = o_split(&s, &cs);
-        for t in &toks {
-            if t.is_empty() || t.iter().any(|c| cs.contains(c)) {
-                eprintln!("CHECK FAIL c09 split token invariant");
-                fails += 1;
-            }
-        }
-        let kept: Vec<u8> = s.iter().cloned().filter(|c| !cs.contains(c)).collect();
-        let joined: Vec<u8> = toks.concat();
-        if kept != joined {
-            eprintln!("CHECK FAIL c09 split reconstruction");
-            fails += 1;
-        }
+        // split: common::split_prop, one draw from this loop's rng.
+        fails += split_prop(&mut rng, "c09");
 
         // strcmp: reflexive == 0, antisymmetric in sign.
         let la = rng.below(8);
@@ -255,27 +172,16 @@ pub fn check() -> usize {
         }
     }
 
-    // ---- c09_strcmp_sign is c09_strcmp's corpus, the value's sign alone.
-    let (mut exact, mut sign) = (Vec::new(), Vec::new());
-    gen_strcmp(&mut exact, 1, 2000, false);
-    gen_strcmp(&mut sign, 1, 2000, true);
-    if !crate::c03::same_but_sign(&exact, &sign) {
-        eprintln!("CHECK FAIL c09 strcmp_sign is not strcmp's corpus with the sign alone");
-        fails += 1;
-    }
-
     fails
 }
 
 /// Replay a corpus and compute the reference answers; see common::bench_lines.
 pub fn bench(name: &str) -> bool {
-    if !matches!(name, "c09_split" | "c09_strcmp" | "c09_strcmp_sign") { return false; }
+    if name != "c09_split" { return false; }
     for l in bench_lines() {
         let f: Vec<&str> = l.split('\t').collect();
         if f.len() < 2 { continue; }
-        if name == "c09_split" { sink(o_split(&unhex(f[0]), &unhex(f[1]))); }
-        else if name == "c09_strcmp_sign" { sink(o_strcmp(&unhex(f[0]), &unhex(f[1])).signum()); }
-        else { sink(o_strcmp(&unhex(f[0]), &unhex(f[1]))); }
+        sink(o_split(&unhex(f[0]), &unhex(f[1])));
     }
     true
 }

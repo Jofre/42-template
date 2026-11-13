@@ -37,8 +37,7 @@
 //!           on stdout, says why on stderr (by line number, never the text),
 //!           and exits 1.
 
-use crate::common::Rng;
-use std::io::Write;
+use crate::common::{write_stdout, Rng};
 use std::process::exit;
 
 /// One line of a file: its bytes without the terminator, and whether a
@@ -115,8 +114,12 @@ fn command(s: &[u8]) -> Option<((usize, usize), u8, (usize, usize))> {
 /// Read the lines of one side of a hunk: `count` lines, each starting with
 /// `mark` (then one space, which an empty line may omit), each optionally
 /// followed by the no-newline marker. `at` is the index of the next diff line.
+///
+/// `count` comes from the diff's own command line, unbounded, so the room
+/// asked for up front is at most the diff lines left: each line read takes
+/// one, and a count past them ends in the error below, not in the allocator.
 fn side(diff: &[Line], at: &mut usize, mark: u8, count: usize) -> Result<Vec<Line>, String> {
-    let mut got = Vec::with_capacity(count);
+    let mut got = Vec::with_capacity(count.min(diff.len().saturating_sub(*at)));
     for _ in 0..count {
         let d = diff.get(*at).ok_or_else(|| {
             format!(
@@ -238,8 +241,7 @@ pub fn diff_apply_cmd(old_path: &str, diff_path: &str) -> ! {
     let (old, diff) = (read(old_path), read(diff_path));
     match apply(&split_lines(&old), &split_lines(&diff)) {
         Ok(lines) => {
-            let mut so = std::io::stdout();
-            if so.write_all(&join_lines(&lines)).and_then(|_| so.flush()).is_err() {
+            if write_stdout(&join_lines(&lines)).is_err() {
                 exit(1);
             }
             exit(0);
@@ -410,6 +412,10 @@ pub fn check() -> usize {
         (b"a\n", b"0d0\n"),
         // a descending range
         (b"a\nb\n", b"2,1d0\n< b\n< a\n"),
+        // a new side announced longer than the whole diff: the reader runs
+        // out of lines, and it must say so rather than ask for room for them
+        (b"a\n", b"0a1,18446744073709551615\n> x\n"),
+        (b"a\n", b"1a2,99999999999999\n> x\n"),
     ];
     for (i, (old, diff)) in bad.iter().enumerate() {
         if run(old, diff).is_ok() {

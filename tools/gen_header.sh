@@ -55,7 +55,7 @@ require awk basename cat date dirname grep mktemp rm sed tr wc
 ART_ROWS=9
 ART_COLS=33
 
-ROOT="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+ROOT="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
 ART_FILE="${HEADER_ART:-$ROOT/tools/header_art.txt}"
 
 FN="${1:-}"
@@ -119,11 +119,12 @@ art_source() {
 }
 
 # Normalise to exactly ART_ROWS lines, each exactly ART_COLS wide.
-ART_TMP="$(mktemp)"
+ART_TMP="$(mktemp)" || { echo "gen_header.sh: cannot create a scratch file" >&2; exit 2; }
 trap 'rm -f "$ART_TMP"' EXIT
 # dash runs no EXIT trap when a signal ends it: each signal trap exits.
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 art_source | awk -v rows="$ART_ROWS" -v cols="$ART_COLS" '
 	NR <= rows { printf "%-*.*s\n", cols, cols, $0; c++ }
 	END { while (c < rows) { printf "%-*.*s\n", cols, cols, ""; c++ } }

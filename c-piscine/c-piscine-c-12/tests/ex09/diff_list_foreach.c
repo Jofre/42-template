@@ -80,8 +80,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		tab = dio_csv_ints(f[0], &n);
 		begin = build_int(tab, n);
 		ft_list_foreach(begin, &f_x3);

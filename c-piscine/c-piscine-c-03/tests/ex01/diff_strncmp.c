@@ -23,8 +23,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 4) < 3)
-			continue ;
+		dio_fields(line, f, 4, 3);
 		a = dio_unhex(f[0], NULL, 0);
 		b = dio_unhex(f[1], NULL, 0);
 		n = (unsigned int)strtoul(f[2], NULL, 10);

@@ -44,7 +44,7 @@
 #   --run-as, --cwd-file  the case's run folder ("cwd_files"): the model runs
 #               from a folder holding a copy of it as NAME and each SRC as
 #               DEST (rl_rundir), as the program does -- c_program hands
-#               every runner the same flags (defs.bzl's _case_run)
+#               every runner the same flags (defs_checks.bzl's _case_run)
 #   --exit      the status the case names ("exit"); without it, none is compared
 #   --absent    a name the case hands over as one that will not open
 #               ("missing_file"): if something by that name is where this
@@ -73,7 +73,7 @@ require awk chmod cmp mktemp rm
 RL_NAME=model_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "model_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "model_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 
@@ -94,23 +94,21 @@ TABLE=""
 SCENARIOS=""
 CASE_OPT=""
 
-need() { [ "$2" -ge 2 ] || { echo "model_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
-		--expected) need "$1" "$#"; EXPECTED="$2"; shift 2 ;;
-		--stream) need "$1" "$#"; STREAM="$2"; CASE_OPT=$1; shift 2 ;;
-		--stdin) need "$1" "$#"; STDIN_FILE="$2"; CASE_OPT=$1; shift 2 ;;
-		--exit) need "$1" "$#"; EXPECT_EXIT="$2"; CASE_OPT=$1; shift 2 ;;
-		--absent) need "$1" "$#"; ABSENT="$ABSENT
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--expected) rl_need "$1" "$#"; EXPECTED="$2"; shift 2 ;;
+		--stream) rl_need "$1" "$#"; STREAM="$2"; CASE_OPT=$1; shift 2 ;;
+		--stdin) rl_need "$1" "$#"; STDIN_FILE="$2"; CASE_OPT=$1; shift 2 ;;
+		--exit) rl_need "$1" "$#"; EXPECT_EXIT="$2"; CASE_OPT=$1; shift 2 ;;
+		--absent) rl_need "$1" "$#"; ABSENT="$ABSENT
 $2"; CASE_OPT=$1; shift 2 ;;
-		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; CASE_OPT=$1; shift 2 ;;
-		--run-as) need "$1" "$#"; RUN_AS="$2"; CASE_OPT=$1; shift 2 ;;
-		--cwd-file) need "$1" "$#"; CWD_FILES="$CWD_FILES
+		--argv-file) rl_need "$1" "$#"; ARGV_FILE="$2"; CASE_OPT=$1; shift 2 ;;
+		--run-as) rl_need "$1" "$#"; RUN_AS="$2"; CASE_OPT=$1; shift 2 ;;
+		--cwd-file) rl_need "$1" "$#"; CWD_FILES="$CWD_FILES
 $2"; CASE_OPT=$1; shift 2 ;;
-		--argv-table) need "$1" "$#"; TABLE="$2"; shift 2 ;;
-		--scenarios) need "$1" "$#"; SCENARIOS="$2"; shift 2 ;;
+		--argv-table) rl_need "$1" "$#"; TABLE="$2"; shift 2 ;;
+		--scenarios) rl_need "$1" "$#"; SCENARIOS="$2"; shift 2 ;;
 		--) shift; break ;;
 		*) echo "model_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -157,6 +155,16 @@ fi
 
 WORK=$(mktemp -d) || exit 2
 rl_traps 'rm -rf "$WORK"'
+
+# both FILE MODEL -- the file's text and the model's, each on one line through
+# the one renderer, kept in $WORK/shown: the key under them (rl_vis_legend)
+# names the marks these lines showed, and only those.
+both() {
+	_bf=$(rl_vis lines < "$1")
+	_bm=$(rl_vis lines < "$2")
+	printf '    the file:   %s\n    the model:  %s\n' "$_bf" "$_bm"
+	printf '%s\n%s\n' "$_bf" "$_bm" >> "$WORK/shown"
+}
 
 # AN ARGUMENT TABLE: the model behind a small script, which argv_table.sh
 # --emit runs as the program, once per row, from here. The script notes a
@@ -210,9 +218,9 @@ if [ -n "$TABLE" ]; then
 	while IFS= read -r _row; do
 		_k=$((_k + 1))
 		echo "  row $_row:"
-		printf '    the file:   '; rl_vis lines < "$WORK/e$_k"; printf '\n'
-		printf '    the model:  '; rl_vis lines < "$WORK/g$_k"; printf '\n'
+		both "$WORK/e$_k" "$WORK/g$_k"
 	done < "$WORK/rows"
+	rl_vis_legend "$WORK/shown" "    "
 	[ "$_k" -gt 0 ] || echo "  Every row reads the same, and the files still differ: in how the last row ends."
 	echo ""
 	echo "  The table was emitted from a reference program, and one of the two has"
@@ -288,8 +296,8 @@ else
 fi
 if [ "$SAME" = 0 ]; then
 	echo "  $WHICH differs from $_name:"
-	printf '    the file:   '; rl_vis lines < "$EXPECTED"; printf '\n'
-	printf '    the model:  '; rl_vis lines < "$GOT"; printf '\n'
+	both "$EXPECTED" "$GOT"
+	rl_vis_legend "$WORK/shown" "    "
 fi
 if [ "$STATUS_OK" = 0 ]; then
 	echo "  the case names status $EXPECT_EXIT (\"exit\"); the model returned $RC."

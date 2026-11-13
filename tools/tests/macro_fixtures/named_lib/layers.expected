@@ -1,0 +1,53 @@
+basic suite lvl_basic
+complete suite lvl_complete
+libtoy suite unit=libtoy
+libtoy_build make_test.sh @basic unit=libtoy by:defense kind:library
+libtoy_build_exit make_test.sh @robust unit=libtoy by:defense kind:library
+libtoy_build_rules make_test.sh @robust unit=libtoy by:defense kind:library
+libtoy_compile_clang compile_check.sh @basic make-includes unit=libtoy by:defense kind:library
+libtoy_compile_gcc compile_check.sh @basic make-includes unit=libtoy by:defense kind:library
+libtoy_declares_output prototype_check.sh @strict make-includes unit=libtoy by:defense kind:library
+libtoy_files files_test.sh @basic unit=libtoy by:defense kind:library
+libtoy_forbidden forbidden_symbols.sh @basic make-includes unit=libtoy by:defense kind:library
+libtoy_forbidden_functions forbidden_symbols.sh @basic make-includes unit=libtoy by:defense kind:library
+libtoy_forbidden_through forbidden_symbols.sh @strict make-includes unit=libtoy by:defense kind:library
+libtoy_globals forbidden_symbols.sh @basic make-includes unit=libtoy by:defense kind:library
+libtoy_norm norminette_test.sh @basic unit=libtoy by:defense kind:library
+libtoy_norm_header header_norm.sh @strict unit=libtoy by:defense kind:library
+libtoy_norm_notice norminette_test.sh @strict unit=libtoy by:defense kind:library
+libtoy_prototype prototype_check.sh @basic make-includes unit=libtoy by:defense kind:library
+libtoy_prototype_names prototype_check.sh @strict make-includes unit=libtoy by:defense kind:library
+libtoy_prototype_restrict prototype_check.sh @basic make-includes unit=libtoy by:defense kind:library
+libtoy_prototype_restrict_all prototype_check.sh @strict make-includes unit=libtoy by:defense kind:library
+libtoy_symbols symbols_test.sh @strict make-includes unit=libtoy by:defense kind:library
+robust suite lvl_robust
+strict suite lvl_strict
+toy_cat suite unit=toy_cat
+toy_cat_allocfail allocfail_check.sh @basic gated gate-label:toy_cat_output make-includes unit=toy_cat by:defense kind:function
+toy_cat_allocfail_leaks allocfail_check.sh @robust gated gate-label:toy_cat_output make-includes unit=toy_cat by:defense kind:function
+toy_cat_diff rust_diff.sh @strict fn:c05_iter_factorial count:40 gated gate-label:toy_cat_output unit=toy_cat by:defense kind:function
+toy_cat_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 gated gate-label:toy_cat_output unit=toy_cat by:defense kind:function
+toy_cat_ilp32 ilp32_test.sh @complete make-includes unit=toy_cat by:defense kind:function
+toy_cat_open_output diff_output.sh @strict raised:strict unit=toy_cat by:defense kind:function
+toy_cat_output diff_output.sh @basic suite:toy_cat unit=toy_cat by:defense kind:function
+toy_cat_perf perf_test.sh @complete fn:c05_iter_factorial count:40 gated gate-label:toy_cat_output unit=toy_cat by:defense kind:function
+toy_cat_readings rust_diff.sh @robust fn:c05_rec_factorial count:50 gated gate-label:toy_cat_output raised:robust unit=toy_cat by:defense kind:function
+toy_cat_readings_diff_asan rust_diff.sh @robust fn:c05_rec_factorial count:30 gated gate-label:toy_cat_output unit=toy_cat by:defense kind:function
+toy_cat_valgrind valgrind_test.sh @strict gated gate-label:toy_cat_output unit=toy_cat by:defense kind:function
+toy_dup suite unit=toy_dup
+toy_dup_diff rust_diff.sh @strict fn:c05_iter_factorial count:40 gated gate-label:toy_dup_output unit=toy_dup by:defense kind:function
+toy_dup_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 gated gate-label:toy_dup_output unit=toy_dup by:defense kind:function
+toy_dup_ilp32 ilp32_test.sh @complete clues make-includes unit=toy_dup by:defense kind:function
+toy_dup_output diff_output.sh @basic clues suite:toy_dup unit=toy_dup by:defense kind:function
+toy_dup_readings rust_diff.sh @strict fn:c05_rec_factorial count:50 bin::toy_dup_readingsbin built:diff_toy_dup_readings.c reader:diff_toy_dup_readings.c gated gate-label:toy_dup_output unit=toy_dup by:defense kind:function
+toy_dup_valgrind valgrind_test.sh @strict clues gated gate-label:toy_dup_output unit=toy_dup by:defense kind:function
+toy_len suite unit=toy_len
+toy_len_asan asan_check.sh @robust make-includes unit=toy_len by:defense kind:function
+toy_len_cycles cycles_check.sh @complete fn:c05_iter_factorial count:40 gated gate-label:toy_len_output make-includes unit=toy_len by:defense kind:function
+toy_len_diff rust_diff.sh @strict fn:c05_iter_factorial count:40 gated gate-label:toy_len_output unit=toy_len by:defense kind:function
+toy_len_diff_asan rust_diff.sh @robust fn:c05_iter_factorial count:30 gated gate-label:toy_len_output unit=toy_len by:defense kind:function
+toy_len_ilp32 ilp32_test.sh @complete clues make-includes unit=toy_len by:defense kind:function
+toy_len_memcheck valgrind_test.sh @strict gated gate-label:toy_len_output unit=toy_len by:defense kind:function
+toy_len_output diff_output.sh @basic clues suite:toy_len unit=toy_len by:defense kind:function
+toy_len_perf perf_test.sh @complete fn:c05_iter_factorial count:40 gated gate-label:toy_len_output unit=toy_len by:defense kind:function
+toy_len_probe_memcheck valgrind_test.sh @strict unit=toy_len by:defense kind:function

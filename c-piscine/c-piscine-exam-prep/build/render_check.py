@@ -20,7 +20,10 @@ WeasyPrint renders without a word of warning:
     WeasyPrint 54 printed twice at a line break.
 
 Prints each fault with its page and its words and exits 1 if there is any;
-exits 2 on a wrong call or on input that holds no words at all.
+exits 2 on a wrong call, on input that holds no words at all, and on
+anything else that stops it (a SOURCE.html it cannot read, a number that is
+none): never 1, which tools/exam_guide.sh reads as a fault found, as Python
+ends an exception nobody caught.
 """
 import html
 import re
@@ -85,6 +88,15 @@ def main():
         print('usage: pdftotext -bbox-layout FILE.pdf - | render_check.py SOURCE.html',
               file=sys.stderr)
         sys.exit(2)
+    # A fault found leaves by sys.exit, which this lets through.
+    try:
+        check(sys.argv[1])
+    except Exception as e:
+        print('render_check.py: %s' % e, file=sys.stderr)
+        sys.exit(2)
+
+
+def check(source_path):
     pages = []
     for width, body in PAGE.findall(sys.stdin.read()):
         lines = [[(float(a), float(b), float(c), float(d), html.unescape(t))
@@ -97,7 +109,7 @@ def main():
               file=sys.stderr)
         sys.exit(2)
     left = min(w[0] for w in words)
-    source = source_text(sys.argv[1])
+    source = source_text(source_path)
     faults = []
     for n, (width, lines) in enumerate(pages, 1):
         overlaps(n, width, left, [w for line in lines for w in line], faults)

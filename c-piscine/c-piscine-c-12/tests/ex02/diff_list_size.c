@@ -49,8 +49,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
+		dio_split(line, f, 2);
 		tab = dio_csv_ints(f[0], &n);
 		begin = build_ip(tab, n);
 		printf("%s\t%d\n", f[0], ft_list_size(begin));

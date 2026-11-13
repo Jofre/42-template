@@ -18,8 +18,9 @@
  * ck_run, only when the exercise's BUILD call declares a redirect (defs.bzl's
  * shell_exercise, `redirect`). Every call that opens a file by name --
  * open, open64, openat, openat64, their _FORTIFY_SOURCE forms, fopen,
- * fopen64 and freopen -- is taken here first: a name that is exactly
- * $CK_REDIRECT_FROM becomes $CK_REDIRECT_TO, and the real call does the rest.
+ * fopen64, freopen and freopen64 -- is taken here first: a name that is
+ * exactly $CK_REDIRECT_FROM becomes $CK_REDIRECT_TO, and the real call does
+ * the rest.
  * Any other name, and every call when either variable is unset, goes through
  * untouched. That covers any program that opens the file by that name, and
  * the shell's own `<`, because each of them opens the file itself.
@@ -77,125 +78,98 @@ static mode_t mode_arg(int flags, va_list ap)
 	return 0;
 }
 
-int open(const char *path, int flags, ...)
-{
-	static t_open real;
-	va_list ap;
-	mode_t mode;
+/* ONE WRAPPER A SHAPE. Each symbol taken here is one of six shapes, and a
+ * pair such as open and open64 differs only in its name, so each shape is
+ * written once, as a macro that defines the function `name`: the real one,
+ * looked up by that name on the first call, is handed the target's name and
+ * everything else as it came. A symbol taken later is one more line below. */
+#define OPEN_LIKE(name) \
+	int name(const char *path, int flags, ...) \
+	{ \
+		static t_open real; \
+		va_list ap; \
+		mode_t mode; \
+\
+		if (real == NULL) \
+			real = (t_open)next(#name); \
+		va_start(ap, flags); \
+		mode = mode_arg(flags, ap); \
+		va_end(ap); \
+		return real(target(path), flags, mode); \
+	}
 
-	if (real == NULL)
-		real = (t_open)next("open");
-	va_start(ap, flags);
-	mode = mode_arg(flags, ap);
-	va_end(ap);
-	return real(target(path), flags, mode);
-}
+#define OPENAT_LIKE(name) \
+	int name(int dir, const char *path, int flags, ...) \
+	{ \
+		static t_openat real; \
+		va_list ap; \
+		mode_t mode; \
+\
+		if (real == NULL) \
+			real = (t_openat)next(#name); \
+		va_start(ap, flags); \
+		mode = mode_arg(flags, ap); \
+		va_end(ap); \
+		return real(dir, target(path), flags, mode); \
+	}
 
-int open64(const char *path, int flags, ...)
-{
-	static t_open real;
-	va_list ap;
-	mode_t mode;
+#define OPEN2_LIKE(name) \
+	int name(const char *path, int flags) \
+	{ \
+		static t_open2 real; \
+\
+		if (real == NULL) \
+			real = (t_open2)next(#name); \
+		return real(target(path), flags); \
+	}
 
-	if (real == NULL)
-		real = (t_open)next("open64");
-	va_start(ap, flags);
-	mode = mode_arg(flags, ap);
-	va_end(ap);
-	return real(target(path), flags, mode);
-}
+#define OPENAT2_LIKE(name) \
+	int name(int dir, const char *path, int flags) \
+	{ \
+		static t_openat2 real; \
+\
+		if (real == NULL) \
+			real = (t_openat2)next(#name); \
+		return real(dir, target(path), flags); \
+	}
 
-int openat(int dir, const char *path, int flags, ...)
-{
-	static t_openat real;
-	va_list ap;
-	mode_t mode;
+#define FOPEN_LIKE(name) \
+	FILE *name(const char *path, const char *mode) \
+	{ \
+		static t_fopen real; \
+\
+		if (real == NULL) \
+			real = (t_fopen)next(#name); \
+		return real(target(path), mode); \
+	}
 
-	if (real == NULL)
-		real = (t_openat)next("openat");
-	va_start(ap, flags);
-	mode = mode_arg(flags, ap);
-	va_end(ap);
-	return real(dir, target(path), flags, mode);
-}
+#define FREOPEN_LIKE(name) \
+	FILE *name(const char *path, const char *mode, FILE *stream) \
+	{ \
+		static t_freopen real; \
+\
+		if (real == NULL) \
+			real = (t_freopen)next(#name); \
+		return real(target(path), mode, stream); \
+	}
 
-int openat64(int dir, const char *path, int flags, ...)
-{
-	static t_openat real;
-	va_list ap;
-	mode_t mode;
-
-	if (real == NULL)
-		real = (t_openat)next("openat64");
-	va_start(ap, flags);
-	mode = mode_arg(flags, ap);
-	va_end(ap);
-	return real(dir, target(path), flags, mode);
-}
+OPEN_LIKE(open)
+OPEN_LIKE(open64)
+OPENAT_LIKE(openat)
+OPENAT_LIKE(openat64)
 
 /* What a program built with _FORTIFY_SOURCE calls for an open() whose flags
  * the compiler could not see. */
-int __open_2(const char *path, int flags)
-{
-	static t_open2 real;
-
-	if (real == NULL)
-		real = (t_open2)next("__open_2");
-	return real(target(path), flags);
-}
-
-int __open64_2(const char *path, int flags)
-{
-	static t_open2 real;
-
-	if (real == NULL)
-		real = (t_open2)next("__open64_2");
-	return real(target(path), flags);
-}
-
-int __openat_2(int dir, const char *path, int flags)
-{
-	static t_openat2 real;
-
-	if (real == NULL)
-		real = (t_openat2)next("__openat_2");
-	return real(dir, target(path), flags);
-}
-
-int __openat64_2(int dir, const char *path, int flags)
-{
-	static t_openat2 real;
-
-	if (real == NULL)
-		real = (t_openat2)next("__openat64_2");
-	return real(dir, target(path), flags);
-}
+OPEN2_LIKE(__open_2)
+OPEN2_LIKE(__open64_2)
+OPENAT2_LIKE(__openat_2)
+OPENAT2_LIKE(__openat64_2)
 
 /* stdio opens through libc's internal open, which no preload reaches, so
- * fopen is taken by name too. */
-FILE *fopen(const char *path, const char *mode)
-{
-	static t_fopen real;
-
-	if (real == NULL)
-		real = (t_fopen)next("fopen");
-	return real(target(path), mode);
-}
-
-FILE *fopen64(const char *path, const char *mode)
-{
-	static t_fopen real;
-
-	if (real == NULL)
-		real = (t_fopen)next("fopen64");
-	return real(target(path), mode);
-}
-
-FILE *freopen(const char *path, const char *mode, FILE *stream)
-{
-	static t_freopen real;
-
-	if (real == NULL)
-		real = (t_freopen)next("freopen");
-	return real(target(path), mode, stream);
-}
+ * fopen is taken by name too. A program built with _FILE_OFFSET_BITS=64
+ * calls fopen64 and freopen64 where its source says fopen and freopen
+ * (stdio.h renames them). */
+FOPEN_LIKE(fopen)
+FOPEN_LIKE(fopen64)
+FREOPEN_LIKE(freopen)
+FREOPEN_LIKE(freopen64)

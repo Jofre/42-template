@@ -1,0 +1,29 @@
+base suite unit=base
+base_compile_clang compile_check.sh @basic unit=base by:both kind:part
+base_compile_gcc compile_check.sh @basic unit=base by:both kind:part
+base_files files_test.sh @basic sibling:toy_tally_bonus.c sibling:toy_tally_bonus.h extras-elsewhere unit=base by:both kind:part
+base_ilp32 ilp32_test.sh @complete unit=base by:both kind:part
+base_memcheck valgrind_test.sh @strict gated gate-label:base_output unit=base by:both kind:part
+base_norm norminette_test.sh @basic unit=base by:both kind:part
+base_norm_header header_norm.sh @strict unit=base by:both kind:part
+base_norm_notice norminette_test.sh @strict unit=base by:both kind:part
+base_output diff_output.sh @basic suite:base unit=base by:both kind:part
+base_prototype prototype_check.sh @basic unit=base by:both kind:part
+base_symbols symbols_test.sh @strict unit=base by:both kind:part
+basic suite lvl_basic
+bonus suite unit=bonus
+bonus_compile_clang compile_check.sh @basic unit=bonus by:both kind:part
+bonus_compile_gcc compile_check.sh @basic unit=bonus by:both kind:part
+bonus_files files_test.sh @basic sibling:toy_tally.c sibling:toy_tally.h extras-elsewhere unit=bonus by:both kind:part
+bonus_ilp32 ilp32_test.sh @complete unit=bonus by:both kind:part
+bonus_memcheck valgrind_test.sh @strict gated gate-label:bonus_output unit=bonus by:both kind:part
+bonus_norm norminette_test.sh @basic unit=bonus by:both kind:part
+bonus_norm_header header_norm.sh @strict unit=bonus by:both kind:part
+bonus_norm_notice norminette_test.sh @strict unit=bonus by:both kind:part
+bonus_output diff_output.sh @basic suite:bonus unit=bonus by:both kind:part
+bonus_prototype prototype_check.sh @basic unit=bonus by:both kind:part
+bonus_symbols symbols_test.sh @strict unit=bonus by:both kind:part
+complete suite lvl_complete
+deliverable_files files_test.sh @basic sibling:toy_tally.c sibling:toy_tally.h sibling:toy_tally_bonus.c sibling:toy_tally_bonus.h union by:both kind:project
+robust suite lvl_robust
+strict suite lvl_strict

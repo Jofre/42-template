@@ -12,7 +12,8 @@
 # Usage:
 #   asan_check.sh --cc PATH [--cc-lib FILE]... [--cc-under FILE] \
 #                 --ld PATH --ld-lib FILE... \
-#                 --probe <probe.c> --src <student.c> [--src ...] \
+#                 --probe <probe.c> [--probe-src FILE] \
+#                 --src <student.c> [--src ...] \
 #                 [--hdr FILE]... [--inc DIR]... [--inc-file FILE]
 #                 [--lib FILE]... [--note TEXT]
 #                 [--symbolizer PATH --symbolizer-lib PATH]
@@ -24,6 +25,11 @@
 #          this layer compiles under -Werror, and another compiler's warnings
 #          made the same code red on one machine and green on campus (TO
 #          VERIFY V38).
+#   --probe-src  the probe's source again, read for its header comment: the
+#          first comment of its first 20 lines is printed to explain an
+#          access out of bounds, unless --note says otherwise (the failure
+#          block at the bottom). tools/defs_diff.bzl passes the same file as
+#          --probe.
 #   --hdr  a header the probe/source need (e.g. ft_stock_str.h); not compiled,
 #          its directory is added to -I (mirrors compile_check.sh).
 #   --inc-file  the -I directories a Makefile's recipes pass, one per line
@@ -62,7 +68,7 @@ require awk dirname grep mktemp rm sed
 RL_NAME=asan_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "asan_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "asan_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -82,28 +88,23 @@ PROBE_SRC=""
 SYMBOLIZER=""
 SYMBOLIZER_LIB=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "asan_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--probe) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--src)   need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--lib)   need "$1" "$#"; rl_list_add LIBS "$2"; shift 2 ;;
-		--hdr)   need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--inc)   need "$1" "$#"; rl_list_add INCS "-I$2"; shift 2 ;;
-		--inc-file) need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
-		--note)  need "$1" "$#"; NOTE="$2"; shift 2 ;;
-		--probe-src) need "$1" "$#"; PROBE_SRC="$2"; shift 2 ;;
-		--symbolizer) need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
-		--symbolizer-lib) need "$1" "$#"; SYMBOLIZER_LIB="$2"; shift 2 ;;
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
-		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
-		--cc-under) need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
-		--ld) need "$1" "$#"; LD="$2"; shift 2 ;;
-		--ld-lib) need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
+		--probe) rl_need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--src)   rl_need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--lib)   rl_need "$1" "$#"; rl_list_add LIBS "$2"; shift 2 ;;
+		--hdr)   rl_need "$1" "$#"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--inc)   rl_need "$1" "$#"; rl_list_add INCS "-I$2"; shift 2 ;;
+		--inc-file) rl_need "$1" "$#"; rl_inc_file INCS "$2"; shift 2 ;;
+		--note)  rl_need "$1" "$#"; NOTE="$2"; shift 2 ;;
+		--probe-src) rl_need "$1" "$#"; PROBE_SRC="$2"; shift 2 ;;
+		--symbolizer) rl_need "$1" "$#"; SYMBOLIZER="$2"; shift 2 ;;
+		--symbolizer-lib) rl_need "$1" "$#"; SYMBOLIZER_LIB="$2"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--cc-under) rl_need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
+		--ld) rl_need "$1" "$#"; LD="$2"; shift 2 ;;
+		--ld-lib) rl_need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
 		*) echo "asan_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -125,15 +126,16 @@ fi
 # of clang-12, clang, gcc-10, gcc and cc on PATH, and a variable set and
 # never read is accepted by clang-12 and refused by gcc-10 (TO VERIFY V38,
 # reproduced). Bazel hands over the campus's clang-12 and binutils 2.38, as
-# it does to every other layer that compiles, and tools/defs.bzl refuses a
-# test of this runner that hands over neither (pinned_cc_problem). A missing
+# it does to every other layer that compiles, and _test() in
+# tools/defs_test.bzl refuses a test of this runner that hands over neither
+# (pinned_cc_problem). A missing
 # one is the harness's fault, so exit 2 -- never a SKIP, which would read as
 # a pass of the one layer that sees this bug class.
 [ -n "$CC" ] || { echo "asan_check.sh: --cc is required (the pinned clang-12)" >&2; exit 2; }
 [ -n "$LD" ] || { echo "asan_check.sh: --ld is required (the pinned ld.bfd)" >&2; exit 2; }
 rl_cc_pin "$CC" "$CC_LIBS" "$CC_UNDER"
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$WORK"'
 
 # The sanitizers' options -- detect_leaks=0 among them, because a leak is the
@@ -166,7 +168,12 @@ if ! rl_tmo 30; then
 	rl_overrun "the probe"
 	exit 1
 fi
-rl_run "$WORK/probe" > "$WORK/out" 2>&1
+# What it writes is bounded at the source (`ulimit -f`, 512-byte blocks:
+# 4 MiB, argv_table.sh's floor), so a probed function printing without end
+# is stopped by SIGXFSZ (runaway) instead of filling the test's scratch
+# folder until its time runs out, and then being called too slow.
+AS_BLOCKS=$(( 4194304 / 512 + 2 ))
+(ulimit -f "$AS_BLOCKS" 2> /dev/null; rl_run "$WORK/probe") > "$WORK/out" 2>&1
 PRC=$?
 rl_classify "$PRC"
 if [ "$RL_CAUSE" = ok ]; then
@@ -181,15 +188,41 @@ if [ "$RL_CAUSE" = noexec ]; then
 	echo "asan_check.sh: the probe $RL_WHY" >&2
 	exit 2
 fi
+# Stopped from outside: nothing about the code it called is known (rl_unjudged).
+rl_unjudged "the probe"
+if [ "$RL_CAUSE" = runaway ]; then
+	echo "asan_check: FAIL — the probe $RL_WHY."
+	echo "            Output without end is a loop whose exit condition is never met."
+	echo "---------------- what the probe printed first ----------------"
+	rl_excerpt "$WORK/out" 20 probe-output.txt ""
+	exit 1
+fi
+
+# A PROBE THAT CANNOT GO ON. A probe whose own setup fails (a scratch file
+# it cannot make under TEST_TMPDIR, a block valgrind's allocator would not
+# give) prints one line starting with "probe: HARNESS ERROR: " and the reason,
+# then exits 2. That is the harness's fault, exit 2, and never the FAIL below:
+# a bare status 2 cannot be told from the student's own exit(2), so only the
+# line marks it. The probes that have such a step print it
+# (cursus/Milestone_0/Libft/tests/ft_putstr_fd/mem_ft_putstr_fd.c).
+if [ "$RL_CAUSE" = exit ] && grep -q '^probe: HARNESS ERROR: ' "$WORK/out"; then
+	echo "asan_check.sh: the probe could not run its own checks:" >&2
+	sed -n 's/^probe: HARNESS ERROR: //p' "$WORK/out" > "$WORK/probe-error"
+	rl_excerpt "$WORK/probe-error" 5 probe-error.txt "  " >&2
+	echo "  That is the harness, not the function it calls." >&2
+	exit 2
+fi
 
 # HOW IT ENDED, asked of the sanitizers' report (rl_sanitized, V50). Every
 # ending but OK, a timeout and noexec used to read "the function accessed
-# memory out of bounds", above a report that was not there (V70). With no
+# memory out of bounds", above a report that was not there (V70); output
+# without end and a stop from outside have their own words above. With no
 # report, the header says how the probe ended and that neither sanitizer
 # reported anything, and shows what the probe printed. It is a red, not the
 # harness's exit 2: the probes' own NULL checks (C 07 ex00's mem_strdup.c,
 # C 12 ex15's exit(2)) cannot be what ended it, because under the sanitizer a
-# failed malloc stops the run with a report and never returns NULL. So what
+# failed malloc stops the run with a report and never returns NULL, and a
+# probe's other failures say so (A PROBE THAT CANNOT GO ON, above). So what
 # ends a run this way is the code the probe called: an exit, an abort, or a
 # signal raised with no report.
 if ! rl_sanitized "$WORK/out"; then

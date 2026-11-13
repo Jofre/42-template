@@ -7,6 +7,8 @@
 #include "diffio.h"
 #include "ft_btree.h"
 
+void	btree_apply_suffix(t_btree *root, void (*applyf)(void *));
+
 static int	g_first;
 
 static void	apply_print(void *item)
@@ -70,8 +72,7 @@ int	main(void)
 	cap = 0;
 	while (dio_getline(&line, &cap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		printf("%s\t%s\t", f[0], f[1]);
 		items = dio_hex_list(f[0], &n);
 		pool = calloc(n, sizeof(t_btree));

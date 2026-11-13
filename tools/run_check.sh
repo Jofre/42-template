@@ -61,7 +61,7 @@ require basename mktemp rm tr wc
 RL_NAME=run_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "run_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "run_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 
@@ -78,28 +78,23 @@ GATE_DIFFER=""
 GATE_BIN=""
 GATE_EXPECTED=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "run_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--bin) need "$1" "$#"; BIN="$2"; shift 2 ;;
-		--min-bytes) need "$1" "$#"; MIN="$2"; shift 2 ;;
-		--max-bytes) need "$1" "$#"; MAX="$2"; shift 2 ;;
-		--exit) need "$1" "$#"; WANT_EXIT="$2"; shift 2 ;;
-		--note-exit) need "$1" "$#"; NOTE_EXIT="$2"; shift 2 ;;
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
+		--min-bytes) rl_need "$1" "$#"; MIN="$2"; shift 2 ;;
+		--max-bytes) rl_need "$1" "$#"; MAX="$2"; shift 2 ;;
+		--exit) rl_need "$1" "$#"; WANT_EXIT="$2"; shift 2 ;;
+		--note-exit) rl_need "$1" "$#"; NOTE_EXIT="$2"; shift 2 ;;
 		--exit-only) EXIT_ONLY=1; shift ;;
-		--exit-source) need "$1" "$#"; EXIT_SOURCE="$2"; shift 2 ;;
-		--timeout) need "$1" "$#"; TIMEOUT="$2"; shift 2 ;;
-		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add RL_GATE_PASS --stdin "$2"; shift 2 ;;
+		--exit-source) rl_need "$1" "$#"; EXIT_SOURCE="$2"; shift 2 ;;
+		--timeout) rl_need "$1" "$#"; TIMEOUT="$2"; shift 2 ;;
+		--label) rl_need "$1" "$#"; LABEL="$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-stdin) rl_need "$1" "$#"; rl_list_add RL_GATE_PASS --stdin "$2"; shift 2 ;;
 		--gate-labeled) rl_list_add RL_GATE_PASS --labeled; shift ;;
-		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
 		--) shift; break ;;
 		*) echo "run_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
@@ -139,14 +134,9 @@ fi
 # status arbitrary, and the report would be a table of wrong answers under
 # this exercise's hints, none of which is about a build. Say what the build
 # said instead, whole, and fail.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "run_check.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check run_check "$BIN" fail "$LABEL"
 
 # THE GATE, after the stand-in check: a program that did not build is red
@@ -159,8 +149,8 @@ RL_GATE_WHY="  That fixture runs the same code, with a table and hints attached.
   *_output layer is green, this one starts checking."
 rl_gate run_check "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED"
 
-OUT=$(mktemp)
-ERR=$(mktemp)
+OUT=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+ERR=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
 rl_traps 'rm -f "$OUT" "$ERR"'
 
 # The wall-clock budget: --timeout, or what is left of the test's own limit if
@@ -188,6 +178,8 @@ if [ "$RL_CAUSE" = noexec ]; then
 	echo "run_check.sh: $LABEL $RL_WHY" >&2
 	exit 2
 fi
+# Nor when it was stopped from outside: no verdict either (rl_unjudged).
+rl_unjudged "$LABEL"
 
 BYTES=$(wc -c < "$OUT" | tr -d ' ')
 FAIL=0
@@ -200,7 +192,7 @@ if [ "$RL_CAUSE" = runaway ]; then
 elif [ "$RL_CAUSE" = timeout ]; then
 	rl_overrun "$LABEL"
 	FAIL=1
-elif [ "$RL_CAUSE" = signal ] || [ "$RL_CAUSE" = stopped ]; then
+elif [ "$RL_CAUSE" = signal ]; then
 	echo "run_check: FAIL — $LABEL $RL_WHY."
 	echo "            It was killed rather than returning: a crash, whatever it printed."
 	FAIL=1

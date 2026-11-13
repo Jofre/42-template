@@ -20,11 +20,22 @@ c_cycles hdrs: ex00_cycles data:toy_knob.h = :deliverable/ex00/toy_knob.h
 c_cycles count: ex00_cycles --count = 77
 c_cycles gate_expected: ex00_cycles --gate-expected = $(location tests/ex00/expected_knob.txt)
 c_cycles gate_expected: ex00_cycles --gate-label = ex00_output
-c_cycles gate_sanitize: ex00_cycles ?--gate-sanitize = present
 c_cycles gate_stdin: ex00_cycles --gate-stdin = $(location tests/ex00/stdin.txt)
 c_cycles gate_stdin: ex00_cycles data:stdin.txt = :tests/ex00/stdin.txt
 c_reference_cost srcs: ex00_refcost --src = $(location deliverable/ex00/toy_twice.c)
 c_reference_cost hdrs: ex00_refcost data:toy_knob.h = :deliverable/ex00/toy_knob.h
+c_reference_cost includes: ex00_refcost --inc = $(location deliverable/ex00/toy_knob.h),$(location //tools:notation.h)
+gate read off ex00_output: ex00_cycles ?--gate-sanitize = present
+gate read off ex00_output: ex00_cycles ?--gate-labeled = present
+gate read off ex00_output: ex00_refcost ?--gate-sanitize = present
+gate read off ex00_output: ex00_refcost ?--gate-labeled = present
+gate read off ex00_output: ex00_diff ?--gate-sanitize = present
+gate read off ex00_output: ex00_diff ?--gate-labeled = present
+gate read off ex00_output: ex00_perf ?--gate-sanitize = present
+gate read off ex00_output: ex00_perf ?--gate-labeled = present
+gate read off ex01_output: ex01_refcost --gate-label = ex01_output
+gate read off ex01_output: ex01_refcost ?--gate-sanitize = absent
+gate read off ex01_output: ex01_refcost ?--gate-labeled = absent
 c_diff seed: ex00_diff --seed = 7
 c_diff seed: ex00_diff_asan --seed = 7
 c_diff seed: ex00_perf --seed = 7
@@ -52,11 +63,12 @@ c_perf baseline_bin default: ex00_perf --baseline-bin = absent
 c_perf gate_exponent: ex01_perf --gate-exponent = 1.5
 c_perf gate_slowdown: ex01_perf --gate-slowdown = 9
 c_perf gate_memory: ex01_perf --gate-memory = 3
+c_perf gate_bin = "": ex01_perf ?--gate-differ = absent
 c_perf gate_asan_bin = "": ex01_perf --gate-asan-bin = absent
 c_perf gate_asan_bin default: ex00_perf --gate-asan-bin = $(location :ex00_diffbin_asan)
 c_perf gate_count: ex01_perf --gate-count = 99
-c_perf enabled = False: ex01_perf tags:manual = manual,manual
-c_perf enabled = True: ex00_perf tags:manual = manual
+c_perf enabled = False: ex01_perf tags:fixture_hold = none
+c_perf enabled = True: ex00_perf tags:fixture_hold = fixture_hold
 c_program srcs: ex02_bin srcs: = :deliverable/ex02/toy_prog.c
 c_program srcs: ex02_norm data:deliverable/ = :deliverable/ex02/toy_prog.c,:deliverable/ex02/toy_prog.h
 c_program hdrs, with srcs: ex02_bin hdrs: = :deliverable/ex02/toy_prog.h
@@ -90,7 +102,7 @@ c_argv_table asan = False: ex04_argvguard_bin_asan kind = not declared
 c_argv_table model: ex04_model --argv-table = $(location //tools:argv_table.sh)
 c_libft hdrs: ex05_output data:toy_lib.h = :deliverable/ex05/inc/toy_lib.h
 c_libft hdrs: ex05_norm data:deliverable/ = :deliverable/ex05/inc/toy_lib.h,:deliverable/ex05/toy_a.c
-c_libft includes: ex05_output --inc = tools/tests/macro_fixtures/knobs/deliverable/ex05/inc
+c_libft includes: ex05_output --inc = tools/tests/macro_fixtures/knobs/deliverable/ex05/inc,tools
 c_libft includes: ex05_bin includes: = deliverable/ex05/inc
 c_libft expected: ex05_output --expected = $(location tests/ex05/lib_knob.txt)
 c_libft expected: ex05_ilp32 --expected = $(location tests/ex05/lib_knob.txt)
@@ -114,6 +126,8 @@ rush_variant num: ex09_rush03_output kind = sh_test
 rush_variant exports: ex09_rush03_symbols --expect = rush,rush_helper
 rush_variant seed: ex09_rush03_diff --seed = 3
 rush_variant seed: ex09_rush03_diff_asan --seed = 3
+rush_variant harness-src: ex09_rush03_diff --harness-src = $(location tests/ex09/diff_rush.c)
+rush_variant harness-src: ex09_rush03_diff data:diff_rush.c = :tests/ex09/diff_rush.c
 rush_variant count: ex09_rush03_diff --count = 50
 rush_variant asan_count: ex09_rush03_diff_asan --count = 40
 rush_variant clues: ex09_rush03_output --clues = $(location tests/ex09/clues_knob.tsv)

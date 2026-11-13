@@ -1,27 +1,27 @@
 /* Live-differential reader harness for ft_putnbr.
- * Line: <n>\t<what it wrote>. The int in decimal, then the bytes ft_putnbr
+ * Line: <n>\t<what it wrote>. The int in decimal, then the bytes the function
  * wrote to fd 1 for it, as they are.
  *
- * Reprints "<n>\t", lets ft_putnbr write() its digits, then "\n", so the whole
- * line matches the reference byte-for-byte for a correct impl. */
+ * The function writes its digits straight to fd 1, so stdout is flushed around
+ * the call to keep the echoed input, the function's bytes, and the newline in
+ * order. See tools/diffio.h. */
 #include "diffio.h"
+#include <unistd.h>
 
 void	ft_putnbr(int nb);
 
 int	main(void)
 {
-	char	line[8192];
+	char	line[64];
 	char	*f[2];
-	int		n;
 
-	setbuf(stdout, NULL);
 	while (dio_line(line, sizeof(line)))
 	{
-		if (dio_split(line, f, 2) < 1)
-			continue ;
-		n = (int)strtol(f[0], NULL, 10);
+		dio_split(line, f, 2);
 		printf("%s\t", f[0]);
-		ft_putnbr(n);
+		fflush(stdout);
+		ft_putnbr(atoi(f[0]));
+		fflush(stdout);
 		printf("\n");
 	}
 	return (0);

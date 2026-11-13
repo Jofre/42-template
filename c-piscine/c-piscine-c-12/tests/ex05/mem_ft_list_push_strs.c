@@ -9,6 +9,8 @@
 #include "ft_list.h"
 #include <stdlib.h>
 
+t_list	*ft_list_push_strs(int size, char **strs);
+
 static char	**make_strs(int size)
 {
 	static char	*words[3] = {"one", "two", "three"};

@@ -21,10 +21,12 @@
 # container's own python3, Ubuntu's 3.10.
 #
 # When the campus box moves, run `bazel run //tools:env_audit` there, read the
-# norminette line out of the report, and change the version here -- and the two
-# hashes under it with it: they are that version's two files on PyPI, the wheel
-# and the source archive (https://pypi.org/project/norminette/<version>/#files
-# shows each one's SHA256). A hash that matches no file of the version is not a
+# norminette line out of the report, and change the version here and in
+# .devcontainer/Dockerfile's pip install (//tools:conventions holds the two
+# together) -- and the two hashes under it with it: they are that version's
+# two files on PyPI, the wheel and the source archive
+# (https://pypi.org/project/norminette/<version>/#files shows each one's
+# SHA256). A hash that matches no file of the version is not a
 # failure but a WARNING ("Could not find a whl or an sdist with sha256=..."),
 # and that file is left out, so read the first run after a change. A new
 # version also changes what MODULE.bazel.lock records, which .bazelrc says how
@@ -40,3 +42,23 @@
 norminette==3.3.58 \
     --hash=sha256:5e0c660692eaf929e82ceb800b74e91ce90d4889029698d3cd7feab1aa45fd78 \
     --hash=sha256:bea25c4e04a6a06453ae1d4692e3803606e6c80f3ae20eb148816146c202e2f9
+
+# Two real YAML readers, for one test only: //tools/tests:userconfig_oracle_test
+# holds the subset of YAML that 42's user file is written in
+# (tools/fortytwo/userconfig.py) to both, YAML 1.1 and YAML 1.2. 42 itself never
+# imports either: it runs with nothing installed, so it reads and writes that
+# subset itself. Each version is pinned for the same reason norminette is: a
+# reader that moves under the test changes what "reads the same everywhere"
+# means. ruamel.yaml's wheel is pure Python, one file for every machine;
+# PyYAML's carries libyaml, so its hashes are the source archive and the
+# CPython 3.13 wheels for Linux (x86_64, aarch64) and macOS (x86_64, arm64),
+# from PyPI's own listing (checked 2026-10-23).
+PyYAML==6.0.3 \
+    --hash=sha256:d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f \
+    --hash=sha256:0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6 \
+    --hash=sha256:ee2922902c45ae8ccada2c5b501ab86c36525b883eff4255313a253a3160861c \
+    --hash=sha256:8da9669d359f02c0b91ccc01cac4a67f16afec0dac22c2ad09f46bee0697eba8 \
+    --hash=sha256:2283a07e2c21a2aa78d9c4442724ec1eb15f5e42a723b99cb3d822d48f5f7ad1
+ruamel.yaml==0.19.1 \
+    --hash=sha256:27592957fedf6e0b62f281e96effd28043345e0e66001f97683aa9a40c667c93 \
+    --hash=sha256:53eb66cd27849eff968ebf8f0bf61f46cdac2da1d1f3576dd4ccee9b25c31993

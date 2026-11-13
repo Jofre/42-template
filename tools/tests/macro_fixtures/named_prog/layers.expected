@@ -1,0 +1,20 @@
+basic suite lvl_basic
+complete suite lvl_complete
+robust suite lvl_robust
+strict suite lvl_strict
+toy_root suite unit=toy_root
+toy_root_asan asan_run.sh @robust ran unit=toy_root by:both kind:project
+toy_root_build make_test.sh @basic unit=toy_root by:both kind:project
+toy_root_build_exit make_test.sh @robust unit=toy_root by:both kind:project
+toy_root_build_rules make_test.sh @robust unit=toy_root by:both kind:project
+toy_root_compile_clang compile_check.sh @basic make-includes unit=toy_root by:both kind:project
+toy_root_compile_gcc compile_check.sh @basic make-includes unit=toy_root by:both kind:project
+toy_root_diff argv_check.sh @strict unit=toy_root by:both kind:project
+toy_root_diff_asan argv_check.sh @robust sanitized unit=toy_root by:both kind:project
+toy_root_exit diff_output.sh @robust ran case unit=toy_root by:both kind:project
+toy_root_files files_test.sh @basic unit=toy_root by:both kind:project
+toy_root_norm norminette_test.sh @basic unit=toy_root by:both kind:project
+toy_root_norm_header header_norm.sh @strict unit=toy_root by:both kind:project
+toy_root_norm_notice norminette_test.sh @strict unit=toy_root by:both kind:project
+toy_root_output diff_output.sh @basic ran case suite:toy_root unit=toy_root by:both kind:project
+toy_root_valgrind argv_check.sh @strict memcheck unit=toy_root by:both kind:project

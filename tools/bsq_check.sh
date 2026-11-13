@@ -84,7 +84,7 @@
 # error is held to is the call site's decision, by the Run contract. This
 # runner kept it only to show beside a crash, which decided it by default
 # (tools/runner_lib.sh, STANDARD ERROR, A CHOICE AT EVERY CALL; review of
-# WP-50). tools/defs.bzl refuses such a call while loading (_RUNNER_CHOICES).
+# WP-50). tools/defs_test.bzl refuses such a call while loading (_RUNNER_CHOICES).
 # Under --sanitized or --valgrind neither is given: standard error carries the
 # checker's report there, and no output is judged.
 #
@@ -121,12 +121,12 @@
 #                  N, and the floor of 20 that guards a seeded corpus does not
 #                  apply
 #   --sanitized    BIN is the ASan/UBSan build: every run, judging memory and
-#                  how each run ended, never the output (ex00_bsq_diff_asan);
+#                  how each run ended, never the output (bsq_diff_asan);
 #                  --symbolizer PATH --symbolizer-lib FILE name each frame of
 #                  a report's stack (runner_lib.sh, rl_sanitizers)
 #   --valgrind PATH --valgrind-tools FILE [--sample N] [--rule FILE] [--access-rule FILE]
 #                  a sample of the runs under memcheck, leaks included
-#                  (ex00_bsq_valgrind). In every mode: in multi mode a run
+#                  (bsq_valgrind). In every mode: in multi mode a run
 #                  is a group, as in the plain replay, and a report names the
 #                  run and keeps its maps -- the second map's reading is where
 #                  the first map's leftovers are found. tools/runner_lib.sh,
@@ -159,7 +159,7 @@ require awk cat cmp grep mkdir mktemp rm sed sort tail uniq wc
 RL_NAME=bsq_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "bsq_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "bsq_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -183,36 +183,30 @@ READINGS=0
 CLUES=""
 CASE_NAME=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "bsq_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--bin) need "$1" "$#"; BIN="$2"; shift 2 ;;
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
-		--fn) need "$1" "$#"; FN="$2"; shift 2 ;;
-		--seed) need "$1" "$#"; SEED="$2"; shift 2 ;;
-		--count) need "$1" "$#"; COUNT="$2"; shift 2 ;;
-		--mode) need "$1" "$#"; MODE="$2"; shift 2 ;;
-		--group) need "$1" "$#"; GROUP="$2"; shift 2 ;;
-		--show) need "$1" "$#"; SHOW="$2"; shift 2 ;;
-		--fixed) need "$1" "$#"; FIXED="$2"; shift 2 ;;
-		--timeout) need "$1" "$#"; TMO="$2"; shift 2 ;;
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--fn) rl_need "$1" "$#"; FN="$2"; shift 2 ;;
+		--seed) rl_need "$1" "$#"; SEED="$2"; shift 2 ;;
+		--count) rl_need "$1" "$#"; COUNT="$2"; shift 2 ;;
+		--mode) rl_need "$1" "$#"; MODE="$2"; shift 2 ;;
+		--group) rl_need "$1" "$#"; GROUP="$2"; shift 2 ;;
+		--show) rl_need "$1" "$#"; SHOW="$2"; shift 2 ;;
+		--fixed) rl_need "$1" "$#"; FIXED="$2"; shift 2 ;;
+		--timeout) rl_need "$1" "$#"; TMO="$2"; shift 2 ;;
 		--readings) READINGS=1; shift ;;
-		--clues) need "$1" "$#"; CLUES="$2"; shift 2 ;;
-		--case) need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
+		--clues) rl_need "$1" "$#"; CLUES="$2"; shift 2 ;;
+		--case) rl_need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
 		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; shift 2 ;;
-		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
-		--stderr-empty) STDERR_EMPTY=1; shift ;;
-		--stderr-ignored) need "$1" "$#"; STDERR_WHY="$2"; shift 2 ;;
-		--quotes) need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-arg) rl_need "$1" "$#"; rl_list_add GATE_ARGS "$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
+		--stderr-empty | --stderr-ignored) rl_stderr_opt "$@"; shift "$RL_STDERR_SHIFT" ;;
+		--quotes) rl_need "$1" "$#"; rl_quotes_opt "$2"; shift 2 ;;
 		*) echo "bsq_check.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -232,9 +226,22 @@ case "$MODE" in
 esac
 rl_rows "$SHOW"
 rl_mem_ready
-case "$FIXED" in
-	'' | [1-9] | [1-9]*[0-9]) ;;
-	*) echo "bsq_check.sh: --fixed must be a count of maps, got '$FIXED'" >&2; exit 2 ;;
+# The counts are whole numbers, refused here when they are not: `*` in a glob
+# is any string, so `[1-9]*[0-9]` once let '1x0' through as a --fixed count,
+# and the count's own test then failed as a shell error and skipped both
+# floors on the corpus's size. --fixed may be absent; a seed may be 0.
+bq_count() {  # bq_count OPTION VALUE -- refuse a VALUE that is no count of maps
+	case $2 in
+		"" | *[!0-9]* | 0*)
+			echo "bsq_check.sh: --$1 must be a count of maps, got '$2'" >&2
+			exit 2 ;;
+	esac
+}
+[ -z "$FIXED" ] || bq_count fixed "$FIXED"
+bq_count count "$COUNT"
+bq_count group "$GROUP"
+case $SEED in
+	"" | *[!0-9]*) echo "bsq_check.sh: --seed must be a whole number, got '$SEED'" >&2; exit 2 ;;
 esac
 
 # Absolutise everything before anything changes directory. $(location ...) hands
@@ -253,7 +260,7 @@ ORACLE=$(abspath "$ORACLE")
 # example is red, replaying hundreds of generated maps says the same thing
 # hundreds of times less usefully. The gate runs the program as that example's
 # output test does -- each --gate-arg one word of the run, the map's path --
-# and c_levels()' audit holds the two to each other (tools/defs.bzl,
+# and c_levels()' audit holds the two to each other (tools/defs_module.bzl,
 # _gate_problems). It ran the program with no argument at all, so a correct
 # program read an empty standard input, printed "map error", and every corpus
 # target SKIPped on every correct tree: green, having checked nothing, wherever
@@ -268,17 +275,12 @@ rl_split_off
 # this layer, and past a green one -- or one NO_SKIP=1 forced open -- a
 # stand-in is a failure, told in the compiler's words rather than as a
 # report about a program that does not exist.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "bsq_check.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check bsq_check "$BIN" "$RL_STANDIN" "the program"
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$WORK"'
 
 # The hang guard: each run's own cap, and what is left of the test's limit
@@ -287,21 +289,21 @@ rl_traps 'rm -rf "$WORK"'
 [ -n "$TMO" ] || TMO="${BSQ_TIMEOUT:-10}"
 
 CORPUS="$WORK/corpus"
-"$ORACLE" "$FN" "$SEED" "$COUNT" > "$CORPUS" 2>/dev/null || {
+# The oracle's own words are kept (oracle.err) and shown on every path below
+# that blames it: a renamed arm or a panic says why only there.
+"$ORACLE" "$FN" "$SEED" "$COUNT" > "$CORPUS" 2> "$WORK/oracle.err" || {
 	echo "bsq_check.sh: the oracle produced no corpus for '$FN'" >&2
+	rl_excerpt "$WORK/oracle.err" 10 oracle-stderr.txt >&2
 	exit 2
 }
 
 # ---------------------------------------------------------------------------
 # FLOORS. Each one names a wrong program that would otherwise pass, which is the
 # only reason a floor is worth having. All of them are exit 2: a corpus that
-# cannot fail anything is a broken harness, not a wrong deliverable.
-#
-# `grep -c` PRINTS 0 and EXITS 1 when nothing matches, so `|| echo 0` would
-# append a second zero and the comparison would silently never fire. That was a
-# real bug in rush02_check.sh; it is written this way on purpose.
+# cannot fail anything is a broken harness, not a wrong deliverable. The count
+# is rl_corpus_lines's, which says why it is not `grep -c . || echo 0`.
 MIN_BSQ_CASES=20
-GOT_CASES=$(grep -c . "$CORPUS" 2>/dev/null) || GOT_CASES=0
+GOT_CASES=$(rl_corpus_lines "$CORPUS")
 # A FIXED list (--fixed N) is held to its exact count instead: a seeded corpus
 # proves something by its number, a fixed one by each of its maps, and one
 # missing is one property nobody checked.
@@ -309,23 +311,25 @@ if [ -n "$FIXED" ]; then
 	if [ "$GOT_CASES" -ne "$FIXED" ]; then
 		echo "bsq_check.sh: the reference emitted $GOT_CASES map(s) for '$FN', a fixed" >&2
 		echo "              list this target expects exactly $FIXED of. A harness fault." >&2
+		rl_excerpt "$WORK/oracle.err" 10 oracle-stderr.txt >&2
 		exit 2
 	fi
-elif [ "$GOT_CASES" -lt "$MIN_BSQ_CASES" ]; then
-	echo "bsq_check.sh: the reference emitted $GOT_CASES case(s) for '$FN'," >&2
-	echo "              fewer than the $MIN_BSQ_CASES this layer requires." >&2
-	echo "              Reporting a HARNESS failure rather than a green run:" >&2
-	echo "              a corpus this small proves nothing about the program." >&2
-	exit 2
+else
+	rl_corpus_floor "$CORPUS" "$MIN_BSQ_CASES" "'$FN'" "$WORK/oracle.err"
 fi
 
+# N_SQUARE counts the valid maps whose answer paints a square (side 1 or
+# more). A map of side 0 is answered by its own rows, so a corpus without one
+# of side 1 or more is passed by a program that prints each map's rows back.
+# It compared the record's two blobs instead, the map file and its answer,
+# which differ on every map since only the file has the header line: the
+# floor counted every map and could not fire.
 FLOOR=$(awk -F'\t' '
-	$1 ~ /^ok(:|$)/ { ok++;  if ($2 == 0) zero++ }
+	$1 ~ /^ok(:|$)/ { ok++;  if ($2 == 0) zero++; if ($2 > 0) square++ }
 	$1 ~ /^err:/    { err++ }
-	$1 ~ /^ok(:|$)/ && $5 != $6 { differs++ }
-	END { printf "%d %d %d %d\n", ok+0, err+0, zero+0, differs+0 }' "$CORPUS")
+	END { printf "%d %d %d %d\n", ok+0, err+0, zero+0, square+0 }' "$CORPUS")
 set -- $FLOOR
-N_OK=$1; N_ERR=$2; N_ZERO=$3; N_DIFF=$4
+N_OK=$1; N_ERR=$2; N_ZERO=$3; N_SQUARE=$4
 
 if [ "$MODE" = multi ]; then
 	if [ "$N_OK" -lt 1 ] || [ "$N_ERR" -lt 1 ]; then
@@ -335,9 +339,10 @@ if [ "$MODE" = multi ]; then
 		exit 2
 	fi
 elif [ "$N_OK" -ge 1 ]; then
-	if [ "$N_DIFF" -lt 1 ]; then
-		echo "bsq_check.sh: no valid map in this corpus has an answer that differs from" >&2
-		echo "              its own input, so 'cat' would pass this layer." >&2
+	if [ "$N_SQUARE" -lt 1 ]; then
+		echo "bsq_check.sh: no valid map in this corpus has a square of side 1 or more," >&2
+		echo "              so a program that reads each map and prints its rows back" >&2
+		echo "              would pass this layer." >&2
 		exit 2
 	fi
 	if [ "$N_ZERO" -lt 1 ]; then
@@ -530,14 +535,16 @@ diagnose() {
 			kind = "output"
 			wmap = (nw == 1 && w[1] == "map error")
 			gmap = (ng >= 1 && g[1] == "map error")
+			# An invalid file is "accepted" only where something answered it:
+			# an empty output answered nothing, and is a fault of the shape.
 			if (rows_then_more())   kind = "line-end"
-			else if (wmap && !gmap) kind = "accepted-invalid-file"
+			else if (wmap && !gmap && ng >= 1) kind = "accepted-invalid-file"
 			else if (!wmap && gmap) kind = "map-error-unexpected"
 			else if (nw == ng && minw == ewid && maxw == ewid && dl == 0) kind = "trailing-newline"
 			else if (ng != nw || minw != ewid || maxw != ewid) kind = "not-a-map"
 			else if (valid && nrows == ng) {
 				# What the student PAINTED: cells that differ from the input.
-				gt = -1; gl = -1; gb = -1; gr = -1; nch = 0; onob = 0
+				gt = -1; gl = -1; gb = -1; gr = -1; nch = 0; onob = 0; offc = 0
 				fullc = (side + 0 > 0) ? substr(w[top + 1], left + 1, 1) : ""
 				emptyc = (side + 0 > 0) ? substr(mp[top + 1], left + 1, 1) : ""
 				for (i = 1; i <= nrows && i <= ng; i++) {
@@ -547,6 +554,7 @@ diagnose() {
 						if (cm == cg) continue
 						nch++
 						if (cm != emptyc) onob++
+						if (cg != fullc) offc++
 						if (gt < 0) gt = i
 						if (gl < 0 || j < gl) gl = j
 						if (i > gb) gb = i
@@ -558,7 +566,13 @@ diagnose() {
 				else if (onob > 0) kind = "overwrote-obstacle"
 				else if (gh != gwid || nch != gh * gwid) kind = "square-shape"
 				else if (gh != side + 0) kind = "square-size"
-				else kind = "square-position"
+				# The right size: a fault of position only where it sits
+				# elsewhere and is painted with the full character. In its
+				# place, or painted with another byte, the generic kind and
+				# its want/got window say it, never the tie sentence: that
+				# once sent a square in its place, drawn with the obstacle
+				# character, hunting a tie-break.
+				else if (offc == 0 && (gt != top + 1 || gl != left + 1)) kind = "square-position"
 				sq_side = gh; sq_top = gt; sq_left = gl
 			}
 			print kind >> CATS
@@ -689,12 +703,9 @@ report_single() {
 	if [ "$ENDED" = 1 ]; then
 		# How it ended, from rl_sweep_ran: a timeout and runaway output are
 		# their own faults, not crashes -- "DIED" sent a student hunting a bad
-		# pointer in a program that simply never stopped.
-		case "$RL_CAUSE" in
-			"timeout") echo "did-not-finish" >> "$CATS" ;;
-			"runaway") echo "runaway-output" >> "$CATS" ;;
-			*) echo "crash" >> "$CATS" ;;
-		esac
+		# pointer in a program that simply never stopped (rl_end_fault; a
+		# run stopped from outside never gets here, run_one refused it).
+		rl_end_fault >> "$CATS"
 		say " CASE $1  [$2]  it $RL_WHY"
 		rl_excerpt "$WORK/err" 6 "case-$1-stderr.txt" "     "
 	elif cmp -s "$WORK/want" "$WORK/got"; then
@@ -734,11 +745,7 @@ report_group() {
 	say " --------------------------------------------------"
 	say " RUN $RUNS  [maps $((TOTAL - _rk + 1))-$TOTAL of the corpus: $(awk '{ printf "%s%s", (NR > 1 ? ", " : ""), $1 }' "$WORK/members")]"
 	if [ "$ENDED" = 1 ]; then
-		case "$RL_CAUSE" in
-			"timeout") echo "did-not-finish" >> "$CATS" ;;
-			"runaway") echo "runaway-output" >> "$CATS" ;;
-			*) echo "crash" >> "$CATS" ;;
-		esac
+		rl_end_fault >> "$CATS"
 		say "   it $RL_WHY"
 		rl_excerpt "$WORK/err" 6 "$_rn-stderr.txt" "     "
 		keep_input "$_rn" "$@"
@@ -833,11 +840,12 @@ run_one() {
 	else
 		rl_stderr "$WORK/err" "case $TOTAL"
 	fi
+	# A run that could not start or was stopped from outside says nothing of
+	# the program: exit 2 (rl_unjudged), so the reports below never file one
+	# as the student's crash.
+	if [ "$MODE" = multi ]; then rl_unjudged "run $RUNS"; else rl_unjudged "case $TOTAL"; fi
 	case "$RL_CAUSE" in
 		ok | "exit") ENDED=0 ;;
-		noexec)
-			echo "bsq_check.sh: the program $RL_WHY" >&2
-			exit 2 ;;
 		*) ENDED=1 ;;
 	esac
 	return 0
@@ -845,7 +853,8 @@ run_one() {
 
 # The output cap, set once now that the corpus is written: a program printing
 # without end is stopped by SIGXFSZ at 32 MiB instead of filling the test's
-# scratch space. The largest map in the corpus answers in a few KiB.
+# scratch space. The largest correct answer, a big map's (bsq_big: a million
+# cells, reprinted), is about 1 MiB, so the cap is some thirty times it.
 ulimit -f 65536 2> /dev/null || true
 
 case "$MODE" in

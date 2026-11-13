@@ -10,7 +10,9 @@
 //!   rev_int_tab      <csv>\t<reversed-csv>               (comma-joined decimals)
 //!   sort_int_tab     <csv>\t<sorted-csv>
 
-use crate::common::{bench_lines, ints_csv, join_csv, long_text, rand_body, sink, to_hex, unhex, widest_hex, Rng};
+use crate::common::{
+    bench_lines, ints_csv, join_csv, long_text, rand_body, rand_body_without, sink, to_hex, unhex, widest_hex, Rng,
+};
 use std::io::{self, Write};
 
 // ------------------------------------------------------------- oracles
@@ -48,26 +50,6 @@ fn o_sort(v: &[i32]) -> Vec<i32> {
 }
 
 // ------------------------------------------------------------- helpers
-/// A random C-string body of `len` bytes with NO 0x00 (terminator) and NO 0x0a
-/// (would split the corpus line the harness replays). `high` uses the full byte
-/// range (minus those two), else lowercase letters.
-fn rand_body_nonl(rng: &mut Rng, len: usize, high: bool) -> Vec<u8> {
-    (0..len)
-        .map(|_| {
-            if high {
-                loop {
-                    let b = (1 + rng.below(255)) as u8;
-                    if b != b'\n' {
-                        return b;
-                    }
-                }
-            } else {
-                (b'a' as usize + rng.below(26)) as u8
-            }
-        })
-        .collect()
-}
-
 /// A non-zero divisor `b` and a dividend `a` that never trigger C UB
 /// (b != 0, and never INT_MIN / -1).
 fn safe_div_pair(rng: &mut Rng) -> (i32, i32) {
@@ -224,7 +206,7 @@ fn gen_putstr<W: Write>(w: &mut W, seed: u64, count: usize) {
         // bytes, and 5000 of every byte but NUL and newline, each from a seed
         // of its own.
         long_text(4100, 4100),
-        rand_body_nonl(&mut Rng::new(5000), 5000, true),
+        rand_body_without(&mut Rng::new(5000), 5000, true, b'\n'),
     ];
     for s in structured.drain(..) {
         if done >= count {
@@ -239,7 +221,7 @@ fn gen_putstr<W: Write>(w: &mut W, seed: u64, count: usize) {
     while done < count {
         let high = rng.below(2) == 1;
         let len = rng.below(33);
-        let s = rand_body_nonl(&mut rng, len, high);
+        let s = rand_body_without(&mut rng, len, high, b'\n');
         let _ = w.write_all(to_hex(&s).as_bytes());
         let _ = w.write_all(b"\t");
         let _ = w.write_all(&s);
@@ -514,8 +496,10 @@ pub fn bench(name: &str) -> bool {
             }
             "c01_strlen" => sink(o_strlen(&unhex(f[0]))),
             // ft_putstr's job is emitting the bytes, so the reference work is
-            // producing them. Taking a length instead measured nothing: this arm
-            // used to run in 4ms against a 200k corpus and the ratio came out NA.
+            // producing them. This arm once ran in 4ms against a 200k corpus,
+            // and the ratio came out NA. Taking a length instead of the bytes
+            // was blamed, but the cause was the reader: lines() stopped at the
+            // corpus's sixth line, 0x80 raw after the tab (common::bench_lines).
             "c01_putstr" => { let v = unhex(f[0]); let mut o = Vec::with_capacity(v.len()); o.extend_from_slice(&v); sink(o); }
             "c01_rev_int_tab" => sink(o_rev(&ints_csv(f[0]))),
             "c01_sort_int_tab" => sink(o_sort(&ints_csv(f[0]))),

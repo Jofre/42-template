@@ -61,7 +61,9 @@
 # CAPTURES what a machine has, env_drift COMPARES a machine against
 # tools/pins.tsv. Audit on the campus box, drift anywhere.)
 #
-# The report lands in tools/env-reports/<hostname>.txt. With --push you can then,
+# The report lands in tools/env-reports/<machine>.txt, the machine named as
+# tools/prime_trace.sh names it (C_PISCINE_HOST, else the kernel's name). With
+# --push you can then,
 # back in the devcontainer, run:  git fetch origin env-audit-42
 # =============================================================================
 
@@ -90,32 +92,59 @@ for a in "$@"; do
 done
 
 # ---- locate repo root & report path -----------------------------------------
-# Under `bazel run` the cwd is the runfiles tree, not the workspace, so git would
-# either find nothing or find the wrong repository. Every run target in this repo
-# handles that the same way; this one has to as well now that it is one.
+# The checkout is the one this script sits in, as every entry script here
+# finds it: BUILD_WORKSPACE_DIRECTORY under `bazel run`, whose cwd is the
+# runfiles tree, and the folder above tools/ otherwise. Never the cwd's git:
+# run by its path from inside another repository, the audit wrote, committed
+# and pushed its report there, and from a folder outside any repository it
+# refused although its own path names the checkout.
 if [ -n "${BUILD_WORKSPACE_DIRECTORY:-}" ]; then
     cd "$BUILD_WORKSPACE_DIRECTORY" || {
         echo "env-audit.sh: cannot enter '$BUILD_WORKSPACE_DIRECTORY'" >&2
         exit 1
     }
+    ROOT=$BUILD_WORKSPACE_DIRECTORY
+else
+    ROOT=$(CDPATH='' cd "$(dirname "$0")/.." && pwd) || ROOT=""
+    # The script must be its checkout's tools/env-audit.sh (POSIX test has
+    # no -ef): a copy kept anywhere else names no checkout.
+    _ea_self=$(CDPATH='' cd "$(dirname "$0")" && pwd -P) || _ea_self=""
+    _ea_tools=$(cd "$ROOT/tools" 2> /dev/null && pwd -P) || _ea_tools=""
+    [ -n "$ROOT" ] && [ -n "$_ea_self" ] && [ "$_ea_self" = "$_ea_tools" ] &&
+        [ "${0##*/}" = env-audit.sh ] || {
+        echo "env-audit.sh: $0 is not tools/env-audit.sh of a checkout -- run the one in your clone of the 42 repo." >&2
+        exit 1
+    }
 fi
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -z "$ROOT" ]; then
-    echo "Not inside a git repository — run this from the cloned 42 repo." >&2
-    exit 1
+# The machine's name is prime_trace.sh's (C_PISCINE_HOST, else the kernel's
+# name, else uname -n, else 'unknown'): the name its traces are kept under,
+# which the report reads further down, so the report's file and its rows
+# name the box one way.
+HOST=unknown
+HAVE_TRACE=0
+if [ -r "$ROOT/tools/prime_trace.sh" ]; then
+    # shellcheck source=tools/prime_trace.sh
+    . "$ROOT/tools/prime_trace.sh"
+    HOST=$TRACE_HOST
+    HAVE_TRACE=1
 fi
-HOST=$(hostname 2>/dev/null || uname -n 2>/dev/null || echo unknown)
-HOST=$(printf '%s' "$HOST" | tr -c 'A-Za-z0-9._-' '_')
 STAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown-time)
 REPORT_DIR="$ROOT/tools/env-reports"
 REPORT="$REPORT_DIR/$HOST.txt"
 mkdir -p "$REPORT_DIR"
 
 # ---- scratch space (auto-cleaned) -------------------------------------------
-WORK=$(mktemp -d 2>/dev/null || mktemp -d -t envaudit)
+# Every probe below writes in it, so without one each would fail and its row
+# read as a fact about the box: that is refused instead.
+WORK=$(mktemp -d 2>/dev/null || mktemp -d -t envaudit.XXXXXX)
+[ -n "$WORK" ] && [ -d "$WORK" ] || {
+    echo "env-audit.sh: could not make a scratch folder (mktemp -d failed in ${TMPDIR:-/tmp}): every probe needs one, so nothing was audited." >&2
+    exit 1
+}
 trap 'rm -rf "$WORK"' EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 
 # ---- tiny helpers -----------------------------------------------------------
 h()  { printf '\n### %s\n' "$1"; }                         # section header
@@ -164,7 +193,7 @@ capall(){
 # vline — the line of a --version output that carries the version: the first
 # with a dotted number, else the first with any content. Not `head -n 1`: perl
 # prints a BLANK line first, so a pinned tool was recorded as "(no --version)".
-# The same rule as first_line() in env_drift.sh, so both read the same string.
+# The same rule as first_line() in env_drift.py, so both read the same string.
 vline() {
     awk '
         !seen && NF { seen = 1; fallback = $0 }
@@ -324,8 +353,9 @@ h "Hermetic pin data"
 # whose unified output two runners hand straight to a student (progname_test.sh
 # and shell_test.sh; the C output and diff LAYERS do their own comparison and
 # never shell out to it). Then the binutils the symbols and
-# forbidden layers shell out to, then norminette, then valgrind and the perl its
-# callgrind_annotate runs on, then the shell every runner is interpreted by.
+# forbidden layers shell out to, then norminette, then valgrind, then perl
+# (observed only: no layer runs it now), then the shell every runner is
+# interpreted by.
 # perl, gdb, lldb-12, ld and as are here because tools/pins.tsv pins them, and
 # a pin nothing captures is a pin nobody can re-check: env_drift would report
 # drift on a box whose actual version this report never recorded. Plain `lldb`
@@ -373,6 +403,10 @@ h "Drives, for tools/drives.sh"
 #
 # Nothing here writes: the choice below is PREDICTED (DRIVES_DRY), from the
 # modes of what exists, so the account is left as it was found.
+#
+# _au_user is the name that makes a path per-user, set once here for every
+# row below: drives_user's, and without drives.sh the same fallback, the one
+# copy of it in this file (USER, else the login's name, else the uid).
 if [ -r "$ROOT/tools/drives.sh" ]; then
     # shellcheck source=tools/drives.sh
     . "$ROOT/tools/drives.sh"
@@ -401,6 +435,7 @@ if [ -r "$ROOT/tools/drives.sh" ]; then
         kv "this checkout's rc root" "$_au_rc"
     )
 else
+    _au_user=${USER:-$(id -un 2>/dev/null || id -u)}
     kv "tools/drives.sh" "(not in this checkout -- the choice cannot be reported)"
     for _d in /goinfre /sgoinfre "$HOME" /tmp; do
         [ -d "$_d" ] || continue
@@ -408,9 +443,10 @@ else
         kv "df -i $_d" "$(df -i "$_d" 2>/dev/null | awk 'NR==2 {print $2" inodes, "$4" free ("$5" used)"}')"
     done
 fi
-# "(not available)" here is a quota that ran and reported nothing for this
-# account, "(not installed)" a box without quota(1).
-cap "quota" quota -s
+# Every line (capall): a banner, a column header, then a line of figures a
+# filesystem. "(not available)" here is a quota that ran and reported
+# nothing for this account, "(not installed)" a box without quota(1).
+capall "quota" quota -s
 
 h "Memory limits"
 # What a build runs under. The Bazel server settles around 1.4 GB, and a campus
@@ -470,8 +506,8 @@ if [ -n "$_cg" ] && [ -r "$_cgr$_cg/memory.max" ]; then
     for _f in memory.max memory.high pids.max; do
         kv "  lowest $_f" "$(ea_cg_min "$_f")"
     done
-elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
-    kv "cgroup (v1) memory limit" "$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null) bytes"
+elif [ -r "$_cgr/memory/memory.limit_in_bytes" ]; then
+    kv "cgroup (v1) memory limit" "$(cat "$_cgr/memory/memory.limit_in_bytes" 2>/dev/null) bytes"
 else
     kv "cgroup memory limit" "(no cgroup memory controller visible)"
 fi
@@ -483,8 +519,9 @@ h "Memory pressure and I/O"
 # eagerly, how much written data it lets pile up before writers are made to
 # wait, which scheduler the disks behind the build's folders run, and what the
 # kernel said about memory and stuck tasks. The pressure figures (PSI) are what
-# the prime traces sample, where the kernel has them.
-cap "/proc/swaps" cat /proc/swaps
+# the prime traces sample, where the kernel has them. /proc/swaps is a
+# header and a line a swap area, every one kept.
+capall "/proc/swaps" cat /proc/swaps
 for _vm in swappiness dirty_ratio dirty_background_ratio dirty_bytes dirty_background_bytes vfs_cache_pressure; do
     kv "vm.$_vm" "$(cat "/proc/sys/vm/$_vm" 2>/dev/null || echo '(not readable)')"
 done
@@ -503,8 +540,10 @@ fi
 # scheduler is "none": the one that queues the I/O is the disk's under it,
 # found through slaves/ (the first campus report had only the node's, on
 # /goinfre and /tmp). The type comes from findmnt, then df -T: stat -f calls
-# ext4 "ext2/ext3". C_PISCINE_SYSFS stands in for /sys, so a fake can be read.
+# ext4 "ext2/ext3". C_PISCINE_SYSFS stands in for /sys, so a fake can be read,
+# and C_PISCINE_GOINFRE for /goinfre, as it does for tools/drives.sh.
 _sysfs=${C_PISCINE_SYSFS:-/sys}
+_goinfre=${C_PISCINE_GOINFRE:-/goinfre}
 ea_queue() {  # ea_queue NAME -- NAME's queue folder (a partition's is its disk's)
     if [ -r "$_sysfs/class/block/$1/queue/scheduler" ]; then
         printf '%s\n' "$_sysfs/class/block/$1/queue"
@@ -533,7 +572,7 @@ ea_leaves() {  # ea_leaves NAME -- the bottom devices of NAME's slaves/, or NAME
     done
     printf '%s\n' "$_elo"
 }
-for _d in "$HOME" /goinfre "/goinfre/$(id -un 2>/dev/null)" /tmp; do
+for _d in "$HOME" "$_goinfre" "$_goinfre/$_au_user" /tmp; do
     [ -d "$_d" ] || continue
     _dev=$(df -P "$_d" 2>/dev/null | awk 'NR == 2 { print $1 }')
     _fst=$(findmnt -n -o FSTYPE --target "$_d" 2>/dev/null | head -n 1)
@@ -655,8 +694,14 @@ fi
 kv "pinned (pins.tsv)" "$(awk -F'\t' '$1 == "norminette" { print $3 }' "$ROOT/tools/pins.tsv" 2>/dev/null)"
 
 h "Tool versions"
-# dash/POSIX sh has no --version; report the /bin/sh implementation (+ pkg version if any)
-kv  "sh (/bin/sh)"  "$(readlink -f /bin/sh 2>/dev/null | sed 's#.*/##')$(dpkg-query -W -f=' ${Version}' dash 2>/dev/null)"
+# dash/POSIX sh has no --version; report the /bin/sh implementation, and
+# dash's package version when it is dash: dash installed beside a /bin/sh
+# that is bash is no version of bash's.
+_eash=$(readlink -f /bin/sh 2>/dev/null | sed 's#.*/##')
+case "$_eash" in
+    dash) kv "sh (/bin/sh)" "$_eash$(dpkg-query -W -f=' ${Version}' dash 2>/dev/null)" ;;
+    *) kv "sh (/bin/sh)" "$_eash" ;;
+esac
 cap "bash"       bash --version
 cap "ssh"        ssh -V
 # ssh-keygen has no --help; list supported key algorithms instead (ed25519 matters for ex03)
@@ -687,6 +732,28 @@ cap "diff"       diff --version
 # "zsh=" that looks cut off.
 kv  "tool packages" "$(dpkg-query -W -f='${db:Status-Abbrev}|${Package}=${Version}\n' bash openssh-client libssl3 \
     file bc net-tools iproute2 libbpf0 findutils tar patch git dash zsh 2>/dev/null |
+    awk -F'|' 'substr($1, 2, 1) == "i" { print $2; next } { sub(/=.*/, "", $2); print $2 "=(not installed)" }' |
+    tr '\n' ' ' | sed 's/ $//')"
+# awk, sed, grep and coreutils: the text tools every runner takes from the
+# box, unpinned (tools/pins.tsv, THE BOX'S TEXT TOOLS, says why), whose
+# results under the test locale depend on the implementation. awk first,
+# by the file it resolves to: on Debian and Ubuntu an alternatives link
+# that installing gawk moves from mawk, unseen. An awk that knows no
+# `-W version` is asked --version; stdin is empty, so neither waits. A
+# package dpkg has never heard of (gawk, where it was never installed) is
+# left off the packages line.
+_eawk=$(command -v awk 2>/dev/null)
+if [ -n "$_eawk" ]; then
+    kv "awk" "$_eawk -> $(readlink -f "$_eawk" 2>/dev/null || printf '%s' "$_eawk")"
+else
+    kv "awk" "(not installed)"
+fi
+cap "awk version" sh -c 'awk -W version 2>/dev/null || awk --version 2>/dev/null' < /dev/null
+cap "sed"        sed --version
+cap "grep"       grep --version
+cap "coreutils"  sort --version
+kv  "text tool packages" "$(dpkg-query -W -f='${db:Status-Abbrev}|${Package}=${Version}\n' mawk gawk original-awk \
+    sed grep coreutils 2>/dev/null |
     awk -F'|' 'substr($1, 2, 1) == "i" { print $2; next } { sub(/=.*/, "", $2); print $2 "=(not installed)" }' |
     tr '\n' ' ' | sed 's/ $//')"
 # Whether this box can fetch a file from the command line, and with which:
@@ -778,7 +845,7 @@ if command -v drives_scratch > /dev/null 2>&1; then
 else
     case "${C_PISCINE_SCRATCH:-}" in
         /*) _scr=$C_PISCINE_SCRATCH ;;
-        *) _scr="/tmp/${USER:-$(id -un 2>/dev/null)}" ;;
+        *) _scr="/tmp/$_au_user" ;;
     esac
 fi
 # The repository cache is Bazel's default, under the output user root.
@@ -793,28 +860,43 @@ if [ -r "$_scr/prime.log" ]; then
 else
     kv "prime log" "(none at $_scr/prime.log)"
 fi
-# ea_du DIR -- "DIR: its size", given EA_DU_SECONDS (30). The bound is this
-# script's own, by a watchdog that stops du: a test runner never bounds a run
-# itself (tools/runner_lib.sh's rl_tmo knows the test's limit), but this is
-# no runner and runs under no test's limit: it is run by hand on a box, and
-# du runs no student code.
+# ea_du DIR -- "DIR: its size", given EA_DU_SECONDS (30, whole seconds; any
+# other value is 30). The bound is this script's own, by a watchdog that
+# stops du: a test runner never bounds a run itself (tools/runner_lib.sh's
+# rl_tmo knows the test's limit), but this is no runner and runs under no
+# test's limit: it is run by hand on a box, and du runs no student code.
 ea_du() {
     if [ ! -d "$1" ]; then
         printf '%s\n' "$1: (absent)"
         return 0
     fi
-    rm -f "$WORK/du.out"
+    _edb=${EA_DU_SECONDS:-30}
+    case $_edb in '' | *[!0-9]*) _edb=30 ;; esac
+    rm -f "$WORK/du.out" "$WORK/du.done"
     du -sh "$1" > "$WORK/du.out" 2>/dev/null &
     _edp=$!
-    ( sleep "${EA_DU_SECONDS:-30}"; kill "$_edp" 2>/dev/null && : > "$WORK/du.stopped" ) \
-        > /dev/null 2>&1 &
+    # The watchdog ends by itself, a second at a time, once du.done says du
+    # is over, and nothing signals it. Killing it left its sleep running out
+    # the whole bound. A TERM trap in it that killed that sleep was no better
+    # under dash: a signal that reaches a process forked a moment before,
+    # still carrying its parent's trap, is lost, and ea_du then waited the
+    # whole bound behind the sleep. The cost is up to a second a call.
+    ( _edn=0
+      while [ ! -e "$WORK/du.done" ]; do
+          if [ "$_edn" -ge "$_edb" ]; then
+              kill "$_edp" 2>/dev/null && : > "$WORK/du.stopped"
+              exit 0
+          fi
+          sleep 1
+          _edn=$((_edn + 1))
+      done ) > /dev/null 2>&1 &
     _edw=$!
     wait "$_edp" 2>/dev/null
-    kill "$_edw" 2>/dev/null
+    : > "$WORK/du.done"
     wait "$_edw" 2>/dev/null
     if [ -e "$WORK/du.stopped" ]; then
         rm -f "$WORK/du.stopped"
-        printf '%s\n' "$1: (still counting after ${EA_DU_SECONDS:-30} s, stopped)"
+        printf '%s\n' "$1: (still counting after $_edb s, stopped)"
         return 0
     fi
     _edu=$(cut -f1 "$WORK/du.out" 2>/dev/null | head -n 1)
@@ -904,7 +986,8 @@ h "42 -- the front-end command"
 # event: 42 watch polls with stat, because on some filesystems none arrives.
 # The PATH rows start a login shell, which runs your startup files exactly as a
 # new terminal does; only its yes or no is kept, never what the files hold.
-kv "python3" "$(python3 -I -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || echo MISSING)"
+_eapy=$(python3 -I -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || echo MISSING)
+kv "python3" "$_eapy"
 # curses is what a full-screen front end draws with; a Python built without it
 # imports nothing.
 kv "python3 curses" "$(python3 -I -c 'import curses; print("imports")' 2>/dev/null || echo 'does NOT import')"
@@ -948,8 +1031,14 @@ with open(os.path.join(d, "f.c"), "w") as f:
 r, _, _ = select.select([fd], [], [], 2.0)
 print("events arrive" if r else "NO EVENTS within 2 s (a watcher must poll)")
 PY
-_hw=$(mktemp -d "$HOME/.42audit.XXXXXX" 2>/dev/null) || _hw=""
-if [ -n "$_hw" ]; then
+# With no python3 that answers (the python3 row above), the row says so: run
+# anyway, it kept the shell's own "not found", with a line number of this
+# script in it.
+_hw=""
+[ "$_eapy" = MISSING ] || _hw=$(mktemp -d "$HOME/.42audit.XXXXXX" 2>/dev/null) || _hw=""
+if [ "$_eapy" = MISSING ]; then
+    kv "inotify under \$HOME" "(python3 MISSING)"
+elif [ -n "$_hw" ]; then
     trap 'rm -rf "$WORK" "$_hw"' EXIT
     kv "inotify under \$HOME" "$(python3 -I "$WORK/inotify.py" "$_hw" 2>&1 | tail -n 1)"
     rm -rf "$_hw"
@@ -1038,9 +1127,8 @@ ea_trace() {  # ea_trace FILE MINE -- one trace; in full if MINE, or unfinished
         }' "$1"
     [ "$_tfull" = 0 ] || sed 's/^/    /' "$1"
 }
-if [ -r "$ROOT/tools/prime_trace.sh" ]; then
-    # shellcheck source=tools/prime_trace.sh
-    . "$ROOT/tools/prime_trace.sh"
+if [ "$HAVE_TRACE" = 1 ]; then
+    # prime_trace.sh, sourced at the top for the machine's name.
     kv "folder" "$TRACE_ROOT"
     kv "this boot" "${BOOT_ID:-unknown}"
     _tn=0

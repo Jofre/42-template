@@ -7,7 +7,7 @@
 # them together, so nothing could check them, and "does this box still match the
 # campus?" had no answer short of reading four files by hand.
 #
-# tools/env_drift.sh reads this and compares it against whatever the current
+# tools/env_drift.py reads this and compares it against whatever the current
 # machine actually has. Run on a campus box, it is the whole answer to "have they
 # upgraded anything?".
 #
@@ -34,13 +34,13 @@
 # the machine this was pinned from, suffix and all: the first line carrying a
 # dotted version number, or the first non-empty line if none does. Not simply
 # the first line -- perl's --version opens with a blank one, which is how the
-# audit once recorded it as having no version at all. env_drift.sh and
+# audit once recorded it as having no version at all. env_drift.py and
 # env-audit.sh apply that same rule, so a pin and a capture always agree about
 # which line they are comparing. It used to be a substring --
 # `clang version 12.` -- so that Ubuntu could repackage without reporting drift.
 # Right instinct, wrong mechanism: "do not fail on packaging noise" became
 # "cannot see the difference at all", and a campus move from 12.0.1 to 12.0.5
-# would have gone unnoticed. env_drift.sh now records the full line and GRADES
+# would have gone unnoticed. env_drift.py now records the full line and GRADES
 # the difference instead: major is loud, minor/patch says re-audit, and a
 # changed packaging suffix alone is noted and forgiven. Nothing is thrown away.
 #
@@ -63,14 +63,16 @@
 # happen to them.
 #
 # ROWS OBSERVED BUT NOT PINNED: glibc and perl, argued below, and the shell
-# piscine's tools, whose own note sits above their rows.
+# piscine's tools, whose own note sits above their rows. And the box's text
+# tools, also argued below, have no row at all.
 #
-# perl first, because it is the short one. callgrind_annotate is a perl script
-# that formats a profile valgrind has ALREADY produced, so the interpreter never
-# decides a verdict -- it lays out numbers that exist before it runs. Pinning an
-# interpreter to read one text file is the wrong trade. The cycles layers that
-# call it SKIP loudly without it (NO_SKIP=1 makes that a failure), and this row
-# is here so a campus move is visible all the same.
+# perl first, because it is the short one. No layer runs it any more: the
+# cycles layers read their counts with callgrind_annotate, a perl script, and
+# now read them off the profile's own totals line (tools/runner_lib.sh,
+# rl_cg_total). It was never pinned, since that script only laid out numbers
+# valgrind had already produced, and pinning an interpreter to read one text
+# file was the wrong trade. The row stays, observed, until it is dropped with
+# the capture that feeds it (tools/env-audit.sh, tools/env_drift.py).
 #
 # glibc is the longer argument.
 # It is here because it is the only entry that is not a tool but the RUNTIME
@@ -95,6 +97,25 @@
 # student's) the harness builds and runs on the same machine, so there is no
 # skew to protect against.
 #
+# THE BOX'S TEXT TOOLS, which have no row and are not pinned: awk, sed,
+# grep and coreutils (sort, tr, wc, mktemp and the rest). Every runner
+# takes them from the box, and they decide verdicts. They are left
+# unpinned for the reason /bin/sh is (docs/design.md): what has to hold is
+# that the USAGE is portable, not that the binary is ours. But for them
+# that reason is checked less than for the shell. shellcheck lints a
+# script and not the awk program inside it, and
+# //tools/tests:selftest_bash replays every arm under a second shell with
+# the same awk: nothing replays one under a second awk. And under the
+# test locale (.bazelrc's LC_ALL=en_US.UTF-8) the implementations differ:
+# mawk's length() counts bytes where gawk's counts characters, and GNU
+# grep's and sed's `.` matches no byte that is not valid UTF-8. So the
+# rule, kept by hand: portable usage, and LC_ALL=C wherever a byte is
+# counted or matched, as tools/runner_lib.sh's renderer runs. The image's
+# awk is Ubuntu's mawk, through an alternatives link that installing gawk
+# moves. tools/env-audit.sh records which file awk resolves to, the four
+# tools' version lines and their packages; no row is written until a
+# campus audit has observed campus's lines.
+#
 # EVERY campus row holds campus's exact string, packaging suffix included. The
 # second campus audit (a campus box, 2026-10-13, report 90da4ff6 on
 # origin/env-audit-42) checked every one but ld and as under env_drift's own
@@ -111,44 +132,49 @@
 # shows at the pinned 2.38-4ubuntu2.12.
 #
 # WHEN CAMPUS MOVES: run `bazel run //tools:env_drift` there, read what it
-# reports, and edit BOTH this file and the place named in `pinned-in`. Repinning
+# reports, and edit this file and EVERY place named in `pinned-in` (gcc-10,
+# clang-12, binutils, make and valgrind are both fetched by MODULE.bazel and
+# installed by .devcontainer/Dockerfile, at one revision; norminette is both
+# pinned in tools/requirements.txt and pip-installed by the Dockerfile, at
+# one version; //tools:conventions holds each pair together). Repinning
 # is deliberately manual -- a pin changed automatically is a change to what the
 # suite tests, made by nobody.
 cc	campus	Ubuntu clang version 12.0.1-19ubuntu3	cc --version	the BOX's cc, observed: the binaries Bazel builds now come from //tools/cc_toolchain (the pinned clang-12 + binutils 2.38), and a Makefile's recipes run the pinned clang-12 as cc (make_test.sh), not this
-clang-12	campus	Ubuntu clang version 12.0.1-19ubuntu3	clang-12 --version	MODULE.bazel (deb_archive)	HERMETIC_CLANG
-gcc-10	campus	gcc-10 (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0	gcc-10 --version	MODULE.bazel (deb_archive)	HERMETIC_GCC
-make	campus	GNU Make 4.3	make --version	MODULE.bazel (deb_archive)	HERMETIC_MAKE
+clang-12	campus	Ubuntu clang version 12.0.1-19ubuntu3	clang-12 --version	MODULE.bazel (deb_archive) + .devcontainer/Dockerfile (apt)	HERMETIC_CLANG
+gcc-10	campus	gcc-10 (Ubuntu 10.5.0-1ubuntu1~22.04.3) 10.5.0	gcc-10 --version	MODULE.bazel (deb_archive) + .devcontainer/Dockerfile (apt)	HERMETIC_GCC
+make	campus	GNU Make 4.3	make --version	MODULE.bazel (deb_archive) + .devcontainer/Dockerfile (apt)	HERMETIC_MAKE
 # ar and ranlib are what a Makefile's recipes run by those names: make_test.sh
 # puts the fetched ones first on the recipes' PATH (TO VERIFY V60), with the
 # libbfd beside them, which it proves they load. As nm's, each version is the
 # frontend's own.
-ar	campus	GNU ar (GNU Binutils for Ubuntu) 2.38	ar --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_AR
-ranlib	campus	GNU ranlib (GNU Binutils for Ubuntu) 2.38	ranlib --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_RANLIB
+ar	campus	GNU ar (GNU Binutils for Ubuntu) 2.38	ar --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils) + .devcontainer/Dockerfile (apt)	HERMETIC_AR
+ranlib	campus	GNU ranlib (GNU Binutils for Ubuntu) 2.38	ranlib --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils) + .devcontainer/Dockerfile (apt)	HERMETIC_RANLIB
 # nm's version string comes out of the FRONTEND's own .rodata, so this row
 # stays green whichever libbfd the loader supplies -- which it once did while
 # the box's 1.5 MB library was doing all the work behind a 44 KB pinned name.
 # What actually holds the pin is the --nm-lib flag the three nm-reading
 # runners take, and each of them refuses to run unless LD_DEBUG says libbfd
-# resolved inside the staged tree. Do not read a green here as that check.
-nm	campus	GNU nm (GNU Binutils for Ubuntu) 2.38	nm --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_NM
+# resolved inside the staged tree (tools/runner_lib.sh, rl_binutils_pin). Do
+# not read a green here as that check.
+nm	campus	GNU nm (GNU Binutils for Ubuntu) 2.38	nm --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils) + .devcontainer/Dockerfile (apt)	HERMETIC_NM
 # objdump is nm's sibling from the same package, read by forbidden_symbols.sh
 # --function, and the same holds: its frontend prints the version, and what
 # holds the pin is --objdump-lib, refused unless libbfd resolved in the tree.
-objdump	campus	GNU objdump (GNU Binutils for Ubuntu) 2.38	objdump --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_OBJDUMP
+objdump	campus	GNU objdump (GNU Binutils for Ubuntu) 2.38	objdump --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils) + .devcontainer/Dockerfile (apt)	HERMETIC_OBJDUMP
 # ld.bfd links every build the layers make (the cc toolchain's linker), and
 # its version, too, is the frontend's; the pin is held by the wrapper
 # rl_ld_pin writes (tools/runner_lib.sh), which proves libbfd's directory won.
-ld	campus	GNU ld (GNU Binutils for Ubuntu) 2.38	ld --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_LD
+ld	campus	GNU ld (GNU Binutils for Ubuntu) 2.38	ld --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils) + .devcontainer/Dockerfile (apt)	HERMETIC_LD
 # as is gcc's assembler, from the same package: the gcc layer's -B points
 # gcc at it (defs.bzl's compiler table, `progs`), and env_drift had no row
 # for it until conventions read every label a tools/*.bzl pins. As nm's,
 # its version is the frontend's own: which libbfd it loads, no row checks.
-as	campus	GNU assembler (GNU Binutils for Ubuntu) 2.38	as --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils)	HERMETIC_AS
-valgrind	campus	valgrind-3.18.1	valgrind --version	MODULE.bazel (deb_archive)	HERMETIC_VALGRIND
-perl	campus	This is perl 5, version 34, subversion 0 (v5.34.0) built for x86_64-linux-gnu-thread-multi	perl --version	NOT PINNED -- callgrind_annotate is a perl script; see the note above
+as	campus	GNU assembler (GNU Binutils for Ubuntu) 2.38	as --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils) + .devcontainer/Dockerfile (apt)	HERMETIC_AS
+valgrind	campus	valgrind-3.18.1	valgrind --version	MODULE.bazel (deb_archive) + .devcontainer/Dockerfile (apt)	HERMETIC_VALGRIND
+perl	campus	This is perl 5, version 34, subversion 0 (v5.34.0) built for x86_64-linux-gnu-thread-multi	perl --version	NOT PINNED -- no layer runs perl; see the note above
 gdb	campus	GNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1	gdb --version	.devcontainer/Dockerfile
 lldb-12	campus	lldb version 12.0.1	lldb-12 --version	.devcontainer/Dockerfile
-norminette	campus	3.3.58	norminette-version	tools/requirements.txt	HERMETIC_NORMINETTE
+norminette	campus	3.3.58	norminette-version	tools/requirements.txt + .devcontainer/Dockerfile (pip)	HERMETIC_NORMINETTE
 # The interpreter norminette runs under, which is campus's too: the second
 # campus audit (report 90da4ff6, 2026-10-13) found norminette 3.3.58 under
 # pyenv's Python 3.13.1, and MODULE.bazel fetches that exact release for
@@ -159,8 +185,8 @@ norminette	campus	3.3.58	norminette-version	tools/requirements.txt	HERMETIC_NORM
 # python_version MODULE.bazel names, at all three of its sites, to this row.
 python	fetched	Python 3.13.1	python3 --version	MODULE.bazel (python.defaults, python.toolchain, pip.parse; rules_python)	HERMETIC_PYTHON
 diff	campus	diff (GNU diffutils) 3.8	diff --version	MODULE.bazel (deb_archive)	HERMETIC_DIFF
-cc-std	campus	201710L gnu	default-std cc	tools/defs.bzl (_COPTS pins -std=gnu17)
-gcc-10-std	campus	201710L gnu	default-std gcc-10	tools/defs.bzl (_COPTS pins -std=gnu17)
+cc-std	campus	201710L gnu	default-std cc	tools/defs_toolchain.bzl (_COPTS pins -std=gnu17)
+gcc-10-std	campus	201710L gnu	default-std gcc-10	tools/defs_toolchain.bzl (_COPTS pins -std=gnu17)
 glibc	campus	ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35	ldd --version	NOT PINNED -- observed only, see the note in the header
 # The shell piscine's tools. Every one is the box's own copy: no layer fetches
 # them, the shell exercises run on them, and several of the checks do too

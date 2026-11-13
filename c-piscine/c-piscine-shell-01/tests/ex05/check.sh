@@ -23,7 +23,14 @@ cd "$dir" 2>/dev/null || { printf 'cannot enter %s\n' "$dir"; exit 1; }
 
 printf "  CHECK: %s\n" "$dir"
 
-f=$(ls -1d -- *MaRV* 2>/dev/null | head -1)
+# The first entry the glob matches, by its name as it is. Not through ls:
+# GNU ls quotes and escapes a name by an exported QUOTING_STYLE even into a
+# pipe, and every line below then asked about a file that is not there.
+f=""
+set -- *MaRV*
+if [ -e "$1" ] || [ -L "$1" ]; then
+	f=$1
+fi
 
 # A file matching the special name pattern exists. Nothing below can be
 # asked of a file that is not there, so this ends the checklist when it fails.

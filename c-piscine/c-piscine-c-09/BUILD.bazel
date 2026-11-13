@@ -96,17 +96,22 @@ exports_files(
     visibility = ["//tools/tests:__pkg__"],
 )
 
-# Live-differential coverage for the bundled libft's ft_strcmp (== c-03 strcmp).
-# The output fixture and the diff corpus compare the SIGN of each result, as
-# C 03 ex00's do; ex00_readings, at strict, holds one reading of what man
-# strcmp leaves open, and its own hints say which (see c-03's BUILD).
+# Live-differential coverage for the bundled libft's ft_strcmp, C 03 ex00's
+# function: its layers replay C 03's arms, c03_strcmp_sign and c03_strcmp, as
+# Piscine Reloaded ex17 does, so one corpus serves one function, with its
+# strings past 4 KiB (finding 041), and the two readers are copies of C 03's,
+# which read a line of any length. The output fixture and the diff corpus
+# compare the SIGN of each result, as C 03 ex00's do; ex00_readings, at
+# strict, holds one reading of what man strcmp leaves open, and its own hints
+# say which (see c-03's BUILD).
 # ex00 has no c_function to declare a unit of its files, so declare the one
 # source the diff harness links. Only one c_diff can attach to ex00 (its target
 # names are fixed); ft_strlen is left to c-01's c01_strlen, which is the same
-# contract (REPEATED-CONTRACT) -- but not the byte class that corpus pins: this
-# module is graded on its own files, so test_libft.c's strlen and putstr lines
-# include bytes >= 0x80 at basic (finding 061). c_diff compiles it twice, plain
-# and under the sanitizer.
+# contract (REPEATED-CONTRACT) -- but not the byte class or the length that
+# corpus pins: this module is graded on its own files, so test_libft.c's
+# strlen and putstr lines include bytes >= 0x80 (finding 061) and a string
+# of 5000 bytes (finding 041), at basic. c_diff compiles it twice, plain and
+# under the sanitizer.
 student_lib(
     name = "ft_strcmp",
     srcs = [turnin_file("00", "ft_strcmp.c")],
@@ -116,12 +121,12 @@ c_diff(
     num = "00",
     fn = "ft_strcmp",
     harness = "diff_strcmp.c",
-    oracle_fn = "c09_strcmp_sign",
+    oracle_fn = "c03_strcmp_sign",
     diff_clues = "diff_clues.txt",
     readings = {
         "diff_clues": "diff_clues_readings.txt",
         "harness": "diff_strcmp_readings.c",
-        "oracle_fn": "c09_strcmp",
+        "oracle_fn": "c03_strcmp",
     },
 )
 
@@ -197,15 +202,28 @@ c_diff(
     perf_length = {"oracle_fn": "c09_split_len", "harness": "len_split.c"},
 )
 
+# //tools/tests's selftest_slow builds len_split.c over a toy whose wrong
+# result has no NULL, and requires exit 3, the series' "wrong at this
+# length", never a crash in the harness: so the file is visible to it.
+exports_files(
+    ["tests/ex02/len_split.c"],
+    visibility = ["//tools/tests:__pkg__"],
+)
+
 c_levels()
 
 c_cycles(
     num = "00",
     fn = "ft_strcmp",
-    oracle_fn = "c09_strcmp",
+    oracle_fn = "c03_strcmp",
     harness = "diff_strcmp.c",
     unit_expr = "length($1)/2",
     unit_name = "byte",
+    # The corpus's capacity cases, strings of 4098 to 5000 bytes (finding
+    # 041; the diff layers judge them), are left out here, as C 03 ex00's
+    # call leaves them out: kept in, they would be most of the bytes
+    # profiled.
+    max_unit = 1000,
     # compare archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 6,
     syscall_budget = 0,

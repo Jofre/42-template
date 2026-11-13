@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include "notation.h"
 
 /* The table for ft_strlcpy (man 3bsd strlcpy, where the subject sends you).
  * Prints "<label>\tret=<n> in size: <bytes> | from size: <bytes>":
@@ -10,30 +11,10 @@
  *              write: every destination starts filled with 'X'.
  * The bytes between the terminator and size are not shown: the man page
  * says nothing of them. Values are in diff_output.sh's escaped notation
- * (escaped_values): \xHH for a byte outside printable ASCII, \\ for a
- * backslash, \n and \t for a line break and a tab. */
+ * (escaped_values), written by tools/notation.h: \xHH for a byte outside
+ * printable ASCII, \\ for a backslash, \n and \t for a line break and a
+ * tab. */
 unsigned int	ft_strlcpy(char *dest, char *src, unsigned int size);
-
-static void	put_esc(const unsigned char *p, unsigned int n)
-{
-	unsigned int	i;
-
-	i = 0;
-	while (i < n)
-	{
-		if (p[i] == '\\')
-			printf("\\\\");
-		else if (p[i] == '\n')
-			printf("\\n");
-		else if (p[i] == '\t')
-			printf("\\t");
-		else if (p[i] < 0x20 || p[i] > 0x7e)
-			printf("\\x%02x", p[i]);
-		else
-			putchar(p[i]);
-		i++;
-	}
-}
 
 /* The first `size` bytes of dest, up to and with the first NUL. */
 static void	put_in_size(const unsigned char *dest, unsigned int size)
@@ -47,10 +28,10 @@ static void	put_in_size(const unsigned char *dest, unsigned int size)
 	}
 	nul = memchr(dest, '\0', size);
 	if (nul != NULL)
-		put_esc(dest, (unsigned int)(nul - dest) + 1);
+		nt_put(dest, (size_t)(nul - dest) + 1);
 	else
 	{
-		put_esc(dest, size);
+		nt_put(dest, size);
 		printf(" (no NUL)");
 	}
 }
@@ -65,7 +46,7 @@ static void	test(char *label, char *src, unsigned int size)
 	printf("%s\tret=%u in size: ", label, ret);
 	put_in_size((unsigned char *)dest, size);
 	printf(" | from size: ");
-	put_esc((unsigned char *)dest + size, 3);
+	nt_put(dest + size, 3);
 	printf("\n");
 }
 

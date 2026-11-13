@@ -53,7 +53,7 @@ and the macros in tools/defs.bzl read it from there. Three checks hold that
 together: the contract's analysis refuses a label that is no grader_library(),
 or one whose `exports` lack the function (GraderLibInfo); //tools:conventions
 holds `exports` to the crate's #[no_mangle] functions; and a macro that would
-build a program without the library fails while loading (defs.bzl's
+build a program without the library fails while loading (defs_contract.bzl's
 _TAKES_LINKED).
 """
 
@@ -72,6 +72,17 @@ _I686 = "i686-unknown-linux-musl"
 # the same on every build). And no warning: one is a red build on the author's
 # machine rather than noise in a student's first run, as for //oracle
 # (//tools:conventions holds both to -Dwarnings).
+#
+# The rule every crate built here keeps: no check is left that can panic. An
+# index, a slice bound or an overflow the optimiser cannot prove calls into
+# core's panic path, and the object of core that holds it refers to
+# rust_eh_personality, which no C link provides: the program that links the
+# archive then fails with "undefined reference to `rust_eh_personality'",
+# far from the crate. So a crate indexes only where the bound follows from
+# what it checked first, and says which, or writes through raw pointers.
+# -O0 leaves every such check in, and adds overflow checks, which is a second
+# reason for opt-level 2. //tools/tests:selftest_slow links each stand-in
+# archive into a C program, so a crate that breaks the rule turns it red.
 _FLAGS = [
     "--edition=2021",
     "--crate-type=staticlib",

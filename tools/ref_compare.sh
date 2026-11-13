@@ -29,9 +29,14 @@
 # most working software stands there. Failing a correct answer for its cost
 # would teach that there is a secret second requirement, which there is not.
 #
-# So the exit status is 0 whatever the numbers say. The only non-zero exits here
-# are the NO_SKIP refusals (this layer's plumbing rotted while pretending to
-# pass, exit 1) and harness breakage (exit 2). The ratio itself is never one.
+# So the ratio itself never fails the test: the exit status is 0 whatever the
+# numbers say. What is red here is a program that cannot be measured at all --
+# one that does not build, or that does not finish within its limit or crashes
+# under the profiler (exit 1); the plain run that counts output is red only
+# when no time is left to start it (exit 1), and its own exit status is
+# ignored on purpose (see where it runs) -- and the plumbing: the NO_SKIP
+# refusals (this layer rotted while pretending to pass, exit 1) and harness
+# breakage (exit 2).
 #
 # And the report never names the technique that closes the gap. It says where
 # the difference LIVES and stops there, because the whole point of measuring
@@ -100,7 +105,7 @@
 #                  --symbol NAME --label TEXT
 #                  --oracle PATH --oracle-fn FN
 #                  --units N --unit-name TEXT
-#                  --valgrind PATH --valgrind-tools FILE --callgrind-annotate PATH
+#                  --valgrind PATH --valgrind-tools FILE
 #                  [--kind search|output]
 #                  [--gate-differ F --gate-bin P --gate-expected F
 #                   [--gate-labeled] [--gate-sanitize] [--gate-stdin F]
@@ -122,23 +127,19 @@ require() {
 		exit 2
 	done
 }
-require awk cat cmp dirname grep head mktemp readlink rm tail tr wc
-# conventions: optional perl -- see cycles_check.sh; it formats a profile
-# valgrind already produced and decides no verdict.
+require awk cat cmp dirname mktemp rm tail tr wc
 
 # The shared runner helpers -- time budget, exiting signal traps, how a run
 # ended, excerpts, hints -- written once in tools/runner_lib.sh.
 RL_NAME=ref_compare
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "ref_compare.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "ref_compare.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
 # purpose: //tools:conventions holds every other one to rl_run.
-# conventions: harness tool GATE_DIFFER -- tools/diff_output.sh, the output gate, which keeps this test's budget (RL_DEADLINE)
 # conventions: harness tool ORACLE -- the Rust reference (//oracle), which writes the corpus
-# conventions: harness tool CG_ANNOTATE -- valgrind's cg_annotate, which reads the profile and runs nothing
 # conventions: harness tool CC -- the pinned compiler: it builds, and runs none of what it builds
 
 SRCS=""; INCS=""; HARNESS=""; SYM=""; LABEL=""
@@ -169,42 +170,38 @@ _dir() {
 # runner, so the fix is the same three lines in every runner.
 VALGRIND=""
 VGTOOLS=""
-CG_ANNOTATE=""
 CC=""
 CC_LIBS=""
 CC_UNDER=""
 LD=""
 LD_LIBS=""
 
-need() { [ "$2" -ge 2 ] || { echo "ref_compare.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--valgrind) need "$1" "$#"; VALGRIND="$2"; shift 2 ;;
-		--valgrind-tools) need "$1" "$#"; VGTOOLS="$2"; shift 2 ;;
-		--callgrind-annotate) need "$1" "$#"; CG_ANNOTATE="$2"; shift 2 ;;
-		--src) need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--harness) need "$1" "$#"; HARNESS="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
-		--inc) need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
-		--symbol) need "$1" "$#"; SYM="$2"; shift 2 ;;
-		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
-		--oracle-fn) need "$1" "$#"; FN="$2"; shift 2 ;;
-		--units) need "$1" "$#"; UNITS="$2"; shift 2 ;;
-		--unit-name) need "$1" "$#"; UNIT_NAME="$2"; shift 2 ;;
-		--kind) need "$1" "$#"; KIND="$2"; shift 2 ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
+		--valgrind) rl_need "$1" "$#"; VALGRIND="$2"; shift 2 ;;
+		--valgrind-tools) rl_need "$1" "$#"; VGTOOLS="$2"; shift 2 ;;
+		--src) rl_need "$1" "$#"; rl_list_add SRCS "$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--harness) rl_need "$1" "$#"; HARNESS="$2"; rl_list_add INCS "-I$(dirname "$2")"; shift 2 ;;
+		--inc) rl_need "$1" "$#"; rl_list_add INCS "-I$(_dir "$2")"; shift 2 ;;
+		--symbol) rl_need "$1" "$#"; SYM="$2"; shift 2 ;;
+		--label) rl_need "$1" "$#"; LABEL="$2"; shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--oracle-fn) rl_need "$1" "$#"; FN="$2"; shift 2 ;;
+		--units) rl_need "$1" "$#"; UNITS="$2"; shift 2 ;;
+		--unit-name) rl_need "$1" "$#"; UNIT_NAME="$2"; shift 2 ;;
+		--kind) rl_need "$1" "$#"; KIND="$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-stdin) rl_need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; shift ;;
-		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
-		--cc) need "$1" "$#"; CC="$2"; shift 2 ;;
-		--cc-lib) need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
-		--cc-under) need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
-		--ld) need "$1" "$#"; LD="$2"; shift 2 ;;
-		--ld-lib) need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; GATE_LABEL="$2"; shift 2 ;;
+		--cc) rl_need "$1" "$#"; CC="$2"; shift 2 ;;
+		--cc-lib) rl_need "$1" "$#"; rl_list_add CC_LIBS "$2"; shift 2 ;;
+		--cc-under) rl_need "$1" "$#"; CC_UNDER="$2"; shift 2 ;;
+		--ld) rl_need "$1" "$#"; LD="$2"; shift 2 ;;
+		--ld-lib) rl_need "$1" "$#"; rl_list_add LD_LIBS "$2"; shift 2 ;;
 		# The likeliest cause of landing here is not a typo: sh_test tokenises
 		# `args` on spaces, so a two-word --label or --unit-name arrives as an
 		# extra bare argument. c_files and c_cycles both learned this the hard
@@ -259,73 +256,43 @@ T=$(mktemp -d) || exit 2
 rl_traps 'rm -rf "$T"'
 
 # ---------------------------------------------------------------------------
-# CORRECTNESS FIRST, exactly as rust_diff.sh, cycles_check.sh, perf_test.sh and
-# valgrind_test.sh do it.
+# CORRECTNESS FIRST, through tools/runner_lib.sh's rl_gate, as every gated
+# runner's gate is.
 #
 # A cost figure attached to a wrong answer is worse than no figure: it invites a
-# student to optimise a search that does not yet find the right boards, and it
-# implies the harness thinks they are done. This layer therefore says nothing at
-# all until ex08's own output fixture is green, and says WHY it is saying
-# nothing so a silent green is not mistaken for approval.
+# student to optimise a program that does not yet give the right answers, and
+# it implies the harness thinks they are done. This layer therefore says nothing
+# at all until the exercise's own output fixture is green, and says WHY it is
+# saying nothing so a silent green is not mistaken for approval.
 #
 # NO_SKIP=1 -- the maintainer's forced sweep, `bazel test //...
 # --test_env=NO_SKIP=1`; nothing runs it unattended, since the repo has no
 # CI -- forces the gate open, so a layer that has quietly stopped measuring
-# is visible the day someone sweeps.
+# is visible the day someone sweeps. Under NO_SKIP=1, and past a gate that
+# could not answer, nothing compared the program's output with anything, so
+# the report below says nothing of it being right (RL_GATE_OK).
+#
+# The paragraph under the SKIP is this layer's own. Its middle clause is the
+# one sentence that names what the exercise DOES, so it is the one sentence
+# that goes wrong when the exercise is not a search. It is read at the worst
+# possible moment -- the student's exercise is red and they came here for a
+# reason -- and telling a beginner whose program prints a line of text about
+# "boards" is how a report teaches someone to stop reading reports. --kind search's
+# wording is kept as it was.
 # ---------------------------------------------------------------------------
-if [ "${NO_SKIP:-0}" != "1" ] && [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] &&
-	[ -n "$GATE_EXPECTED" ]; then
-	# WHY THE STATUS IS CAPTURED RATHER THAN TESTED WITH `if !`.
-	#
-	# `if ! <gate>` treats EVERY non-zero the same, and the differ has two
-	# meanings for non-zero: 1 is "the student's fixture is red", which is what
-	# this gate is for, and 2 is "the differ could not run at all" -- a missing
-	# tool, an unreadable expected file, a wiring mistake. Conflating them meant
-	# a BROKEN gate silenced the layer it guards and printed a false sentence
-	# while doing it.
-	#
-	# Demonstrated: a program whose fixture PASSES but which leaks 64 bytes was
-	# reported as "SKIP -- this exercise's own output fixture is not passing
-	# yet", exit 0, burying a real leak. At scale, the entire perf layer went
-	# 77/77 green under a PATH shim missing `mv`, because diff_output.sh
-	# requires it and exits 2.
-	#
-	# So: skip on 1, and on 2-or-more say so and RUN ANYWAY. A gate that cannot
-	# answer must never be the reason a layer stayed quiet.
-	rl_split_on
-	# shellcheck disable=SC2086
-	sh "$GATE_DIFFER" --bin "$GATE_BIN" --expected "$GATE_EXPECTED" \
-			$GATE_PASS >/dev/null 2>&1
-	_gate_rc=$?
-	rl_split_off
-	if [ "$_gate_rc" -ge 2 ]; then
-		echo "ref_compare: the output gate could not be evaluated (exit $_gate_rc),"
-		echo "             so this layer is running anyway rather than going quiet."
-	elif [ "$_gate_rc" -eq 1 ]; then
-		if [ -n "$GATE_LABEL" ]; then
-			echo "ref_compare: SKIP — $GATE_LABEL, this exercise's output fixture, is not passing yet."
-		else
-			echo "ref_compare: SKIP — this exercise's output fixture is not passing yet."
-		fi
-		echo "             What a wrong answer costs is not information: the number"
-		# The middle clause is the one sentence in this message that names what
-		# the exercise DOES, so it is the one sentence that goes wrong when the
-		# exercise is not a search. This message is read at the worst possible
-		# moment — the student's exercise is red and they came here for a reason —
-		# and telling a beginner stuck on ft_print_alphabet about "boards" is how
-		# a report teaches someone to stop reading reports. --kind search's wording
-		# is untouched, byte for byte.
-		if [ "$KIND" = "output" ]; then
-			echo "             would describe a program that does not yet emit the right"
-			echo "             bytes. This starts comparing once the *_output layer is"
-		else
-			echo "             would describe a search that does not yet find the right"
-			echo "             boards. This starts comparing once the *_output layer is"
-		fi
-		echo "             green — get it right first, then look at what it cost."
-		exit 0
-	fi
+if [ "$KIND" = "output" ]; then
+	_rc_what="  would describe a program that does not yet emit the right
+  bytes. This starts comparing once the *_output layer is"
+else
+	_rc_what="  would describe a search that does not yet find the right
+  boards. This starts comparing once the *_output layer is"
 fi
+RL_GATE_PASS=$GATE_PASS
+RL_GATE_NAME=$GATE_LABEL
+RL_GATE_WHY="  What a wrong answer costs is not information: the number
+$_rc_what
+  green — get it right first, then look at what it cost."
+rl_gate ref_compare "$GATE_DIFFER" "$GATE_BIN" "$GATE_EXPECTED"
 
 # ---------------------------------------------------------------------------
 # TOOLS. Every skip below is a silent green, and a silent green from an
@@ -336,53 +303,16 @@ fi
 # "this layer stopped producing numbers a year ago and every target stayed
 # green".
 # ---------------------------------------------------------------------------
-# The valgrind this layer runs is FETCHED AND PINNED -- see valgrind_test.sh for
-# the reasoning, and cycles_check.sh for the identical probe. No host fallback.
-[ -n "$VALGRIND" ] || {
-	echo "ref_compare.sh: --valgrind is required (the pinned valgrind.bin)" >&2
-	exit 2
-}
-case "$VALGRIND" in
-	/*) ;;
-	*) VALGRIND="$PWD/$VALGRIND" ;;
-esac
-case "$CG_ANNOTATE" in
-	""|/*) ;;
-	*) CG_ANNOTATE="$PWD/$CG_ANNOTATE" ;;
-esac
-[ -f "$VALGRIND" ] && [ -x "$VALGRIND" ] || {
-	echo "ref_compare.sh: pinned valgrind missing or not executable: $VALGRIND" >&2
-	exit 2
-}
-# The tool directory is derived from a FILE inside it, not passed as a
-# directory, and that is deliberate: `$(location x)/..` walks through a file
-# rather than naming its parent, and `cd && pwd` stops at the runfiles tree,
-# whose directories are real while the files in them are symlinks. Resolving the
-# file with readlink -f and taking ITS directory is the one form that survives
-# both. This repo has been bitten by the other two.
-VGTOOLS=$(readlink -f "$VGTOOLS" 2> /dev/null || echo "$VGTOOLS")
-VGLIB=$(dirname "$VGTOOLS")
-[ -f "$VGLIB/callgrind-amd64-linux" ] || {
-	echo "ref_compare.sh: $VGLIB does not hold callgrind-amd64-linux, so the" >&2
-	echo "                pinned valgrind cannot run callgrind. Wiring error." >&2
-	exit 2
-}
-VALGRIND_LIB="$VGLIB"
-export VALGRIND_LIB
-if [ -z "$CG_ANNOTATE" ] || [ ! -f "$CG_ANNOTATE" ] || ! command -v perl > /dev/null 2>&1; then
-	[ "${NO_SKIP:-0}" != "1" ] || {
-		echo "NO_SKIP set: callgrind_annotate (or perl to run it) is unavailable, so"
-		echo "             neither side was measured and this layer must not pass silently."
-		exit 1
-	}
-	echo "ref_compare: SKIP — callgrind_annotate/perl not available."
-	exit 0
-fi
+# The valgrind this layer runs is FETCHED AND PINNED, proved able to run
+# callgrind by tools/runner_lib.sh's rl_vg_pin, as every valgrind runner's
+# is. No host fallback: a missing --valgrind or --valgrind-tools is exit 2.
+rl_vg_pin "$VALGRIND" "$VGTOOLS" callgrind || exit 2
+VALGRIND=$RL_VG_BIN
 # THE PINNED COMPILER AND LINKER, never the box's `cc`: the -O2 build is one
 # side of the ratio, and the box's compiler made it that compiler's -O2 (gcc's
-# where cc is gcc; campus's cc is clang-12), or a SKIP where there was none
-# (TO VERIFY V38's class). Bazel hands both over, and tools/defs.bzl refuses a
-# test that does not (pinned_cc_problem); a missing one is the harness's fault.
+# where cc is gcc; campus's cc is clang-12), or a SKIP where there was none.
+# Bazel hands both over, and _test() in tools/defs_test.bzl refuses a test
+# that does not (pinned_cc_problem); a missing one is the harness's fault.
 [ -n "$CC" ] || { echo "ref_compare.sh: --cc is required (the pinned clang-12)" >&2; exit 2; }
 [ -n "$LD" ] || { echo "ref_compare.sh: --ld is required (the pinned ld.bfd)" >&2; exit 2; }
 rl_cc_pin "$CC" "$CC_LIBS" "$CC_UNDER"
@@ -428,12 +358,12 @@ fi
 # milliseconds, and failing here rather than after profiling means a broken
 # oracle reports itself immediately.
 #
-# stdin comes from /dev/null, exactly as the profiled runs below do. This arm is
-# the one bench arm in //oracle that reads NOTHING from stdin — every other one
-# goes through common::bench_lines(), which blocks until EOF. Point --oracle-fn
-# at one of those by mistake, or let this arm grow a stdin read, and an
-# inherited terminal turns this line into a hang with no output rather than an
-# error: measured, it sat there until it was killed. The runners must be
+# stdin comes from /dev/null, exactly as the profiled runs below do. The arm
+# this layer runs is a zero-input bench arm, one that reads NOTHING from stdin;
+# the others go through common::bench_lines(), which blocks until EOF. Point
+# --oracle-fn at one of those by mistake, or let a zero-input arm grow a stdin
+# read, and an inherited terminal turns this line into a hang with no output
+# rather than an error: measured, it sat there until it was killed. The runners must be
 # unhangable on a bad argument, so the redirect is not optional and is not
 # merely for symmetry.
 #
@@ -478,7 +408,7 @@ fi
 if [ "$KIND" = "output" ]; then
 	if [ -n "$GATE_EXPECTED" ] && [ -f "$GATE_EXPECTED" ] &&
 		! cmp -s "$T/ref.out" "$GATE_EXPECTED"; then
-		echo "ref_compare: HARNESS ERROR — the reference did not emit this exercise's"
+		echo "ref_compare: HARNESS ERROR — the reference did not emit this $(rl_noun)'s"
 		echo "             bytes: $(wc -c < "$T/ref.out" | tr -d ' ') of them against the fixture's $(wc -c < "$GATE_EXPECTED" | tr -d ' ')."
 		echo "             A reference that prints something else is not doing the"
 		echo "             student's job, so neither its instruction count nor its"
@@ -525,12 +455,15 @@ profile() {
 		> /dev/null 2>"$T/vg.err" < /dev/null
 	rl_classify "$?"
 	[ "$RL_CAUSE" != ok ] || return 0
+	# Stopped from outside: no cost and no crash (rl_unjudged). One that
+	# could not start (noexec) is the SKIP below, as it was.
+	[ "$RL_CAUSE" != stopped ] || rl_unjudged "the callgrind run of $1"
 	case "$RL_CAUSE" in
 		"timeout")
 			rl_overrun "the run of $1 under callgrind, which runs a program about fifty times slower than normal"
 			exit 1
 			;;
-		"signal" | "runaway" | "stopped")
+		"signal" | "runaway")
 			echo "ref_compare: FAIL — $1 $RL_WHY under callgrind: a crash, not a cost."
 			rl_excerpt "$T/vg.err" 12 valgrind-output.txt
 			exit 1
@@ -552,58 +485,34 @@ profile() {
 	exit 0
 }
 
-# Total instructions executed by the whole process.
-#
-# callgrind_annotate first, because it is what the rest of this repo parses and
-# what a human would run by hand. Its column layout is not an interface anyone
-# promised us, though — that is the rot cycles_check.sh's NO_SKIP guards exist
-# for — and unlike cycles_check we do not need a per-symbol row, only the
-# program total, which callgrind writes into its own output file in a documented
-# format. So there is a fallback here that cycles_check cannot have. "totals:"
-# and "summary:" carry one number per collected event and Ir is always the
-# first, so field 2 is the instruction count.
+# Total instructions executed by the whole process: the count the profile
+# itself records, in callgrind's documented format (tools/runner_lib.sh's
+# rl_cg_total, which cycles_check.sh reads its function's count with too),
+# and 0 when it records none. These runs collect everything, so it is the
+# program's total; callgrind_annotate's PROGRAM TOTALS, which this read
+# first, is the same number, laid out in columns nothing promised and run
+# by a perl the harness does not pin. A human can still run it by hand on a
+# profile.
 ir_total() {
-	_v=$("$CG_ANNOTATE" --threshold=0 "$1" 2>/dev/null \
-		| grep -a 'PROGRAM TOTALS' | head -1 | tr -d ' ,' | grep -oE '^[0-9]+')
-	[ -n "$_v" ] || _v=$(awk '/^totals:/ { print $2; exit }' "$1")
-	[ -n "$_v" ] || _v=$(awk '/^summary:/ { print $2; exit }' "$1")
+	_v=$(rl_cg_total "$1")
 	echo "${_v:-0}"
 }
 
 # write() calls made by the whole process, which is the number that says whether
 # this comparison is about the search or about printing.
 #
-# callgrind COMPRESSES names — a function is written "fn=(12) write" once and
-# bare "fn=(12)" every time after — so the id->name table has to be resolved
-# before anything can be matched, and it is fed by both fn= and cfn= lines
-# because either may be where a name is first introduced. (cycles_check.sh
-# learned this the same way, and got 0 until it did.)
-#
-# The callee name is matched EXACTLY, not by substring: stdio's internals are
-# called _IO_do_write and _IO_file_write, and counting those as syscalls would
-# roughly double a printf-using binary's total against a reference that writes
-# directly. The @@GLIBC_2.2.5 version suffix is stripped first.
-#
-# writev counts too, and the column still says write(): a vectored write is the
-# same trip into the kernel, and a reference that one day buffers its output
-# through something that vectors would otherwise report zero syscalls — which
-# reads as "the parse broke" and costs the honest comparison below. Today both
-# sides use plain write(), measured: 725 calls each.
+# The profile's names, and which of them is write(), are read as
+# cycles_check.sh reads them (tools/runner_lib.sh, rl_cg_awk): writev counts
+# too, and the column still says write(), and stdio's _IO_do_write and
+# _IO_file_write do not, which would roughly double a printf-using binary's
+# total against a reference that writes directly. Today both sides use plain
+# write(), measured: 725 calls each.
 write_calls() {
-	awk '
-		function id(s,   p, q) { p = index(s, "("); q = index(s, ")");
-			return (p && q) ? substr(s, p + 1, q - p - 1) : "" }
-		function nm(s,   q) { q = index(s, ")");
-			return (q && length(s) > q + 1) ? substr(s, q + 2) : "" }
-		function base(n) { sub(/@@.*$/, "", n); return n }
-		/^fn=/  { i = id($0); n = nm($0); if (n != "") fname[i] = n }
-		/^cfn=/ { i = id($0); n = nm($0); if (n != "") fname[i] = n; cur = i }
+	awk "$(rl_cg_awk)"'
+		/^fn=/  { named("fn", $0) }
+		/^cfn=/ { callee = named("fn", $0) }
 		/^calls=/ {
-			b = base(fname[cur])
-			if (b == "write" || b == "__write" || b == "__libc_write" ||
-				b == "writev" || b == "__writev") {
-				split($0, a, "[= ]"); total += a[2]
-			}
+			if (is_write(callee)) { split($0, a, "[= ]"); total += a[2] }
 		}
 		END { print total + 0 }
 	' "$1"
@@ -615,12 +524,12 @@ profile "$T/cg.ref" "$ORACLE" bench "$FN"
 IR_STU=$(ir_total "$T/cg.student")
 IR_REF=$(ir_total "$T/cg.ref")
 if [ "${IR_STU:-0}" -le 0 ] 2>/dev/null || [ "${IR_REF:-0}" -le 0 ] 2>/dev/null; then
-	# Both extraction paths came back empty. If this fires for every exercise at
-	# once, suspect the parsing above rather than the deliverables.
+	# No count in the profile. If this fires for every exercise at once,
+	# suspect the reading above rather than the deliverables.
 	[ "${NO_SKIP:-0}" != "1" ] || {
 		echo "NO_SKIP set: no instruction total could be read from the callgrind"
 		echo "             output (student=$IR_STU reference=$IR_REF). Suspect the"
-		echo "             parsing in ir_total(), not the exercise."
+		echo "             reading in ir_total(), not the exercise."
 		exit 1
 	}
 	echo "ref_compare: SKIP — could not read an instruction total from callgrind."
@@ -757,8 +666,16 @@ kernel_cost_is_invisible() {
 closing_door() {
 	# $1: the thing they might be curious about, as a noun phrase, continuing
 	#     "If you are curious what ___ would look like".
-	echo "  Nothing here is a failure and this layer will never fail you for it: your"
-	echo "  function is correct, which is what the subject asked for. This is a door,"
+	# "Correct" only past a gate that passed (RL_GATE_OK, above): under
+	# NO_SKIP=1, or past a gate that could not answer, nothing checked it.
+	if [ "$RL_GATE_OK" = 1 ]; then
+		echo "  Nothing here is a failure and this layer will never fail you for it: your"
+		echo "  function is correct, which is what the subject asked for. This is a door,"
+	else
+		echo "  Nothing here is a failure and this layer will never fail you for it. Nor"
+		echo "  does it say your function is right: no check of its output ran before"
+		echo "  this one, and the output test is the one that says. This is a door,"
+	fi
 	printf '  not a verdict. If you are curious what %s\n' "$1"
 	echo "  would look like, that is a fine thing to work out on paper — or to argue"
 	echo "  about with the peer on your right, which is where 42 would rather you"
@@ -917,7 +834,7 @@ PROBE_EOF
 if [ "$KIND" = "output" ]; then
 	if [ "${W_STU:-0}" -le 0 ] 2>/dev/null; then
 		echo "  The write() count could not be read out of the profile — and for this"
-		echo "  exercise that count IS the measurement, since nearly all of the"
+		echo "  $(rl_noun) that count IS the measurement, since nearly all of the"
 		echo "  instructions above are process startup. Nothing further can be said"
 		echo "  honestly, so nothing further is said. Suspect write_calls(), not you."
 		exit 0
@@ -926,7 +843,7 @@ if [ "$KIND" = "output" ]; then
 	# Divisor is W_STU, which the guard above has just established is positive.
 	BYTES_PER_CALL=$(awk -v b="${BYTES_STU:-0}" -v c="$W_STU" 'BEGIN { printf "%.2f", b / c }')
 
-	echo "  This exercise's whole job is to emit a fixed stream of bytes. There is no"
+	echo "  This $(rl_noun)'s whole job is to emit a fixed stream of bytes. There is no"
 	echo "  search here and no algorithm to be off by a factor on, so the instruction"
 	echo "  column above is NOT the lesson: at this size both totals are mostly"
 	echo "  process startup — the loader, a language runtime, reaching main() — and"
@@ -1008,13 +925,23 @@ if [ "$KIND" = "output" ]; then
 fi
 
 if awk -v r="$RATIO" 'BEGIN { exit !(r < 1.5) }'; then
-	echo "  Your implementation is in the same class as the reference. There is"
-	echo "  nothing to chase here — this is what a well-judged solution to this"
-	echo "  exercise costs. Read the number and move on."
+	if [ "$RL_GATE_OK" = 1 ]; then
+		echo "  Your implementation is in the same class as the reference. There is"
+		echo "  nothing to chase here — this is what a well-judged solution to this"
+		echo "  $(rl_noun) costs. Read the number and move on."
+	else
+		echo "  Your implementation is in the same class as the reference: its cost"
+		echo "  leaves nothing to chase. Whether its answer is right is the output"
+		echo "  test's to say; no check of it ran before this one."
+	fi
 	exit 0
 fi
 
-echo "  Yours does about ${RATIO}x the work of the reference for the same answer."
+if [ "$RL_GATE_OK" = 1 ]; then
+	echo "  Yours does about ${RATIO}x the work of the reference for the same answer."
+else
+	echo "  Yours does about ${RATIO}x the work of the reference."
+fi
 echo ""
 
 # First, what the syscall counts license us to say — and only that.

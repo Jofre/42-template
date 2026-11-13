@@ -14,6 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+t_list	*ft_list_find(t_list *begin_list, void *data_ref, int (*cmp)());
+
 static int	cmp_str(char *a, char *b)
 {
 	return (strcmp(a, b));

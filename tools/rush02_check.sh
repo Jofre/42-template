@@ -65,7 +65,9 @@
 #     eight" and "seven million thousand" passed this target).
 # Any other difference -- "and", a leading "one", another decomposition, a
 # spelling of a number past the dictionary that combines scale words -- is
-# shown as information and passes: composition is not judged here. THE CORPUS
+# shown as information and passes: composition is not judged here. The
+# reference's own words with the newline(s) after them missing or doubled
+# pass too, shown and counted apart: they are no composition. THE CORPUS
 # CONTRACT this rests on, which the reference's corpus keeps: every number is a
 # valid and positive integer, and a case that expects words names a dictionary
 # with every reference key (rush02_words uses --dict, ref.dict; rush02_dicts
@@ -109,7 +111,7 @@
 # error is held to is the call site's decision, by the Run contract. This
 # runner threw it away on every run, which decided it by default
 # (tools/runner_lib.sh, STANDARD ERROR, A CHOICE AT EVERY CALL; review of
-# WP-50). tools/defs.bzl refuses such a call while loading (_RUNNER_CHOICES).
+# WP-50). tools/defs_test.bzl refuses such a call while loading (_RUNNER_CHOICES).
 # Under --sanitized or --valgrind neither is given: standard error carries the
 # checker's report there, and no output is judged.
 #
@@ -145,7 +147,7 @@ require awk cat cmp grep mktemp rm tr wc
 RL_NAME=rush02_check
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "rush02_check.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "rush02_check.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -167,28 +169,22 @@ CASE_TMO="${RUSH02_TIMEOUT:-10}"
 STDERR_EMPTY=0
 STDERR_WHY=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "rush02_check.sh: $1 needs a value" >&2; exit 2; }; }
-
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--bin) need "$1" "$#"; BIN="$2"; shift 2 ;;
-		--dict) need "$1" "$#"; DICT="$2"; shift 2 ;;
-		--oracle) need "$1" "$#"; ORACLE="$2"; shift 2 ;;
-		--fn) need "$1" "$#"; FN="$2"; shift 2 ;;
-		--seed) need "$1" "$#"; SEED="$2"; shift 2 ;;
-		--count) need "$1" "$#"; COUNT="$2"; shift 2 ;;
-		--show) need "$1" "$#"; SHOW="$2"; shift 2 ;;
-		--stderr-empty) STDERR_EMPTY=1; shift ;;
-		--stderr-ignored) need "$1" "$#"; STDERR_WHY="$2"; shift 2 ;;
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
+		--dict) rl_need "$1" "$#"; DICT="$2"; shift 2 ;;
+		--oracle) rl_need "$1" "$#"; ORACLE="$2"; shift 2 ;;
+		--fn) rl_need "$1" "$#"; FN="$2"; shift 2 ;;
+		--seed) rl_need "$1" "$#"; SEED="$2"; shift 2 ;;
+		--count) rl_need "$1" "$#"; COUNT="$2"; shift 2 ;;
+		--show) rl_need "$1" "$#"; SHOW="$2"; shift 2 ;;
+		--stderr-empty | --stderr-ignored) rl_stderr_opt "$@"; shift "$RL_STDERR_SHIFT" ;;
 		--settled) SETTLED=1; shift ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-number) need "$1" "$#"; GATE_NUMBER="$2"; shift 2 ;;
-		--gate-label) need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-number) rl_need "$1" "$#"; GATE_NUMBER="$2"; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; RL_GATE_NAME="$2"; shift 2 ;;
 		--sanitized | --valgrind | --valgrind-tools | --sample | --rule | --access-rule | --symbolizer | --symbolizer-lib)
 			rl_mem_opt "$@"; shift "$RL_MEM_SHIFT" ;;
 		*) echo "rush02_check.sh: unknown option: $1" >&2; exit 2 ;;
@@ -243,17 +239,14 @@ ORACLE=$(abspath "$ORACLE")
 # status arbitrary, and the report would be a table of wrong answers under
 # this exercise's hints, none of which is about a build. Say what the build
 # said instead, whole, and fail.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "rush02_check.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check rush02_check "$BIN" "$RL_STANDIN" "the program"
 
-CORPUS=$(mktemp)
+CORPUS=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+# The oracle's stderr, shown on each path below that blames the oracle.
+OERR=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
 # Installed here rather than beside TMPD forty lines down, which is where it
 # used to be: three exit paths sit between the two, and each of them leaked the
 # corpus. TMPD and GOTF are empty until then and `rm -f ""` is a no-op, so one
@@ -265,11 +258,13 @@ WANTF=""
 ERRF=""
 BLOCK=""
 REPLAYF=""
-rl_traps 'rm -f "$CORPUS" "$TMPD" "$GOTF" "$WANTF" "$ERRF" "$BLOCK" "$REPLAYF"'
+rl_traps 'rm -f "$CORPUS" "$OERR" "$TMPD" "$GOTF" "$WANTF" "$ERRF" "$BLOCK" "$REPLAYF"'
 
-"$ORACLE" "$FN" "$SEED" "$COUNT" > "$CORPUS" 2>/dev/null || {
+# An oracle that fails is the harness failing, not the program: exit 2.
+"$ORACLE" "$FN" "$SEED" "$COUNT" > "$CORPUS" 2> "$OERR" || {
 	echo "rush02_check.sh: the oracle produced no corpus for '$FN'" >&2
-	exit 1
+	rl_excerpt "$OERR" 10 oracle-stderr.txt >&2
+	exit 2
 }
 
 # An oracle that exits 0 having printed NOTHING is not a pass, and until this
@@ -281,24 +276,17 @@ rl_traps 'rm -f "$CORPUS" "$TMPD" "$GOTF" "$WANTF" "$ERRF" "$BLOCK" "$REPLAYF"'
 # The floor is deliberately not 1. A corpus of a handful of cases would satisfy
 # a literal emptiness test while still saying nothing about a converter, and the
 # caller asks for --count 200 by default, so anything two orders below that
-# means the reference is broken rather than terse.
+# means the reference is broken rather than terse. Below it, rl_corpus_floor
+# reports a HARNESS failure (exit 2) rather than "0/0 agree"; it counts as
+# GOT_CASES does, an unterminated last line included.
 MIN_RUSH02_CASES=20
-# `|| echo 0` here would be a bug, and was one: grep -c PRINTS 0 and EXITS 1
-# when nothing matches, so the fallback appended a second zero, the test became
-# `[ "0\n0" -lt 20 ]`, sh called it a bad number, and the guard silently never
-# fired -- a guard against a false green, failing the same way.
-GOT_CASES=$(grep -c . "$CORPUS" 2>/dev/null) || GOT_CASES=0
-if [ "$GOT_CASES" -lt "$MIN_RUSH02_CASES" ]; then
-	echo "rush02_check.sh: the reference emitted $GOT_CASES case(s) for '$FN'," >&2
-	echo "                 fewer than the $MIN_RUSH02_CASES this layer requires." >&2
-	echo "                 Reporting a HARNESS failure rather than '0/0 agree':" >&2
-	echo "                 a corpus this small proves nothing about the program." >&2
-	exit 2
-fi
+rl_corpus_floor "$CORPUS" "$MIN_RUSH02_CASES" "'$FN'" "$OERR"
+GOT_CASES=$(rl_corpus_lines "$CORPUS")
 
 TOTAL=0
 BAD=0
 OPEN=0
+NL_ONLY=0
 # GOT_CASES, not `wc -l`: a final line with no newline is invisible to wc, and
 # this number is the one the replay is asserted against at the bottom. A header
 # announcing 25 over a run that compared 1 is exactly the shape this file's own
@@ -334,7 +322,7 @@ show_out() {
 # Read off the lines printed (rl_block's RL_SHOWNF), or a composition
 # --settled showed as information, which holds an expected line.
 end_legend() {
-	if [ "$OPEN" -eq 0 ] &&
+	if [ "$OPEN" -eq 0 ] && [ "$NL_ONLY" -eq 0 ] &&
 		! grep -Eq '^ +(expected|got|having printed): .*[$]$' "$RL_SHOWNF" 2> /dev/null; then
 		return 0
 	fi
@@ -585,12 +573,12 @@ settled_words() {
 #   3 fields  <escaped-dict>\t<number>\t<expected>  -- a generated dictionary
 # The escape is rush00's; only \n, \t and \\ can actually occur here, because
 # the generator emits printable values only, and printf %b handles those three.
-TMPD=$(mktemp)
-GOTF=$(mktemp)
-WANTF=$(mktemp)
-ERRF=$(mktemp)
-BLOCK=$(mktemp)
-REPLAYF=$(mktemp)
+TMPD=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+GOTF=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+WANTF=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+ERRF=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+BLOCK=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
+REPLAYF=$(mktemp) || { echo "$RL_NAME.sh: cannot create a scratch file" >&2; exit 2; }
 # No second trap here. `trap` REPLACES the handler rather than adding to it, so
 # re-arming it at this point would silently drop the INT and TERM the one above
 # installs -- and it is the same command either way, because these files were
@@ -654,6 +642,9 @@ while IFS='	' read -r f1 f2 f3; do
 	rl_run "$BIN" "$use_dict" "$num" > "$GOTF" 2> "$ERRF" < /dev/null
 	st=$?
 	rl_sweep_ran "$st"
+	# A run that could not be started, or was stopped from outside, says
+	# nothing of the program: exit 2, never a case that differs.
+	rl_unjudged "case $TOTAL"
 	rl_stderr "$ERRF" "case $TOTAL"
 	# The expected bytes: the reference's words and the newline after them.
 	printf '%s\n' "$want" > "$WANTF"
@@ -662,12 +653,9 @@ while IFS='	' read -r f1 f2 f3; do
 	# the same hole the three siblings closed. How it ended is rl_classify's
 	# (tools/exit_status's waitpid()): a return of any number, 128 and 255
 	# included, is a return; a signal, the time limit or the output budget is
-	# not.
+	# not. noexec and stopped never reach here (rl_unjudged, above).
 	case "$RL_CAUSE" in
 		ok | "exit") ended=0 ;;
-		noexec)
-			echo "rush02_check.sh: the program $RL_WHY" >&2
-			exit 2 ;;
 		*) ended=1 ;;
 	esac
 	if cmp -s "$WANTF" "$GOTF" && [ "$ended" = 0 ] && ! rl_stderr_noisy "$ERRF"; then
@@ -697,6 +685,21 @@ while IFS='	' read -r f1 f2 f3; do
 				printf '    FAILS:    %s\n' "$_why"
 			} > "$BLOCK"
 			rl_block "$BLOCK"
+		elif [ "$got" = "$want" ]; then
+			# The reference's own words, with the newline(s) after them
+			# missing or doubled: the only way the same words reach
+			# here, since a run that did not end by itself, or wrote to
+			# a stderr held empty, has a reason above. Counted apart
+			# from a composition, which this is not: they were both
+			# "another composition of the number".
+			NL_ONLY=$((NL_ONLY + 1))
+			if [ "$NL_ONLY" -le 3 ]; then
+				{
+					show_case "$TOTAL" "$num" "$gen_dict"
+					printf '    passes:   the same words; only the newline(s) after them differ, which this target does not judge\n'
+				} > "$BLOCK"
+				rl_shown "$BLOCK"
+			fi
 		else
 			# A composition this target does not judge: a few are
 			# shown, as what they are, and none fails. Not "a reading
@@ -761,10 +764,19 @@ WRONG=$((BAD - RL_DNF))
 rl_dnf_said "$CASE_TMO"
 if [ "$SETTLED" = 1 ]; then
 	[ "$OPEN" -le 3 ] || echo "  ... $((OPEN - 3)) more difference(s) in composition, not judged here, not shown."
-	if [ "$BAD" -eq 0 ]; then
+	[ "$NL_ONLY" -le 3 ] ||
+		echo "  ... $((NL_ONLY - 3)) more that differ only in the newline(s) after the words, not judged here, not shown."
+	if [ "$BAD" -eq 0 ] && [ "$NL_ONLY" -gt 0 ]; then
+		echo "  RESULT: OK — none of $TOTAL cases breaks a rule every reading of the subject"
+		echo "  agrees on; $OPEN differ from the reference's own composition, and"
+		echo "  $NL_ONLY only in the newline(s) after the same words. This target judges"
+		echo "  neither: they are information."
+	elif [ "$BAD" -eq 0 ]; then
 		echo "  RESULT: OK — none of $TOTAL cases breaks a rule every reading of the subject"
 		echo "  agrees on; $OPEN differ from the reference's own composition, which this"
 		echo "  target does not judge: they are information."
+	fi
+	if [ "$BAD" -eq 0 ]; then
 		end_legend
 		shown_legend
 		rl_stderr_rule

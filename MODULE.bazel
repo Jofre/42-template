@@ -227,11 +227,12 @@ deb_archive(
         # nothing has to be renamed -- see compile_check.sh --cc-progs.
         "usr/bin/x86_64-linux-gnu-as",
         # The linker the runners that link at test time are handed (--ld:
-        # asan_check.sh, allocfail_check.sh, cycles_check.sh,
-        # ref_compare.sh, header_check.sh and method_check.sh), reached
-        # through a wrapper tools/runner_lib.sh's rl_ld_pin writes. The
-        # clang package has no linker, so before this every such link ran
-        # the box's /usr/bin/ld (TO VERIFY V38).
+        # those tools/defs_toolchain.bzl's _PINNED_CC_RUNNERS marks as
+        # linking, and make_test.sh through _PINNED_TOOL_SETS; the tables,
+        # not a list here, which left make_test.sh out), reached through a
+        # wrapper tools/runner_lib.sh's rl_ld_pin writes. The clang package
+        # has no linker, so before this every such link ran the box's
+        # /usr/bin/ld (TO VERIFY V38).
         "usr/bin/x86_64-linux-gnu-ld.bfd",
         # The linker //tools/cc_toolchain links with by default, which it
         # reaches through :bin. Named for //tools/tests:fetched_needed, which
@@ -519,7 +520,7 @@ filegroup(
 # libxml2.so.2 and the two ICU libraries it loads, which libLLVM loads by
 # bare soname from the folder it is in: in :runtime, and on their own for the
 # targets that stage libLLVM without it, every one that runs the symbolizer
-# (tools/defs.bzl, _SYMBOLIZER_DATA). Only these two of libicu70's six.
+# (tools/defs_toolchain.bzl, _SYMBOLIZER_DATA). Only these two of libicu70's six.
 filegroup(
     name = "libllvm_deps",
     srcs = glob(
@@ -614,7 +615,7 @@ filegroup(
 # honours --error-exitcode, and callgrind still writes a profile. A source build
 # would have bought the same thing for a great deal more.
 #
-# THREE PIECES, and the second is the one that is easy to miss:
+# TWO PIECES, and the second is the one that is easy to miss:
 #   usr/bin/valgrind.bin  -- the actual binary. /usr/bin/valgrind is a WRAPPER
 #                            script that execs "$0.bin"; running the wrapper
 #                            from a runfiles tree fails on the derived path, so
@@ -627,19 +628,14 @@ filegroup(
 #                            144 files, and valgrind exits immediately without
 #                            them; $VALGRIND_LIB is how it is told where they
 #                            went.
-#   usr/bin/callgrind_annotate -- a Perl script, which the cycles layers parse.
-#
-# STILL THE HOST'S, and named rather than left implicit: perl, for that last
-# script. It is not a verdict-deciding tool in the sense the compilers are --
-# it formats a profile valgrind produced -- and pinning an interpreter to read
-# one text file is the wrong trade. tools/pins.tsv carries a perl row so a
-# campus move is visible, and the cycles layers already SKIP loudly without it.
+# The cycles layers read their counts off the profile callgrind writes (its
+# own totals line), so the package's callgrind_annotate, a Perl script that
+# needed the box's perl, is not exported: nothing here runs it.
 deb_archive(
     name = "valgrind_ubuntu",
     build_file_content = """exports_files(
     [
         "usr/bin/valgrind.bin",
-        "usr/bin/callgrind_annotate",
         # Named individually as well as being in :runtime, because a runner is
         # handed ONE of these and derives $VALGRIND_LIB from its directory.
         # $(location) on the filegroup would refuse (many files), and

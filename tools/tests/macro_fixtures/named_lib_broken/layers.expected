@@ -1,0 +1,27 @@
+basic suite lvl_basic
+complete suite lvl_complete
+libtoy14 suite unit=libtoy14
+libtoy14_build make_test.sh @basic unit=libtoy14 by:defense kind:library
+libtoy14_build_exit make_test.sh @robust unit=libtoy14 by:defense kind:library
+libtoy14_build_rules make_test.sh @robust unit=libtoy14 by:defense kind:library
+libtoy14_compile_clang compile_check.sh @basic make-includes unit=libtoy14 by:defense kind:library
+libtoy14_compile_gcc compile_check.sh @basic make-includes unit=libtoy14 by:defense kind:library
+libtoy14_files files_test.sh @basic unit=libtoy14 by:defense kind:library
+libtoy14_forbidden forbidden_symbols.sh @basic make-includes unit=libtoy14 by:defense kind:library
+libtoy14_norm norminette_test.sh @basic unit=libtoy14 by:defense kind:library
+libtoy14_norm_header header_norm.sh @strict unit=libtoy14 by:defense kind:library
+libtoy14_norm_notice norminette_test.sh @strict unit=libtoy14 by:defense kind:library
+libtoy14_prototype prototype_check.sh @basic make-includes unit=libtoy14 by:defense kind:library
+libtoy14_readme readme_check.sh @basic unit=libtoy14 by:defense kind:library
+libtoy14_readme_wording readme_check.sh @strict unit=libtoy14 by:defense kind:library
+libtoy14_symbols symbols_test.sh @strict make-includes unit=libtoy14 by:defense kind:library
+robust suite lvl_robust
+strict suite lvl_strict
+toy_left suite unit=toy_left
+toy_left_ilp32 ilp32_test.sh @complete make-includes unit=toy_left by:defense kind:function
+toy_left_memcheck valgrind_test.sh @strict gated gate-label:toy_left_output unit=toy_left by:defense kind:function
+toy_left_output diff_output.sh @basic suite:toy_left unit=toy_left by:defense kind:function
+toy_right suite unit=toy_right
+toy_right_ilp32 ilp32_test.sh @complete make-includes unit=toy_right by:defense kind:function
+toy_right_memcheck valgrind_test.sh @strict gated gate-label:toy_right_output unit=toy_right by:defense kind:function
+toy_right_output diff_output.sh @basic suite:toy_right unit=toy_right by:defense kind:function

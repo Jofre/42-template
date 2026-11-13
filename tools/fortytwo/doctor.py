@@ -51,7 +51,7 @@ COLD_ROOT_GB = 1.4
 # The locale .bazelrc runs every test under (its test --test_env=LC_ALL).
 TEST_LOCALE = "en_US.UTF-8"
 
-# env_drift's summary line (tools/env_drift.sh's header), and its count of
+# env_drift's summary line (tools/env_drift.py's header), and its count of
 # fetched tools that did not start.
 DRIFT_SUMMARY = re.compile(r"^\s*\d+ match, \d+ drifted, \d+ missing, \d+ fetch-drift, "
                            r"(\d+) unrunnable, \d+ recorded\s*$")
@@ -394,7 +394,7 @@ def run_drift(out, exe, ws, env):
 def drift_rows(c, status, unrunnable):
     """What env_drift's run adds to the verdict: a BLOCK, or nothing."""
     if unrunnable is None and status == 2:
-        # env_drift's own refusal (tools/env_drift.sh's header), and Bazel's
+        # env_drift's own refusal (tools/env_drift.py's header), and Bazel's
         # for an option it rejects: both exit 2, and both print why.
         c.add("BLOCK", "env_drift did not finish (exit 2, above), so this machine's tools\n"
                        "were not checked. Exit 2 means env_drift refused to start (a\n"

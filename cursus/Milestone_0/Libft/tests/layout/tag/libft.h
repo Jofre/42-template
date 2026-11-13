@@ -6,7 +6,7 @@
  * subject does, under another tag, reads nodes built on the subject's
  * structure right: memory does not see a tag. Only code written against the
  * subject's header by name tells the two apart, so a difference here is real
- * but not certain, and this file is read by ex00_layout_prototype, at strict
+ * but not certain, and this file is read by libft_layout_prototype, at strict
  * (tools/prototype_check.sh --layout-tag). Nothing here is compiled into any
  * program. */
 #ifndef LAYOUT_TAG_LIBFT_LIBFT_H

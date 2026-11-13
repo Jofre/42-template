@@ -96,6 +96,30 @@
 # compiles nothing (a stub): then no .c is judged, and the report says why
 # (finding 164).
 #
+# A PROJECT IN PARTS, ALL AT THE ROOT. Where a subject is in parts (a
+# mandatory part and a bonus, each with its own files) and every part turns
+# in at the root of deliverable/, one folder holds every part's files, and a
+# test per part that judged the whole folder reported each file nobody asked
+# for once per part, and each part's files as extra in every other part's.
+# So the folder is judged in two halves:
+#
+# --extras-elsewhere NAME is a part's own test: it judges the files that part
+# names (--required, --optional) and nothing else. A file another part names
+# (--sibling, repeatable) is listed as that part's, and every other file is
+# counted in one line that sends the reader to NAME, the test that judges
+# them -- c_levels() passes deliverable_files. --strict, --provided, --built,
+# --program, --stray, --outside and --union are refused there: each is about
+# the files no part asks for.
+#
+# --union is NAME: the whole folder, once, for every part. Every part's
+# --required file comes as a --sibling (its own test reports it missing),
+# the optional files of every part as --optional, and --provided, --program
+# and --strict are the project's; --built is given once for each part whose
+# build writes a manifest, and a .c counts as unbuilt only when no part's
+# build compiles it, judged only when every part's build planned a list.
+# --required, --expected, --extras-elsewhere, --build-target, --stray and
+# --outside are refused there.
+#
 # Usage:
 #   files_test.sh --label NAME [--required NAME]... [--optional NAME]...
 #                 [--expected NAME]...
@@ -103,6 +127,7 @@
 #                 [--actual NAME]... [--actual-list FILE] [--strict] [--root]
 #                 [--stray EXERCISES | --outside EXERCISES] [--built FILE]
 #                 [--build-target NAME] [--program NAME]...
+#                 [--sibling NAME]... [--extras-elsewhere TEST | --union]
 #
 # --program NAME is a program this exercise builds: c_program's name, or
 # c_make's artifact. A file of that name in the turn-in is what a build left
@@ -139,6 +164,12 @@ EXP=""
 PROV=""
 ACT=""
 PROGS=""
+# A project in parts (above): the files other parts name, the test the
+# files no part asks for are left to, the union mode, and every --built.
+SIB=""
+ELSEWHERE=""
+UNION=0
+BUILT_LIST=""
 add() { if [ -z "$1" ]; then printf '%s' "$2"; else printf '%s\n%s' "$1" "$2"; fi; }
 
 # `--flag` with nothing after it used to die as "2: parameter not set" from
@@ -175,12 +206,66 @@ while [ $# -gt 0 ]; do
 		--built)
 			need "$1" "$#"
 			[ -f "$2" ] || { echo "files_test.sh: no build manifest at $2" >&2; exit 2; }
-			BUILT="$2"; shift 2 ;;
+			BUILT="$2"; BUILT_LIST=$(add "$BUILT_LIST" "$2"); shift 2 ;;
 		--build-target) need "$1" "$#"; T_BUILD="$2"; shift 2 ;;
 		--program) need "$1" "$#"; PROGS=$(add "$PROGS" "$2"); shift 2 ;;
+		--sibling) need "$1" "$#"; SIB=$(add "$SIB" "$2"); shift 2 ;;
+		--extras-elsewhere) need "$1" "$#"; ELSEWHERE="$2"; shift 2 ;;
+		--union) UNION=1; shift ;;
 		*) echo "files_test.sh: unknown option: $1" >&2; exit 2 ;;
 	esac
 done
+
+# What this test tests, in the words below: RL_UNIT_KIND, which
+# tools/defs_test.bzl's _test() hands a test of a contract of units, or
+# "exercise" (tools/runner_lib.sh's rl_noun, which this script does not
+# source).
+case "${RL_UNIT_KIND:-}" in
+	"") NOUN=exercise ;;
+	exercise | library | function | project | part) NOUN=$RL_UNIT_KIND ;;
+	*)
+		echo "files_test.sh: RL_UNIT_KIND is '$RL_UNIT_KIND', and a unit's kind is" >&2
+		echo "  exercise, library, function, project or part (tools/subject.bzl): the harness is broken." >&2
+		exit 2 ;;
+esac
+
+# The two halves of a project in parts, each refusing what is the other's.
+# refuse_with MODE FLAG...: exit 2 naming every FLAG given.
+refuse_with() {
+	_rw_mode=$1
+	shift
+	[ "$#" -eq 0 ] && return 0
+	echo "files_test.sh: $_rw_mode cannot be combined with:$(printf ' %s' "$@")" >&2
+	exit 2
+}
+if [ -n "$ELSEWHERE" ]; then
+	set --
+	[ "$STRICT" = 0 ] || set -- "$@" --strict
+	[ -z "$PROV" ] || set -- "$@" --provided
+	[ -z "$BUILT_LIST" ] || set -- "$@" --built
+	[ -z "$PROGS" ] || set -- "$@" --program
+	[ -z "$STRAY" ] || set -- "$@" --stray
+	[ -z "$OUTSIDE" ] || set -- "$@" --outside
+	[ "$UNION" = 0 ] || set -- "$@" --union
+	refuse_with "--extras-elsewhere (a part's own files)" "$@"
+elif [ "$UNION" = 1 ]; then
+	set --
+	[ -z "$REQ" ] || set -- "$@" --required
+	[ -z "$EXP" ] || set -- "$@" --expected
+	[ -z "$T_BUILD" ] || set -- "$@" --build-target
+	[ -z "$STRAY" ] || set -- "$@" --stray
+	[ -z "$OUTSIDE" ] || set -- "$@" --outside
+	refuse_with "--union (the files no part asks for)" "$@"
+else
+	[ -z "$SIB" ] || {
+		echo "files_test.sh: --sibling names another part's file, for --extras-elsewhere or --union" >&2
+		exit 2
+	}
+	if [ "$(printf '%s\n' "$BUILT_LIST" | grep -c .)" -gt 1 ]; then
+		echo "files_test.sh: --built is given once, but for --union" >&2
+		exit 2
+	fi
+fi
 
 # has NAME LIST: whether NAME is one of the lines of LIST, compared whole.
 has() {
@@ -253,13 +338,18 @@ if [ -n "$OUTSIDE" ]; then
 	echo "  nothing beside them."
 	exit 1
 fi
+MISSING=0
+UNMADE=0
+if [ "$UNION" = 1 ]; then
+	echo "  EVERY FILE NO PART OF THIS PROJECT ASKS FOR, judged once for all of"
+	echo "  them. Each part's own files are its own files test's to judge."
+else
 printf '  %-28s %s\n' "REQUIRED BY THE SUBJECT" "STATUS"
 printf '  %-28s %s\n' "----------------------------" "----------"
 
-MISSING=0
-UNMADE=0
 # conventions: the call site's --required -- none given: the contract lists no file
 [ -n "$REQ$EXP" ] || printf '  %-28s %s\n' "(the subject names no file)" "-"
+fi
 while IFS= read -r f; do
 	[ -n "$f" ] || continue
 	if has "$f" "$ACT"; then
@@ -286,12 +376,17 @@ EXP_EOF
 EXTRA=""
 GRADERS=""
 ALLOWED=""
+SIBS=""
 while IFS= read -r f; do
 	[ -n "$f" ] || continue
 	has "$f" "$REQ" && continue
 	has "$f" "$EXP" && continue
 	if has "$f" "$OPT"; then
 		ALLOWED=$(add "$ALLOWED" "$f")
+		continue
+	fi
+	if [ -n "$SIB" ] && has "$f" "$SIB"; then
+		SIBS=$(add "$SIBS" "$f")
 		continue
 	fi
 	if [ -n "$PROV" ] && has "$f" "$PROV"; then
@@ -310,20 +405,35 @@ ACT_EOF
 # and a make that failed says nothing -- and said either way.
 UNBUILT=""
 BUILT_NOTE=""
+# Under --union, every part's list: one that could not be planned, or that
+# compiles nothing yet, leaves every .c unjudged, and a .c is unbuilt only
+# when no list names it.
+built_any() {
+	printf '%s\n' "$BUILT_LIST" | while IFS= read -r _bl; do
+		[ -n "$_bl" ] || continue
+		grep -qxF -- "$1" "$_bl" && echo y && break
+	done | grep -q y
+}
 if [ -n "$BUILT" ]; then
-	_first=""
-	IFS= read -r _first < "$BUILT" || :
-	if [ "$_first" = unknown ]; then
-		BUILT_NOTE="unknown"
-	elif ! grep -q . "$BUILT"; then
-		BUILT_NOTE="none"
-	else
+	while IFS= read -r _bl; do
+		[ -n "$_bl" ] || continue
+		_first=""
+		IFS= read -r _first < "$_bl" || :
+		if [ "$_first" = unknown ]; then
+			BUILT_NOTE="unknown"
+		elif [ "$BUILT_NOTE" != unknown ] && ! grep -q . "$_bl"; then
+			BUILT_NOTE="none"
+		fi
+	done <<BUILT_EOF
+$BUILT_LIST
+BUILT_EOF
+	if [ -z "$BUILT_NOTE" ]; then
 		_kept=""
 		while IFS= read -r f; do
 			[ -n "$f" ] || continue
 			case "$f" in
 				*.c)
-					if ! grep -qxF -- "$f" "$BUILT"; then
+					if ! built_any "$f"; then
 						UNBUILT=$(add "$UNBUILT" "$f")
 						continue
 					fi ;;
@@ -354,6 +464,51 @@ if [ -n "$GRADERS" ]; then
 	echo "  grader's under this project's tests/, and builds with that one."
 fi
 
+if [ -n "$SIBS" ]; then
+	echo ""
+	if [ "$UNION" = 1 ]; then
+		echo "  FILES A PART OF THIS PROJECT ASKS FOR, each judged by that part's test:"
+	else
+		echo "  FILES ANOTHER PART OF THIS PROJECT ASKS FOR, judged by its own test:"
+	fi
+	printf '%s\n' "$SIBS" | while IFS= read -r f; do
+		case "$f" in
+			*[[:space:]]*) printf "    '%s'\n" "$f" ;;
+			*) printf '    %s\n' "$f" ;;
+		esac
+	done
+fi
+
+# A PART'S OWN TEST (--extras-elsewhere): the files it names, and a pointer
+# for the rest, which the folder's own test reports once.
+if [ -n "$ELSEWHERE" ]; then
+	if [ -n "$EXTRA" ]; then
+		echo ""
+		echo "  $(printf '%s\n' "$EXTRA" | grep -c .) other file(s) here no part of this project asks for:"
+		echo "  $ELSEWHERE reports them, once for the whole folder."
+	fi
+	echo ""
+	if [ "$MISSING" -gt 0 ]; then
+		echo "  RESULT: FAIL — $MISSING required file(s) missing."
+		# conventions: the call site's --required -- the files the contract lists
+		echo "  The subject names the files it wants, exactly. A file that is not"
+		echo "  there cannot be graded, whatever the rest of the module does."
+		exit 1
+	fi
+	if [ -z "$REQ" ]; then
+		echo "  RESULT: PASS — this part names no file of its own, so which files"
+		echo "  it needs is its build's to say."
+		exit 0
+	fi
+	if [ -n "$ALLOWED" ]; then
+		echo "  RESULT: PASS — every file this part names is here, and the rest of"
+		echo "  its own are files it allows without naming them (above)."
+		exit 0
+	fi
+	echo "  RESULT: PASS — every file this part names is here."
+	exit 0
+fi
+
 if [ -n "$EXTRA" ]; then
 	echo ""
 	echo "  FILES THE SUBJECT DID NOT ASK FOR:"
@@ -380,7 +535,21 @@ if [ -n "$EXTRA" ]; then
 	fi
 fi
 
-if [ -n "$UNBUILT" ]; then
+if [ -n "$UNBUILT" ] && [ "$UNION" = 1 ]; then
+	echo ""
+	echo "  SOURCES NO PART'S BUILD COMPILES, asked of 'make -Bn' for the rule"
+	echo "  that builds each part:"
+	printf '%s\n' "$UNBUILT" | while IFS= read -r f; do
+		case "$f" in
+			*[[:space:]]*) printf "    '%s'\n" "$f" ;;
+			*) printf '    %s\n' "$f" ;;
+		esac
+	done
+	echo "  This layer counts a source as turned in only when the build of some part"
+	echo "  compiles it. One none compiles -- a test main, an old version -- is pushed"
+	echo "  with the rest all the same. Does a program need it? Then the Makefile has"
+	echo "  to name it. If not, delete it."
+elif [ -n "$UNBUILT" ]; then
 	echo ""
 	echo "  SOURCES YOUR MAKEFILE DOES NOT BUILD, asked of 'make -Bn' (what a bare"
 	echo "  'make' would compile):"
@@ -395,13 +564,24 @@ if [ -n "$UNBUILT" ]; then
 	echo "  only on request -- is pushed with the rest all the same. Does the"
 	echo "  program need it? Then the Makefile has to name it. If not, delete it."
 fi
-case "$BUILT_NOTE" in
-	unknown)
+case "$UNION$BUILT_NOTE" in
+	1unknown)
+		echo ""
+		echo "  'make -Bn' could not plan the build of every part (one whose rule is"
+		echo "  not written yet, say), so which of the .c files here your Makefile"
+		echo "  compiles is not known, and none is judged by it. Each part's build"
+		echo "  layer says why." ;;
+	1none)
+		echo ""
+		echo "  The build of a part compiles no .c file yet (a stub, or a rule that"
+		echo "  builds something else), so which of the .c files here your Makefile"
+		echo "  compiles is not known, and none is judged by it." ;;
+	0unknown)
 		echo ""
 		echo "  'make -Bn' could not plan a build, so which of the .c files here"
 		echo "  your Makefile compiles is not known, and none is judged by it."
 		echo "  ${T_BUILD:-The build layer} says why make stopped." ;;
-	none)
+	0none)
 		echo ""
 		echo "  Your Makefile compiles no .c file yet (a stub, or a default goal"
 		echo "  that builds something else), so which of the .c files here it"
@@ -446,7 +626,7 @@ if [ -n "$BUILT_PROG" ]; then
 	echo ""
 	echo "  A BUILT PROGRAM, left in the turn-in:"
 	printf '%s\n' "$BUILT_PROG" | sed 's/^/    /'
-	echo "  It is named as the program this exercise builds: what a build left"
+	echo "  It is named as the program this $NOUN builds: what a build left"
 	# conventions: the call site's --program -- a program the contract does not list
 	echo "  behind, not a file the subject asks for, and //tools:submit refuses to"
 	echo "  push a module holding one. Run your cleaning rule, or delete it."
@@ -465,7 +645,10 @@ if [ -n "$EXTRA$GRADERS$UNBUILT" ]; then
 		exit 1
 	fi
 	echo "  RESULT: PASS (with a warning)"
-	if [ "$UNMADE" -gt 0 ]; then
+	if [ "$UNION" = 1 ]; then
+		echo "  Each part's own files are its own test's to judge. The"
+		echo "  extra one(s) above are not a"
+	elif [ "$UNMADE" -gt 0 ]; then
 		# conventions: the call site's --expected -- the files the contract lists that a build makes
 		echo "  What the subject asks for and was not produced is the output"
 		echo "  layer's to report. The extra one(s) above are not a"
@@ -488,6 +671,15 @@ if [ -n "$EXTRA$GRADERS$UNBUILT" ]; then
 fi
 
 # What the PASS says is what was established, and no more.
+if [ "$UNION" = 1 ]; then
+	if [ -n "$ALLOWED" ]; then
+		echo "  RESULT: PASS — nothing here that no part of this project asks for:"
+		echo "  the rest are files a part allows without naming them (above)."
+		exit 0
+	fi
+	echo "  RESULT: PASS — nothing here that no part of this project asks for."
+	exit 0
+fi
 if [ "$UNMADE" -gt 0 ]; then
 	echo "  RESULT: PASS — nothing here the subject did not ask for. $UNMADE file(s)"
 	echo "  it asks for were not produced: the output layer reports that, with"

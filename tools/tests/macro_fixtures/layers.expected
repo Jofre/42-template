@@ -62,6 +62,8 @@ ex05_norm_notice norminette_test.sh by:moulinette
 ex05_output diff_output.sh by:moulinette
 ex05_prototype prototype_check.sh by:moulinette
 ex05_symbols symbols_test.sh by:moulinette
+ex06_alt_output diff_output.sh by:moulinette
+ex06_argfile_output diff_output.sh by:moulinette
 ex06_asan asan_run.sh by:moulinette
 ex06_compile_clang no_turnin.sh by:moulinette
 ex06_compile_gcc no_turnin.sh by:moulinette
@@ -185,6 +187,7 @@ ex24_argv_asan argv_table.sh by:moulinette
 ex24_asan argv_table.sh by:moulinette
 ex24_compile_clang compile_check.sh make-includes by:moulinette
 ex24_compile_gcc compile_check.sh make-includes by:moulinette
+ex24_emit_output argv_table.sh by:moulinette
 ex24_exit argv_table.sh by:moulinette
 ex24_norm norminette_test.sh by:moulinette
 ex24_norm_notice norminette_test.sh by:moulinette

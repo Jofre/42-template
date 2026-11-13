@@ -26,9 +26,10 @@
 # 001). The check is tools/drives.sh's, the same one setup.sh and env_drift use,
 # and its advice names the directory to move to.
 #
-# And it ends by naming ONE module's basic suite, the way setup.sh and the
-# README do: the whole repo is more than a first run needs, and on a campus box
-# more than it can afford (finding 006). Submitting has its own page.
+# And it ends by naming the tests of one exercise, C 00 ex01 (`42 test` in its
+# folder), the step the README gives next: the whole repo is more than a first
+# run needs, and on a campus box more than it can afford (finding 006).
+# Submitting has its own page.
 
 set -u
 
@@ -50,7 +51,7 @@ require dirname git sed
 
 # Repo root: from `bazel run` it's BUILD_WORKSPACE_DIRECTORY; run directly it's the
 # parent of tools/.
-WS="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/.." && pwd)}"
+WS="${BUILD_WORKSPACE_DIRECTORY:-$(CDPATH='' cd "$(dirname "$0")/.." && pwd)}"
 cd "$WS" || exit 1
 
 LOGIN=""

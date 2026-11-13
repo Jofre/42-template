@@ -30,8 +30,7 @@ int	main(void)
 	rc_guard(45, 64UL * 1024 * 1024);
 	while (dio_line(g_line, (int)sizeof(g_line)))
 	{
-		if (dio_split(g_line, f, 3) < 2)
-			continue ;
+		dio_fields(g_line, f, 3, 2);
 		x = (int)strtol(f[0], NULL, 10);
 		y = (int)strtol(f[1], NULL, 10);
 		buf = rc_run(x, y, &len);

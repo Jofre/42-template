@@ -390,6 +390,10 @@ pub fn gen(name: &str, seed: u64, count: usize) -> bool {
 // system tool: the model was cross-checked against the tools the exercises
 // imitate -- GNU coreutils 8.32's cat and tail, util-linux 2.37.2's hexdump --
 // on every path below, and `check` holds it to their pasted transcripts.
+// An argument the model does not read gets no answer (Run::no_answer, exit
+// 2), never an invented one: any option but tail's -c and hexdump's -C, and
+// a tail count that is not all digits (`-c +5` is "from byte 5 on" to GNU
+// tail, and parse::<usize>() would take it for 5).
 //
 // What each tool does on its error paths, measured:
 //
@@ -431,8 +435,21 @@ struct Run {
     status: i32,
     /// Why the model has no answer for this run, when the tool's own answer
     /// depends on something other than its arguments (tail after a
-    /// directory): `c10_run` then says so and exits 2, and nothing is printed.
+    /// directory), or on an argument the model does not read (an option it
+    /// does not model, a signed count): `c10_run` then says so and exits 2,
+    /// and nothing is printed.
     no_answer: Option<String>,
+}
+
+/// A run the model has no answer for, and why (Run::no_answer).
+fn refused(why: String) -> Run {
+    Run { out: Vec::new(), err: Vec::new(), status: 0, no_answer: Some(why) }
+}
+
+/// The first argument that looks like an option and is not `-` (standard
+/// input to cat, a file name to hexdump), nor one of `known`.
+fn unknown_option<'a>(args: &'a [String], known: &[&str]) -> Option<&'a String> {
+    args.iter().find(|a| a.starts_with('-') && *a != "-" && !known.contains(&a.as_str()))
 }
 
 /// Why reading an operand failed: at open(), or at read() after it opened.
@@ -505,6 +522,9 @@ fn m_display_file(args: &[String]) -> Run {
 }
 
 fn m_cat(prog: &str, args: &[String]) -> Run {
+    if let Some(o) = unknown_option(args, &[]) {
+        return refused(format!("cat {}: an option, and the model reads none", o));
+    }
     let mut r = Run { out: Vec::new(), err: Vec::new(), status: 0, no_answer: None };
     let mut taken = false;
     let stdin_only = vec!["-".to_string()];
@@ -536,16 +556,26 @@ fn m_tail(prog: &str, args: &[String]) -> Run {
             args.get(i).cloned()
         } else if let Some(v) = a.strip_prefix("-c") {
             Some(v.to_string())
+        } else if a.starts_with('-') && a != "-" {
+            return refused(format!("tail {}: an option, and the model reads none but -c", a));
         } else {
             ops.push(a.clone());
             None
         };
         if a.starts_with("-c") {
-            match count.as_deref().and_then(|v| v.parse::<usize>().ok()) {
+            // Digits only: parse::<usize>() takes a leading '+' too, and GNU
+            // tail reads `-c +5` as "from byte 5 on", not the last five.
+            let digits = count.as_deref().filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()));
+            match digits.and_then(|v| v.parse::<usize>().ok()) {
                 Some(v) => n = Some(v),
                 None => {
-                    eprintln!("oracle c10_run: tail -c needs a count, as every c-10 case gives one");
-                    std::process::exit(2);
+                    return refused(match count.as_deref() {
+                        Some(v) if v.starts_with('+') || v.starts_with('-') => format!(
+                            "tail -c {}: a signed count, which c-10 excludes, so the model has no answer for it",
+                            v
+                        ),
+                        _ => "tail -c needs a count, as every c-10 case gives one".to_string(),
+                    });
                 }
             }
         }
@@ -611,6 +641,9 @@ fn m_tail(prog: &str, args: &[String]) -> Run {
 }
 
 fn m_hexdump(prog: &str, args: &[String]) -> Run {
+    if let Some(o) = unknown_option(args, &["-C"]) {
+        return refused(format!("hexdump {}: an option, and the model reads none but -C", o));
+    }
     let mut r = Run { out: Vec::new(), err: Vec::new(), status: 0, no_answer: None };
     let canonical = args.iter().any(|a| a == "-C");
     let ops: Vec<&String> = args.iter().filter(|a| *a != "-C").collect();
@@ -902,6 +935,21 @@ pub fn check() -> usize {
     if t.out != b"==> . <==\n" || t.status != 1 {
         eprintln!("c10: the tail model does not head a directory among several operands as the tool does");
         fails += 1;
+    }
+    // An argument the model does not read has no answer, never one made up:
+    // GNU tail reads `-c +5` as "from byte 5 on", not the last five, and
+    // takes -q, and cat -e and hexdump -v are options to those tools, not
+    // names to fail to open.
+    for (what, r) in [
+        ("tail -c +5", m_tail("tail", &s(&["-c", "+5", miss]))),
+        ("tail -c 5 -q", m_tail("tail", &s(&["-c", "5", "-q", miss]))),
+        ("cat -e", m_cat("cat", &s(&["-e", miss]))),
+        ("hexdump -C -v", m_hexdump("hexdump", &s(&["-C", "-v", miss]))),
+    ] {
+        if r.no_answer.is_none() {
+            eprintln!("c10: the model answers `{} FILE`, an argument it does not model, where it must refuse", what);
+            fails += 1;
+        }
     }
     let h = m_hexdump("hexdump", &s(&["-C", miss]));
     if h.err != format!("hexdump: {}: No such file or directory\nhexdump: all input file arguments failed\n", miss).as_bytes()

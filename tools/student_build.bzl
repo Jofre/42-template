@@ -56,6 +56,9 @@ StudentUnitInfo = provider(
     },
 )
 
+# defs_levels.bzl's uniq(), kept as a copy: a file outside the macros loads
+# no tools/defs_*.bzl, only //tools:defs.bzl (//tools:conventions), and
+# that load would be a cycle, since defs_contract.bzl loads this file.
 def _dedup(xs):
     out = []
     for x in xs:
@@ -257,6 +260,8 @@ def _binary_impl(ctx):
         args.add("--sources-out", ctx.outputs.sources_out)
         outputs.append(ctx.outputs.sources_out)
     args.add("--label", "//%s:%s" % (pkg, ctx.label.name))
+    if ctx.attr.unit_kind:
+        args.add("--kind", ctx.attr.unit_kind)
     if ctx.attr.dir:
         args.add("--dir", pkg + "/" + ctx.attr.dir if pkg else ctx.attr.dir)
     args.add("--cc", compiler)
@@ -268,7 +273,7 @@ def _binary_impl(ctx):
     args.add_all(harness, before_each = "--harness")
     if not ctx.attr.archive:
         args.add("--no-archive")
-    inputs = [ctx.file._script, ctx.file._standin] + lib + harness + headers + cc_link_inputs
+    inputs = [ctx.file._script, ctx.file._standin, ctx.file._make_db] + lib + harness + headers + cc_link_inputs
     if ctx.attr.makefile:
         args.add("--makefile", ctx.file.makefile)
         args.add("--make", ctx.executable._make)
@@ -281,7 +286,11 @@ def _binary_impl(ctx):
         inputs.append(ctx.executable._make)
     else:
         args.add_all(lib, before_each = "--src")
-    if ctx.attr.makefile or ctx.attr.missing_makefile:
+    if ctx.attr.make_goal:
+        if not (ctx.attr.makefile or ctx.attr.missing_makefile):
+            fail("%s: make_goal is a rule of the Makefile, and there is no makefile" % ctx.label)
+        args.add("--make-goal", ctx.attr.make_goal)
+    if (ctx.attr.makefile or ctx.attr.missing_makefile) and not ctx.attr.make_goal:
         # What to build while there is no Makefile, or while it compiles
         # nothing (student_build.sh, UNTIL THE MAKEFILE IS WRITTEN).
         args.add_all(lib, before_each = "--fallback-src")
@@ -344,6 +353,14 @@ student_binary = rule(
         "missing_makefile": attr.string(
             doc = "The package-relative path the Makefile should be at, when it is not there.",
         ),
+        "make_goal": attr.string(
+            doc = "The Makefile rule to plan the build with (make -Bn <rule>), for a part " +
+                  "a rule of its own builds; empty: what a bare make runs.",
+        ),
+        "unit_kind": attr.string(
+            doc = "In a contract of units, the kind of what the program is built for, for " +
+                  "the stand-in's words; empty for an exercise.",
+        ),
         "make_data": attr.label_list(allow_files = True, doc = "The files staged beside the Makefile."),
         "includes_out": attr.output(
             doc = "Where to write the -I directories the Makefile passes, one per line, " +
@@ -356,6 +373,8 @@ student_binary = rule(
         ),
         "_script": attr.label(default = "//tools:student_build.sh", allow_single_file = True),
         "_standin": attr.label(default = "//tools:standin.sh", allow_single_file = True),
+        # The readers of make's database, which the script finds beside itself.
+        "_make_db": attr.label(default = "//tools:make_db.awk", allow_single_file = True),
         "_make": attr.label(
             default = "@make_ubuntu//:usr/bin/make",
             allow_single_file = True,

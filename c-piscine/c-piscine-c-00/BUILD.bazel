@@ -135,13 +135,13 @@ c_mem_check(num = "08", fn = "ft_print_combn", probe = "mem_print_combn.c")
 # apply to them is checked: not what they print, but that they stay in bounds.
 #
 # One consequence of the above is worth stating because it is invisible from
-# here: c_diff is what emits the crash-fuzz twin (exNN_diff_asan) and what links
-# the ASan/UBSan copy of the library that c_function always BUILDS and otherwise
-# never runs (tools/defs.bzl, tagged manual). So ex00, ex01, ex02, ex03 and ex05
-# have no CRASH-FUZZ arm: no corpus is replayed against an instrumented build of
-# them.
+# here: c_diff is what emits the crash-fuzz twin (exNN_diff_asan), which replays
+# the corpus through exNN_diffbin_asan, the ASan/UBSan build c_diff compiles for
+# it. So every exercise here but ex04 and ex07 -- ex00, ex01, ex02, ex03, ex05,
+# ex06 and ex08 -- has no CRASH-FUZZ arm: no corpus is replayed against an
+# instrumented build of them.
 #
-# Four of the five are not unsanitised, though, and this paragraph used to say
+# Six of the seven are not unsanitised, though, and this paragraph used to say
 # they were — "no sanitizer at all for ex01, ex02, ex03 and ex05" — with
 # c_mem_check called for every one of those four above (the ex01, ex02, ex03
 # and ex05 c_mem_check calls). A wrong reason is worse than a missing one here,
@@ -149,10 +149,10 @@ c_mem_check(num = "08", fn = "ft_print_combn", probe = "mem_print_combn.c")
 # carries a written reason, and one that is checkably false teaches the next
 # reader to skim them all.
 #
-# So: ex01, ex02, ex03 and ex05 each carry a c_mem_check probe, the ASan layer
-# that needs no corpus. ex00 carries neither, and correctly — ft_putchar writes
-# the one byte it was handed, so there is no buffer to run off and nothing for a
-# probe to watch.
+# So: ex01, ex02, ex03, ex05, ex06 and ex08 each carry a c_mem_check probe, the
+# ASan layer that needs no corpus. ex00 carries neither, and correctly —
+# ft_putchar writes the one byte it was handed, so there is no buffer to run off
+# and nothing for a probe to watch.
 #
 # no valgrind, anywhere in this module: NO-MALLOC-ALLOWED.
 #
@@ -163,8 +163,8 @@ c_mem_check(num = "08", fn = "ft_print_combn", probe = "mem_print_combn.c")
 # c_function emits a valgrind arm for `malloc = True` exercises only.
 #
 # The same code covers the identical absence in c-02, c-03, c-04, c-06 and all
-# of c-11 but ft_map. The long form of every reason code is in tools/defs.bzl,
-# above _LAYER_LEVEL.
+# of c-11 but ft_map. The long form of every reason code is in
+# tools/defs_levels.bzl, above _LAYER_LEVEL.
 
 
 
@@ -174,8 +174,8 @@ c_mem_check(num = "08", fn = "ft_print_combn", probe = "mem_print_combn.c")
 # of magnitude, and until now nothing in the suite looked. Each of these emits a
 # fixed, known byte stream; the only question left is how many times the program
 # enters the kernel to hand those bytes over, and the floor in every case is one
-# write() call. Recorded against finished c-00 implementations: 26 bytes in 26
-# calls, 26 in 26, 10 in 10, 598 in 479, and 34 648 in 9 899.
+# write() call. An answer that writes one byte per call makes N calls for N
+# bytes; the reference makes one.
 #
 # Informative only -- this layer never fails on its number, and a correct
 # exercise is correct however many syscalls it made. `kind = "output"` swaps the
@@ -205,5 +205,4 @@ c_cycles(
     unit_name = "digit",
     # emit_nbr archetype; budget measured from the implemented c-00..c-04 exercises.
     budget = 40,
-    syscall_budget = 1.0,
 )

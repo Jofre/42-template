@@ -27,38 +27,34 @@ ck_sh_parses "$D"
 
 # No configuration but the repository's own: not the system's, not the
 # user's (a pager, colour, signing, a log format), for the fixture and for
-# the run alike.
-GIT_CONFIG_NOSYSTEM=1
-HOME=$(mktemp -d)
-XDG_CONFIG_HOME="$HOME/.config"
-export GIT_CONFIG_NOSYSTEM HOME XDG_CONFIG_HOME
-# Nor where the repository is, or which configuration it takes, from what a
-# run outside Bazel's cleared environment would inherit.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
-unset GIT_CONFIG_GLOBAL GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+# the run alike (tools/shell_check.sh).
+ck_git_sandbox
 
 # Build a throwaway repo with 6 commits so "last 5" is a real subset.
 # Self-contained fixture => deterministic and host-safe (no reliance on the
-# checking machine's own repos/config).
+# checking machine's own repos/config). One that cannot be built, or that
+# recorded fewer than its six commits, leaves nothing to judge the turn-in
+# by: the harness's fault, never a verdict (an empty record once passed the
+# order line on an output of nothing).
 work=$(mktemp -d)
 (
 	cd "$work" || exit 1
-	git init -q repo
+	ck_git_init repo || exit 1
 	cd repo || exit 1
-	git config user.email tester@example.com
-	git config user.name tester
 	i=1
 	while [ "$i" -le 6 ]; do
 		echo "$i" > f
-		git add f
-		git commit -q -m "commit $i"
+		git add f || exit 1
+		git commit -q -m "commit $i" || exit 1
 		# Record each commit as it is MADE: the expected answer then comes from
 		# the fixture, not from asking git for its history (which is the
 		# exercise).
-		git rev-parse HEAD >> ../made
+		git rev-parse HEAD >> ../made || exit 1
 		i=$((i + 1))
 	done
-)
+) || { rm -rf "$work" "$HOME"; ck_broken "the git fixture repository could not be built"; }
+[ "$(grep -cE '^[0-9a-f]{40}$' "$work/made" 2> /dev/null)" = 6 ] ||
+	{ rm -rf "$work" "$HOME"; ck_broken "the git fixture repository did not record its six commits"; }
 repo="$work/repo"
 
 # One run, two views: a byte-exact raw capture (for the terminator assertions)

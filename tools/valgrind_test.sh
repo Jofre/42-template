@@ -144,14 +144,14 @@ require() {
 		exit 2
 	done
 }
-require awk basename dirname fold grep head mktemp readlink rm sed
+require awk basename fold grep head mktemp rm sed
 
 # The shared runner helpers -- time budget, exiting signal traps, how a run
 # ended, excerpts, hints -- written once in tools/runner_lib.sh.
 RL_NAME=valgrind_test
 case $0 in */*) RL_LIB=${0%/*}/runner_lib.sh ;; *) RL_LIB=./runner_lib.sh ;; esac
 [ -f "$RL_LIB" ] || RL_LIB=${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/runner_lib.sh
-[ -f "$RL_LIB" ] || { echo "valgrind_test.sh: tools/runner_lib.sh is not staged (list //tools:runner_lib.sh in the test's data)" >&2; exit 2; }
+[ -f "$RL_LIB" ] || { echo "valgrind_test.sh: tools/runner_lib.sh is not staged (tools/defs_test.bzl's _test() stages it for every test; by hand, run this by its path in the repository)" >&2; exit 2; }
 # shellcheck source=tools/runner_lib.sh
 . "$RL_LIB"
 # The harness's own programs this runner starts by path, outside rl_run on
@@ -200,11 +200,6 @@ STATUS_FILE=""
 BRIEF=0
 EXPLAIN=""
 
-# `--flag` with nothing after it used to die as "2: parameter not set" from
-# `set -u` -- the right exit code wrapped in raw shell. Same loop in every
-# runner, so the fix is the same three lines in every runner.
-need() { [ "$2" -ge 2 ] || { echo "valgrind_test.sh: $1 needs a value" >&2; exit 2; }; }
-
 # ---------------------------------------------------------------------------
 # WHAT A FINDING MEANS, one paragraph per KEY, and one copy of each: printed
 # under the finding it explains, or -- for one case of a corpus (--brief) --
@@ -217,6 +212,7 @@ class_title() {  # class_title KEY -- the name a class:KEY paragraph leads with
 		class:invalid-read) echo "INVALID READ" ;;
 		class:invalid-free) echo "INVALID FREE" ;;
 		class:uninitialised) echo "UNINITIALISED VALUE" ;;
+		class:invalid-syscall-arg) echo "INVALID SYSCALL ARGUMENT" ;;
 		class:definitely-lost) echo "DEFINITELY LOST" ;;
 		class:indirectly-lost) echo "INDIRECTLY LOST" ;;
 		class:possibly-lost) echo "POSSIBLY LOST" ;;
@@ -263,6 +259,17 @@ explain() {  # explain KEY -- its paragraph
 		echo "  --track-origins is on, so the report also says where the"
 		echo "  uninitialised bytes came from ('Uninitialised value was created"
 		echo "  by a heap allocation')."
+		;;
+	class:invalid-syscall-arg)
+		echo "  $(class_title "$1") — the program handed a system call (a write(), a"
+		echo "  read()) a buffer that is not all inside memory it owns: past the end"
+		echo "  of a block, or inside one whose lifetime had already ended. The"
+		echo "  kernel reads or fills that buffer on the program's behalf, so no"
+		echo "  instruction of its own touches the bad bytes, and the record is not"
+		echo "  an 'Invalid read' or 'Invalid write' one."
+		echo "  Its first line names the call and which of its arguments ('Syscall"
+		echo "  param write(buf)'); the 'Address 0x...' line under the trace names"
+		echo "  the block and where the bad bytes start."
 		;;
 	class:definitely-lost)
 		echo "  $(class_title "$1") — a block this program allocated was unreachable"
@@ -381,40 +388,40 @@ explained() {
 
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--bin) need "$1" "$#"; BIN="$2"; shift 2 ;;
-		--valgrind) need "$1" "$#"; VALGRIND="$2"; shift 2 ;;
-		--valgrind-tools) need "$1" "$#"; VGTOOLS="$2"; shift 2 ;;
-		--label) need "$1" "$#"; LABEL="$2"; shift 2 ;;
-		--stdin) need "$1" "$#"; STDIN_FILE="$2"; shift 2 ;;
-		--clues) need "$1" "$#"; CLUES="$2"; shift 2 ;;
-		--timeout) need "$1" "$#"; TIMEOUT="$2"; shift 2 ;;
-		--status-file) need "$1" "$#"; STATUS_FILE="$2"; shift 2 ;;
+		--bin) rl_need "$1" "$#"; BIN="$2"; shift 2 ;;
+		--valgrind) rl_need "$1" "$#"; VALGRIND="$2"; shift 2 ;;
+		--valgrind-tools) rl_need "$1" "$#"; VGTOOLS="$2"; shift 2 ;;
+		--label) rl_need "$1" "$#"; LABEL="$2"; shift 2 ;;
+		--stdin) rl_need "$1" "$#"; STDIN_FILE="$2"; shift 2 ;;
+		--clues) rl_need "$1" "$#"; CLUES="$2"; shift 2 ;;
+		--timeout) rl_need "$1" "$#"; TIMEOUT="$2"; shift 2 ;;
+		--status-file) rl_need "$1" "$#"; STATUS_FILE="$2"; shift 2 ;;
 		--brief) BRIEF=1; shift ;;
-		--explain) need "$1" "$#"; rl_list_add EXPLAIN "$2"; shift 2 ;;
-		--gate-differ) need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
-		--gate-bin) need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
-		--gate-expected) need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
-		--gate-stdin) need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; GATE_SAID=1; shift 2 ;;
-		--gate-expected-alt) need "$1" "$#"; rl_list_add GATE_PASS --expected-alt "$2"; GATE_SAID=1; shift 2 ;;
-		--gate-stream) need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; GATE_SAID=1; shift 2 ;;
+		--explain) rl_need "$1" "$#"; rl_list_add EXPLAIN "$2"; shift 2 ;;
+		--gate-differ) rl_need "$1" "$#"; GATE_DIFFER="$2"; shift 2 ;;
+		--gate-bin) rl_need "$1" "$#"; GATE_BIN="$2"; shift 2 ;;
+		--gate-expected) rl_need "$1" "$#"; GATE_EXPECTED="$2"; shift 2 ;;
+		--gate-stdin) rl_need "$1" "$#"; rl_list_add GATE_PASS --stdin "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-expected-alt) rl_need "$1" "$#"; rl_list_add GATE_PASS --expected-alt "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-stream) rl_need "$1" "$#"; rl_list_add GATE_PASS --stream "$2"; GATE_SAID=1; shift 2 ;;
 		--gate-sanitize) rl_list_add GATE_PASS --sanitize; GATE_SAID=1; shift ;;
 		--gate-labeled) rl_list_add GATE_PASS --labeled; GATE_SAID=1; shift ;;
-		--gate-label) need "$1" "$#"; GATE_LABEL="$2"; GATE_SAID=1; shift 2 ;;
-		--gate-arg) need "$1" "$#"; rl_list_add GATE_ARGS "$2"; GATE_SAID=1; shift 2 ;;
+		--gate-label) rl_need "$1" "$#"; GATE_LABEL="$2"; GATE_SAID=1; shift 2 ;;
+		--gate-arg) rl_need "$1" "$#"; rl_list_add GATE_ARGS "$2"; GATE_SAID=1; shift 2 ;;
 		--survive) SURVIVE=1; shift ;;
 		--no-leak-check) NO_LEAK_CHECK=1; shift ;;
-		--argv-file) need "$1" "$#"; ARGV_FILE="$2"; rl_list_add GATE_RUN --argv-file "$2"; shift 2 ;;
-		--run-as) need "$1" "$#"; RUN_AS="$2"; rl_list_add GATE_RUN --run-as "$2"; shift 2 ;;
-		--cwd-file) need "$1" "$#"; CWD_FILES="$CWD_FILES
+		--argv-file) rl_need "$1" "$#"; ARGV_FILE="$2"; rl_list_add GATE_RUN --argv-file "$2"; shift 2 ;;
+		--run-as) rl_need "$1" "$#"; RUN_AS="$2"; rl_list_add GATE_RUN --run-as "$2"; shift 2 ;;
+		--cwd-file) rl_need "$1" "$#"; CWD_FILES="$CWD_FILES
 $2"; rl_list_add GATE_RUN --cwd-file "$2"; shift 2 ;;
-		--show-run) need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
-		--case) need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
+		--show-run) rl_need "$1" "$#"; SHOW_RUN="$2"; shift 2 ;;
+		--case) rl_need "$1" "$#"; CASE_NAME="$2"; shift 2 ;;
 		--rule)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			[ -s "$2" ] || { echo "valgrind_test.sh: no sentence in --rule $2" >&2; exit 2; }
 			RULE="$2"; shift 2 ;;
 		--access-rule)
-			need "$1" "$#"
+			rl_need "$1" "$#"
 			[ -s "$2" ] || { echo "valgrind_test.sh: no sentence in --access-rule $2" >&2; exit 2; }
 			ACCESS_RULE="$2"; shift 2 ;;
 		--) shift; break ;;
@@ -459,20 +466,8 @@ if ! [ -f "$BIN" ] || ! [ -x "$BIN" ]; then
 	exit 2
 fi
 [ -n "$LABEL" ] || LABEL="$(basename "$BIN")"
-# The run as the case describes it, or no run (tools/diff_output.sh says why).
-if [ -n "$ARGV_FILE" ] && [ ! -r "$ARGV_FILE" ]; then
-	echo "valgrind_test.sh: --argv-file '$ARGV_FILE' is not readable" >&2
-	exit 2
-fi
-if [ -n "$CWD_FILES" ] && [ -z "$RUN_AS" ]; then
-	echo "valgrind_test.sh: --cwd-file stages a file in the folder --run-as runs the program from" >&2
-	exit 2
-fi
-case "$RUN_AS" in
-	*/* | . | ..)
-		echo "valgrind_test.sh: --run-as takes the program's file name, not '$RUN_AS'" >&2
-		exit 2 ;;
-esac
+# The run as the case describes it, or no run (rl_case_check says why).
+rl_case_check "$ARGV_FILE" "$RUN_AS" "$CWD_FILES"
 
 # ---------------------------------------------------------------------------
 # The valgrind this layer runs is FETCHED AND PINNED, never found on PATH.
@@ -480,55 +475,15 @@ esac
 # It used to be `command -v valgrind`, and this is the layer where that mattered
 # most: memcheck is the only thing in the suite that can see a leak, so its
 # answer was the one most worth making independent of which box you sat at.
-# There is no host fallback -- a missing --valgrind is a wiring error (exit 2),
-# not a skip, because a skip here is indistinguishable from "no leaks".
-[ -n "$VALGRIND" ] || {
-	echo "valgrind_test.sh: --valgrind is required (the pinned valgrind.bin)" >&2
-	echo "                  Pass \$(location @valgrind_ubuntu//:usr/bin/valgrind.bin)." >&2
-	exit 2
-}
-
-# ABSOLUTISE BEFORE ANYTHING CHANGES DIRECTORY. Both paths arrive
-# runfiles-relative, and every previous fetched tool in this repo was broken
-# once by a later `cd` turning a working path into a missing one.
-case "$VALGRIND" in
-	/*) ;;
-	*) VALGRIND="$PWD/$VALGRIND" ;;
-esac
-
-[ -f "$VALGRIND" ] && [ -x "$VALGRIND" ] || {
-	echo "valgrind_test.sh: pinned valgrind is missing or not executable: $VALGRIND" >&2
-	exit 2
-}
-
-# AND VERIFY IT CAN FIND ITS OWN TREE. This is the failure mode that has caught
-# every fetched tool here at least once: a binary that cannot find part of
-# itself does not necessarily fail -- it can fall back to the box's copy,
-# report the pinned version, and go green. valgrind is packaged for
-# /usr/libexec/valgrind and reads $VALGRIND_LIB to be told otherwise, so the
-# check is that the directory exists AND holds the tool binary this layer runs.
-# Checking the directory alone would pass on an empty one.
-[ -n "$VGTOOLS" ] || {
-	echo "valgrind_test.sh: --valgrind-tools is required (a file in valgrind's" >&2
-	echo "                  own tool directory; it cannot start without one)" >&2
-	exit 2
-}
-# The tool directory is derived from a FILE inside it, not passed as a
-# directory, and that is deliberate: `$(location x)/..` walks through a file
-# rather than naming its parent, and `cd && pwd` stops at the runfiles tree,
-# whose directories are real while the files in them are symlinks. Resolving the
-# file with readlink -f and taking ITS directory is the one form that survives
-# both. This repo has been bitten by the other two.
-VGTOOLS=$(readlink -f "$VGTOOLS" 2> /dev/null || echo "$VGTOOLS")
-VGLIB=$(dirname "$VGTOOLS")
-[ -f "$VGLIB/memcheck-amd64-linux" ] || {
-	echo "valgrind_test.sh: $VGLIB does not hold memcheck-amd64-linux, so the" >&2
-	echo "                  pinned valgrind cannot run its own tool. This is a" >&2
-	echo "                  wiring error, not a student finding." >&2
-	exit 2
-}
-VALGRIND_LIB="$VGLIB"
-export VALGRIND_LIB
+# There is no host fallback -- a missing --valgrind or --valgrind-tools is a
+# wiring error (exit 2), not a skip, because a skip here is indistinguishable
+# from "no leaks". tools/runner_lib.sh's rl_vg_pin makes the path absolute
+# before anything changes directory (every previous fetched tool in this repo
+# was broken once by a later `cd` turning a working path into a missing one),
+# and proves the binary can find its own tree: the tool folder, exported as
+# $VALGRIND_LIB, must hold memcheck, the one tool this layer runs.
+rl_vg_pin "$VALGRIND" "$VGTOOLS" memcheck || exit 2
+VALGRIND=$RL_VG_BIN
 
 # ---------------------------------------------------------------------------
 # Correctness gate: run the exercise's own curated fixture first, and SKIP while
@@ -557,7 +512,7 @@ export VALGRIND_LIB
 OUTPUT_RED=0
 output_red_note() {
 	[ "$OUTPUT_RED" -eq 1 ] || return 0
-	echo "  NO_SKIP=1 opened this layer while this exercise's output layer is red"
+	echo "  NO_SKIP=1 opened this layer while this $(rl_noun)'s output layer is red"
 	echo "  too, so this report may be about a result the test could not take apart"
 	echo "  the way it expected. Read *_output first."
 	echo ""
@@ -571,27 +526,14 @@ if [ "$SURVIVE" = 1 ] && [ "${NO_SKIP:-0}" = "1" ]; then
 fi
 if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
 	# The program's own argv is forwarded to the gate as well, with its run
-	# (GATE_RUN): this layer can be emitted per argv case (defs.bzl's
+	# (GATE_RUN): this layer can be emitted per argv case (defs_checks.bzl's
 	# _emit_cases), and the fixture that case is gated on is the one produced
 	# by the SAME arguments. Not a survive case's: its gate is the case
 	# --gate-arg writes out, and nothing of this run.
-	# WHY THE STATUS IS CAPTURED RATHER THAN TESTED WITH `if !`.
-	#
-	# `if ! <gate>` treats EVERY non-zero the same, and the differ has two
-	# meanings for non-zero: 1 is "the student's fixture is red", which is what
-	# this gate is for, and 2 is "the differ could not run at all" -- a missing
-	# tool, an unreadable expected file, a wiring mistake. Conflating them meant
-	# a BROKEN gate silenced the layer it guards and printed a false sentence
-	# while doing it.
-	#
-	# Demonstrated: a program whose fixture PASSES but which leaks 64 bytes was
-	# reported as "SKIP -- this exercise's own output fixture is not passing
-	# yet", exit 0, burying a real leak. At scale, the entire perf layer went
-	# 77/77 green under a PATH shim missing `mv`, because diff_output.sh
-	# requires it and exits 2.
-	#
-	# So: skip on 1, and on 2-or-more say so and RUN ANYWAY. A gate that cannot
-	# answer must never be the reason a layer stayed quiet.
+	# Skip on 1 alone, and on 2 or more say so and RUN ANYWAY: a gate that
+	# cannot answer must never be why a layer stayed quiet (tools/runner_lib.sh,
+	# rl_gate's WHY THE STATUS IS CAPTURED). This runner keeps a copy of its
+	# own gate, which //tools:conventions names with why and holds to that.
 	rl_split_on
 	if [ "$SURVIVE" = 1 ]; then
 		# shellcheck disable=SC2086 # lists, one word per line (rl_list_add)
@@ -611,9 +553,9 @@ if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
 		OUTPUT_RED=1
 	elif [ "$_gate_rc" -eq 1 ] && [ "$SURVIVE" = 1 ]; then
 		if [ -n "$GATE_LABEL" ]; then
-			echo "valgrind_test: SKIP — $GATE_LABEL, this exercise's own case, is not passing yet."
+			echo "valgrind_test: SKIP — $GATE_LABEL, this $(rl_noun)'s own case, is not passing yet."
 		else
-			echo "valgrind_test: SKIP — this exercise's own case is not passing yet."
+			echo "valgrind_test: SKIP — this $(rl_noun)'s own case is not passing yet."
 		fi
 		echo ""
 		echo "  This case asks only that the program ends by itself, and a program"
@@ -625,9 +567,9 @@ if [ -n "$GATE_DIFFER" ] && [ -n "$GATE_BIN" ] && [ -n "$GATE_EXPECTED" ]; then
 		exit 0
 	elif [ "$_gate_rc" -eq 1 ]; then
 		if [ -n "$GATE_LABEL" ]; then
-			echo "valgrind_test: SKIP — $GATE_LABEL, this exercise's own output fixture, is not passing yet."
+			echo "valgrind_test: SKIP — $GATE_LABEL, this $(rl_noun)'s own output fixture, is not passing yet."
 		else
-			echo "valgrind_test: SKIP — this exercise's own output fixture is not"
+			echo "valgrind_test: SKIP — this $(rl_noun)'s own output fixture is not"
 			echo "               passing yet."
 		fi
 		echo ""
@@ -649,40 +591,23 @@ fi
 # and past a green one, or one NO_SKIP=1 forced open, a stand-in is a
 # failure, told in the compiler's words rather than as a report about a
 # program that does not exist.
-case "$0" in */*) _sl_dir=${0%/*} ;; *) _sl_dir=. ;; esac
-for _sl in "$_sl_dir/standin.sh" \
-	"${TEST_SRCDIR:-/nonexistent}/${TEST_WORKSPACE:-_main}/tools/standin.sh"; do
-	[ -f "$_sl" ] && break
-done
-[ -f "$_sl" ] || { echo "valgrind_test.sh: cannot find tools/standin.sh beside it or in the runfiles" >&2; exit 2; }
+rl_tool standin.sh
 # shellcheck source=tools/standin.sh
-. "$_sl"
+. "$RL_TOOL"
 standin_check valgrind_test "$BIN" fail "${LABEL:-the program}"
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || { echo "$RL_NAME.sh: cannot create a scratch directory" >&2; exit 2; }
 rl_traps 'rm -rf "$WORK"'
 
-# The run the case describes: its argument file after the arguments after --
-# (the gate above was handed the file itself), and its own folder when it has
-# one (rl_rundir), which is then valgrind's working directory too.
-if [ -n "$ARGV_FILE" ]; then
-	_aw=$(rl_argv_words "$ARGV_FILE") || { echo "valgrind_test.sh: cannot read --argv-file '$ARGV_FILE'" >&2; exit 2; }
-	eval "set -- \"\$@\" $_aw"
-fi
-RUN_BIN=$BIN
-RUN_DIR=.
-_ran_prog=$SHOW_RUN
-_ran_in=${STDIN_FILE}
-_ran_specs=""
-if [ -n "$RUN_AS" ]; then
-	RUN_DIR="$WORK/run"
-	rl_rundir "$RUN_DIR" "$RUN_AS" "$BIN" "$CWD_FILES" || exit 2
-	RUN_BIN="./$RUN_AS"
-	_ran_prog=$RUN_BIN
-	_ran_specs="$RUN_AS=${SHOW_RUN:-$BIN}$CWD_FILES"
-	case "$STDIN_FILE" in "" | /*) ;; *) STDIN_FILE="$PWD/$STDIN_FILE" ;; esac
-fi
-[ -z "$SHOW_RUN" ] || rl_ran "$_ran_prog" "$_ran_in" "$_ran_specs" "$@"
+# The run the case describes (rl_case_run): its argument file after the
+# arguments after -- (the gate above was handed the file itself), and its own
+# folder when it has one, which is then valgrind's working directory too.
+rl_case_run "$WORK/run" "$ARGV_FILE" "$RUN_AS" "$BIN" "$CWD_FILES" "$SHOW_RUN" "$STDIN_FILE"
+eval "set -- \"\$@\" $RL_CASE_WORDS"
+RUN_BIN=$RL_RUN_BIN
+RUN_DIR=$RL_RUN_DIR
+[ -z "$SHOW_RUN" ] || rl_ran "$RL_RAN_PROG" "$STDIN_FILE" "$RL_RAN_SPECS" "$@"
+STDIN_FILE=$RL_RUN_IN
 
 # valgrind's report goes to its own --log-file rather than being merged into the
 # child's stderr. Mixing them (the old '2> "$LOG"') meant the program's own
@@ -793,7 +718,11 @@ rl_vg_aborted memcheck "$BIN" "$VGLOG" && exit 2
 # at the end of EVERY report contains the words "definitely lost:" even when the
 # count is zero, so matching the bare phrase would classify a pure invalid-read
 # run as a leak.
-ACCESS_RE='Invalid read of size|Invalid write of size|Invalid free\(\)|Mismatched free\(\)|uninitialised value|uninitialised byte'
+# "unaddressable byte" is a syscall's argument that points outside the
+# program's memory ("Syscall param write(buf) points to unaddressable
+# byte(s)"): left out, it was ANOTHER KIND OF ERROR, and before a crash its
+# record was not shown at all.
+ACCESS_RE='Invalid read of size|Invalid write of size|Invalid free\(\)|Mismatched free\(\)|uninitialised value|uninitialised byte|unaddressable byte'
 ERR_RE=$ACCESS_RE
 LEAK_RE='are definitely lost in loss record|are indirectly lost in loss record|are possibly lost in loss record|are still reachable in loss record'
 if [ "$NO_LEAK_CHECK" = 0 ]; then
@@ -975,6 +904,7 @@ report_findings() {
 	*"Invalid read of size"*) _class=class:invalid-read ;;
 	*"Invalid free()"*|*"Mismatched free()"*) _class=class:invalid-free ;;
 	*"uninitialised value"*|*"uninitialised byte"*) _class=class:uninitialised ;;
+	*"unaddressable byte"*) _class=class:invalid-syscall-arg ;;
 	*"are definitely lost in loss record"*) _class=class:definitely-lost ;;
 	*"are indirectly lost in loss record"*) _class=class:indirectly-lost ;;
 	*"are possibly lost in loss record"*) _class=class:possibly-lost ;;
@@ -1116,11 +1046,13 @@ if [ "$RL_CAUSE" = noexec ] || { { [ "$RC" -eq 127 ] || [ "$RC" -eq 126 ]; } &&
 	echo "                  finding — reporting it as one would be a lie." >&2
 	exit 2
 fi
+# Stopped from outside (rl_classify's "stopped"): no finding either.
+rl_unjudged "$LABEL"
 
 # KILLED, not returned (waitpid() says which, not the number): under valgrind
 # this is usually the crash that the records below already explain, so name
 # the signal first and then show the findings.
-if [ "$RL_CAUSE" = signal ] || [ "$RL_CAUSE" = stopped ]; then
+if [ "$RL_CAUSE" = signal ]; then
 	echo " --------------------------------------------------"
 	echo " CRASH: $LABEL $RL_WHY."
 	echo "        It was killed rather than returning, so this is a failure"
@@ -1158,13 +1090,20 @@ fi
 # memory-clean program is the same confusion between valgrind's answer and the
 # child's that the rest of this triage exists to end, just in the last place it
 # could still hide. Memcheck prints an ERROR SUMMARY on every run it completes
-# and never says "0 errors" about a run it flagged, so that line settles it —
-# and only an explicit zero does: a missing or truncated summary is not
-# evidence of innocence, so anything else keeps the exit status' verdict.
+# and never says "0 errors" about a process it flagged, so the summaries settle
+# it -- every one of them, summed as explained_rules sums their contexts: the
+# log has no %p, so a forked child writes its own summary into it before the
+# parent's, and a child's clean "0 errors" cleared a parent's finding of a
+# class ERR_RE does not name, which then printed OK. And only an explicit
+# zero does: a missing or truncated summary is not evidence of innocence, so
+# anything else keeps the exit status' verdict.
 VG_VERDICT=0
 if [ "$RC" -eq 42 ]; then
 	VG_VERDICT=1
-	grep -q 'ERROR SUMMARY: 0 errors' "$VGLOG" 2>/dev/null && VG_VERDICT=0
+	_vg_errs=$(awk '/ERROR SUMMARY: [0-9]+ errors? from/ {
+			for (i = 1; i < NF; i++) if ($i == "SUMMARY:") { s += $(i + 1); n++; break }
+		} END { if (n) print s }' "$VGLOG" 2>/dev/null)
+	[ "$_vg_errs" != 0 ] || VG_VERDICT=0
 fi
 
 if [ "$VG_VERDICT" -eq 1 ] || log_has_errors; then
@@ -1203,7 +1142,9 @@ if ! grep -q 'ERROR SUMMARY:' "$VGLOG" 2>/dev/null; then
 	exit 2
 fi
 
-HEAP=$(grep 'total heap usage' "$VGLOG" 2>/dev/null | sed 's/^==[0-9]*== *//' | head -1)
+# The last one: a forked child's summary comes first in the log (no %p), and
+# its parent's, which waited for it, last.
+HEAP=$(grep 'total heap usage' "$VGLOG" 2>/dev/null | sed 's/^==[0-9]*== *//' | sed -n '$p')
 
 # The descriptor verdict rides on the SUCCESS paths: leaving a file open is
 # orthogonal to every memory finding, so a run that is clean on memory is

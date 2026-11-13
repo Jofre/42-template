@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+void	btree_insert_data(t_btree **root, void *item,
+			int (*cmpf)(void *, void *));
+
 static int	cmp_int(void *a, void *b)
 {
 	return (*(int *)a - *(int *)b);

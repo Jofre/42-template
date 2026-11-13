@@ -136,7 +136,7 @@ c_program(num = "05", name = "do-op", makefile = "once_written", reference = Tru
     # ends by itself, killed by no signal -- the division is one x86 answers
     # with SIGFPE -- so the case asserts that and nothing else ("survive"), at
     # strict, where the Run contract puts a case the subject leaves open.
-    # Each SKIPs while ex05_add_output is red (tools/defs.bzl's
+    # Each SKIPs while ex05_add_output is red (tools/defs_checks.bzl's
     # _survive_gate): an unwritten do-op ends by itself too, and was green.
     #
     # Their asan arms, and intmin's, run under UBSan, which also fails a

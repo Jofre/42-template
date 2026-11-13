@@ -29,9 +29,9 @@ set -u
 # project uses clangd for IntelliSense (see C_Cpp.intelliSenseEngine: disabled).
 EXTENSIONS="llvm-vs-code-extensions.vscode-clangd ms-vscode.makefile-tools kube.42header BazelBuild.vscode-bazel"
 
-# The checkout this script sits in. Set here, above every step: a published
-# copy of this file has one step fewer, and the steps after it read WS too.
-WS="$(cd "$(dirname "$0")/.." && pwd)"
+# The checkout this script sits in. Set here, above every step, which all
+# read it.
+WS="$(CDPATH='' cd "$(dirname "$0")/.." && pwd)"
 
 # `42`, the front-end over the suite (tools/42.sh), on PATH in this container:
 # here, before the Antigravity check below ends the script on other editors.

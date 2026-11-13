@@ -4,8 +4,9 @@
  * are (empty when it wrote nothing).
  *
  * Reprints "<n>\t<hexbase>\t", lets ft_putnbr_base write() its output, then
- * "\n". A base never holds whitespace, '+' or '-', so the printed column never
- * holds a tab or a newline and never disturbs the line. */
+ * "\n". No base in the corpus this reader is fed holds whitespace, so the
+ * printed column never holds a tab or a newline and never disturbs the
+ * line. */
 #include "diffio.h"
 
 void	ft_putnbr_base(int nbr, char *base);
@@ -26,8 +27,7 @@ int	main(void)
 	linecap = 0;
 	while (dio_getline(&line, &linecap))
 	{
-		if (dio_split(line, f, 3) < 2)
-			continue ;
+		dio_fields(line, f, 3, 2);
 		n = (int)strtol(f[0], NULL, 10);
 		base = dio_unhex(f[1], NULL, 0);
 		printf("%s\t%s\t", f[0], f[1]);

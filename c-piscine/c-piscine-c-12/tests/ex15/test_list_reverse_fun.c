@@ -1,6 +1,8 @@
 #include "ft_list.h"
 #include <stdio.h>
 
+void	ft_list_reverse_fun(t_list *begin_list);
+
 static t_list	*build(t_list *nodes, void **data, int n)
 {
 	int	i;

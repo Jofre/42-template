@@ -65,7 +65,7 @@ case "$0" in
 	*/*) _here=${0%/*} ;;
 	*) _here=. ;;
 esac
-_ws=$(cd "$_here/.." 2> /dev/null && pwd) || exec "$BAZEL_REAL" "$@"
+_ws=$(CDPATH='' cd "$_here/.." 2> /dev/null && pwd) || exec "$BAZEL_REAL" "$@"
 
 # An absent library (a checkout older than this script's own) means no default
 # to add: Bazel's own applies, and that is per-user too.
