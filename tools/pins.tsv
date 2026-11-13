@@ -172,7 +172,12 @@ ld	campus	GNU ld (GNU Binutils for Ubuntu) 2.38	ld --version	MODULE.bazel (deb_a
 as	campus	GNU assembler (GNU Binutils for Ubuntu) 2.38	as --version	MODULE.bazel (deb_archive: binutils-x86-64-linux-gnu + libbinutils) + .devcontainer/Dockerfile (apt)	HERMETIC_AS
 valgrind	campus	valgrind-3.18.1	valgrind --version	MODULE.bazel (deb_archive) + .devcontainer/Dockerfile (apt)	HERMETIC_VALGRIND
 perl	campus	This is perl 5, version 34, subversion 0 (v5.34.0) built for x86_64-linux-gnu-thread-multi	perl --version	NOT PINNED -- no layer runs perl; see the note above
-gdb	campus	GNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1	gdb --version	.devcontainer/Dockerfile
+# gdb: campus's is GNU's 16.3 (a campus box, 2026-11-13, report ce9909df on
+# origin/env-audit-42; it was Ubuntu's 12.1 at the 2026-10-13 audit), from a package "gdb 16.3-1" that is not in
+# Ubuntu 22.04's archive, which stops at 12.1. So the image builds that release
+# from GNU's source (.devcontainer/Dockerfile, the gdb-build stage), whose
+# version line is this one, and //tools:conventions holds its GDB_VERSION here.
+gdb	campus	GNU gdb (GDB) 16.3	gdb --version	.devcontainer/Dockerfile
 lldb-12	campus	lldb version 12.0.1	lldb-12 --version	.devcontainer/Dockerfile
 norminette	campus	3.3.58	norminette-version	tools/requirements.txt + .devcontainer/Dockerfile (pip)	HERMETIC_NORMINETTE
 # The interpreter norminette runs under, which is campus's too: the second
@@ -194,7 +199,9 @@ glibc	campus	ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35	ldd --version	NOT PINNED -
 # net-tools packages these rows stand for). The image installs them
 # unversioned (.devcontainer/Dockerfile, "NOT PINNED", says why), so each row
 # is observed, not pinned: campus's exact line, from the second campus audit
-# (report 90da4ff6, 2026-10-13), which the dev container prints identically.
+# (report 90da4ff6, 2026-10-13), which the dev container prints identically;
+# ssh's is the third audit's (report ce9909df, 2026-11-13), a new Ubuntu
+# build of the same OpenSSH.
 # ssh's and ip's lines end in another program's version, OpenSSL's and
 # libbpf's. env_drift grades a line's first number, the tool's own, as well as
 # its last, so a move of either number is drift, and a new Ubuntu revision of
@@ -202,7 +209,7 @@ glibc	campus	ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35	ldd --version	NOT PINNED -
 # edit). OpenSSH's portable suffix (8.9p1 to 8.9p2) is not part of its number,
 # and reads as a repackaging too.
 bash	campus	GNU bash, version 5.1.16(1)-release (x86_64-pc-linux-gnu)	bash --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
-ssh	campus	OpenSSH_8.9p1 Ubuntu-3ubuntu0.17, OpenSSL 3.0.2 15 Mar 2022	ssh -V	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
+ssh	campus	OpenSSH_8.9p1 Ubuntu-3ubuntu0.18, OpenSSL 3.0.2 15 Mar 2022	ssh -V	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
 file	campus	file-5.41	file --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
 bc	campus	bc 1.07.1	bc --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)
 netstat	campus	net-tools 2.10-alpha	netstat --version	NOT PINNED -- observed only; the image installs it unversioned (.devcontainer/Dockerfile)

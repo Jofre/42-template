@@ -808,6 +808,87 @@ want_broken_none "conventions: ...nor one there behind an epoch" \
 	'valgrind=' -- cvi_rule cvi "the image's apt pin"
 want_broken_none "conventions: ...nor one MODULE.bazel does not fetch" \
 	'gdb=' -- cvi_rule cvi "the image's apt pin"
+# And a tool only the image installs, held to its pins.tsv row (cvdp).
+# Reported, each on the line that holds the word: an apt pin whose version
+# the row does not hold (thing, line 6); an ARG whose version is a prefix of
+# the row's, no whole version of it (oldsrc, 4.1 against 4.10, line 3) or a
+# suffix (leftsrc, 2.0 against 12.0, line 4); an apt pin whose upstream part
+# the row names but whose revision is another than the row states (rev,
+# line 9: Ubuntu's 3.4-1ubuntu1 where the row says 3.4-1ubuntu2); an apt
+# pin that is only a piece of the row's string (piece, line 10: 7 in
+# "piece-7 (Toy 7.1-2)"); a row whose pin-site note has a '+' inside its
+# parentheses, at another version (noted, line 11); the tool installed
+# with no version beside its ARG (srcthing, line 12); and a row the
+# Dockerfile installs no version of (ghost). Quiet: an apt pin whose
+# upstream part, past its epoch and less its revision, is the row's where
+# the row states no revision (tool-12, as lldb-12's), ARGs at the row's
+# version read as Docker reads them (srcthing; my-tool, a hyphen as '_';
+# lowtool, a lower-case arg, indented and quoted; two on one line, pairtool),
+# and a row with a second pin site, which the MODULE.bazel rule above holds
+# (shared).
+mkdir -p "$WORK/cvdp/tools" "$WORK/cvdp/.devcontainer" "$WORK/cvdp/m"
+: > "$WORK/cvdp/m/BUILD.bazel"
+cv_submit m > "$WORK/cvdp/tools/submit.sh"
+{
+	printf 'thing\tcampus\tthing (Toy) 2.0\tthing --version\t.devcontainer/Dockerfile\n'
+	printf 'tool-12\tcampus\ttool version 12.0.1\ttool-12 --version\t.devcontainer/Dockerfile\n'
+	printf 'srcthing\tcampus\tSrcthing (X) 3.1\tsrcthing --version\t.devcontainer/Dockerfile\n'
+	printf 'oldsrc\tcampus\toldsrc 4.10\toldsrc --version\t.devcontainer/Dockerfile\n'
+	printf 'leftsrc\tcampus\tleftsrc 12.0\tleftsrc --version\t.devcontainer/Dockerfile\n'
+	printf 'my-tool\tcampus\tmy-tool 5.5\tmy-tool --version\t.devcontainer/Dockerfile\n'
+	printf 'lowtool\tcampus\tlowtool 6.0\tlowtool --version\t.devcontainer/Dockerfile\n'
+	printf 'pairtool\tcampus\tpairtool 8.1\tpairtool --version\t.devcontainer/Dockerfile\n'
+	printf 'rev\tcampus\trev (Ubuntu 3.4-1ubuntu2) 3.4\trev --version\t.devcontainer/Dockerfile\n'
+	printf 'piece\tcampus\tpiece-7 (Toy 7.1-2)\tpiece --version\t.devcontainer/Dockerfile\n'
+	printf 'noted\tcampus\tnoted 1.0\tnoted --version\t.devcontainer/Dockerfile (noted + libnoted)\n'
+	printf 'ghost\tcampus\tghost 1.0\tghost --version\t.devcontainer/Dockerfile\n'
+	printf 'shared\tcampus\tshared 9.9\tshared --version\tMODULE.bazel + .devcontainer/Dockerfile (apt)\n'
+} > "$WORK/cvdp/tools/pins.tsv"
+{
+	printf 'FROM x\nARG SRCTHING_VERSION=3.1\nARG OLDSRC_VERSION=4.1\nARG LEFTSRC_VERSION=2.0\n'
+	printf 'RUN apt-get install -y \\\n    thing=1.9-1ubuntu1 \\\n    # a comment\n    tool-12=1:12.0.1-19ubuntu3 \\\n'
+	printf '    rev=3.4-1ubuntu1 \\\n    piece=7 \\\n    noted=0.9 \\\n    srcthing \\\n    shared=1.0 \\\n    && true\n'
+	printf 'ARG MY_TOOL_VERSION=5.5\n  arg LOWTOOL_VERSION="6.0"\nARG PAIRTOOL_VERSION=8.1 PAIRTOOL_SHA256=abc\n'
+} > "$WORK/cvdp/.devcontainer/Dockerfile"
+if st_mine; then
+	env BUILD_WORKSPACE_DIRECTORY="$WORK/cvdp" "$SH" "$TOOLS/conventions.sh" > "$WORK/cvdp.out" 2>&1
+fi
+want_out "conventions: a tool only the image installs, at another version than its row" \
+	'.devcontainer/Dockerfile:6: thing=1.9-1ubuntu1, where tools/pins.tsv pins thing at "thing (Toy) 2.0"' -- \
+	cvi_rule cvdp 'the image installs a tool only it pins'
+want_out "conventions: ...an ARG whose version is a prefix of the row's" \
+	'.devcontainer/Dockerfile:3: OLDSRC_VERSION=4.1, where tools/pins.tsv pins oldsrc at "oldsrc 4.10"' -- \
+	cvi_rule cvdp 'the image installs a tool only it pins'
+want_out "conventions: ...or a suffix of it" \
+	'.devcontainer/Dockerfile:4: LEFTSRC_VERSION=2.0, where tools/pins.tsv pins leftsrc' -- \
+	cvi_rule cvdp 'the image installs a tool only it pins'
+want_out "conventions: ...an apt pin at another revision than the row states" \
+	'.devcontainer/Dockerfile:9: rev=3.4-1ubuntu1, where tools/pins.tsv pins rev' -- \
+	cvi_rule cvdp 'the image installs a tool only it pins'
+want_out "conventions: ...an apt pin that is only a piece of the row's string" \
+	'.devcontainer/Dockerfile:10: piece=7, where tools/pins.tsv pins piece' -- \
+	cvi_rule cvdp 'the image installs a tool only it pins'
+want_out "conventions: ...a row with a '+' in its pin-site note" \
+	'.devcontainer/Dockerfile:11: noted=0.9, where tools/pins.tsv pins noted' -- \
+	cvi_rule cvdp 'the image installs a tool only it pins'
+want_out "conventions: ...the tool installed with no version beside its pin" \
+	'.devcontainer/Dockerfile:12: srcthing, with no version, beside its pin' -- \
+	cvi_rule cvdp 'the image installs a tool only it pins'
+want_out "conventions: ...and a row the image installs no version of" \
+	'ghost: tools/pins.tsv names .devcontainer/Dockerfile its pin site' -- \
+	cvi_rule cvdp 'the image installs a tool only it pins'
+want_broken_none "conventions: ...never an apt pin whose upstream part, past its epoch, is a row's with no revision" \
+	'tool-12' -- cvi_rule cvdp 'the image installs a tool only it pins'
+want_broken_none "conventions: ...nor an ARG at the row's version" \
+	'SRCTHING_VERSION' -- cvi_rule cvdp 'the image installs a tool only it pins'
+want_broken_none "conventions: ...nor one for a tool named with a hyphen" \
+	'my-tool' -- cvi_rule cvdp 'the image installs a tool only it pins'
+want_broken_none "conventions: ...nor an indented lower-case arg, quoted" \
+	'lowtool' -- cvi_rule cvdp 'the image installs a tool only it pins'
+want_broken_none "conventions: ...nor two ARGs on one line" \
+	'pairtool' -- cvi_rule cvdp 'the image installs a tool only it pins'
+want_broken_none "conventions: ...nor a row with a second pin site" \
+	'shared' -- cvi_rule cvdp 'the image installs a tool only it pins'
 want_out "conventions: an image's pip pin tools/requirements.txt pins at another version" \
 	'gizmo==2.0, where tools/requirements.txt pins gizmo==2.1' -- \
 	cvi_rule cvi "the image's pip pin"

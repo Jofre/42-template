@@ -1,3 +1,52 @@
+# GDB, CAMPUS'S VERSION, BUILT FROM GNU'S SOURCE.
+#
+# The campus box runs GNU gdb 16.3 (a campus box, 2026-11-13, report ce9909df
+# on origin/env-audit-42: "GNU gdb (GDB) 16.3", from a package "gdb 16.3-1"
+# that is not Ubuntu's), and Ubuntu 22.04 has no gdb past 12.1, so apt cannot
+# pin it. This stage builds that release from GNU's tarball, checked against
+# GDB_SHA256, and the image below copies in the stripped gdb alone: the
+# compilers and -dev packages it needs stay in this stage. A build with GNU's
+# defaults prints exactly campus's version line, which is tools/pins.tsv's gdb
+# row; //tools:conventions holds GDB_VERSION to that row. Under /usr/local, it
+# still reads what Ubuntu's packages give a gdb under /usr: the debug files in
+# /usr/lib/debug, and the scripts in /usr/share/gdb/auto-load, libstdc++'s
+# pretty-printers among them. It is the image's slowest step (about 2.5
+# minutes on 24 cores, longer on fewer), and Docker caches it until
+# GDB_VERSION or GDB_SHA256 changes. To re-pin: take the version from a campus
+# box's report, download gdb-<version>.tar.xz and its .sig from
+# ftp.gnu.org/gnu/gdb, check the signature against GNU's keyring
+# (ftp.gnu.org/gnu/gnu-keyring.gpg, with gpgv), compute the tarball's SHA-256
+# yourself (GNU publishes none), and edit both ARGs and the row together.
+FROM ubuntu:22.04 AS gdb-build
+ENV DEBIAN_FRONTEND=noninteractive
+ARG GDB_VERSION=16.3
+ARG GDB_SHA256=bcfcd095528a987917acf9fff3f1672181694926cc18d609c99d0042c00224c5
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    wget \
+    xz-utils \
+    libgmp-dev \
+    libmpfr-dev \
+    libexpat1-dev \
+    zlib1g-dev \
+    libncurses-dev \
+    python3-dev \
+    && wget -q -O /tmp/gdb.tar.xz "https://ftp.gnu.org/gnu/gdb/gdb-${GDB_VERSION}.tar.xz" \
+    && echo "${GDB_SHA256}  /tmp/gdb.tar.xz" | sha256sum -c - \
+    && mkdir -p /tmp/gdb/build \
+    && tar -xJf /tmp/gdb.tar.xz -C /tmp/gdb --strip-components=1 \
+    && cd /tmp/gdb/build \
+    && ../configure --prefix=/usr/local --disable-nls --disable-werror \
+        --disable-sim --disable-gprofng --with-system-zlib --with-expat \
+        --with-python=/usr/bin/python3 --without-debuginfod \
+        --with-separate-debug-dir=/usr/lib/debug \
+        '--with-auto-load-dir=$debugdir:$datadir/auto-load:/usr/share/gdb/auto-load' \
+        '--with-auto-load-safe-path=$debugdir:$datadir/auto-load:/usr/share/gdb/auto-load' \
+    && make -j"$(nproc)" \
+    && make install-strip-gdb DESTDIR=/opt/gdb \
+    && rm -f /opt/gdb/usr/local/share/man/man1/gdbserver.1
+
 FROM ubuntu:22.04
 
 # Avoid prompts from apt
@@ -20,7 +69,9 @@ ENV LC_ALL=en_US.UTF-8
 # image installed whatever jammy served on the day it was built.
 #
 # So every package pins.tsv names this file as a pin site of is pinned here,
-# with the version pins.tsv records; where MODULE.bazel also fetches it,
+# with the version pins.tsv records (gdb as GDB_VERSION, the release the
+# gdb-build stage builds, since Ubuntu has no campus gdb to pin); where
+# MODULE.bazel also fetches it,
 # at the revision MODULE.bazel fetches (tools/conventions.sh holds the two
 # together; g++-10 goes with gcc-10). pins.tsv also records rows it marks NOT
 # PINNED, observed only: glibc, perl, and the shell piscine's tools (the note
@@ -75,9 +126,17 @@ RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes \
     # but a campus box carries gdb AND lldb, and this container is supposed to
     # reproduce a campus box -- so a student following along with either one
     # should not find it missing here. lldb-12 rather than the default lldb, to
-    # match the clang-12 the box ships and this image already pins.
-    gdb=12.1-0ubuntu1~22.04.2 \
+    # match the clang-12 the box ships and this image already pins. gdb is
+    # campus's 16.3, built in the gdb-build stage at the top and copied in
+    # below; these are the libraries it loads (ldd), unpinned like any library.
     lldb-12=1:12.0.1-19ubuntu3 \
+    libgmp10 \
+    libmpfr6 \
+    libexpat1 \
+    zlib1g \
+    libncursesw6 \
+    libtinfo6 \
+    libpython3.10 \
     wget \
     ca-certificates \
     locales \
@@ -113,6 +172,10 @@ RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes \
     && (rm -f /usr/bin/man || true) \
     && (dpkg-divert --quiet --remove --rename /usr/bin/man || true) \
     && rm -rf /var/lib/apt/lists/*
+
+# gdb, from the gdb-build stage at the top: the binary, its Python modules,
+# syscall tables and manual pages, under /usr/local.
+COPY --from=gdb-build /opt/gdb/usr/local/ /usr/local/
 
 # THE strlcpy(3bsd), strlcat(3bsd) AND strnstr(3bsd) MANUAL PAGES, AND NOTHING
 # ELSE OF libbsd.

@@ -13809,6 +13809,96 @@ if [ -f tools/pins.tsv ]; then
 			"MODULE.bazel fetches it for the layers: two versions of one tool. Re-pin" \
 			"both together, with tools/pins.tsv's row (its pinned-in cell names both)."
 	fi
+	# The image's own pins against tools/pins.tsv. A row whose only pin site
+	# is .devcontainer/Dockerfile (gdb, lldb-12, libbsd-dev) is installed
+	# there and nowhere else, and the Dockerfile's header promises it is
+	# installed "with the version pins.tsv records". Nothing held the two
+	# together: campus moved gdb from 12.1 to 16.3 (a campus box, 2026-11-13,
+	# report ce9909df on origin/env-audit-42), and a re-pin of either file
+	# alone stayed green. So each such row must find its version in the
+	# Dockerfile, as an apt word TOOL=VERSION or an ARG TOOL_VERSION=VERSION
+	# (TOOL upper-cased, - as _; ARG read as Docker reads it: any case,
+	# indented, several on a line, a value in quotes). That VERSION is a whole
+	# version inside the row's string, never a piece of a longer one (no
+	# letter, digit, '.', '~', '+' or '-' touching it): gdb=12.1-0ubuntu1~22.04.2
+	# in "GNU gdb (Ubuntu 12.1-0ubuntu1~22.04.2) 12.1", ARG GDB_VERSION=16.3 in
+	# "GNU gdb (GDB) 16.3". An apt word may instead match by its upstream part
+	# (less epoch and -revision), lldb-12=1:12.0.1-19ubuntu3 in "lldb version
+	# 12.0.1", but only where the row states no revision of that version: a
+	# row that does is held to the whole word. An apt install of the tool with
+	# no version beside its pin is reported too: it would put a second copy,
+	# whatever the archive holds that day, on the image's PATH.
+	if [ -f tools/pins.tsv ] && [ -f .devcontainer/Dockerfile ]; then
+		_ipw=$(awk "$docker_awk"'
+			{ L[NR] = $0 }
+			function at(w,   n) {  # the line, of the instruction just read, that holds w
+				for (n = DAT; n <= NR; n++)
+					if (L[n] !~ /^[[:blank:]]*#/ && index(L[n], w)) return n
+				return DAT
+			}
+			/^[[:blank:]]*[Aa][Rr][Gg][[:blank:]]/ {
+				for (j = 2; j <= NF; j++) {
+					a = $j
+					if (a !~ /^[A-Za-z0-9_]+=/) continue
+					v = a; sub(/^[^=]*=/, "", v); k = a; sub(/=.*/, "", k)
+					if (v ~ /^".*"$/ || v ~ /^'"'"'.*'"'"'$/) v = substr(v, 2, length(v) - 2)
+					print NR, k "=" v
+				}
+			}
+			docker_line($0) {
+				for (i = 1; i <= DCMDN; i++) {
+					if (DCMD[i] !~ /(^|[[:blank:]])apt(-get)?[[:blank:]](.*[[:blank:]])?install([[:blank:]]|$)/) continue
+					w = split(DCMD[i], word, /[[:blank:]]+/)
+					for (j = 1; j <= w; j++)
+						if (word[j] ~ /^[a-z0-9][a-z0-9.+-]*(=[^[:blank:]]+)?$/) print at(word[j]), word[j]
+				}
+			}' .devcontainer/Dockerfile)
+		_ip=$(awk -F'\t' '/^#/ { next }
+			NF >= 5 { c = $5; sub(/[[:blank:]]*\(.*/, "", c) }
+			NF >= 5 && c ~ /^\.devcontainer\/Dockerfile$/ { print $1 "\t" $3 }' tools/pins.tsv |
+			while IFS='	' read -r _it _iw; do
+				_iu=$(printf '%s' "$_it" | tr 'a-z-' 'A-Z_')
+				printf '%s\n' "$_ipw" | awk -v t="$_it" -v u="$_iu" -v want="$_iw" '
+					function whole(s, v,   p, o, b, a) {  # v in s, as a version of its own
+						if (v !~ /^[0-9]/) return 0
+						o = 0
+						while ((p = index(substr(s, o + 1), v)) > 0) {
+							p += o
+							b = (p == 1) ? "" : substr(s, p - 1, 1)
+							a = substr(s, p + length(v), 1)
+							if (b !~ /[0-9A-Za-z.~+-]/ && a !~ /[0-9A-Za-z.~+-]/) return 1
+							o = p
+						}
+						return 0
+					}
+					{
+						k = $2; v = ""
+						if (index(k, "=")) { v = k; sub(/^[^=]*=/, "", v); sub(/=.*/, "", k) }
+						else if (k == t) {
+							printf "    .devcontainer/Dockerfile:%s: %s, with no version, beside its pin\n", $1, k
+							next
+						} else next
+						if (k == t) {
+							up = v; sub(/^[0-9]+:/, "", up); sub(/-[^-]*$/, "", up)
+							ok = whole(want, v) || (up != v && whole(want, up) && !index(want, up "-"))
+						} else if (k == u "_VERSION") ok = whole(want, v)
+						else next
+						seen = 1
+						if (!ok)
+							printf "    .devcontainer/Dockerfile:%s: %s, where tools/pins.tsv pins %s at \"%s\"\n", $1, $2, t, want
+					}
+					END {
+						if (!seen)
+							printf "    %s: tools/pins.tsv names .devcontainer/Dockerfile its pin site, which installs no version of it\n", t
+					}'
+			done)
+		[ -z "$_ip" ] || report \
+			"the image installs a tool only it pins at another version than tools/pins.tsv" \
+			"$_ip" \
+			"pins.tsv is what env_drift, the campus audit and docs/environment.md" \
+			"read, and for these tools the image is the only place that installs one:" \
+			"re-pin the Dockerfile and the row together, from a campus box's report."
+	fi
 	# The image's pip pins against tools/requirements.txt. norminette is
 	# pip-installed in the image for a student's prompt, and pinned in
 	# tools/requirements.txt for the norm layer, and the second file's re-pin

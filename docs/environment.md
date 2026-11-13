@@ -159,7 +159,7 @@ Ubuntu 22.04's, the campus release:
 
 | Command | What for | Install |
 |---|---|---|
-| `gdb`, `lldb-12` | the study guide's debugger chapter | `sudo apt install gdb lldb-12` |
+| `gdb`, `lldb-12` | the study guide's debugger chapter | `sudo apt install gdb lldb-12`. Ubuntu 22.04's gdb is 12.1 and campus runs GNU's 16.3, which the dev container builds from source: what a session shows is the same for the guide's commands, but a message can be worded otherwise |
 | `valgrind` | its memory chapter | `sudo apt install valgrind` |
 | `gcc-10`, `clang-12` | compiling by hand under both campus compilers (on campus, `cc` is `clang-12` and `gcc` is `gcc-10`) | `sudo apt install gcc-10 clang-12` |
 | `nm`, `ar` | reading a program's symbols, building a library by hand | `sudo apt install binutils` |
